@@ -26,7 +26,7 @@ fn server(version: String) -> content::Json<String> {
            return content::Json(response["downloads"]["server"]["url"].to_string());
         }
     }
-    content::Json("500".to_string())
+    content::Json("error".to_string())
     
 }
 
@@ -34,7 +34,7 @@ fn server(version: String) -> content::Json<String> {
 #[allow(non_snake_case)]
 struct Version {
     id: String,
-    r#type: String, // bruh wtf
+    r#type: String, // bruh
     url: String,
     time: String,
     releaseTime: String,
