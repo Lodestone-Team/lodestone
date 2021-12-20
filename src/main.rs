@@ -2,9 +2,11 @@
 use rocket::response::content;
 use serde::{Serialize, Deserialize};
 use serde_json::{Result, Value};
+use rocket::tokio::time::{sleep, Duration};
 
 #[get("/versions/<rtype>")]
-fn versions(rtype: String) -> content::Json<String> {
+async fn versions(rtype: String) -> content::Json<String> {
+    delay();
     let response: Response = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
     .send().unwrap().as_str().unwrap()).unwrap();
     let mut r = Vec::new();
@@ -17,7 +19,7 @@ fn versions(rtype: String) -> content::Json<String> {
 }
 
 #[get("/server/<version>")]
-fn server(version: String) -> content::Json<String> {
+async fn server(version: String) -> content::Json<String> {
     let response: Response = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
     .send().unwrap().as_str().unwrap()).unwrap();
     for version_indiv in response.versions {
@@ -28,6 +30,13 @@ fn server(version: String) -> content::Json<String> {
     }
     content::Json("error".to_string())
     
+}
+
+fn delay() {
+    let mut n : u128 = 1;
+    for i in 1u128..100000000 {
+        n = n + 1;
+    }
 }
 
 #[derive(Deserialize, Serialize)]
