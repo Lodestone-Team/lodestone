@@ -1,28 +1,23 @@
 
-mod mc_server;
 
 #[macro_use] extern crate rocket;
 
+use std::io::BufRead;
 use std::sync::{Mutex, Arc};
+use std::time::Duration;
 
-use rocket::request::Outcome;
+use instance::ServerInstance;
 use rocket::{response::content, request::FromRequest, request::Request};
 use rocket::{State, request};
 use serde::{Serialize, Deserialize};
 use serde_json::{Result, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
+mod instance;
+
 
 struct HitCount {
     count: AtomicUsize
 }
-
-// #[rocket::async_trait]
-// impl<'r> FromRequest<'r> for HitCount {
-//     type Error = ();
-//     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-//         Outcome::Success(HitCount{count: AtomicUsize::new(1)})
-//     }
-// }
 
 #[get("/versions/<rtype>")]
 async fn versions(rtype: String) -> content::Json<String> {
@@ -44,7 +39,7 @@ async fn server(version: String) -> content::Json<String> {
     for version_indiv in response.versions {
         if version_indiv.id == version {
            let response : Value = serde_json::from_str(minreq::get(version_indiv.url).send().unwrap().as_str().unwrap()).unwrap();
-           content::Json(response["downloads"]["server"]["url"].to_string());
+           return content::Json(response["downloads"]["server"]["url"].to_string());
         }
     }
     content::Json("error".to_string())
@@ -58,11 +53,14 @@ async fn test(hit_count: &State<HitCount>) -> String {
     format!("Number of visits: {}", current_count)
 }
 
-fn delay() {
-    let mut n : u128 = 1;
-    for i in 1u128..100000000 {
-        n = n + 1;
-    }
+#[get("/start")]
+fn start() {
+    let mut server_test = ServerInstance::new(None);
+    server_test.start().unwrap();
+    server_test.stdout.unwrap().lines()
+    .filter_map(|line| line.ok())
+    .for_each(|line| println!("process thread returned {}", line));
+
 }
 
 #[derive(Deserialize, Serialize)]
@@ -84,7 +82,6 @@ struct Response {
 fn rocket() -> _ {
     // let response = minreq::get("http://launchermeta.mojang.com/mc/game/version_manifest.json").send().unwrap();
     // println!("{}", response.as_str().unwrap());
-    rocket::build().mount("/", routes![versions, server, test]).manage(HitCount { count: AtomicUsize::new(0) })
-
+    rocket::build().mount("/", routes![versions, server, test, start]).manage(HitCount { count: AtomicUsize::new(0) })
 
 }
