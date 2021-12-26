@@ -55,12 +55,12 @@ async fn test(hit_count: &State<HitCount>) -> String {
 
 #[get("/start")]
 fn start() {
-    let mut server_test = ServerInstance::new(None);
-    server_test.start().unwrap();
-    server_test.stdout.unwrap().lines()
-    .filter_map(|line| line.ok())
-    .for_each(|line| println!("process thread returned {}", line));
-
+    let server_test_mutex = ServerInstance::new(None);
+    let mut server = server_test_mutex.lock().unwrap();
+    server.start().unwrap();
+    for rec in server.stdout.as_ref().unwrap() {
+        println!("Server said: {}", rec);
+    }
 }
 
 #[derive(Deserialize, Serialize)]
