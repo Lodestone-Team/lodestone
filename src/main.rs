@@ -2,6 +2,8 @@
 
 #[macro_use] extern crate rocket;
 
+use std::collections::HashMap;
+use std::fmt::format;
 use std::io::BufRead;
 use std::sync::{Mutex, Arc};
 use std::thread;
@@ -12,8 +14,9 @@ use rocket::{response::content, request::FromRequest, request::Request};
 use rocket::{State, request};
 use serde::{Serialize, Deserialize};
 use serde_json::{Value};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicU16, AtomicU64};
 use std::path::Path;
+use chashmap::CHashMap;
 mod instance;
 mod util;
 
@@ -22,8 +25,9 @@ struct HitCount {
     count: AtomicUsize
 }
 
-struct MyManagedState {
-    server : Arc<Mutex<ServerInstance>>
+pub struct MyManagedState {
+    server : Arc<Mutex<ServerInstance>>,
+    download_status: CHashMap<String, (u64, u64)>
 }
 
 #[get("/versions/<rtype>")]
@@ -52,23 +56,34 @@ fn get_version_url(version: String) -> Option<String> {
 }
 
 #[get("/setup/<instance_name>/<version>")]
-async fn setup(instance_name : String, version : String) -> String {
-    let path = format!("/home/peter/Lodestone/backend/test/{}", instance_name); // TODO: Add a global path string
-    if Path::new(path.as_str()).is_dir() {
+async fn setup(instance_name : String, version : String, state: &State<MyManagedState>) -> String {
+    let path = format!("/home/peter/Lodestone/backend/InstanceTest/{}", instance_name); // TODO: Add a global path string
+    if Path::new(path.as_str()).exists() {
         return "instance already exists".to_string()
     }
-    std::fs::create_dir(path.as_str()).unwrap();
 
     match get_version_url(version) {
         Some(url) => {
+            std::fs::create_dir(path.as_str()).unwrap();
             println!("{}",url);
-            util::download_file(url.as_str(), format!("{}/server.jar", path).as_str()).await.unwrap();
-
+            util::download_file(url.as_str(), format!("{}/server.jar", path).as_str(), state, instance_name).await.unwrap();
+            
             format!("downloaded to {}", path)
         }
         None => "version not found".to_string()
     }
 }
+
+#[get("/status/<instance_name>")]
+async fn download_status(instance_name : String, state: &State<MyManagedState>) -> String {
+    if !state.download_status.contains_key(&instance_name) {
+        return "does not exists".to_string();
+    }
+    return format!("{}/{}", state.download_status.get(&instance_name).unwrap().0, state.download_status.get(&instance_name).unwrap().1)
+
+
+}
+
 
 // #[get("/count")]
 // async fn test(hit_count: &State<HitCount>) -> String {
@@ -136,6 +151,11 @@ struct Response {
 #[launch]
 fn rocket() -> _ {
 
-    rocket::build().mount("/", routes![start, stop, send, setup]).manage(MyManagedState{server : Arc::new(Mutex::new(ServerInstance::new(None)))})
+    rocket::build()
+    .mount("/", routes![start, stop, send, setup, download_status])
+    .manage(MyManagedState{
+        server : Arc::new(Mutex::new(ServerInstance::new(None))),
+        download_status: CHashMap::new()
+    })
 
 }
