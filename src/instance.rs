@@ -83,6 +83,7 @@ impl ServerInstance {
     }
     pub fn stop(&mut self) -> Result<(), std::io::Error> {
         self.stdin.clone().unwrap().send("stop\n".to_string()).unwrap();
+        self.running = false;
         Ok(())
     }
 
