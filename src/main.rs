@@ -2,23 +2,18 @@
 
 #[macro_use] extern crate rocket;
 
-use std::collections::HashMap;
-use std::fmt::format;
-use std::io::BufRead;
 use std::sync::{Mutex, Arc};
-use std::thread;
-use std::time::Duration;
-
 use instance::ServerInstance;
-use rocket::{response::content, request::FromRequest, request::Request};
-use rocket::{State, request};
-use serde::{Serialize, Deserialize};
+use rocket::{response::content};
+use rocket::{State};
 use serde_json::{Value};
-use std::sync::atomic::{AtomicUsize, Ordering, AtomicU16, AtomicU64};
+use std::sync::atomic::{AtomicUsize};
 use std::path::Path;
 use chashmap::CHashMap;
+use json_struct::reponse_from_mojang::{VersionManifest};
 mod instance;
 mod util;
+mod json_struct;
 
 
 struct HitCount {
@@ -32,7 +27,7 @@ pub struct MyManagedState {
 
 #[get("/versions/<rtype>")]
 async fn versions(rtype: String) -> content::Json<String> {
-    let response: Response = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
+    let response: VersionManifest = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
     .send().unwrap().as_str().unwrap()).unwrap();
     let mut r = Vec::new();
     for version in response.versions {
@@ -44,7 +39,7 @@ async fn versions(rtype: String) -> content::Json<String> {
 }
 
 fn get_version_url(version: String) -> Option<String> {
-    let response: Response = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
+    let response: VersionManifest = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
     .send().unwrap().as_str().unwrap()).unwrap();
     for version_indiv in response.versions {
         if version_indiv.id == version {
@@ -131,21 +126,6 @@ fn send(command: String, state: &State<MyManagedState>) -> String {
     let instance = server.lock().unwrap();
     instance.stdin.clone().unwrap().send(format!("{}\n", command.clone())).unwrap();
     format!("sent command: {}", command)
-}
-
-#[derive(Deserialize, Serialize)]
-#[allow(non_snake_case)]
-struct Version {
-    id: String,
-    r#type: String, // bruh
-    url: String,
-    time: String,
-    releaseTime: String,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Response {
-    versions: Vec<Version>,
 }
 
 #[launch]
