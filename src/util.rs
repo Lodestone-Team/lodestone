@@ -5,6 +5,7 @@ use std::io::Write;
 use reqwest::Client;
 use indicatif::{ProgressBar, ProgressStyle};
 use futures_util::StreamExt;
+// copied from https://gist.github.com/giuliano-oliveira/4d11d6b3bb003dba3a1b53f43d81b30d
 pub async fn download_file(url: &str, path: &str) -> Result<(), String> {
     let client = Client::new();
     // Reqwest setup
