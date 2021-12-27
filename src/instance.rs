@@ -3,22 +3,29 @@ use std::io::{BufRead, BufReader, Error, ErrorKind, Write};
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
-use std::time::Duration;
 use std::env;
-use crossbeam::channel::unbounded;
-use tokio::sync::broadcast;
+use bus::Bus;
 pub struct InstanceConfig {
     min_ram: u32,
     max_ram: u32,    
+}
+#[derive(Clone)]
+#[derive(PartialEq)]
+enum BroadcastCommand {
+    Terminate,
+    Continue,       
 }
 
 pub struct ServerInstance {
     pub running: bool,
     pub stdin: Option<Sender<String>>,
-    pub stdout: Option<broadcast::Receiver<String>>,
+    stdout: Option<Receiver<String>>,
     jvm_args: Vec<String>,
-    process: Option<Child>
+    process: Option<Child>,
+    broadcaster: Option<Bus<bool>>
 }
+
+
 
 impl ServerInstance {
     pub fn new(config : Option<InstanceConfig>) -> ServerInstance {
@@ -43,7 +50,8 @@ impl ServerInstance {
             stdin: None,
             stdout: None,
             jvm_args,
-            process: None
+            process: None,
+            broadcaster: None,
             }
     }
 
@@ -57,25 +65,37 @@ impl ServerInstance {
             .spawn() {
                 Ok(proc) => {
                     let (stdin_sender, stdin_receiver) : (Sender<String>, Receiver<String>) = mpsc::channel();
-                    let (stdout_sender, mut stdout_receiver) : (broadcast::Sender<String>, broadcast::Receiver<String>) = broadcast::channel(16);
                     let mut stdin_writer = proc.stdin.unwrap();
+                    let mut broadcaster : Bus<bool> = Bus::new(10);
+                    let mut rx = broadcaster.add_rx();
                     let reader = BufReader::new(proc.stdout
                         .ok_or_else(|| Error::new(ErrorKind::Other,"bruh")).unwrap());
                     thread::spawn(move || {
-                        for rec in stdin_receiver {
+                        let stdin_receiver = stdin_receiver;
+                        loop {
+                            if rx.try_recv().is_ok() { break; }
+                            let rec = stdin_receiver.recv().unwrap();
                             println!("writing to stdin: {}", rec);
                             stdin_writer.write_all(rec.as_bytes()).unwrap();
                             stdin_writer.flush().unwrap();
+                            
                         }
+                        
+                        println!("writer thread terminating");
+
                     });
                     thread::spawn(move || {
-                        reader.lines()
-                        .filter_map(|line| line.ok())
-                        .for_each(|line| println!("Server said: {}", line));                    
+                        for line_result in reader.lines() {
+                            let line = line_result.unwrap();
+                            println!("Server said: {}", line);
+                        }
+                        println!("reader thread terminating");
+
                     });
                     self.running = true;
                     self.stdin = Some(stdin_sender);
-                    self.stdout = Some(stdout_receiver);
+                    self.stdout = None;
+                    self.broadcaster = Some(broadcaster);
                     return Ok(())
                 }
                 Err(e) => return Err(e),
@@ -83,6 +103,7 @@ impl ServerInstance {
     }
     pub fn stop(&mut self) -> Result<(), std::io::Error> {
         self.stdin.clone().unwrap().send("stop\n".to_string()).unwrap();
+        self.broadcaster.as_mut().unwrap().broadcast(true);
         self.running = false;
         Ok(())
     }
