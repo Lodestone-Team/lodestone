@@ -53,7 +53,7 @@ fn get_version_url(version: String) -> Option<String> {
 
 #[get("/setup/<instance_name>/<version>")]
 async fn setup(instance_name : String, version : String) -> String {
-    let path = format!("/home/peter/Lodestone/backend/test/{}", instance_name);
+    let path = format!("/home/peter/Lodestone/backend/test/{}", instance_name); // TODO: Add a global path string
     if Path::new(path.as_str()).is_dir() {
         return "instance already exists".to_string()
     }
