@@ -4,6 +4,7 @@
 
 use std::io::BufRead;
 use std::sync::{Mutex, Arc};
+use std::thread;
 use std::time::Duration;
 
 use instance::ServerInstance;
@@ -17,6 +18,10 @@ mod instance;
 
 struct HitCount {
     count: AtomicUsize
+}
+
+struct MyManagedState {
+    server : Arc<Mutex<ServerInstance>>
 }
 
 #[get("/versions/<rtype>")]
@@ -46,21 +51,52 @@ async fn server(version: String) -> content::Json<String> {
     
 }
 
-#[get("/count")]
-async fn test(hit_count: &State<HitCount>) -> String {
-    let current_count = hit_count.count.load(Ordering::Relaxed);
-    hit_count.count.store(current_count + 1, Ordering::Relaxed);
-    format!("Number of visits: {}", current_count)
-}
+// #[get("/count")]
+// async fn test(hit_count: &State<HitCount>) -> String {
+//     let current_count = hit_count.count.load(Ordering::Relaxed);
+//     hit_count.count.store(current_count + 1, Ordering::Relaxed);
+//     format!("Number of visits: {}", current_count)
+// }
 
 #[get("/start")]
-fn start() {
-    let server_test_mutex = ServerInstance::new(None);
-    let mut server = server_test_mutex.lock().unwrap();
-    server.start().unwrap();
-    for rec in server.stdout.as_ref().unwrap() {
-        println!("Server said: {}", rec);
+async fn start(state: &State<MyManagedState>) -> String {
+    let server = state.server.clone();
+    if server.lock().unwrap().running {
+       return "already running".to_string();
     }
+    let mut instance = server.lock().unwrap();
+    instance.start().unwrap();
+    "server starting".to_string()
+    // let server_test_mutex = ServerInstance::new(None);
+    // let mut server = server_test_mutex.lock().unwrap();
+    // server.start().unwrap();
+    // server.stdout.as_ref().unwrap().lock().unwrap();
+    // for rec in  {
+    //     println!("Server said: {}", rec);
+    // }
+}
+
+#[get("/stop")]
+fn stop(state: &State<MyManagedState>) -> String {
+    let server = state.server.clone();
+    if !server.lock().unwrap().running {
+        return "already stopped".to_string();
+    }
+    let mut instance = server.lock().unwrap();
+    instance.stop().unwrap();
+    "server stopped".to_string()
+    
+}
+
+#[get("/send/<command>")]
+fn send(command: String, state: &State<MyManagedState>) -> String {
+    let server = state.server.clone();
+    if !server.lock().unwrap().running {
+        return "sever not started".to_string();
+    }
+    let instance = server.lock().unwrap();
+    instance.stdin.clone().unwrap().send(format!("{}\n", command.clone())).unwrap();
+    format!("sent command: {}", command)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -80,8 +116,7 @@ struct Response {
 
 #[launch]
 fn rocket() -> _ {
-    // let response = minreq::get("http://launchermeta.mojang.com/mc/game/version_manifest.json").send().unwrap();
-    // println!("{}", response.as_str().unwrap());
-    rocket::build().mount("/", routes![versions, server, test, start]).manage(HitCount { count: AtomicUsize::new(0) })
+
+    rocket::build().mount("/", routes![versions, server, start, stop, send]).manage(MyManagedState{server : Arc::new(Mutex::new(ServerInstance::new(None)))})
 
 }
