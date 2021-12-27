@@ -11,9 +11,11 @@ use instance::ServerInstance;
 use rocket::{response::content, request::FromRequest, request::Request};
 use rocket::{State, request};
 use serde::{Serialize, Deserialize};
-use serde_json::{Result, Value};
+use serde_json::{Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::Path;
 mod instance;
+mod util;
 
 
 struct HitCount {
@@ -37,18 +39,35 @@ async fn versions(rtype: String) -> content::Json<String> {
     content::Json(serde_json::to_string(&r).unwrap())
 }
 
-#[get("/server/<version>")]
-async fn server(version: String) -> content::Json<String> {
+fn get_version_url(version: String) -> Option<String> {
     let response: Response = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
     .send().unwrap().as_str().unwrap()).unwrap();
     for version_indiv in response.versions {
         if version_indiv.id == version {
            let response : Value = serde_json::from_str(minreq::get(version_indiv.url).send().unwrap().as_str().unwrap()).unwrap();
-           return content::Json(response["downloads"]["server"]["url"].to_string());
+           return Some(response["downloads"]["server"]["url"].to_string().replace("\"", ""));
         }
     }
-    content::Json("error".to_string())
-    
+    None
+}
+
+#[get("/setup/<instance_name>/<version>")]
+async fn setup(instance_name : String, version : String) -> String {
+    let path = format!("/home/peter/Lodestone/backend/test/{}", instance_name);
+    if Path::new(path.as_str()).is_dir() {
+        return "instance already exists".to_string()
+    }
+    std::fs::create_dir(path.as_str()).unwrap();
+
+    match get_version_url(version) {
+        Some(url) => {
+            println!("{}",url);
+            util::download_file(url.as_str(), format!("{}/server.jar", path).as_str()).await.unwrap();
+
+            format!("downloaded to {}", path)
+        }
+        None => "version not found".to_string()
+    }
 }
 
 // #[get("/count")]
@@ -117,6 +136,6 @@ struct Response {
 #[launch]
 fn rocket() -> _ {
 
-    rocket::build().mount("/", routes![versions, server, start, stop, send]).manage(MyManagedState{server : Arc::new(Mutex::new(ServerInstance::new(None)))})
+    rocket::build().mount("/", routes![start, stop, send, setup]).manage(MyManagedState{server : Arc::new(Mutex::new(ServerInstance::new(None)))})
 
 }
