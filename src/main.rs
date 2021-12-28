@@ -14,7 +14,6 @@ use json_struct::reponse_from_mojang::{VersionManifest};
 mod instance;
 mod util;
 mod json_struct;
-mod instance_manager;
 
 
 struct HitCount {
