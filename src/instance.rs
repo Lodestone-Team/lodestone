@@ -17,18 +17,20 @@ enum BroadcastCommand {
 }
 
 pub struct ServerInstance {
-    pub running: bool,
     pub stdin: Option<Sender<String>>,
+    running: bool,
     stdout: Option<Receiver<String>>,
     jvm_args: Vec<String>,
     process: Option<Child>,
-    broadcaster: Option<Bus<bool>>
+    broadcaster: Option<Bus<bool>>,
+    path : String,
 }
 
 
 
 impl ServerInstance {
-    pub fn new(config : Option<InstanceConfig>) -> ServerInstance {
+    pub fn new(config : Option<InstanceConfig>, path : String) -> ServerInstance {
+        
         let mut jvm_args : Vec<String> = vec![];
         match config {
             None => {
@@ -51,11 +53,12 @@ impl ServerInstance {
             jvm_args,
             process: None,
             broadcaster: None,
+            path,
             }
     }
 
     pub fn start(&mut self) -> Result<(), String> {
-        env::set_current_dir("/home/peter/Lodestone/backend/mcserver").unwrap(); // purely for debug
+        env::set_current_dir(&self.path).unwrap(); // purely for debug
         if self.running {
             return Err("already running".to_string());
         }
@@ -110,6 +113,14 @@ impl ServerInstance {
         self.broadcaster.as_mut().unwrap().broadcast(true);
         self.running = false;
         Ok(())
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
+
+    pub fn get_path(&self) -> String {
+        self.path.clone()
     }
 
 }

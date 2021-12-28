@@ -14,6 +14,7 @@ use json_struct::reponse_from_mojang::{VersionManifest};
 mod instance;
 mod util;
 mod json_struct;
+mod instance_manager;
 
 
 struct HitCount {
@@ -90,7 +91,7 @@ async fn download_status(instance_name : String, state: &State<MyManagedState>) 
 #[get("/start")]
 async fn start(state: &State<MyManagedState>) -> String {
     let server = state.server.clone();
-    if server.lock().unwrap().running {
+    if server.lock().unwrap().is_running() {
        return "already running".to_string();
     }
     let mut instance = server.lock().unwrap();
@@ -108,7 +109,7 @@ async fn start(state: &State<MyManagedState>) -> String {
 #[get("/stop")]
 fn stop(state: &State<MyManagedState>) -> String {
     let server = state.server.clone();
-    if !server.lock().unwrap().running {
+    if !server.lock().unwrap().is_running() {
         return "already stopped".to_string();
     }
     let mut instance = server.lock().unwrap();
@@ -120,7 +121,7 @@ fn stop(state: &State<MyManagedState>) -> String {
 #[get("/send/<command>")]
 fn send(command: String, state: &State<MyManagedState>) -> String {
     let server = state.server.clone();
-    if !server.lock().unwrap().running {
+    if !server.lock().unwrap().is_running() {
         return "sever not started".to_string();
     }
     let instance = server.lock().unwrap();
@@ -134,8 +135,9 @@ fn rocket() -> _ {
     rocket::build()
     .mount("/", routes![start, stop, send, setup, download_status, versions])
     .manage(MyManagedState{
-        server : Arc::new(Mutex::new(ServerInstance::new(None))),
+        server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/mcserver".to_string()))),
         download_status: CHashMap::new()
     })
+
 
 }
