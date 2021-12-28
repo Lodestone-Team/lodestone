@@ -132,7 +132,7 @@ fn send(command: String, state: &State<MyManagedState>) -> String {
 fn rocket() -> _ {
 
     rocket::build()
-    .mount("/", routes![start, stop, send, setup, download_status])
+    .mount("/", routes![start, stop, send, setup, download_status, versions])
     .manage(MyManagedState{
         server : Arc::new(Mutex::new(ServerInstance::new(None))),
         download_status: CHashMap::new()

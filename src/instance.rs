@@ -1,5 +1,5 @@
 use std::process::{Command, Stdio, ChildStdout, Child};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
@@ -44,7 +44,6 @@ impl ServerInstance {
                 jvm_args.push("nogui".to_string());
             }
         }
-
             ServerInstance {
             running: false,
             stdin: None,
@@ -55,8 +54,11 @@ impl ServerInstance {
             }
     }
 
-    pub fn start(&mut self) -> Result<(), std::io::Error> {
+    pub fn start(&mut self) -> Result<(), String> {
         env::set_current_dir("/home/peter/Lodestone/backend/mcserver").unwrap(); // purely for debug
+        if self.running {
+            return Err("already running".to_string());
+        }
         let _ = match 
             Command::new("java")
             .args(&self.jvm_args)
@@ -65,11 +67,11 @@ impl ServerInstance {
             .spawn() {
                 Ok(proc) => {
                     let (stdin_sender, stdin_receiver) : (Sender<String>, Receiver<String>) = mpsc::channel();
-                    let mut stdin_writer = proc.stdin.unwrap();
+                    let mut stdin_writer = proc.stdin.ok_or("failed to open stdin of child process")?;
+                    let stdout = proc.stdout.ok_or("failed to open stdin of child process")?;
                     let mut broadcaster : Bus<bool> = Bus::new(10);
                     let mut rx = broadcaster.add_rx();
-                    let reader = BufReader::new(proc.stdout
-                        .ok_or_else(|| Error::new(ErrorKind::Other,"bruh")).unwrap());
+                    let reader = BufReader::new(stdout);
                     thread::spawn(move || {
                         let stdin_receiver = stdin_receiver;
                         loop {
@@ -78,7 +80,6 @@ impl ServerInstance {
                             println!("writing to stdin: {}", rec);
                             stdin_writer.write_all(rec.as_bytes()).unwrap();
                             stdin_writer.flush().unwrap();
-                            
                         }
                         
                         println!("writer thread terminating");
@@ -98,10 +99,13 @@ impl ServerInstance {
                     self.broadcaster = Some(broadcaster);
                     return Ok(())
                 }
-                Err(e) => return Err(e),
+                Err(_) => return Err("failed to open child process".to_string())
             };
     }
-    pub fn stop(&mut self) -> Result<(), std::io::Error> {
+    pub fn stop(&mut self) -> Result<(), String> {
+        if !self.running {
+            return Err("server already stopped".to_string());
+        }
         self.stdin.clone().unwrap().send("stop\n".to_string()).unwrap();
         self.broadcaster.as_mut().unwrap().broadcast(true);
         self.running = false;
