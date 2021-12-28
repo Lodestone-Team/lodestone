@@ -1,5 +1,4 @@
-
-pub mod reponse_from_mojang {
+pub mod response_from_mojang {
     use serde::{Serialize, Deserialize};
     
     #[derive(Deserialize, Serialize)]
