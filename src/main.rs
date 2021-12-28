@@ -10,12 +10,10 @@ use serde_json::{Value};
 use std::sync::atomic::{AtomicUsize};
 use std::path::Path;
 use chashmap::CHashMap;
-use json_struct::reponse_from_mojang::{VersionManifest};
 mod instance;
 mod util;
-mod json_struct;
-mod instance_manager;
-
+mod handlers;
+use handlers::jar;
 
 struct HitCount {
     count: AtomicUsize
@@ -26,31 +24,6 @@ pub struct MyManagedState {
     download_status: CHashMap<String, (u64, u64)>
 }
 
-#[get("/versions/<rtype>")]
-async fn versions(rtype: String) -> content::Json<String> {
-    let response: VersionManifest = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
-    .send().unwrap().as_str().unwrap()).unwrap();
-    let mut r = Vec::new();
-    for version in response.versions {
-        if version.r#type == rtype {
-            r.push(version.id);
-        }
-    }
-    content::Json(serde_json::to_string(&r).unwrap())
-}
-
-fn get_version_url(version: String) -> Option<String> {
-    let response: VersionManifest = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
-    .send().unwrap().as_str().unwrap()).unwrap();
-    for version_indiv in response.versions {
-        if version_indiv.id == version {
-           let response : Value = serde_json::from_str(minreq::get(version_indiv.url).send().unwrap().as_str().unwrap()).unwrap();
-           return Some(response["downloads"]["server"]["url"].to_string().replace("\"", ""));
-        }
-    }
-    None
-}
-
 #[get("/setup/<instance_name>/<version>")]
 async fn setup(instance_name : String, version : String, state: &State<MyManagedState>) -> String {
     let path = format!("/home/peter/Lodestone/backend/InstanceTest/{}", instance_name); // TODO: Add a global path string
@@ -58,7 +31,7 @@ async fn setup(instance_name : String, version : String, state: &State<MyManaged
         return "instance already exists".to_string()
     }
 
-    match get_version_url(version) {
+    match jar::get_vanilla_url(version) {
         Some(url) => {
             std::fs::create_dir(path.as_str()).unwrap();
             println!("{}",url);
@@ -76,8 +49,6 @@ async fn download_status(instance_name : String, state: &State<MyManagedState>) 
         return "does not exists".to_string();
     }
     return format!("{}/{}", state.download_status.get(&instance_name).unwrap().0, state.download_status.get(&instance_name).unwrap().1)
-
-
 }
 
 
@@ -133,11 +104,9 @@ fn send(command: String, state: &State<MyManagedState>) -> String {
 fn rocket() -> _ {
 
     rocket::build()
-    .mount("/", routes![start, stop, send, setup, download_status, versions])
+    .mount("/", routes![start, stop, send, setup, download_status, jar::versions])
     .manage(MyManagedState{
         server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/mcserver".to_string()))),
         download_status: CHashMap::new()
     })
-
-
 }
