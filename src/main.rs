@@ -2,8 +2,11 @@
 
 #[macro_use] extern crate rocket;
 
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc};
+use futures_util::lock::Mutex;
+use futures_util::join;
 use instance::ServerInstance;
+use instance_manager::InstanceManager;
 use rocket::{response::content};
 use rocket::{State};
 use serde_json::{Value};
@@ -22,26 +25,18 @@ struct HitCount {
 }
 
 pub struct MyManagedState {
-    server : Arc<Mutex<ServerInstance>>,
+    instance_manager : Arc<Mutex<InstanceManager>>,
     download_status: CHashMap<String, (u64, u64)>,
     mongoDBClient: Client
 }
 
-#[get("/setup/<instance_name>/<url>")]
-async fn setup(instance_name : String, url : String, state: &State<MyManagedState>) -> String {
-    let path = format!("/home/peter/Lodestone/backend/InstanceTest/{}", instance_name); // TODO: Add a global path string
-    if Path::new(path.as_str()).exists() {
-        return "instance already exists".to_string()
-    }
-
-    std::fs::create_dir(path.as_str()).unwrap();
-    println!("{}",url);
-    util::download_file(url.as_str(), format!("{}/server.jar", path).as_str(), state, instance_name.as_str()).await.unwrap();
-
-    format!("downloaded to {}", path)    
+#[get("/api/new/<instance_name>/<version>")]
+async fn setup(instance_name : String, version : String, state: &State<MyManagedState>) -> String {
+    let mut manager = state.instance_manager.lock().await;
+    manager.create_instance(instance_name, version, None, state).await.unwrap()
 }
 
-#[get("/status/<instance_name>")]
+#[get("/api/status/<instance_name>")]
 async fn download_status(instance_name : String, state: &State<MyManagedState>) -> String {
     if !state.download_status.contains_key(&instance_name) {
         return "does not exists".to_string();
@@ -57,48 +52,22 @@ async fn download_status(instance_name : String, state: &State<MyManagedState>) 
 //     format!("Number of visits: {}", current_count)
 // }
 
-#[get("/start")]
-async fn start(state: &State<MyManagedState>) -> String {
-    let server = state.server.clone();
-    if server.lock().unwrap().is_running() {
-       return "already running".to_string();
-    }
-    let mut instance = server.lock().unwrap();
-
-    let client_ref = state.mongoDBClient.clone();
-
-    instance.start(client_ref).unwrap();
-    "server starting".to_string()
-    // let server_test_mutex = ServerInstance::new(None);
-    // let mut server = server_test_mutex.lock().unwrap();
-    // server.start().unwrap();
-    // server.stdout.as_ref().unwrap().lock().unwrap();
-    // for rec in  {
-    //     println!("Server said: {}", rec);
-    // }
+#[get("/api/start/<uuid>")]
+async fn start(state: &State<MyManagedState>, uuid : String) -> String {
+    state.instance_manager.lock().await.start_instance(uuid).unwrap();
+    "Ok".to_string()
 }
 
-#[get("/stop")]
-fn stop(state: &State<MyManagedState>) -> String {
-    let server = state.server.clone();
-    if !server.lock().unwrap().is_running() {
-        return "already stopped".to_string();
-    }
-    let mut instance = server.lock().unwrap();
-    instance.stop().unwrap();
-    "server stopped".to_string()
-    
+#[get("/api/stop/<uuid>")]
+async fn stop(state: &State<MyManagedState>, uuid : String) -> String {
+    state.instance_manager.lock().await.stop_instance(uuid).unwrap();
+    "Ok".to_string()
 }
 
-#[get("/send/<command>")]
-fn send(command: String, state: &State<MyManagedState>) -> String {
-    let server = state.server.clone();
-    if !server.lock().unwrap().is_running() {
-        return "sever not started".to_string();
-    }
-    let instance = server.lock().unwrap();
-    instance.stdin.clone().unwrap().send(format!("{}\n", command.clone())).unwrap();
-    format!("sent command: {}", command)
+#[get("/api/send/<uuid>/<command>")]
+async fn send(uuid : String, command: String, state: &State<MyManagedState>) -> String {
+    state.instance_manager.lock().await.send_command(uuid, command).unwrap();
+    "Ok".to_string()
 }
 
 #[launch]
@@ -112,7 +81,7 @@ async fn rocket() -> _ {
     rocket::build()
     .mount("/", routes![start, stop, send, setup, download_status, jar::vanilla_versions, jar::vanilla_jar, jar::vanilla_options , jar::flavours])
     .manage(MyManagedState{
-        server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/InstanceTest".to_string(), "test".to_string()))),
+        instance_manager : Arc::new(Mutex::new(InstanceManager::new( "/home/peter/Lodestone/backend/InstanceTest/".to_string(), client.clone()))),
         download_status: CHashMap::new(),
         mongoDBClient: client
     })
