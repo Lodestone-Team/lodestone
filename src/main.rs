@@ -14,6 +14,7 @@ mod instance;
 mod util;
 mod handlers;
 use handlers::jar;
+use mongodb::{bson::doc, options::ClientOptions, Client};
 
 struct HitCount {
     count: AtomicUsize
@@ -21,7 +22,8 @@ struct HitCount {
 
 pub struct MyManagedState {
     server : Arc<Mutex<ServerInstance>>,
-    download_status: CHashMap<String, (u64, u64)>
+    download_status: CHashMap<String, (u64, u64)>,
+    mongoDBClient: Client
 }
 
 #[get("/setup/<instance_name>/<version>")]
@@ -66,7 +68,10 @@ async fn start(state: &State<MyManagedState>) -> String {
        return "already running".to_string();
     }
     let mut instance = server.lock().unwrap();
-    instance.start().unwrap();
+
+    let client_ref = state.mongoDBClient.clone();
+
+    instance.start(client_ref).unwrap();
     "server starting".to_string()
     // let server_test_mutex = ServerInstance::new(None);
     // let mut server = server_test_mutex.lock().unwrap();
@@ -101,12 +106,18 @@ fn send(command: String, state: &State<MyManagedState>) -> String {
 }
 
 #[launch]
-fn rocket() -> _ {
+async fn rocket() -> _ {
+
+    let mut client_options = ClientOptions::parse("mongodb connection string").await.unwrap();
+    client_options.app_name = Some("MongoDB Client".to_string());
+
+    let client = Client::with_options(client_options).unwrap();
 
     rocket::build()
     .mount("/", routes![start, stop, send, setup, download_status, jar::versions])
     .manage(MyManagedState{
         server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/mcserver".to_string()))),
-        download_status: CHashMap::new()
+        download_status: CHashMap::new(),
+        mongoDBClient: client
     })
 }

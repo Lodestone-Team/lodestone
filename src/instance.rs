@@ -1,10 +1,15 @@
+use std::char::UNICODE_VERSION;
 use std::process::{Command, Stdio, ChildStdout, Child};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use bus::Bus;
+use mongodb::{bson::doc, options::ClientOptions, Client};
+
+
 pub struct InstanceConfig {
     min_ram: u32,
     max_ram: u32,    
@@ -57,7 +62,7 @@ impl ServerInstance {
             }
     }
 
-    pub fn start(&mut self) -> Result<(), String> {
+    pub fn start(&mut self, mongoDBClient: Client) -> Result<(), String> {
         env::set_current_dir(&self.path).unwrap(); // purely for debug
         if self.running {
             return Err("already running".to_string());
@@ -91,7 +96,18 @@ impl ServerInstance {
                     thread::spawn(move || {
                         for line_result in reader.lines() {
                             let line = line_result.unwrap();
-                            println!("Server said: {}", line);
+
+                            let time128 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+                            let time = i64::try_from(time128).unwrap();
+
+                            mongoDBClient
+                                .database("")
+                                .collection("logs")
+                                .insert_one(doc! {
+                                    "time": time, 
+                                    "log": line
+                                }, None);
+                            // println!("Server said: {}", line);
                         }
                         println!("reader thread terminating");
 
