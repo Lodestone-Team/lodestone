@@ -26,23 +26,18 @@ pub struct MyManagedState {
     mongoDBClient: Client
 }
 
-#[get("/setup/<instance_name>/<version>")]
-async fn setup(instance_name : String, version : String, state: &State<MyManagedState>) -> String {
+#[get("/setup/<instance_name>/<url>")]
+async fn setup(instance_name : String, url : String, state: &State<MyManagedState>) -> String {
     let path = format!("/home/peter/Lodestone/backend/InstanceTest/{}", instance_name); // TODO: Add a global path string
     if Path::new(path.as_str()).exists() {
         return "instance already exists".to_string()
     }
 
-    match jar::get_vanilla_url(version) {
-        Some(url) => {
-            std::fs::create_dir(path.as_str()).unwrap();
-            println!("{}",url);
-            util::download_file(url.as_str(), format!("{}/server.jar", path).as_str(), state, instance_name).await.unwrap();
-            
-            format!("downloaded to {}", path)
-        }
-        None => "version not found".to_string()
-    }
+    std::fs::create_dir(path.as_str()).unwrap();
+    println!("{}",url);
+    util::download_file(url.as_str(), format!("{}/server.jar", path).as_str(), state, instance_name).await.unwrap();
+
+    format!("downloaded to {}", path)    
 }
 
 #[get("/status/<instance_name>")]
@@ -108,13 +103,13 @@ fn send(command: String, state: &State<MyManagedState>) -> String {
 #[launch]
 async fn rocket() -> _ {
 
-    let mut client_options = ClientOptions::parse("mongodb connection string").await.unwrap();
+    let mut client_options = ClientOptions::parse("mongodb://localhost:27017").await.unwrap();
     client_options.app_name = Some("MongoDB Client".to_string());
 
     let client = Client::with_options(client_options).unwrap();
 
     rocket::build()
-    .mount("/", routes![start, stop, send, setup, download_status, jar::versions])
+    .mount("/", routes![start, stop, send, setup, download_status, jar::get_vanilla_versions, jar::get_vanilla_jar])
     .manage(MyManagedState{
         server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/mcserver".to_string()))),
         download_status: CHashMap::new(),

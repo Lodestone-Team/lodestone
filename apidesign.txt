@@ -8,36 +8,40 @@ on database: {"123489yu1983huh7fbafsdih12": {"name": "myname", "version": "1.18.
 
 
 /api/jar/
-get_flavours() -> [vanilla, fabric, forge...]
-get_versions(string flavor) -> [1.18.1, 1.18.0 ...]
+/flavours/() -> [vanilla, fabric, forge...]
+❌options(string flavor) -> []
+/vanilla/versions/<rtype>
+/vanilla/url
+/fabric/versions/<rtype>
+
 ----------------------------------------------------------
 /api/instance/
-get_instance_list() -> [(id, name), (id, name)...]
-create_instance(name, flavor, version) -> instance_id (this starts a download)
-get_download_progress(instance_id)
-get_info(instance_id) -> {"name": "myname", "version": "1.18.1", "world_name": "my_world", "status", uptime} (hits db)
+get-instance-list() -> [(id, name), (id, name)...]
+create-instance(name, jar-url) -> instance-id (this starts a download)
+get-download-progress(instance-id)
+get-info(instance-id) -> {"name": "myname", "version": "1.18.1", "world-name": "my-world", "status", uptime} (hits db)
 
-clone_instance(instance_id, new_name) (don't copy worlds for now) 
-delete_instance(instance_id)
-start_instance(instance_id)
-stop_instance(instance_id)
+clone-instance(instance-id, new-name) (don't copy worlds for now) 
+delete-instance(instance-id)
+start-instance(instance-id)
+stop-instance(instance-id)
 
-get_server_config(instance_id)
-set_server_config(instance_id, new_config)
+get-server-config(instance-id)
+set-server-config(instance-id, new-config)
 
-??????? upload_world(instance_id, name) -> world_id
-get_world_list(instance_id) -> [(id, name), (id, name)...]
-change_world_name(instance_id, world_id, new_name)
-assign_world(instance_id, world_id) (just stores in db, no fs yet)
+??????? upload-world(instance-id, name) -> world-id
+get-world-list(instance-id) -> [(id, name), (id, name)...]
+change-world-name(instance-id, world-id, new-name)
+assign-world(instance-id, world-id) (just stores in db, no fs yet)
 
-delete_world(instance_id, world_id) (if world = current_world, throw)
-migrate_world(instance_id_old, instance_id_new)
+delete-world(instance-id, world-id) (if world = current-world, throw)
+migrate-world(instance-id-old, instance-id-new)
 
 
 
 ----------------------------------------------------------
-/api/instance/command/{instance_id}{command}
-/api/instance/getlogs/{instance_id}{start_time}{end_time}
+/api/instance/command/{instance-id}{command}
+/api/instance/getlogs/{instance-id}{start-time}{end-time}
 ----------------------------------------------------------
 /api/system/getram
 /api/system/getcpu
@@ -50,13 +54,13 @@ migrate_world(instance_id_old, instance_id_new)
 //TODO: mods
 
 permissions {
-    "username" : {"instance_id": ["get_instance_list", "kill_server", ]},
+    "username" : {"instance-id": ["get-instance-list", "kill-server", ]},
 }
 
 op: [name1, name2, name3]
-member_permission: ["get_instance_list", "kill_server"]
+member-permission: ["get-instance-list", "kill-server"]
 
 [
-    instance_id : [can_view, can_edit, can_start...]
-    instance_id : [can_view, can_edit, can_start...]
+    instance-id : [can-view, can-edit, can-start...]
+    instance-id : [can-view, can-edit, can-start...]
 ]
