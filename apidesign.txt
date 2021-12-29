@@ -7,12 +7,13 @@ on database: {"123489yu1983huh7fbafsdih12": {"name": "myname", "version": "1.18.
 
 
 
-/api/jar/
-/flavours/() -> [vanilla, fabric, forge...]
-❌options(string flavor) -> []
-/vanilla/versions/<rtype>
-/vanilla/url
-/fabric/versions/<rtype>
+/api/jar
+✅/flavours/() -> [vanilla, fabric, forge...]
+✅/vanilla/options/ -> {}
+✅/vanilla/versions/<rtype> -> []
+✅/vanilla/<version> -> url
+
+⏲/fabric/versions/<rtype>
 
 ----------------------------------------------------------
 /api/instance/

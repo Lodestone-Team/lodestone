@@ -110,7 +110,7 @@ async fn rocket() -> _ {
     let client = Client::with_options(client_options).unwrap();
 
     rocket::build()
-    .mount("/", routes![start, stop, send, setup, download_status, jar::get_vanilla_versions, jar::get_vanilla_jar])
+    .mount("/", routes![start, stop, send, setup, download_status, jar::vanilla_versions, jar::vanilla_jar, jar::vanilla_options , jar::flavours])
     .manage(MyManagedState{
         server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/InstanceTest".to_string(), "test".to_string()))),
         download_status: CHashMap::new(),
