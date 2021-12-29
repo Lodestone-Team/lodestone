@@ -36,7 +36,7 @@ async fn setup(instance_name : String, url : String, state: &State<MyManagedStat
 
     std::fs::create_dir(path.as_str()).unwrap();
     println!("{}",url);
-    util::download_file(url.as_str(), format!("{}/server.jar", path).as_str(), state, instance_name).await.unwrap();
+    util::download_file(url.as_str(), format!("{}/server.jar", path).as_str(), state, instance_name.as_str()).await.unwrap();
 
     format!("downloaded to {}", path)    
 }
