@@ -13,8 +13,9 @@ use chashmap::CHashMap;
 mod instance;
 mod util;
 mod handlers;
+mod instance_manager;
 use handlers::jar;
-use mongodb::{bson::doc, options::ClientOptions, Client};
+use mongodb::{bson::doc, options::ClientOptions, sync::Client};
 
 struct HitCount {
     count: AtomicUsize
@@ -103,7 +104,7 @@ fn send(command: String, state: &State<MyManagedState>) -> String {
 #[launch]
 async fn rocket() -> _ {
 
-    let mut client_options = ClientOptions::parse("mongodb://localhost:27017").await.unwrap();
+    let mut client_options = ClientOptions::parse("mongodb://localhost:27017").unwrap();
     client_options.app_name = Some("MongoDB Client".to_string());
 
     let client = Client::with_options(client_options).unwrap();
@@ -111,7 +112,7 @@ async fn rocket() -> _ {
     rocket::build()
     .mount("/", routes![start, stop, send, setup, download_status, jar::get_vanilla_versions, jar::get_vanilla_jar])
     .manage(MyManagedState{
-        server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/mcserver".to_string()))),
+        server : Arc::new(Mutex::new(ServerInstance::new(None, "/home/peter/Lodestone/backend/InstanceTest".to_string(), "test".to_string()))),
         download_status: CHashMap::new(),
         mongoDBClient: client
     })

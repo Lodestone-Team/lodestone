@@ -7,7 +7,9 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use bus::Bus;
-use mongodb::{bson::doc, options::ClientOptions, Client};
+use mongodb::{bson::doc, options::ClientOptions, sync::Client};
+use uuid::Uuid; 
+
 
 
 pub struct InstanceConfig {
@@ -23,19 +25,20 @@ enum BroadcastCommand {
 
 pub struct ServerInstance {
     pub stdin: Option<Sender<String>>,
+    pub name : String,
     running: bool,
     stdout: Option<Receiver<String>>,
     jvm_args: Vec<String>,
     process: Option<Child>,
     broadcaster: Option<Bus<bool>>,
     path : String,
+    pub uuid : String
 }
 
 
 
 impl ServerInstance {
-    pub fn new(config : Option<InstanceConfig>, path : String) -> ServerInstance {
-        
+    pub fn new(config : Option<InstanceConfig>, path : String, name : String) -> ServerInstance {
         let mut jvm_args : Vec<String> = vec![];
         match config {
             None => {
@@ -52,18 +55,20 @@ impl ServerInstance {
             }
         }
             ServerInstance {
-            running: false,
-            stdin: None,
-            stdout: None,
-            jvm_args,
-            process: None,
-            broadcaster: None,
-            path,
+                running: false,
+                name,
+                stdin: None,
+                stdout: None,
+                jvm_args,
+                process: None,
+                broadcaster: None,
+                path,
+                uuid: format!("{}", Uuid::new_v4()),
             }
     }
 
     pub fn start(&mut self, mongoDBClient: Client) -> Result<(), String> {
-        env::set_current_dir(&self.path).unwrap(); // purely for debug
+        env::set_current_dir(self.path.as_str()).unwrap(); // purely for debug
         if self.running {
             return Err("already running".to_string());
         }
@@ -93,21 +98,21 @@ impl ServerInstance {
                         println!("writer thread terminating");
 
                     });
+                    let uuid = self.uuid.clone();
                     thread::spawn(move || {
                         for line_result in reader.lines() {
                             let line = line_result.unwrap();
 
                             let time128 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
                             let time = i64::try_from(time128).unwrap();
-
+                            println!("Server said: {}", line);
                             mongoDBClient
-                                .database("")
+                                .database(uuid.as_str())
                                 .collection("logs")
                                 .insert_one(doc! {
                                     "time": time, 
                                     "log": line
-                                }, None);
-                            // println!("Server said: {}", line);
+                                }, None).unwrap();
                         }
                         println!("reader thread terminating");
 

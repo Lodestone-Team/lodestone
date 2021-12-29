@@ -8,7 +8,6 @@ use futures_util::StreamExt;
 use rocket::State;
 
 use crate::MyManagedState;
-
 // copied from https://gist.github.com/giuliano-oliveira/4d11d6b3bb003dba3a1b53f43d81b30d
 pub async fn download_file(url: &str, path: &str, state: &State<MyManagedState>, name: String) -> Result<(), String> {
     let client = Client::new();
@@ -46,4 +45,8 @@ pub async fn download_file(url: &str, path: &str, state: &State<MyManagedState>,
 
     pb.finish_with_message(&format!("Downloaded {} to {}", url, path));
     return Ok(());
+}
+
+mod fs_helper {
+    
 }
