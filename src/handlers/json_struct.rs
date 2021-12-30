@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 pub mod response_from_mojang {
     use serde::{Deserialize, Serialize};
 

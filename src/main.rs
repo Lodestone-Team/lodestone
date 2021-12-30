@@ -2,15 +2,10 @@
 extern crate rocket;
 
 use chashmap::CHashMap;
-use futures_util::join;
 use futures_util::lock::Mutex;
-use instance::ServerInstance;
 use instance_manager::InstanceManager;
-use rocket::response::content;
 use rocket::State;
-use serde_json::Value;
-use std::{path::Path, env};
-use std::sync::atomic::AtomicUsize;
+use std::{env};
 use std::sync::Arc;
 mod handlers;
 mod instance;
@@ -19,14 +14,10 @@ mod util;
 use handlers::jar;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
 
-struct HitCount {
-    count: AtomicUsize,
-}
-
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
     download_status: CHashMap<String, (u64, u64)>,
-    mongoDBClient: Client,
+    mongodb_client: Client,
 }
 
 #[get("/api/new/<instance_name>/<version>")]
@@ -118,6 +109,6 @@ async fn rocket() -> _ {
                 client.clone(),
             ))),
             download_status: CHashMap::new(),
-            mongoDBClient: client,
+            mongodb_client: client,
         })
 }

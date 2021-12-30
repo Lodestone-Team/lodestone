@@ -2,7 +2,6 @@ use super::json_struct::response_from_mojang::VersionManifest;
 use rocket::response::content;
 use rocket::response::status;
 use serde_json::Value;
-use std::error::Error;
 
 #[get("/api/jar/flavours")]
 pub async fn flavours() -> content::Json<String> {
@@ -47,10 +46,10 @@ pub async fn vanilla_versions(
     };
 
     if latest {
-        if (r#type == "release" || r#type.is_empty()) {
+        if r#type == "release" || r#type.is_empty() {
             r.push(response.latest.release);
         }
-        if (r#type == "snapshot" || r#type.is_empty()) {
+        if r#type == "snapshot" || r#type.is_empty() {
             r.push(response.latest.snapshot);
         }
     } else {
