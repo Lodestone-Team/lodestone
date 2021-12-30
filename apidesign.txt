@@ -23,11 +23,11 @@ get-instance-list() -> [(id, name), (id, name)...]
 
 /api/instance/<uuid>/
 DELETE /
-/download-progress
+✅/download-progress
 /info
-/start
-/stop
-
+✅/start
+✅/stop
+✅/send/command
 
 ⏲clone-instance(instance-id, new-name) (don't copy worlds for now) 
 
