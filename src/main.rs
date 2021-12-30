@@ -1,11 +1,17 @@
 #[macro_use]
 extern crate rocket;
+extern crate sanitize_filename;
 
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
+use instance::InstanceConfig;
 use instance_manager::InstanceManager;
+use rocket::http::Status;
+use rocket::response::{content, status};
+use rocket::serde::json::{json, Json, Value};
 use rocket::State;
-use std::{env};
+use serde::{Deserialize, Serialize};
+use std::env;
 use std::sync::Arc;
 mod handlers;
 mod instance;
@@ -20,13 +26,14 @@ pub struct MyManagedState {
     mongodb_client: Client,
 }
 
-#[get("/api/new/<instance_name>/<version>")]
-async fn setup(instance_name: String, version: String, state: &State<MyManagedState>) -> String {
+#[post("/api/instance", data = "<config>")]
+async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (Status, String) {
     let mut manager = state.instance_manager.lock().await;
-    manager
-        .create_instance(instance_name, version, None, state)
-        .await
-        .unwrap()
+    let config = config.into_inner();
+    match manager.create_instance(config, state).await {
+        Ok(uuid) => {(Status::Created, uuid)},
+        Err(reason) => (Status::InternalServerError, reason)
+    }
 }
 
 #[get("/api/status/<instance_name>")]

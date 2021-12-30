@@ -8,14 +8,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use bus::Bus;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
-use uuid::Uuid; 
+use serde::{Serialize, Deserialize};
 
 
-
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
 pub struct InstanceConfig {
-    min_ram: u32,
-    max_ram: u32,    
+    pub name: String,
+    pub version: String,
+    pub flavour: String,
+    pub url: String,
+    pub uuid: Option<String>,
+    pub min_ram: Option<u32>,
+    pub max_ram: Option<u32>
 }
+
 #[derive(Clone)]
 #[derive(PartialEq)]
 enum BroadcastCommand {
@@ -24,47 +31,47 @@ enum BroadcastCommand {
 }
 
 pub struct ServerInstance {
-    pub stdin: Option<Sender<String>>,
     pub name : String,
+    jvm_args: Vec<String>,
+    path : String,
+    pub uuid : String,
+    pub stdin: Option<Sender<String>>,
     running: bool,
     stdout: Option<Receiver<String>>,
-    jvm_args: Vec<String>,
     process: Option<Child>,
     broadcaster: Option<Bus<bool>>,
-    path : String,
-    pub uuid : String
 }
 
 
 
 impl ServerInstance {
-    pub fn new(config : Option<InstanceConfig>, path : String, name : String) -> ServerInstance {
+    pub fn new(config : &InstanceConfig, path: String) -> ServerInstance {
         let mut jvm_args : Vec<String> = vec![];
-        match config {
-            None => {
-                jvm_args.push("-jar".to_string());
-                jvm_args.push("server.jar".to_string());
-                jvm_args.push("nogui".to_string());
-            }
-            Some(instance_config) => {
-                jvm_args.push(format!("-Xms{}M", instance_config.min_ram));
-                jvm_args.push(format!("-Xmx{}M", instance_config.max_ram));
-                jvm_args.push("-jar".to_string());
-                jvm_args.push("server.jar".to_string());
-                jvm_args.push("nogui".to_string());
-            }
+
+        jvm_args.push("-jar".to_string());
+        jvm_args.push("server.jar".to_string());
+        jvm_args.push("nogui".to_string());
+
+        match config.min_ram {
+            Some(min_ram) => jvm_args.push(format!("-Xms{}M", min_ram)),
+            None => ()
         }
-            ServerInstance {
-                running: false,
-                name,
-                stdin: None,
-                stdout: None,
-                jvm_args,
-                process: None,
-                broadcaster: None,
-                path,
-                uuid: format!("{}", Uuid::new_v4()),
-            }
+        match config.max_ram {
+            Some(max_ram) => jvm_args.push(format!("-Xmx{}M", max_ram)),
+            None => ()
+        }
+
+        ServerInstance {
+            running: false,
+            name: config.name.clone(),
+            stdin: None,
+            stdout: None,
+            jvm_args,
+            process: None,
+            broadcaster: None,
+            path,
+            uuid: config.uuid.as_ref().unwrap().clone(),
+        }
     }
 
     pub fn start(&mut self, mongoDBClient: Client) -> Result<(), String> {

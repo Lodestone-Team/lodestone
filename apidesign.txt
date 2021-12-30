@@ -16,19 +16,21 @@ on database: {"123489yu1983huh7fbafsdih12": {"name": "myname", "version": "1.18.
 ⏲/fabric/versions/<rtype>
 
 ----------------------------------------------------------
-/api/instance/
+/api/instance
+
+✅PUT / {data} -> uuid
 get-instance-list() -> [(id, name), (id, name)...]
-create-instance(name, jar-url) -> instance-id (this starts a download)
-get-download-progress(instance-id)
-get-info(instance-id) -> {"name": "myname", "version": "1.18.1", "world-name": "my-world", "status", uptime} (hits db)
 
-clone-instance(instance-id, new-name) (don't copy worlds for now) 
-delete-instance(instance-id)
-start-instance(instance-id)
-stop-instance(instance-id)
+/api/instance/<uuid>/
+DELETE /
+/download-progress
+/info
+/start
+/stop
 
-get-server-config(instance-id)
-set-server-config(instance-id, new-config)
+
+⏲get-download-progress(instance-id)
+⏲clone-instance(instance-id, new-name) (don't copy worlds for now) 
 
 ??????? upload-world(instance-id, name) -> world-id
 get-world-list(instance-id) -> [(id, name), (id, name)...]
