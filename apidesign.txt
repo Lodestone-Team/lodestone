@@ -29,7 +29,6 @@ DELETE /
 /stop
 
 
-⏲get-download-progress(instance-id)
 ⏲clone-instance(instance-id, new-name) (don't copy worlds for now) 
 
 ??????? upload-world(instance-id, name) -> world-id

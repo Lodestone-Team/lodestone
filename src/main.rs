@@ -31,61 +31,54 @@ async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (
     let mut manager = state.instance_manager.lock().await;
     let config = config.into_inner();
     match manager.create_instance(config, state).await {
-        Ok(uuid) => {(Status::Created, uuid)},
-        Err(reason) => (Status::InternalServerError, reason)
+        Ok(uuid) => (Status::Created, uuid),
+        Err(reason) => (Status::InternalServerError, reason),
     }
 }
 
-#[get("/api/status/<instance_name>")]
-async fn download_status(instance_name: String, state: &State<MyManagedState>) -> String {
-    if !state.download_status.contains_key(&instance_name) {
-        return "does not exists".to_string();
+#[get("/api/instance/<uuid>/download-progress")]
+async fn download_status(uuid: String, state: &State<MyManagedState>) -> (Status, String) {
+    if !state.download_status.contains_key(&uuid) {
+        return (Status::NotFound, "does not exists".to_string());
     }
-    return format!(
-        "{}/{}",
-        state.download_status.get(&instance_name).unwrap().0,
-        state.download_status.get(&instance_name).unwrap().1
-    );
+
+    (
+        Status::Ok,
+        format!(
+            "{}/{}",
+            state.download_status.get(&uuid).unwrap().0,
+            state.download_status.get(&uuid).unwrap().1
+        ),
+    )
 }
 
-// #[get("/count")]
-// async fn test(hit_count: &State<HitCount>) -> String {
-//     let current_count = hit_count.count.load(Ordering::Relaxed);
-//     hit_count.count.store(current_count + 1, Ordering::Relaxed);
-//     format!("Number of visits: {}", current_count)
-// }
-
-#[get("/api/start/<uuid>")]
-async fn start(state: &State<MyManagedState>, uuid: String) -> String {
-    state
-        .instance_manager
-        .lock()
-        .await
-        .start_instance(uuid)
-        .unwrap();
-    "Ok".to_string()
+#[get("/api/instance/<uuid>/start")]
+async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
+    match state.instance_manager.lock().await.start_instance(uuid) {
+        Ok(()) => (Status::Ok, "Ok".to_string()),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
 }
 
-#[get("/api/stop/<uuid>")]
-async fn stop(state: &State<MyManagedState>, uuid: String) -> String {
-    state
-        .instance_manager
-        .lock()
-        .await
-        .stop_instance(uuid)
-        .unwrap();
-    "Ok".to_string()
+#[get("/api/instance/<uuid>/stop")]
+async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
+    match state.instance_manager.lock().await.stop_instance(uuid) {
+        Ok(()) => (Status::Ok, "Ok".to_string()),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
 }
 
-#[get("/api/send/<uuid>/<command>")]
-async fn send(uuid: String, command: String, state: &State<MyManagedState>) -> String {
-    state
+#[get("/api/instance/<uuid>/send/<command>")]
+async fn send(uuid: String, command: String, state: &State<MyManagedState>) -> (Status, String) {
+    match state
         .instance_manager
         .lock()
         .await
         .send_command(uuid, command)
-        .unwrap();
-    "Ok".to_string()
+    {
+        Ok(()) => (Status::Ok, "Ok".to_string()),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
 }
 
 #[launch]
