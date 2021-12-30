@@ -9,7 +9,7 @@ use instance_manager::InstanceManager;
 use rocket::response::content;
 use rocket::State;
 use serde_json::Value;
-use std::path::Path;
+use std::{path::Path, env};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 mod handlers;
@@ -114,7 +114,7 @@ async fn rocket() -> _ {
         )
         .manage(MyManagedState {
             instance_manager: Arc::new(Mutex::new(InstanceManager::new(
-                "/home/peter/Lodestone/backend/InstanceTest/".to_string(),
+                format!("{}/InstanceTest/", env::current_dir().unwrap().display()),
                 client.clone(),
             ))),
             download_status: CHashMap::new(),
