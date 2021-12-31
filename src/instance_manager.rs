@@ -1,7 +1,7 @@
 use std::{fs, fs::File};
 use std::collections::HashMap;
 use std::io::prelude::*;
-use mongodb::sync::Client;
+use mongodb::{bson::doc, options::ClientOptions, sync::Client};
 use rocket::State;
 use rocket::fairing::Result;
 use serde_json::to_string;
@@ -51,14 +51,43 @@ impl InstanceManager {
         self.instance_collection.insert(uuid.clone(), instance);
 
         // TODO: DB IO
+        /* TODO: 
+            create a database with the uuid name 
+            create config collection 
+                config is everything needed to reconstruct the config 
+                store InstanceConfig into database
+        */ 
+        let mongodb_client = self.mongodb.clone();
+        mongodb_client
+            .database(&uuid)
+            .collection("config")
+            .insert_one(doc! {
+                "name": &config.name,
+                "version": &config.version,
+                "flavour": &config.flavour,
+                "url": &config.url,
+                "uuid": &config.uuid.unwrap(),
+                "min_ram": &config.min_ram.unwrap(),
+                "max_ram": &config.max_ram.unwrap()
+            }, None).unwrap();
+
         Ok(uuid)
     }
 
+
+    // TODO: basically drop database
     pub fn delete_instance(&mut self, uuid : String) -> Result<(), String> {
         match self.instance_collection.remove(&uuid) {
             None => Err("instance not found".to_string()),
             Some(instance) => {
-                fs::remove_dir_all(format!("{}{}", self.path, instance.name)).map_err(|_| format!("{}{}", self.path, instance.name))?;
+                // handling db
+                let mongodb_client = self.mongodb.clone();
+                mongodb_client
+                    .database(&uuid)
+                    .drop(None)
+                    .unwrap();
+                
+                    fs::remove_dir_all(format!("{}{}", self.path, instance.name)).map_err(|_| format!("{}{}", self.path, instance.name))?;
                 Ok(())
             }
         }
@@ -75,6 +104,7 @@ impl InstanceManager {
         Ok(())
     }
 
+    
     pub fn send_command(&self, uuid : String, command : String) -> Result<(), String> {
         let instance = self.instance_collection.get(&uuid).ok_or("cannot send command to instance as it does not exist".to_string())?;
         instance.stdin.clone().unwrap().send(format!("{}\n", command)).map_err(|_| "failed to send command to instance".to_string())?;
