@@ -8,6 +8,7 @@ use futures_util::StreamExt;
 use rocket::State;
 use serde_json::Value;
 use crate::handlers::json_struct::response_from_mojang::*;
+use mongodb::{bson::doc, options::ClientOptions, sync::Client as mongoDBClient};
 
 use crate::MyManagedState;
 // copied from https://gist.github.com/giuliano-oliveira/4d11d6b3bb003dba3a1b53f43d81b30d
@@ -59,6 +60,24 @@ pub fn get_vanilla_version_url(version: String) -> Result<String, String> {
         }
     }
     Err("can't find the corresponding value".to_string())
+}
+
+pub fn mongodb_create_user(password: &String ) {
+    let mut client_options = ClientOptions::parse("MongoDB Connection String").unwrap();
+    client_options.app_name = Some("Initial Add User".to_string());
+    let client = mongoDBClient::with_options(client_options).unwrap();
+
+    client
+        .database("admin")
+        .run_command( doc! {
+            "createUser": "server",
+            "pwd": password,
+            "roles": [
+                { "role": "userAdminAnyDatabase", "db": "admin" },
+                { "role": "readWriteAnyDatabase", "db": "admin" },
+                { "role": "hostManager", "db": "admin" } 
+            ]
+        }, None).unwrap();
 }
 
 mod fs_helper {
