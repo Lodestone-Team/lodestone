@@ -20,6 +20,7 @@ pub struct InstanceConfig {
     pub version: String,
     pub flavour: String,
     pub url: String,
+    pub port : Option<u32>,
     pub uuid: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>
