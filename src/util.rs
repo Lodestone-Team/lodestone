@@ -6,8 +6,6 @@ use reqwest::Client;
 use indicatif::{ProgressBar, ProgressStyle};
 use futures_util::StreamExt;
 use rocket::State;
-use serde_json::Value;
-use crate::handlers::json_struct::response_from_mojang::*;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client as mongoDBClient};
 
 use crate::MyManagedState;
@@ -48,18 +46,6 @@ pub async fn download_file(url: &str, path: &str, state: &State<MyManagedState>,
 
     pb.finish_with_message(&format!("Downloaded {} to {}", url, path));
     return Ok(());
-}
-
-pub fn get_vanilla_version_url(version: String) -> Result<String, String> {
-    let response: VersionManifest = serde_json::from_str(minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
-    .send().unwrap().as_str().unwrap()).unwrap();
-    for version_indiv in response.versions {
-        if version_indiv.id == version {
-           let response : Value = serde_json::from_str(minreq::get(version_indiv.url).send().unwrap().as_str().unwrap()).unwrap();
-           return Ok(response["downloads"]["server"]["url"].to_string().replace("\"", ""));
-        }
-    }
-    Err("can't find the corresponding value".to_string())
 }
 
 pub fn mongodb_create_user(password: &String ) {

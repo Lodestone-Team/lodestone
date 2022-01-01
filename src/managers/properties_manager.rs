@@ -1,7 +1,6 @@
 use std::{collections::HashMap, path::Path, fs::File, io::BufReader};
-use std::io::{self, prelude::*, LineWriter};
+use std::io::{prelude::*, LineWriter};
 use std::result::Result;
-use regex::Regex;
 pub struct PropertiesManager {
     properties : HashMap<String, String>,
     path_to_properties : String
