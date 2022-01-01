@@ -40,6 +40,7 @@ impl InstanceManager {
         let database_names = mongodb
             .list_database_names(None, None).unwrap();
         for database_name in database_names.iter() {
+            if !(database_name == "admin" || database_name == "config" || database_name == "local") {
             let config = mongodb
                 .database(database_name)
                 .collection::<InstanceConfig>("config")
@@ -48,6 +49,7 @@ impl InstanceManager {
                 .unwrap();
             let key = config.uuid.clone().unwrap();
             instance_collection.insert(key, ServerInstance::new(&config, format!("{}{}", path, config.name)));
+            }
         }
 
 
@@ -72,7 +74,7 @@ impl InstanceManager {
 
         fs::create_dir(path_to_instance.as_str()).map_err(|e| e.to_string())?;
         let instance = ServerInstance::new(&config, path_to_instance.clone());
-        util::download_file(&config.url, format!("{}server.jar", &path_to_instance).as_str(), state, instance.uuid.as_str()).await?; // TODO: get rid of await
+        util::download_file(&config.url.unwrap(), format!("{}server.jar", &path_to_instance).as_str(), state, instance.uuid.as_str()).await?; // TODO: get rid of await
 
         let path_to_eula = format!("{}eula.txt", path_to_instance);
         let mut eula_file = File::create(path_to_eula.as_str()).map_err(|_|"failed to create eula.txt".to_string())?;
