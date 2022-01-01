@@ -35,7 +35,7 @@ impl InstanceManager {
         b"enable-jmx-monitoring=false\nrcon.port=25575\nenable-command-block=false\ngamemode=survival\nenable-query=false\nlevel-name=world\nmotd=AMinecraftServer\nquery.port=25565\npvp=true\ndifficulty=easy\nnetwork-compression-threshold=256\nmax-tick-time=60000\nrequire-resource-pack=false\nmax-players=20\nuse-native-transport=true\nonline-mode=true\nenable-status=true\nallow-flight=false\nvbroadcast-rcon-to-ops=true\nview-distance=10\nserver-ip=\nresource-pack-prompt=\nallow-nether=true\nserver-port=25565\nenable-rcon=false\nsync-chunk-writes=true\nop-permission-level=4\nprevent-proxy-connections=false\nhide-online-players=false\nresource-pack=\nentity-broadcast-range-percentage=100\nsimulation-distance=10\nrcon.password=\nplayer-idle-timeout=0\nforce-gamemode=false\nrate-limit=0\nhardcore=false\nwhite-list=false\nbroadcast-console-to-ops=true\nspawn-npcs=true\nspawn-animals=true\nfunction-permission-level=2\ntext-filtering-config=\nspawn-monsters=true\nenforce-whitelist=false\nresource-pack-sha1=\nspawn-protection=16\nmax-world-size=29999984\n").unwrap();
         }
 
-        let mut map: HashMap<String, ServerInstance> = HashMap::new();
+        let mut instance_collection: HashMap<String, ServerInstance> = HashMap::new();
 
         let database_names = mongodb
             .list_database_names(None, None).unwrap();
@@ -46,13 +46,13 @@ impl InstanceManager {
                 .find_one(None, None)
                 .unwrap()
                 .unwrap();
-            let key = &config.uuid.unwrap().clone();
-            map.insert(key, ServerInstance::new(&config, path));
+            let key = config.uuid.clone().unwrap();
+            instance_collection.insert(key, ServerInstance::new(&config, format!("{}{}", path, config.name)));
         }
 
 
         Ok(InstanceManager{
-            instance_collection : HashMap::new(),
+            instance_collection,
             path,
             mongodb,
             taken_ports : vec![]
