@@ -55,11 +55,6 @@ pub struct ServerInstance {
 impl ServerInstance {
     pub fn new(config : &InstanceConfig, path: String) -> ServerInstance {
         let mut jvm_args : Vec<String> = vec![];
-
-        jvm_args.push("-jar".to_string());
-        jvm_args.push("server.jar".to_string());
-        jvm_args.push("nogui".to_string());
-
         match config.min_ram {
             Some(min_ram) => jvm_args.push(format!("-Xms{}M", min_ram)),
             None => ()
@@ -68,6 +63,9 @@ impl ServerInstance {
             Some(max_ram) => jvm_args.push(format!("-Xmx{}M", max_ram)),
             None => ()
         }
+        jvm_args.push("-jar".to_string());
+        jvm_args.push("server.jar".to_string());
+        jvm_args.push("nogui".to_string());
 
         ServerInstance {
             status: Arc::new(Mutex::new(Status::Stopped)),
