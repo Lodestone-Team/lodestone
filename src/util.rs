@@ -66,6 +66,11 @@ pub fn mongodb_create_user(password: &String ) {
         }, None).unwrap();
 }
 
+pub fn authenticate(username: String, password: String) -> bool{
+    //TODO: fetch data from db and actually check.
+    username == "admin" && password == "admin"
+}
+
 mod fs_helper {
     
 }
