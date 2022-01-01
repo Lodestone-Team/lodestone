@@ -17,6 +17,7 @@ mod handlers;
 mod instance;
 mod instance_manager;
 mod util;
+mod properties_manager;
 use handlers::jar;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
 
@@ -107,7 +108,7 @@ async fn rocket() -> _ {
             instance_manager: Arc::new(Mutex::new(InstanceManager::new(
                 format!("{}/InstanceTest/", env::current_dir().unwrap().display()),
                 client.clone(),
-            ))),
+            ).unwrap())),
             download_status: CHashMap::new(),
             mongodb_client: client,
         })
