@@ -9,7 +9,7 @@ use std::env;
 use bus::Bus;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
 use serde::{Serialize, Deserialize};
-
+use regex::Regex;
 use crate::instance_manager::InstanceManager;
 
 
@@ -19,7 +19,8 @@ pub struct InstanceConfig {
     pub name: String,
     pub version: String,
     pub flavour: String,
-    pub url: String,
+    /// url to download the server.jar file from upon setup
+    pub url: String, 
     pub port : Option<u32>,
     pub uuid: Option<String>,
     pub min_ram: Option<u32>,
@@ -32,7 +33,8 @@ enum BroadcastCommand {
     Terminate,
     Continue,       
 }
-enum Status {
+#[derive(Clone, Copy)]
+pub enum Status {
     Starting,
     Stopping,
     Running,
@@ -45,7 +47,6 @@ pub struct ServerInstance {
     pub uuid : String,
     pub stdin: Option<Sender<String>>,
     status: Arc<Mutex<Status>>,
-    stdout: Option<Receiver<String>>,
     process: Arc<Mutex<Option<Child>>>,
     broadcaster: Option<Bus<bool>>,
 }
@@ -73,7 +74,6 @@ impl ServerInstance {
             status: Arc::new(Mutex::new(Status::Stopped)),
             name: config.name.clone(),
             stdin: None,
-            stdout: None,
             jvm_args,
             process: Arc::new(Mutex::new(None)),
             broadcaster: None,
@@ -82,15 +82,16 @@ impl ServerInstance {
         }
     }
 
-    pub fn start(&mut self, mongoDBClient: Client) -> Result<(), String> {
-        env::set_current_dir(self.path.as_str()).unwrap(); 
+    pub fn start(&mut self, mongodb_client: Client) -> Result<(), String> {
         let mut status = self.status.lock().unwrap();
+        env::set_current_dir(self.path.as_str()).unwrap(); 
         match *status {
             Status::Starting => return Err("cannot start, instance is already starting".to_string()),
             Status::Stopping => return Err("cannot start, instance is stopping".to_string()),
             Status::Running => return Err("cannot start, instance is already running".to_string()),
             Status::Stopped => (),
         }
+        *status = Status::Starting;
         let mut command = Command::new("java");
         command
         .args(&self.jvm_args)
@@ -121,12 +122,17 @@ impl ServerInstance {
                     let uuid_closure = self.uuid.clone();
                     let status_closure = self.status.clone();
                     thread::spawn(move || {
+                        let re = Regex::new(r"\[Server thread/INFO\]: Done").unwrap();
                         for line_result in reader.lines() {
+                            let mut status = status_closure.lock().unwrap();
                             let line = line_result.unwrap();
                             let time128 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
                             let time = i64::try_from(time128).unwrap();
+                            if re.is_match(line.as_str()) {
+                                *status = Status::Running;
+                            }
                             println!("Server said: {}", line);
-                            mongoDBClient
+                            mongodb_client
                                 .database(uuid_closure.as_str())
                                 .collection("logs")
                                 .insert_one(doc! {
@@ -134,18 +140,17 @@ impl ServerInstance {
                                     "log": line
                                 }, None).unwrap();
                         }
-                        let status = status_closure.lock().unwrap();
+                        let mut status = status_closure.lock().unwrap();
                         println!("program exiting as reader thread is terminating...");
                         match *status {
-                            Status::Starting => println!("server failed to start"),
+                            Status::Starting => println!("instance failed to start"),
                             Status::Stopping => println!("instance is already stopping, this is not ok"),
-                            Status::Running => println!("server exited unexpectedly, restarting..."), //TODO: Restart thru localhost
-                            Status::Stopped => println!("server stopped properly, exiting..."),
+                            Status::Running => println!("instance exited unexpectedly, restarting..."), //TODO: Restart thru localhost
+                            Status::Stopped => println!("instance stopped properly, exiting..."),
                         }
+                        *status = Status::Stopped;
                     });
-                    *status = Status::Running;
                     self.stdin = Some(stdin_sender);
-                    self.stdout = None;
                     self.broadcaster = Some(broadcaster);
                     return Ok(())
                 }
@@ -167,12 +172,12 @@ impl ServerInstance {
         Ok(())
     }
 
-    // pub fn get_status(&self) ->  {
-    //     self.running
-    // }
+    pub fn get_status(&self) -> Status {
+        self.status.lock().unwrap().clone()
+    }
 
     pub fn get_process(&self) -> Arc<Mutex<Option<Child>>> {
-        return self.process.clone();
+        self.process.clone()
     }
 
     pub fn get_path(&self) -> String {
