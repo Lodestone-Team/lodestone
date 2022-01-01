@@ -37,6 +37,14 @@ async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (
     }
 }
 
+#[post("/api/instance/<uuid>/delete")]
+async fn delete(uuid : String, state: &State<MyManagedState>) -> (Status, String) {
+    match state.instance_manager.lock().await.delete_instance(uuid) {
+        Ok(()) => (Status::Ok, "Ok".to_string()),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
+}
+
 #[get("/api/instance/<uuid>/download-progress")]
 async fn download_status(uuid: String, state: &State<MyManagedState>) -> (Status, String) {
     if !state.download_status.contains_key(&uuid) {
@@ -97,6 +105,7 @@ async fn rocket() -> _ {
                 stop,
                 send,
                 setup,
+                delete,
                 download_status,
                 jar::vanilla_versions,
                 jar::vanilla_jar,
