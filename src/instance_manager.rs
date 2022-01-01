@@ -2,7 +2,7 @@ use std::path::Path;
 use std::{fs, fs::File};
 use std::collections::HashMap;
 use std::io::prelude::*;
-use mongodb::{bson::doc, options::ClientOptions, sync::Client};
+use mongodb::{bson, options::ClientOptions, sync::Client};
 use rocket::State;
 use rocket::fairing::Result;
 use serde_json::to_string;
@@ -21,6 +21,8 @@ pub struct InstanceManager{
 }
 
 
+
+
 // TODO: DB IO
 // TODO : should prob change parameter String to &str
 impl InstanceManager {
@@ -32,6 +34,23 @@ impl InstanceManager {
             properties_file.write_all(
         b"enable-jmx-monitoring=false\nrcon.port=25575\nenable-command-block=false\ngamemode=survival\nenable-query=false\nlevel-name=world\nmotd=AMinecraftServer\nquery.port=25565\npvp=true\ndifficulty=easy\nnetwork-compression-threshold=256\nmax-tick-time=60000\nrequire-resource-pack=false\nmax-players=20\nuse-native-transport=true\nonline-mode=true\nenable-status=true\nallow-flight=false\nvbroadcast-rcon-to-ops=true\nview-distance=10\nserver-ip=\nresource-pack-prompt=\nallow-nether=true\nserver-port=25565\nenable-rcon=false\nsync-chunk-writes=true\nop-permission-level=4\nprevent-proxy-connections=false\nhide-online-players=false\nresource-pack=\nentity-broadcast-range-percentage=100\nsimulation-distance=10\nrcon.password=\nplayer-idle-timeout=0\nforce-gamemode=false\nrate-limit=0\nhardcore=false\nwhite-list=false\nbroadcast-console-to-ops=true\nspawn-npcs=true\nspawn-animals=true\nfunction-permission-level=2\ntext-filtering-config=\nspawn-monsters=true\nenforce-whitelist=false\nresource-pack-sha1=\nspawn-protection=16\nmax-world-size=29999984\n").unwrap();
         }
+
+        let mut map: HashMap<String, ServerInstance> = HashMap::new();
+
+        let database_names = mongodb
+            .list_database_names(None, None).unwrap();
+        for database_name in database_names.iter() {
+            let config = mongodb
+                .database(database_name)
+                .collection::<InstanceConfig>("config")
+                .find_one(None, None)
+                .unwrap()
+                .unwrap();
+            let key = &config.uuid.unwrap().clone();
+            map.insert(key, ServerInstance::new(&config, path));
+        }
+
+
         Ok(InstanceManager{
             instance_collection : HashMap::new(),
             path,
@@ -88,7 +107,7 @@ impl InstanceManager {
         self.mongodb
             .database(&uuid)
             .collection("config")
-            .insert_one(doc! {
+            .insert_one(bson::doc! {
                 "name": &config.name,
                 "version": &config.version,
                 "flavour": &config.flavour,

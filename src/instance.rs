@@ -13,7 +13,7 @@ use regex::Regex;
 use crate::instance_manager::InstanceManager;
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct InstanceConfig {
     pub name: String,
