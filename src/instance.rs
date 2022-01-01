@@ -6,7 +6,6 @@ use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
-use bus::Bus;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
 use serde::{Serialize, Deserialize};
 use regex::Regex;
@@ -20,7 +19,7 @@ pub struct InstanceConfig {
     pub version: String,
     pub flavour: String,
     /// url to download the server.jar file from upon setup
-    pub url: String, 
+    pub url: Option<String>, 
     pub port : Option<u32>,
     pub uuid: Option<String>,
     pub min_ram: Option<u32>,
@@ -48,7 +47,7 @@ pub struct ServerInstance {
     pub stdin: Option<Sender<String>>,
     status: Arc<Mutex<Status>>,
     process: Arc<Mutex<Option<Child>>>,
-    broadcaster: Option<Bus<bool>>,
+    kill_tx: Option<Sender<()>>,
 }
 
 
@@ -76,7 +75,7 @@ impl ServerInstance {
             stdin: None,
             jvm_args,
             process: Arc::new(Mutex::new(None)),
-            broadcaster: None,
+            kill_tx: None,
             path,
             uuid: config.uuid.as_ref().unwrap().clone(),
         }
@@ -101,15 +100,15 @@ impl ServerInstance {
             .spawn() {
                 Ok(proc) => {
                     let (stdin_sender, stdin_receiver) : (Sender<String>, Receiver<String>) = mpsc::channel();
+                    let (kill_tx, kill_rx) : (Sender<()>, Receiver<()>) = mpsc::channel();
+
                     let mut stdin_writer = proc.stdin.ok_or("failed to open stdin of child process")?;
                     let stdout = proc.stdout.ok_or("failed to open stdin of child process")?;
-                    let mut broadcaster : Bus<bool> = Bus::new(10);
-                    let mut rx = broadcaster.add_rx();
                     let reader = BufReader::new(stdout);
                     thread::spawn(move || {
                         let stdin_receiver = stdin_receiver;
                         loop {
-                            if rx.try_recv().is_ok() { break; }
+                            if kill_rx.try_recv().is_ok() { break; }
                             let rec = stdin_receiver.recv().unwrap();
                             println!("writing to stdin: {}", rec);
                             stdin_writer.write_all(rec.as_bytes()).unwrap();
@@ -151,7 +150,7 @@ impl ServerInstance {
                         *status = Status::Stopped;
                     });
                     self.stdin = Some(stdin_sender);
-                    self.broadcaster = Some(broadcaster);
+                    self.kill_tx = Some(kill_tx);
                     return Ok(())
                 }
                 Err(_) => return Err("failed to open child process".to_string())
@@ -167,7 +166,7 @@ impl ServerInstance {
         }
         *status = Status::Stopping;
         self.stdin.clone().unwrap().send("stop\n".to_string()).unwrap();
-        self.broadcaster.as_mut().unwrap().broadcast(true);
+        self.kill_tx.as_mut().unwrap().send(());
         *status = Status::Stopped;
         Ok(())
     }
