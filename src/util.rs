@@ -66,10 +66,33 @@ pub fn mongodb_create_user(password: &String ) {
         }, None).unwrap();
 }
 
+pub fn hash_password(password: String) -> String{
+    //TODO: actual cryptography
+    password + "BRUH"
+}
+
 pub fn authenticate(username: String, password: String) -> bool{
     //TODO: fetch data from db and actually check.
-    username == "admin" && password == "admin"
+    
+    let hashed = hash_password(password);
+    username == "admin" && hashed == "adminBRUH"
 }
+
+pub fn create_user(username: String, password: String) -> Result<(), String>{
+    //TODO: actually try to store to database
+
+    //check if username is duplicate
+
+    //push to database
+
+    if username == "admin" {
+        return Err("User already exist".to_string());
+    }
+
+    Ok(())
+}
+
+//TODO: permission stuff with user
 
 mod fs_helper {
     
