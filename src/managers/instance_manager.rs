@@ -39,7 +39,8 @@ impl InstanceManager {
         let database_names = mongodb
             .list_database_names(None, None).unwrap();
         for database_name in database_names.iter() {
-            if !(database_name == "admin" || database_name == "config" || database_name == "local") {
+            //TODO: make this better
+            if !(database_name == "admin" || database_name == "config" || database_name == "local"  || database_name == "users") {
                 let config = mongodb
                     .database(database_name)
                     .collection::<InstanceConfig>("config")

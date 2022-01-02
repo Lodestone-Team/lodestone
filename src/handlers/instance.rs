@@ -15,7 +15,7 @@ pub async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) 
     }
 }
 
-#[post("/api/instance/<uuid>/delete")]
+#[delete("/api/instance/<uuid>")]
 pub async fn delete(uuid : String, state: &State<MyManagedState>) -> (Status, String) {
     match state.instance_manager.lock().await.delete_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),

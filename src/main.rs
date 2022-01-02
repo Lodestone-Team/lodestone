@@ -11,6 +11,7 @@ mod util;
 mod managers;
 use managers::*;
 use handlers::*;
+use users::*;
 use instance_manager::InstanceManager;
 use mongodb::{options::ClientOptions, sync::Client};
 pub struct MyManagedState {
@@ -31,6 +32,8 @@ async fn rocket() -> _ {
         .mount(
             "/",
             routes![
+                users::create,
+                users::test,
                 instance::start,
                 instance::stop,
                 instance::send,

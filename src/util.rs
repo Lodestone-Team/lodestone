@@ -18,7 +18,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Authentication {
     username: String,
-    hashed_password: String
+    password: String
 }
 
 use crate::MyManagedState;
@@ -85,8 +85,7 @@ pub fn hash_password(password: &String) -> String{
     hasher.result_str()
 }
 
-pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
-    let mongodb_client = &state.mongodb_client; 
+pub fn authenticate(mongodb_client: &mongodb::sync::Client, username: String, password: String) -> Result<(), String>{
     let password = hash_password(&password);
 
     let pairing_option = mongodb_client
