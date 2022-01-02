@@ -85,11 +85,11 @@ pub fn hash_password(password: &String) -> String{
     hasher.result_str()
 }
 
-pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> bool{
+pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> Result<bool, String>{
     //TODO: fetch data from db and actually check.
     
     let hashed = hash_password(&password);
-    username == "admin" && hashed == "adminBRUH"
+    Ok(username == "admin" && hashed == "adminBRUH")
 }
 
 pub fn create_user(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
