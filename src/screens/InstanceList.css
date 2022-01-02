@@ -1,0 +1,9 @@
+.instance-list{
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+}
+
+.instance-list .instance{
+  margin: 0 2em 0 0;
+}

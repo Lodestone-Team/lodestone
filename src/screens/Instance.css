@@ -1,0 +1,9 @@
+.instance{
+  width: 15em;
+}
+
+.instance .player-count{
+  font-weight: 900;
+  color: #008F06;
+  font-size: 50px;
+}

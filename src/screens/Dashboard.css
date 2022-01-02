@@ -1,0 +1,14 @@
+.dashboard{
+  background-color: #F5F5F5;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  align-items: flex-start;
+  padding: 2em;
+}
+
+.dashboard .title{
+
+}
