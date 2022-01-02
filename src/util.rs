@@ -73,14 +73,14 @@ pub fn mongodb_create_user(password: &String ) {
 
 pub fn hash_password(password: &String) -> String{
     let mut hasher = Sha3::sha3_256();
-    hasher.input_str(password);
+    hasher.input_str(format!("{}pepega", password).as_str());
     hasher.result_str()
 }
 
 pub fn authenticate(username: String, password: String) -> bool{
     //TODO: fetch data from db and actually check.
     
-    let hashed = hash_password(password);
+    let hashed = hash_password(&password);
     username == "admin" && hashed == "adminBRUH"
 }
 
