@@ -14,7 +14,7 @@ pub async fn get_list(state: &State<MyManagedState>) -> content::Json<String> {
         .list_database_names(None, None)
         .unwrap();
     for database_name in database_names.iter() {
-        if (database_name.contains("-")) { // is instance database
+        if database_name.contains("-") { // TODO use db filter instead
             let config = mongodb_client
                 .database(&database_name)
                 .collection::<InstanceConfig>("config")

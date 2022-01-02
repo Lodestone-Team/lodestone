@@ -18,7 +18,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Authentication {
     username: String,
-    password: String
+    hashed_password: String
 }
 
 use crate::MyManagedState;
