@@ -1,9 +1,31 @@
 use rocket::http::Status;
+use rocket::response::content;
 use rocket::State;
 use rocket::serde::json::Json;
 use crate::MyManagedState;
 use crate::managers::server_instance::InstanceConfig;
 
+
+#[get("/api/instances")]
+pub async fn get_list(state: &State<MyManagedState>) -> content::Json<String> {
+    let mut r = Vec::new();
+    let mongodb_client = &state.mongodb_client;
+    let database_names = mongodb_client
+        .list_database_names(None, None)
+        .unwrap();
+    for database_name in database_names.iter() {
+        if (database_name.contains("-")) { // is instance database
+            let config = mongodb_client
+                .database(&database_name)
+                .collection::<InstanceConfig>("config")
+                    .find_one(None, None)
+                    .unwrap()
+                    .unwrap();
+            r.push(config);
+        }
+    }
+    content::Json(serde_json::to_string(&r).unwrap())
+}
 
 #[post("/api/instance", data = "<config>")]
 pub async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (Status, String) {
