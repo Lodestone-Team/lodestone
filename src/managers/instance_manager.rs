@@ -122,6 +122,10 @@ impl InstanceManager {
         Ok(uuid)
     }
 
+    pub fn get_status(&mut self, uuid: String) -> Result<String, String> {
+        let instance = self.instance_collection.get_mut(&uuid).ok_or("instance does not exist".to_string())?;
+        Ok(instance.get_status().to_string())
+    }
 
     // TODO: basically drop database
     pub fn delete_instance(&mut self, uuid : String) -> Result<(), String> {
@@ -150,7 +154,6 @@ impl InstanceManager {
         };
         Ok(())
     }
-
     
     pub fn send_command(&self, uuid : String, command : String) -> Result<(), String> {
         let instance = self.instance_collection.get(&uuid).ok_or("cannot send command to instance as it does not exist".to_string())?;

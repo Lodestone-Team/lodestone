@@ -3,7 +3,7 @@ use std::process::{Command, Stdio, ChildStdout, Child};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc::{self, Sender, Receiver};
-use std::thread;
+use std::{thread, fmt};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
@@ -32,12 +32,23 @@ enum BroadcastCommand {
     Terminate,
     Continue,       
 }
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Status {
     Starting,
     Stopping,
     Running,
     Stopped,
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Status::Starting => write!(f, "Starting"),
+            Status::Stopping => write!(f, "Stopping"),
+            Status::Running => write!(f, "Running"),
+            Status::Stopped => write!(f, "Stopped"),
+        }
+    }
 }
 pub struct ServerInstance {
     pub name : String,

@@ -55,6 +55,15 @@ pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, Strin
     }
 }
 
+#[get("/api/instance/<uuid>/status")]
+pub async fn status(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
+    match state.instance_manager.lock().await.get_status(uuid) {
+        Ok(status) => (Status::Ok, status),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
+}
+
+
 #[get("/api/instance/<uuid>/send/<command>")]
 pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) -> (Status, String) {
     match state
