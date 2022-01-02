@@ -73,7 +73,7 @@ impl InstanceManager {
 
         fs::create_dir(path_to_instance.as_str()).map_err(|e| e.to_string())?;
         let instance = ServerInstance::new(&config, path_to_instance.clone());
-        util::download_file(&config.url.unwrap(), format!("{}server.jar", &path_to_instance).as_str(), state, instance.uuid.as_str()).await?; // TODO: get rid of await
+        util::download_file(&config.url.clone().unwrap(), format!("{}server.jar", &path_to_instance).as_str(), state, instance.uuid.as_str()).await?; // TODO: get rid of await
 
         let path_to_eula = format!("{}eula.txt", path_to_instance);
         let mut eula_file = File::create(path_to_eula.as_str()).map_err(|_|"failed to create eula.txt".to_string())?;
@@ -114,6 +114,7 @@ impl InstanceManager {
                 "flavour": &config.flavour,
                 "port": &config.port,
                 "uuid": &config.uuid.unwrap(),
+                "url": &config.url.unwrap(),
                 "min_ram": &config.min_ram.unwrap_or(1024),
                 "max_ram": &config.max_ram.unwrap_or(2048)
             }, None).unwrap();
