@@ -80,7 +80,8 @@ pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, Strin
 #[get("/api/instance/<uuid>/status")]
 pub async fn status(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.get_status(uuid) {
-        Ok(status) => (Status::Ok, status),
+        //return status in lowercase
+        Ok(status) => (Status::Ok, status.to_lowercase()),
         Err(reason) => (Status::InternalServerError, reason),
     }
 }
