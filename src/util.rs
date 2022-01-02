@@ -77,14 +77,14 @@ pub fn hash_password(password: &String) -> String{
     hasher.result_str()
 }
 
-pub fn authenticate(username: String, password: String) -> bool{
+pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> bool{
     //TODO: fetch data from db and actually check.
     
     let hashed = hash_password(&password);
     username == "admin" && hashed == "adminBRUH"
 }
 
-pub fn create_user(username: String, password: String) -> Result<(), String>{
+pub fn create_user(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
     //TODO: actually try to store to database
 
     //check if username is duplicate
