@@ -85,7 +85,7 @@ pub fn hash_password(password: &String) -> String{
     hasher.result_str()
 }
 
-pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> Result<bool, String>{
+pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
     let mongodb_client = &state.mongodb_client; 
     let password = hash_password(&password);
 
@@ -98,8 +98,8 @@ pub fn authenticate(state: &State<MyManagedState>, username: String, password: S
         }, None)
         .unwrap();
     match pairing_option {
-        Some(_) => return Ok(true),
-        None => return Ok(false)
+        Some(_) => return Ok(()),
+        None => return Err("username or password does not match".to_string())
     }
 }
 
