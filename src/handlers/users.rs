@@ -34,6 +34,7 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
         let password = request.headers().get_one("password");
         // let state = request.rocket().state().unwrap();
 
+        //TODO: not have to create another client on every request
         let mut client_options = ClientOptions::parse("mongodb://localhost:27017").unwrap();
         client_options.app_name = Some("MongoDB Client".to_string());
     
