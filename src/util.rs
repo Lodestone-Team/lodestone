@@ -119,9 +119,6 @@ pub fn create_user(state: &State<MyManagedState>, username: String, password: St
         }
     }
 
-    //push to database
-
-    Ok(())
 }
 
 //TODO: permission stuff with user
