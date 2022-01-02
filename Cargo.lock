@@ -19,7 +19,6 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
- "wait-timeout",
 ]
 
 [[package]]
@@ -1884,6 +1883,7 @@ dependencies = [
  "state",
  "time 0.2.27",
  "tokio",
+ "tokio-rustls",
  "uncased",
 ]
 
@@ -2779,15 +2779,6 @@ name = "version_check"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
-
-[[package]]
-name = "wait-timeout"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f200f5b12eb75f8c1ed65abd4b2db8a6e1b138a20de009dacee265a2498f3f6"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "waker-fn"

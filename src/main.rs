@@ -23,7 +23,7 @@ pub struct MyManagedState {
 
 #[launch]
 async fn rocket() -> _ {
-    let mut client_options = ClientOptions::parse("mongodb://localhost:27017").unwrap();
+    let mut client_options = ClientOptions::parse("mongodb://localhost:27017/?tls=false").unwrap();
     client_options.app_name = Some("MongoDB Client".to_string());
 
     let client = Client::with_options(client_options).unwrap();
