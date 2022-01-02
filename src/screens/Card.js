@@ -4,15 +4,21 @@ import React, { useEffect, useRef } from "react";
 
 import VanillaTilt from "vanilla-tilt";
 
-export default function Dashboard({children, className, options}) {
-  const tilt = useRef(null);
+const defaultTilt = {
+  scale: 1.025,
+  speed: 1000,
+  max: 8
+};
 
-  useEffect(() => {
-    VanillaTilt.init(tilt.current, options);
-  }, [options]);
+export default function Dashboard({children, className, options = defaultTilt}) {
+  // const tilt = useRef(null);
+
+  // useEffect(() => {
+  //   VanillaTilt.init(tilt.current, options);
+  // }, [options]);
   
   return (
-    <div ref={tilt} className={"card " + className}>
+    <div className={"card " + className}>
       {children}
     </div>
   )

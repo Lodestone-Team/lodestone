@@ -2,10 +2,12 @@ import "./Instance.css";
 import "./Card.css";
 
 import React, { useEffect, useState } from "react";
-import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle } from '@fortawesome/free-solid-svg-icons'
 
 import Card from "./Card";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import OverlayTrigger from "react-bootstrap/OverlayTrigger";
+import Tooltip from "react-bootstrap/Tooltip";
 import { faCircle as faRing } from '@fortawesome/free-regular-svg-icons'
 
 var utils = require("../utils")
@@ -20,18 +22,12 @@ async function getStatus(uuid) {
 
 async function getPlayercount(uuid) {
   //TODO: replace placeholder value with actual playercount
-  
+
   //randomly return a number between 0 and 10
-  return Math.floor(Math.random() * 10)+"/20";
+  return Math.floor(Math.random() * 10) + "/20";
 }
 
 const domain = window.location.host.split(":")[0];
-
-const tiltOptions = {
-  scale: 1.05,
-  speed: 1000,
-  max: 10
-};
 
 export default function Instance({ name, version, flavour, port, uuid }) {
   const [playerCount, setPlayerCount] = useState("");
@@ -52,13 +48,13 @@ export default function Instance({ name, version, flavour, port, uuid }) {
     }
   }
 
-  React.useEffect(() => {
+  useEffect(() => {
     getStatus(uuid).then(setStatus);
     getPlayercount(uuid).then(setPlayerCount);
   }, [uuid]);
 
   return (
-    <Card className={"instance " + status} options={tiltOptions} >
+    <Card className={"instance " + status} >
       <div className="title-bar">
         <h2 className="title">{name}</h2>
         <h3 className="subtitle">{domain}:{port}</h3>
@@ -70,7 +66,13 @@ export default function Instance({ name, version, flavour, port, uuid }) {
         {renderStatusDot(status)}
         <span className="status">{status ? utils.capitalize(status) : "..."}</span>
         <span className="instance-actions">
-          <FontAwesomeIcon icon={faPlay} className="safe" />
+          <OverlayTrigger
+            placement="top"
+            overlay={<Tooltip>Start</Tooltip>}
+          >
+            <FontAwesomeIcon icon={faPlay} className="safe" />
+          </OverlayTrigger>
+
           <FontAwesomeIcon icon={faStop} className="caution" />
           {/* <FontAwesomeIcon icon={faTrash} className="danger" /> */}
         </span>
