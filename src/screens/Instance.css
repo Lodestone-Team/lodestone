@@ -1,9 +1,34 @@
 .instance{
-  width: 15em;
+  width: 18em;
+  --main-color: var(--gray);
+}
+
+.instance.running{
+  --main-color: var(--green);
 }
 
 .instance .player-count{
   font-weight: 900;
-  color: #008F06;
   font-size: 50px;
+  color: var(--main-color);
+}
+
+.instance-actions{
+  margin-left: auto;
+}
+
+.instance .status-bar{
+  display: flex;
+  flex-direction: row;
+  align-content: flex-end;
+  width: 100%;
+}
+
+.instance .status-bar .instance-actions svg{
+  margin-left: 1em;
+}
+
+.instance .status-dot{
+  height: auto;
+  margin-right: .3em;
 }
