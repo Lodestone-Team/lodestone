@@ -86,15 +86,25 @@ pub fn hash_password(password: &String) -> String{
 }
 
 pub fn authenticate(state: &State<MyManagedState>, username: String, password: String) -> Result<bool, String>{
-    //TODO: fetch data from db and actually check.
-    
-    let hashed = hash_password(&password);
-    Ok(username == "admin" && hashed == "adminBRUH")
+    let mongodb_client = &state.mongodb_client; 
+    let password = hash_password(&password);
+
+    let pairing_option = mongodb_client
+        .database("users")
+        .collection::<Authentication>("authentication")
+        .find_one( doc! {
+            "username": &username,
+            "password": &password
+        }, None)
+        .unwrap();
+    match pairing_option {
+        Some(_) => return Ok(true),
+        None => return Ok(false)
+    }
 }
 
 pub fn create_user(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
     let mongodb_client = &state.mongodb_client; 
-    //TODO: actually try to store to database
     let password = hash_password(&password);
     //check if username is duplicate
     let exists_option = mongodb_client
