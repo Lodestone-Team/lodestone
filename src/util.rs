@@ -7,11 +7,19 @@ use std::io::Write;
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
 
-use reqwest::Client;
-use indicatif::{ProgressBar, ProgressStyle};
 use futures_util::StreamExt;
-use rocket::State;
+use indicatif::{ProgressBar, ProgressStyle};
 use mongodb::{bson::doc, options::ClientOptions, sync::Client as mongoDBClient};
+use reqwest::Client;
+use rocket::State;
+use rocket::response::status::NoContent;
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Authentication {
+    username: String,
+    hashed_password: String
+}
 
 use crate::MyManagedState;
 // copied from https://gist.github.com/giuliano-oliveira/4d11d6b3bb003dba3a1b53f43d81b30d
@@ -85,15 +93,33 @@ pub fn authenticate(state: &State<MyManagedState>, username: String, password: S
 }
 
 pub fn create_user(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
+    let mongodb_client = &state.mongodb_client; 
     //TODO: actually try to store to database
-
+    let password = hash_password(&password);
     //check if username is duplicate
+    let exists_option = mongodb_client
+        .database("users")
+        .collection::<Authentication>("authentication")
+        .find_one( doc! {
+            "username": &username
+        }, None)
+        .unwrap();
+    match exists_option {
+        Some(_) => return Err("User already exists".to_string()),
+        None => {
+            mongodb_client
+                .database("users")
+                .collection("authentication")
+                .insert_one( doc! {
+                    "username": &username,
+                    "password": &password
+                }, None)
+                .unwrap();
+            return Ok(());
+        }
+    }
 
     //push to database
-
-    if username == "admin" {
-        return Err("User already exist".to_string());
-    }
 
     Ok(())
 }

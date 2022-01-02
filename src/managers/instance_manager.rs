@@ -40,14 +40,14 @@ impl InstanceManager {
             .list_database_names(None, None).unwrap();
         for database_name in database_names.iter() {
             if !(database_name == "admin" || database_name == "config" || database_name == "local") {
-            let config = mongodb
-                .database(database_name)
-                .collection::<InstanceConfig>("config")
-                .find_one(None, None)
-                .unwrap()
-                .unwrap();
-            let key = config.uuid.clone().unwrap();
-            instance_collection.insert(key, ServerInstance::new(&config, format!("{}{}", path, config.name)));
+                let config = mongodb
+                    .database(database_name)
+                    .collection::<InstanceConfig>("config")
+                    .find_one(None, None)
+                    .unwrap()
+                    .unwrap();
+                let key = config.uuid.clone().unwrap();
+                instance_collection.insert(key, ServerInstance::new(&config, format!("{}{}", path, config.name)));
             }
         }
 
