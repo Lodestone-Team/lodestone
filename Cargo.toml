@@ -24,6 +24,7 @@ indicatif = "0.15.0"
 uuid = "0.8.2"
 wait-timeout = "0.2.0"
 sanitize-filename = "0.3.0"
+rust-crypto = "^0.2"
 
 [dependencies.mongodb]
 version = "2.0.0"

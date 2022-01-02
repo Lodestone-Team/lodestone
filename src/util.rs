@@ -1,6 +1,11 @@
+extern crate crypto;
+
 use std::{cmp::min};
 use std::fs::File;
 use std::io::Write;
+
+use crypto::digest::Digest;
+use crypto::sha3::Sha3;
 
 use reqwest::Client;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -66,9 +71,10 @@ pub fn mongodb_create_user(password: &String ) {
         }, None).unwrap();
 }
 
-pub fn hash_password(password: String) -> String{
-    //TODO: actual cryptography
-    password + "BRUH"
+pub fn hash_password(password: &String) -> String{
+    let mut hasher = Sha3::sha3_256();
+    hasher.input_str(password);
+    hasher.result_str()
 }
 
 pub fn authenticate(username: String, password: String) -> bool{
