@@ -27,10 +27,11 @@ pub async fn get_list(state: &State<MyManagedState>) -> content::Json<String> {
     content::Json(serde_json::to_string(&r).unwrap())
 }
 
-#[post("/api/instance", data = "<config>")]
-pub async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (Status, String) {
+#[post("/api/instance/<uuid>", data = "<config>")]
+pub async fn setup(uuid : String, config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (Status, String) {
     let mut manager = state.instance_manager.lock().await;
-    let config = config.into_inner();
+    let mut config = config.into_inner();
+    config.uuid = Some(uuid);
     match manager.create_instance(config, state).await {
         Ok(uuid) => (Status::Created, uuid),
         Err(reason) => (Status::InternalServerError, reason),
