@@ -29,13 +29,17 @@ function SystemMonitor() {
     const [cpu, setCpu] = useState([]);
 
     const data = {
-        // labels: ["pepega1", "pepega2", "pepega3"],
+        labels: [1, 2, 3],
         datasets: [
             {
-                data: [10, 20, 30]
+                label: "CPU",
+                data: [5, 6, 7],
+            },
+            {
+                label: "RAM",
+                data: [3, 2, 1],
             },
         ],
-        
     }
 
     console.log(data);
@@ -43,20 +47,33 @@ function SystemMonitor() {
     return (
         <Card>
             <Line
-                datasetIdKey = "cpu"
-                data = {data} 
+                datasetIdKey="label"
+                data={data}
+                options={{
+                    legend: {
+                        display: false
+                    },
+                    tooltips: {
+                        callbacks: {
+                            label: function (tooltipItem) {
+                                return tooltipItem.yLabel;
+                            }
+                        }
+                    }
+                }}
+
             />
             <Doughnut
                 datasetIdKey="ram"
-                data = {
+                data={
                     {
-                        labels: ["empty", "usage"],
+                        labels: ["usage", "empty"],
                         datasets: [
                             {
-                                data: [50, 50]
+                                data: [1535, 124]
                             },
                         ],
-                        
+
                     }
                 }
             />
