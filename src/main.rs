@@ -43,7 +43,13 @@ async fn rocket() -> _ {
                 jar::vanilla_versions,
                 jar::vanilla_jar,
                 jar::vanilla_options,
-                jar::flavours
+                jar::flavours,
+                system::get_ram,
+                system::get_disk,
+                system::get_cpu_speed,
+                system::get_cpu_info,
+                system::get_os_info,
+                system::get_uptime
             ],
         )
         .manage(MyManagedState {
