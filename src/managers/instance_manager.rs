@@ -10,21 +10,16 @@ use crate::MyManagedState;
 use crate::managers::server_instance::{ServerInstance, InstanceConfig};
 use crate::util;
 use crate::properties_manager::PropertiesManager;
-use uuid::Uuid; 
+use crate::util::db_util::mongo_schema::*;
 
-
-pub struct InstanceManager{
+pub struct InstanceManager {
     instance_collection : HashMap<String, ServerInstance>,
     taken_ports : Vec<u32>, 
     path : String, // must end with /
     mongodb : Client,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Log {
-    time: i64,
-    log: String
-}
+
 
 
 
