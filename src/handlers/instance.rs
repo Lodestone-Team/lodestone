@@ -1,14 +1,37 @@
 use rocket::http::Status;
+use rocket::response::content;
 use rocket::State;
 use rocket::serde::json::Json;
 use crate::MyManagedState;
 use crate::managers::server_instance::InstanceConfig;
 
 
-#[post("/api/instance", data = "<config>")]
-pub async fn setup(config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (Status, String) {
+#[get("/api/instances")]
+pub async fn get_list(state: &State<MyManagedState>) -> content::Json<String> {
+    let mut r = Vec::new();
+    let mongodb_client = &state.mongodb_client;
+    let database_names = mongodb_client
+        .list_database_names(None, None)
+        .unwrap();
+    for database_name in database_names.iter() {
+        if database_name.contains("-") { // TODO use db filter instead
+            let config = mongodb_client
+                .database(&database_name)
+                .collection::<InstanceConfig>("config")
+                    .find_one(None, None)
+                    .unwrap()
+                    .unwrap();
+            r.push(config);
+        }
+    }
+    content::Json(serde_json::to_string(&r).unwrap())
+}
+
+#[post("/api/instance/<uuid>", data = "<config>")]
+pub async fn setup(uuid : String, config: Json<InstanceConfig>, state: &State<MyManagedState>) -> (Status, String) {
     let mut manager = state.instance_manager.lock().await;
-    let config = config.into_inner();
+    let mut config = config.into_inner();
+    config.uuid = Some(uuid);
     match manager.create_instance(config, state).await {
         Ok(uuid) => (Status::Created, uuid),
         Err(reason) => (Status::InternalServerError, reason),
@@ -39,7 +62,7 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
     )
 }
 
-#[get("/api/instance/<uuid>/start")]
+#[post("/api/instance/<uuid>/start")]
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.start_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
@@ -47,7 +70,7 @@ pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, Stri
     }
 }
 
-#[get("/api/instance/<uuid>/stop")]
+#[post("/api/instance/<uuid>/stop")]
 pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.stop_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
@@ -55,7 +78,17 @@ pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, Strin
     }
 }
 
-#[get("/api/instance/<uuid>/send/<command>")]
+#[get("/api/instance/<uuid>/status")]
+pub async fn status(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
+    match state.instance_manager.lock().await.get_status(uuid) {
+        //return status in lowercase
+        Ok(status) => (Status::Ok, status.to_lowercase()),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
+}
+
+
+#[post("/api/instance/<uuid>/send/<command>")]
 pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) -> (Status, String) {
     match state
         .instance_manager
