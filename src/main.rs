@@ -64,6 +64,7 @@ async fn rocket() -> _ {
                 instance::download_status,
                 instance::status,
                 instance::get_list,
+                instance::get_logs,
                 jar::vanilla_versions,
                 jar::vanilla_jar,
                 jar::vanilla_options,

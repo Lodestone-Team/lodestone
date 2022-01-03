@@ -1,9 +1,12 @@
+use mongodb::{bson::doc};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::State;
 use rocket::serde::json::Json;
 use crate::MyManagedState;
 use crate::managers::server_instance::InstanceConfig;
+use crate::util::db_util::mongo_schema::*;
+
 
 
 #[get("/api/instances")]
@@ -99,4 +102,25 @@ pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) 
         Ok(()) => (Status::Ok, "Ok".to_string()),
         Err(reason) => (Status::InternalServerError, reason),
     }
+}
+
+#[post("/api/instance/<uuid>/log?<start>&<end>")]
+pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> content::Json<String> {
+    let mut r = Vec::new();
+    let mongodb_client = &state.mongodb_client;
+// TODO use db filter instead
+    let logs = mongodb_client
+        .database(&uuid)
+        .collection::<Log>("config")
+        .find( doc! {
+            "time" : {
+                "$gte": start,
+                "$lte": end
+            }
+        }, None)
+        .unwrap();
+    for log in logs {
+        r.push(log.unwrap());
+    }
+    content::Json(serde_json::to_string(&r).unwrap())
 }

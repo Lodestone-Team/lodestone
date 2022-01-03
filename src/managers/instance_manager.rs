@@ -19,11 +19,6 @@ pub struct InstanceManager {
     mongodb : Client,
 }
 
-
-
-
-
-
 // TODO: DB IO
 // TODO : should prob change parameter String to &str
 impl InstanceManager {
