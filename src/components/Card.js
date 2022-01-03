@@ -20,7 +20,7 @@ export default function Card({children, className, options = defaultTilt}) {
   return (
     <div
     // ref={tilt}
-    className={"card " + className}>
+    className={"card " + (className ? className : "") }>
       {children}
     </div>
   )

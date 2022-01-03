@@ -3,7 +3,7 @@ import "./InstanceList.css";
 import React, { useContext, useEffect, useState } from "react";
 
 import Instance from "./Instance";
-import PlusIcon from "../assets/plus.svg";
+import InstanceCreator from "./InstanceCreator";
 import { ServerContext } from "../contexts/ServerContext";
 
 var utils = require("../utils")
@@ -34,7 +34,7 @@ export default function InstanceList() {
           <Instance key={instance.uuid} {...instance} />
         ))
       }
-      <img src={PlusIcon} alt="Plus Icon" className="new-instance-button" />
+      <InstanceCreator />
     </div>
   );
 };
