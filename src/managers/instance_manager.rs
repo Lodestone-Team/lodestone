@@ -2,9 +2,10 @@ use std::path::Path;
 use std::{fs, fs::File};
 use std::collections::HashMap;
 use std::io::prelude::*;
-use mongodb::{bson, options::ClientOptions, sync::Client};
+use mongodb::{IndexModel, bson::doc, options::ClientOptions, sync::Client};
 use rocket::State;
 use rocket::fairing::Result;
+use serde::{Serialize, Deserialize};
 use crate::MyManagedState;
 use crate::managers::server_instance::{ServerInstance, InstanceConfig};
 use crate::util;
@@ -17,6 +18,12 @@ pub struct InstanceManager{
     taken_ports : Vec<u32>, 
     path : String, // must end with /
     mongodb : Client,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Log {
+    time: i64,
+    log: String
 }
 
 
@@ -113,7 +120,7 @@ impl InstanceManager {
         self.mongodb
             .database(&config.uuid.clone().unwrap())
             .collection("config")
-            .insert_one(bson::doc! {
+            .insert_one(doc! {
                 "name": &config.name,
                 "version": &config.version,
                 "flavour": &config.flavour,
@@ -123,6 +130,24 @@ impl InstanceManager {
                 "min_ram": &config.min_ram.unwrap_or(1024),
                 "max_ram": &config.max_ram.unwrap_or(2048)
             }, None).unwrap();
+
+        self.mongodb
+            .database(&config.uuid.clone().unwrap())
+            .create_collection("log", None)
+            .unwrap();
+        
+        self.mongodb
+            .database(&config.uuid.clone().unwrap())
+            .collection::<Log>("log")
+            .create_index(
+                IndexModel::builder()
+                .keys( doc! {
+                    "time": -1
+                })
+                .build()
+            , None)
+            .unwrap();
+        
 
         Ok(config.uuid.unwrap())
     }
