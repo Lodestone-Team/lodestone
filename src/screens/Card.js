@@ -7,18 +7,18 @@ import VanillaTilt from "vanilla-tilt";
 const defaultTilt = {
   scale: 1.025,
   speed: 1000,
-  max: 8
+  max: 5
 };
 
 export default function Card({children, className, options = defaultTilt}) {
-  // const tilt = useRef(null);
+  const tilt = useRef(null);
 
-  // useEffect(() => {
-  //   VanillaTilt.init(tilt.current, options);
-  // }, [options]);
+  useEffect(() => {
+    VanillaTilt.init(tilt.current, options);
+  }, [options]);
   
   return (
-    <div className={"card " + className}>
+    <div ref={tilt} className={"card " + className}>
       {children}
     </div>
   )
