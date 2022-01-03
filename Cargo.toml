@@ -24,6 +24,7 @@ indicatif = "0.15.0"
 uuid = "0.8.2"
 sanitize-filename = "0.3.0"
 rust-crypto = "^0.2"
+# rocket_cors = "0.5.1"
 
 sys-info = "0.9.1"
 cpuid = "*"
