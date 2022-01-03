@@ -28,7 +28,9 @@ async function getPlayercount(uuid) {
   return Math.floor(Math.random() * 10) + "/20";
 }
 
-const domain = window.location.host.split(":")[0];
+const domain = "127.0.0.1";
+//TODO: replace this with proper domain name
+// const domain = window.location.host.split(":")[0];
 
 export default function Instance({ name, version, flavour, port, uuid }) {
   const [playerCount, setPlayerCount] = useState("");
@@ -56,7 +58,7 @@ export default function Instance({ name, version, flavour, port, uuid }) {
 
   let startServer = () => {
     //POST /api/instance/{uuid}/start
-    fetch(`https://${domain}:${port}/api/instance/${uuid}/start`, {
+    fetch(`https://${domain}:8000/api/instance/${uuid}/start`, {
       method: 'POST',
     }).then(response => {
       if (response.ok) {
@@ -65,7 +67,23 @@ export default function Instance({ name, version, flavour, port, uuid }) {
       } else {
         toast.error(response.body);
       }
-    }).catch(error => {
+    }).catch(err => {
+      toast.error("Failed to communicate with server.");
+    });
+  }
+
+  let stopServer = () => {
+    //POST /api/instance/{uuid}/start
+    fetch(`https://${domain}:8000/api/instance/${uuid}/stop`, {
+      method: 'POST',
+    }).then(response => {
+      if (response.ok) {
+        toast.success("Server stopped");
+        getStatus(uuid).then(setStatus);
+      } else {
+        toast.error(response.body);
+      }
+    }).catch(err => {
       toast.error("Failed to communicate with server.");
     });
   }
