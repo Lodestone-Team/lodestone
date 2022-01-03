@@ -13,6 +13,7 @@ import { Bar, Doughnut, Line } from "react-chartjs-2";
 import React, { useEffect, useRef, useState } from "react";
 
 import Card from "./Card";
+import { useInterval } from '../utils';
 
 ChartJS.register(
     ArcElement,
@@ -26,8 +27,28 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
-    const [cpu, setCpu] = useState(new Array(60).fill(0));
+    const [cpuHistory, setCpuHistory] = useState(new Array(60).fill(0));
     const [ram, setRam] = useState(new Array(60).fill(0));
+
+    const { pollrate, domain, webport } = useContext(ServerContext);
+
+    // return just a number/tuple idfk
+    const getCurCpuUsage = async (domain, webport) => {
+        // TODO fetch backend for data
+        let response = await fetch(`https://${domain}:${webport}/api/sys/`);
+        // TODO process data to get a percentage back
+    }
+
+    const updateCPU = (domain, webport) => {
+        const newCpu = [...cpuHistory];
+        newCpu.shift()
+        
+        const newCpuUsage = getCurCpuUsage(domain, webport);
+        newCpu.push(newCpuUsage);
+        setCpuHistory(newCpu)
+    }
+
+    useInterval(updateCPU(domain, webport), 1000, false)
 
     const data = {
         labels: [1, 2, 3, 4, 5, 6], // TODO need way to map the 
