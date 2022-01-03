@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle } from '@fortawesome/free-solid-svg-icons'
 
 import Card from "./Card";
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import Icon from "./Icon";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faCircle as faRing } from '@fortawesome/free-regular-svg-icons'
@@ -36,15 +36,15 @@ export default function Instance({ name, version, flavour, port, uuid }) {
   function renderStatusDot(status) {
     switch (status) {
       case "starting":
-        return <FontAwesomeIcon icon={faRing} className="status-dot green" />
+        return <Icon icon={faRing} className="status-dot green" />
       case "running":
-        return <FontAwesomeIcon icon={faCircle} className="status-dot green" />
+        return <Icon icon={faCircle} className="status-dot green" />
       case "stopping":
-        return <FontAwesomeIcon icon={faPauseCircle} className="status-dot gray" />
+        return <Icon icon={faPauseCircle} className="status-dot gray" />
       case "stopped":
-        return <FontAwesomeIcon icon={faStopCircle} className="status-dot gray" />
+        return <Icon icon={faStopCircle} className="status-dot gray" />
       default:
-        return <FontAwesomeIcon icon={faExclamationCircle} className="status-dot red" />
+        return <Icon icon={faExclamationCircle} className="status-dot red" />
     }
   }
 
@@ -52,6 +52,10 @@ export default function Instance({ name, version, flavour, port, uuid }) {
     getStatus(uuid).then(setStatus);
     getPlayercount(uuid).then(setPlayerCount);
   }, [uuid]);
+
+  let activateLasers = () => {
+    alert("test");
+  }
 
   return (
     <Card className={"instance " + status} >
@@ -68,12 +72,19 @@ export default function Instance({ name, version, flavour, port, uuid }) {
         <span className="instance-actions">
           <OverlayTrigger
             placement="top"
-            overlay={<Tooltip>Start</Tooltip>}
+            overlay={<Tooltip>Start Server</Tooltip>}
           >
-            <FontAwesomeIcon icon={faPlay} className="safe" />
+            <Icon icon={faPlay} className="safe" onClick={activateLasers}/>
           </OverlayTrigger>
 
-          <FontAwesomeIcon icon={faStop} className="caution" />
+
+          <OverlayTrigger
+            placement="top"
+            overlay={<Tooltip>Stop Server</Tooltip>}
+          >
+            <Icon icon={faStop} className="caution" onClick={activateLasers}/>
+          </OverlayTrigger>
+
           {/* <FontAwesomeIcon icon={faTrash} className="danger" /> */}
         </span>
       </div>
