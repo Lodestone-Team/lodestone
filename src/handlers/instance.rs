@@ -105,7 +105,7 @@ pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) 
 }
 
 // 
-#[post("/api/instance/<uuid>/log?<start>&<end>")]
+#[get("/api/instance/<uuid>/log?<start>&<end>")]
 pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> content::Json<String> {
     let mut r = Vec::new();
     let mongodb_client = &state.mongodb_client;
