@@ -91,7 +91,7 @@ export default function Instance({ name, version, flavour, port, uuid }) {
   return (
     <Card className={"instance " + status} >
       <div className="title-bar">
-        <h2 className="title">{name}</h2>
+        <h2 className="title">{utils.truncateString(name, 10)}</h2>
         <h3 className="subtitle">{domain}:{port}</h3>
       </div>
       <h4 className="small">{utils.capitalize(flavour)} {version}</h4>
@@ -112,7 +112,7 @@ export default function Instance({ name, version, flavour, port, uuid }) {
             placement="top"
             overlay={<Tooltip>Stop Server</Tooltip>}
           >
-            <Icon icon={faStop} className="caution" onClick={startServer} />
+            <Icon icon={faStop} className="caution" onClick={stopServer} />
           </OverlayTrigger>
         </span>
       </div>
