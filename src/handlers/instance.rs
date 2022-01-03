@@ -104,9 +104,34 @@ pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) 
     }
 }
 
-// 
+#[get("/api/instance/<uuid>/playercount")]
+pub async fn player_count(uuid: String, state: &State<MyManagedState>) -> (Status, String) {
+    match state
+        .instance_manager
+        .lock()
+        .await
+        .player_num(uuid)
+    {
+        Ok(size) => (Status::Ok, size.to_string()),
+        Err(reason) => (Status::InternalServerError, reason),
+    }
+}
+
+#[get("/api/instance/<uuid>/playerlist")]
+pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
+    match state
+        .instance_manager
+        .lock()
+        .await
+        .player_list(uuid)
+    {
+        Ok(vec) => (Status::Ok, content::Json(serde_json::to_string(&vec).unwrap())),
+        Err(reason) => (Status::InternalServerError, content::Json(reason)),
+    }
+}
+
 #[get("/api/instance/<uuid>/log?<start>&<end>")]
-pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> content::Json<String> {
+pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
     let mut r = Vec::new();
     let mongodb_client = &state.mongodb_client;
 
@@ -114,7 +139,7 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
     let end_int = end.parse::<i64>().unwrap();
 
 // TODO use db filter instead
-    let logs = mongodb_client
+    match mongodb_client
         .database(&uuid)
         .collection::<Log>("logs")
         .find( doc! {
@@ -133,9 +158,16 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
 
             ] 
         }, None)
-        .unwrap();
-    for log in logs {
-        r.push(log.unwrap());
-    }
-    content::Json(serde_json::to_string(&r).unwrap())
+        {
+            Err(err) => {
+                return (Status::InternalServerError, content::Json(err.to_string()))
+            },
+            Ok(logs) => {
+                for log in logs {
+                    r.push(log.unwrap());
+                }
+            },
+}
+
+    (Status::Ok, content::Json(serde_json::to_string(&r).unwrap()))
 }

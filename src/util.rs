@@ -130,19 +130,33 @@ pub fn create_user(state: &State<MyManagedState>, username: String, password: St
 
 }
 
+
 //TODO: permission stuff with user
 
 pub mod db_util {
     pub mod mongo_schema {
         pub use serde::{Serialize, Deserialize};
 
-        #[derive(Debug, Serialize, Deserialize)]
+        #[derive(Serialize, Deserialize)]
         pub struct Log {
             time: i64,
             log: String
         }
+        #[derive(Serialize, Deserialize)]
+        pub enum EventType {
+            Normal,
+            Warning,
+            Error,
+        }
 
-        #[derive(Debug, Serialize, Deserialize)]
+        #[derive(Serialize, Deserialize)]
+        pub struct Event {
+            time: i64,
+            log: String,
+            event_type : EventType,
+        }
+
+        #[derive(Serialize, Deserialize)]
         #[serde(crate = "rocket::serde")]
         pub struct InstanceConfig {
             pub name: String,

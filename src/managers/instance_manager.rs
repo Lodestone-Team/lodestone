@@ -174,6 +174,16 @@ impl InstanceManager {
         };
         Ok(())
     }
+
+    pub fn player_list(&self, uuid : String) -> Result<Vec<String>, String>  {
+        let ins = self.instance_collection.get(&uuid).ok_or("instance does not exist".to_string())?;
+        Ok(ins.get_player_list())
+    }
+
+    pub fn player_num(&self, uuid : String) -> Result<u32, String>  {
+        let ins = self.instance_collection.get(&uuid).ok_or("instance does not exist".to_string())?;
+        Ok(ins.get_player_num())
+    }
     
     pub fn send_command(&self, uuid : String, command : String) -> Result<(), String> {
         let instance = self.instance_collection.get(&uuid).ok_or("cannot send command to instance as it does not exist".to_string())?;
