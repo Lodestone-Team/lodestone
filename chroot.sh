@@ -59,6 +59,7 @@ apt-get install software-properties-common -y
 add-apt-repository ppa:linuxuprising/java
 echo oracle-java17-installer shared/accepted-oracle-license-v1-3 select true | sudo /usr/bin/debconf-set-selections
 apt-get install oracle-java17-installer -y
+apt install cpuidtool libcpuid14 libcpuid-dev
 EOT
 
 
