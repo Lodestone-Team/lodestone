@@ -26,18 +26,23 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
-    const [cpu, setCpu] = useState([]);
+    const [cpu, setCpu] = useState(new Array(60).fill(0));
+    const [ram, setRam] = useState(new Array(60).fill(0));
 
     const data = {
-        labels: [1, 2, 3],
+        labels: [1, 2, 3, 4, 5, 6], // TODO need way to map the 
         datasets: [
             {
+                xAxisID: "x",
+                yAxisID: "y",
                 label: "CPU",
-                data: [5, 6, 7],
+                data: [50, 60, 70, 80, 90, 100],
             },
             {
+                xAxisID: "x",
+                yAxisID: "y",
                 label: "RAM",
-                data: [3, 2, 1],
+                data: [30, 20, 10, 0, 10, 20],
             },
         ],
     }
@@ -47,9 +52,27 @@ function SystemMonitor() {
     return (
         <Card>
             <Line
-                datasetIdKey="label"
+                datasetIdKey="cpu"
+                type="line"
                 data={data}
                 options={{
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxTicksLimit: 2,
+                                autoSkip: 5,
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            min: 0,
+                            max: 100,
+                            ticks: {
+                                stepSize: 25,
+                            }
+
+                        }
+                    },
                     legend: {
                         display: false
                     },
@@ -59,7 +82,8 @@ function SystemMonitor() {
                                 return tooltipItem.yLabel;
                             }
                         }
-                    }
+                    },
+                    animation: false
                 }}
 
             />
