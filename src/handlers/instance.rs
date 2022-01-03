@@ -1,4 +1,4 @@
-use mongodb::{bson::doc};
+use mongodb::{bson::doc, bson::bson};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::State;
@@ -104,19 +104,34 @@ pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) 
     }
 }
 
+// 
 #[post("/api/instance/<uuid>/log?<start>&<end>")]
 pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> content::Json<String> {
     let mut r = Vec::new();
     let mongodb_client = &state.mongodb_client;
+
+    let start_int = start.parse::<i64>().unwrap();
+    let end_int = end.parse::<i64>().unwrap();
+
 // TODO use db filter instead
     let logs = mongodb_client
         .database(&uuid)
         .collection::<Log>("logs")
         .find( doc! {
-            "time" : {
-                "$gte": start,
-                "$lte": end
-            }
+            "$and": [ 
+                {
+                    "time": {
+                    
+                        "$gte": start_int
+                    }
+                },
+                {
+                    "time": {
+                        "$lte": end_int
+                    }
+                }
+
+            ] 
         }, None)
         .unwrap();
     for log in logs {
