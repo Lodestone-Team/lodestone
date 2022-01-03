@@ -111,7 +111,7 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
 // TODO use db filter instead
     let logs = mongodb_client
         .database(&uuid)
-        .collection::<Log>("config")
+        .collection::<Log>("logs")
         .find( doc! {
             "time" : {
                 "$gte": start,

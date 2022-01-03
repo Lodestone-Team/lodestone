@@ -123,12 +123,12 @@ impl InstanceManager {
 
         self.mongodb
             .database(&config.uuid.clone().unwrap())
-            .create_collection("log", None)
+            .create_collection("logs", None)
             .unwrap();
         
         self.mongodb
             .database(&config.uuid.clone().unwrap())
-            .collection::<Log>("log")
+            .collection::<Log>("logs")
             .create_index(
                 IndexModel::builder()
                 .keys( doc! {
