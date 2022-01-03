@@ -9,12 +9,21 @@
   display: flex;
   flex-direction: row;
   align-items: flex-end;
-  justify-content: flex-start;
+  /* justify-content: flex-start; */
   /* margin-top: .5em; */
+  margin: 0;
+  padding: 0;
+  width: 100%;
 }
+
+
 
 .card .title-bar *{
   margin: 0 1em 0 0;
+}
+
+.card .title-bar .btn-close{
+  margin: 0;
 }
 
 .card .title-bar .title{
@@ -33,4 +42,25 @@
   font-size: 12px;
   margin: 0;
   font-weight: 300;
+}
+
+.main.card{
+  padding: 2em;
+}
+
+.main.card .title-bar{
+  justify-content: center;
+  margin-bottom: 3em;
+}
+
+.main.card .title-bar .btn-close{
+  position: absolute;
+  right: 1em;
+  top: 1em;
+}
+
+.main.card .title-bar .title{
+  color: #000000;
+  font-size: 30px;
+  font-weight: bold;
 }
