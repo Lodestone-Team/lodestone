@@ -11,14 +11,16 @@ const defaultTilt = {
 };
 
 export default function Card({children, className, options = defaultTilt}) {
-  const tilt = useRef(null);
+  // const tilt = useRef(null);
 
-  useEffect(() => {
-    VanillaTilt.init(tilt.current, options);
-  }, [options]);
+  // useEffect(() => {
+  //   VanillaTilt.init(tilt.current, options);
+  // }, [options]);
   
   return (
-    <div ref={tilt} className={"card " + className}>
+    <div
+    // ref={tilt}
+    className={"card " + className}>
       {children}
     </div>
   )
