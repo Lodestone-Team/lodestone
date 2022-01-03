@@ -84,8 +84,6 @@ export default function Instance({ name, version, flavour, port, uuid }) {
           >
             <Icon icon={faStop} className="caution" onClick={activateLasers}/>
           </OverlayTrigger>
-
-          {/* <FontAwesomeIcon icon={faTrash} className="danger" /> */}
         </span>
       </div>
 
