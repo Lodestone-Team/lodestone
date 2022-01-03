@@ -2,7 +2,7 @@ import "./Dashboard.css";
 
 import React, { useEffect, useState } from "react";
 
-import InstanceList from "./InstanceList";
+import InstanceList from "../components/InstanceList";
 import {ServerContext} from "../contexts/ServerContext";
 import SystemMonitor from "../components/SystemMonitor";
 

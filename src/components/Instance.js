@@ -5,7 +5,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle } from '@fortawesome/free-solid-svg-icons'
 
 import Card from "./Card";
-import Icon from "./Icon";
+import Icon from "../components/Icon";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
 import {ServerContext} from "../contexts/ServerContext";
 import Tooltip from "react-bootstrap/Tooltip";

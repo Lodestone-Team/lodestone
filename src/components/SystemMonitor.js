@@ -1,17 +1,18 @@
-import { Bar, Doughnut, Line } from "react-chartjs-2";
 import {
     ArcElement,
-    Chart as ChartJS,
     CategoryScale,
+    Chart as ChartJS,
+    Legend,
+    LineElement,
     LinearScale,
     PointElement,
-    LineElement,
     Title,
     Tooltip,
-    Legend,
-  } from 'chart.js';
-import React, { useEffect, useState, useRef } from "react";
-import Card from "../screens/Card";
+} from 'chart.js';
+import { Bar, Doughnut, Line } from "react-chartjs-2";
+import React, { useEffect, useRef, useState } from "react";
+
+import Card from "./Card";
 
 ChartJS.register(
     ArcElement,
