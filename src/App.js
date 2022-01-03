@@ -2,9 +2,9 @@ import './App.css';
 import 'react-toastify/dist/ReactToastify.css';
 
 import { Route, Routes } from "react-router-dom";
+import { Slide, ToastContainer } from 'react-toastify';
 
 import Dashboard from "./screens/Dashboard.js";
-import { ToastContainer } from 'react-toastify';
 
 function App() {
   return (
@@ -22,6 +22,8 @@ function App() {
         pauseOnFocusLoss
         draggable
         pauseOnHover
+        transition={Slide}
+
       />
     </>
   );

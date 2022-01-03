@@ -65,7 +65,7 @@ export default function Instance({ name, version, flavour, port, uuid }) {
         toast.success("Server started");
         getStatus(uuid).then(setStatus);
       } else {
-        toast.error(response.body);
+        response.text().then(toast.error);
       }
     }).catch(err => {
       toast.error("Failed to communicate with server.");
@@ -81,9 +81,9 @@ export default function Instance({ name, version, flavour, port, uuid }) {
         toast.success("Server stopped");
         getStatus(uuid).then(setStatus);
       } else {
-        toast.error(response.body);
+        response.text().then(toast.error);
       }
-    }).catch(err => {
+    }).catch(error => {
       toast.error("Failed to communicate with server.");
     });
   }
