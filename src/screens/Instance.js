@@ -9,6 +9,7 @@ import Icon from "./Icon";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faCircle as faRing } from '@fortawesome/free-regular-svg-icons'
+import { toast } from 'react-toastify';
 
 var utils = require("../utils")
 
@@ -33,6 +34,11 @@ export default function Instance({ name, version, flavour, port, uuid }) {
   const [playerCount, setPlayerCount] = useState("");
   const [status, setStatus] = useState("");
 
+  useEffect(() => {
+    getStatus(uuid).then(setStatus);
+    getPlayercount(uuid).then(setPlayerCount);
+  }, [uuid]);
+
   function renderStatusDot(status) {
     switch (status) {
       case "starting":
@@ -48,13 +54,20 @@ export default function Instance({ name, version, flavour, port, uuid }) {
     }
   }
 
-  useEffect(() => {
-    getStatus(uuid).then(setStatus);
-    getPlayercount(uuid).then(setPlayerCount);
-  }, [uuid]);
-
-  let activateLasers = () => {
-    alert("test");
+  let startServer = () => {
+    //POST /api/instance/{uuid}/start
+    fetch(`https://${domain}:${port}/api/instance/${uuid}/start`, {
+      method: 'POST',
+    }).then(response => {
+      if (response.ok) {
+        toast.success("Server started");
+        getStatus(uuid).then(setStatus);
+      } else {
+        toast.error(response.body);
+      }
+    }).catch(error => {
+      toast.error("Failed to communicate with server.");
+    });
   }
 
   return (
@@ -74,15 +87,14 @@ export default function Instance({ name, version, flavour, port, uuid }) {
             placement="top"
             overlay={<Tooltip>Start Server</Tooltip>}
           >
-            <Icon icon={faPlay} className="safe" onClick={activateLasers}/>
+            <Icon icon={faPlay} className="safe" onClick={startServer} />
           </OverlayTrigger>
-
 
           <OverlayTrigger
             placement="top"
             overlay={<Tooltip>Stop Server</Tooltip>}
           >
-            <Icon icon={faStop} className="caution" onClick={activateLasers}/>
+            <Icon icon={faStop} className="caution" onClick={startServer} />
           </OverlayTrigger>
         </span>
       </div>
