@@ -10,7 +10,7 @@ const defaultTilt = {
   max: 8
 };
 
-export default function Dashboard({children, className, options = defaultTilt}) {
+export default function Card({children, className, options = defaultTilt}) {
   // const tilt = useRef(null);
 
   // useEffect(() => {
