@@ -34,3 +34,7 @@ code {
 .danger, .red{
   color: var(--red);
 }
+
+.clickable:hover{
+  cursor: pointer;
+}

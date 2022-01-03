@@ -1,12 +1,13 @@
 import "./Instance.css";
 import "./Card.css";
 
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle } from '@fortawesome/free-solid-svg-icons'
 
 import Card from "./Card";
 import Icon from "./Icon";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
+import {ServerContext} from "../contexts/ServerContext";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faCircle as faRing } from '@fortawesome/free-regular-svg-icons'
 import { toast } from 'react-toastify';
@@ -14,32 +15,34 @@ import { toast } from 'react-toastify';
 var utils = require("../utils")
 
 
-async function getStatus(uuid) {
-  //TODO: replace placeholder value with actual status
-  const status = ["starting", "running", "stopping", "stopped", "error"];
-  //randomly choose a status
-  return status[Math.floor(Math.random() * status.length)];
+async function getStatus(uuid, domain, port) {
+  // 
+  let response = await fetch(`https://${domain}:${port}/api/instance/${uuid}/status`);
+  let status = await response.text();
+  return status;
 }
 
-async function getPlayercount(uuid) {
+async function getPlayercount(uuid, domain, port) {
   //TODO: replace placeholder value with actual playercount
 
   //randomly return a number between 0 and 10
   return Math.floor(Math.random() * 10) + "/20";
 }
 
-const domain = "127.0.0.1";
-//TODO: replace this with proper domain name
-// const domain = window.location.host.split(":")[0];
-
 export default function Instance({ name, version, flavour, port, uuid }) {
   const [playerCount, setPlayerCount] = useState("");
   const [status, setStatus] = useState("");
+  const {pollrate, domain, webport} = useContext(ServerContext);
 
-  useEffect(() => {
-    getStatus(uuid).then(setStatus);
-    getPlayercount(uuid).then(setPlayerCount);
-  }, [uuid]);
+  // useEffect(() => {
+  //   getStatus(uuid, domain, webport).then(setStatus);
+  //   getPlayercount(uuid, domain, webport).then(setPlayerCount);
+  // }, [uuid, domain, webport]);
+
+  utils.useInterval(() => {
+    getStatus(uuid, domain, webport).then(setStatus);
+    getPlayercount(uuid, domain, webport).then(setPlayerCount);
+  }, pollrate, true);
 
   function renderStatusDot(status) {
     switch (status) {
@@ -62,12 +65,13 @@ export default function Instance({ name, version, flavour, port, uuid }) {
       method: 'POST',
     }).then(response => {
       if (response.ok) {
-        toast.success("Server started");
+        toast.success("Starting Server");
         getStatus(uuid).then(setStatus);
       } else {
         response.text().then(toast.error);
       }
-    }).catch(err => {
+    }).catch(error => {
+      console.error(error);
       toast.error("Failed to communicate with server.");
     });
   }
@@ -78,12 +82,13 @@ export default function Instance({ name, version, flavour, port, uuid }) {
       method: 'POST',
     }).then(response => {
       if (response.ok) {
-        toast.success("Server stopped");
+        toast.success("Stopping Server");
         getStatus(uuid).then(setStatus);
       } else {
         response.text().then(toast.error);
       }
     }).catch(error => {
+      console.error(error);
       toast.error("Failed to communicate with server.");
     });
   }
@@ -105,14 +110,14 @@ export default function Instance({ name, version, flavour, port, uuid }) {
             placement="top"
             overlay={<Tooltip>Start Server</Tooltip>}
           >
-            <Icon icon={faPlay} className="safe" onClick={startServer} />
+            <Icon icon={faPlay} className="safe clickable" onClick={startServer} />
           </OverlayTrigger>
 
           <OverlayTrigger
             placement="top"
             overlay={<Tooltip>Stop Server</Tooltip>}
           >
-            <Icon icon={faStop} className="caution" onClick={stopServer} />
+            <Icon icon={faStop} className="caution clickable" onClick={stopServer} />
           </OverlayTrigger>
         </span>
       </div>
