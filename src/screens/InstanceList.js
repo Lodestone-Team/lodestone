@@ -3,6 +3,7 @@ import "./InstanceList.css";
 import React, { useEffect, useState } from "react";
 
 import Instance from "./Instance";
+import PlusIcon from "../assets/plus.svg";
 
 const placeholder = [
   {
@@ -45,6 +46,7 @@ export default function InstanceList() {
           <Instance key={instance.uuid} {...instance} />
         ))
       }
+      <img src={PlusIcon} alt="Plus Icon" className="new-instance-button"/>
     </div>
   );
 };
