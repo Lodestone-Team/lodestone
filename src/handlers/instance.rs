@@ -61,7 +61,7 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
     )
 }
 
-#[get("/api/instance/<uuid>/start")]
+#[post("/api/instance/<uuid>/start")]
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.start_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
@@ -69,7 +69,7 @@ pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, Stri
     }
 }
 
-#[get("/api/instance/<uuid>/stop")]
+#[post("/api/instance/<uuid>/stop")]
 pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.stop_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
@@ -87,7 +87,7 @@ pub async fn status(state: &State<MyManagedState>, uuid: String) -> (Status, Str
 }
 
 
-#[get("/api/instance/<uuid>/send/<command>")]
+#[post("/api/instance/<uuid>/send/<command>")]
 pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) -> (Status, String) {
     match state
         .instance_manager
