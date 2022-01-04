@@ -35,27 +35,36 @@ function SystemMonitor() {
     const { pollrate, domain, webport } = useContext(ServerContext);
 
     const [cpuHistory, setCpuHistory] = useState(new Array(61).fill(0));
-    const [ram, setRam] = useState(new Array(61).fill(0));
+    const [cpu, setCpu] = useState(0)
+    const [mem, setMem] = useState(0);
 
 
-    /* return just a number/tuple idfk */
-    const getCurCpuUsage = async (domain, webport) => {
+    const getMemUsage = async (domain, webport) => {
+        let response = await fetch(`https://${domain}:${webport}/api/sys/mem`);
+        const split = (await response.text()).split("/");
+        let memUsage = parseInt(split[0]) / parseInt(split[1]);
+        return memUsage;
+    }
+    
+    const getCpuUsage = async (domain, webport) => {
         let response = await fetch(`https://${domain}:${webport}/api/sys/cpuutil`);
-        // TODO process data to get a percentage back
         let cpuUsage = parseInt(await response.text())
         return cpuUsage;
     }
 
-    const updateCPU = (domain, webport) => {
-        const newCpu = [...cpuHistory];
-        newCpu.shift()
+    const update = (domain, webport) => {
+        const newCpuHistory = [...cpuHistory];
+        newCpuHistory.shift()
+        const newCpuUsage = getCpuUsage(domain, webport);
+        newCpuHistory.push(newCpuUsage);
+        setCpuHistory(newCpuHistory)
+        setCpu(newCpuUsage)
 
-        const newCpuUsage = getCurCpuUsage(domain, webport);
-        newCpu.push(newCpuUsage);
-        setCpuHistory(newCpu)
+        const newMemUsage = getMemUsage(domain, webport);
+        setMem(newMemUsage);
     }
 
-    useInterval(() => { updateCPU(domain, webport) }, pollrate, false)
+    useInterval(() => { update(domain, webport) }, pollrate, false)
 
     const data = {
         labels, // TODO need way to map the 
@@ -77,7 +86,7 @@ function SystemMonitor() {
     return (
         <Card>
             <Line
-                datasetIdKey="cpu"
+                datasetIdKey="cpuHistory"
                 type="line"
                 data={data}
                 options={{
@@ -113,13 +122,31 @@ function SystemMonitor() {
 
             />
             <Doughnut
-                datasetIdKey="ram"
+                datasetIdKey="cpu"
                 data={
                     {
                         labels: ["usage", "available"],
                         datasets: [
                             {
-                                data: [cpuHistory.at(-1), 1 - cpuHistory.at(-1)],
+                                data: [cpu, 1 - cpu],
+                                backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+                            },
+                        ],
+
+                    }
+                }
+                options={{
+                    animation: false,
+                }}
+            />
+            <Doughnut
+                datasetIdKey="mem"
+                data={
+                    {
+                        labels: ["usage", "available"],
+                        datasets: [
+                            {
+                                data: [mem, 1 - mem],
                                 backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
                             },
                         ],
