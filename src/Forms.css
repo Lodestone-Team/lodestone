@@ -1,0 +1,19 @@
+
+
+.form-control:focus, .form-check-input:focus{
+  border-color: hsl(123deg 31% 48%);
+  box-shadow: 0 0 0 0.25rem hsl(123deg 73% 41% / 25%);
+}
+
+.form-check-input:checked{
+  background-color: hsl(123deg, 98%, 35%);
+  border-color: hsl(123deg, 98%, 40%);
+}
+
+.form-description-explainer{
+  margin-left: .5em;
+}
+
+.form-label {
+  margin-bottom: .3rem;
+}

@@ -99,7 +99,7 @@ export default function Instance({ name, version, flavour, port, uuid }) {
         <h2 className="title">{utils.truncateString(name, 10)}</h2>
         <h3 className="subtitle">{domain}:{port}</h3>
       </div>
-      <h4 className="small">{utils.capitalize(flavour)} {version}</h4>
+      <small>{utils.capitalize(flavour)} {version}</small>
       <span className="player-count">{playerCount ? playerCount : "..."}</span>
 
       <div className="status-bar">

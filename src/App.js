@@ -1,4 +1,4 @@
-import './App.css';
+import './Forms.css';
 import 'react-toastify/dist/ReactToastify.css';
 
 import { Route, Routes } from "react-router-dom";

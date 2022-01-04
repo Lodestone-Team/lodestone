@@ -14,9 +14,9 @@ code {
 
 .light {
   --yellow: #FECB00;
-  --green: #008F06;
-  --red: #F50000;
-  --gray: #E2E2E2;
+  --green: #008f06;
+  --red: #C20000;
+  --gray: #D7D7D7;
 }
 
 .safe, .active, .green{
