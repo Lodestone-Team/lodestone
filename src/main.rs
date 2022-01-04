@@ -76,6 +76,7 @@ async fn rocket() -> _ {
                 system::get_cpu_speed,
                 system::get_cpu_info,
                 system::get_os_info,
+                system::get_utilization,
                 system::get_uptime
             ],
         )
