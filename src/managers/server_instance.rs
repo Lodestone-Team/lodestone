@@ -59,6 +59,12 @@ pub struct ServerInstance {
     kill_tx: Option<Sender<()>>,
     player_online: Arc<Mutex<Vec<String>>>,
 }
+/// Instance specific events,
+/// Ex. Player joining, leaving, dying
+pub enum InstanceEvent {
+    Joined,
+    Left,
+}
 
 impl ServerInstance {
     pub fn new(config: &InstanceConfig, path: String) -> ServerInstance {
@@ -105,8 +111,8 @@ impl ServerInstance {
             .args(&self.jvm_args)
             .stdout(Stdio::piped())
             .stdin(Stdio::piped());
-            match command.spawn() {
-                Ok(proc) => {
+        match command.spawn() {
+            Ok(proc) => {
                 env::set_current_dir("../..").unwrap();
                 let (stdin_sender, stdin_receiver): (Sender<String>, Receiver<String>) =
                     mpsc::channel();
@@ -159,33 +165,42 @@ impl ServerInstance {
                                 None,
                             )
                             .unwrap();
-                        // match if its a server message
-                        if line.matches("[").count() == 2
-                            && line.matches("<").count() == 0
-                            && line.matches(":").count() == 3
-                            && line.matches("/").count() == 1
-                        {
-                            if line.contains("joined the game") || line.contains("left the game") {
-                                let i1 = line.find("]:").unwrap();
-                                let tmp = &line.as_str()[i1 + 3..];
-                                let i2 = tmp.find(char::is_whitespace).unwrap();
-
-                                let tmp_name = &line.as_str()[i1 + 3..i2 + line.len() - tmp.len()];
-                                let player_name = String::from(tmp_name);
-                                if line.contains("joined the game") {
-                                    players_closure.lock().unwrap().push(player_name.clone());
-                                    println!("Found player {} joining", player_name);
+                        if let Some(event) = instance_event_parser(&line) {
+                            match event.1 {
+                                InstanceEvent::Joined => {
+                                    players_closure.lock().unwrap().push(event.0.clone());
+                                    mongodb_client
+                                        .database(uuid_closure.as_str())
+                                        .collection("events")
+                                        .insert_one(
+                                            doc! {
+                                                "time": time,
+                                                "player": event.0.clone(),
+                                                "eventMsg": "joined the instance"
+                                            },
+                                            None,
+                                        )
+                                        .unwrap();
                                 }
-                                if line.contains("left the game") {
-                                    let mut lock = players_closure.lock().unwrap();
-                                    if let Some(pos) = lock
-                                        .iter()
-                                        .position(|x| *x == player_name)
-                                    {
-                                        println!("Found player {} leaving", player_name);
-                                        lock.swap_remove(pos);
+                                InstanceEvent::Left => {
+                                    let mut players = players_closure.lock().unwrap();
+                                    if let Some(index) = players.iter().position(|x| *x == event.0.clone()) {
+                                        players.swap_remove(index);
                                     }
-                                }
+                                    drop(players);
+                                    mongodb_client
+                                        .database(uuid_closure.as_str())
+                                        .collection("events")
+                                        .insert_one(
+                                            doc! {
+                                                "time": time,
+                                                "player": event.0.clone(),
+                                                "eventMsg": "left the instance"
+                                            },
+                                            None,
+                                        )
+                                        .unwrap();
+                                },
                             }
                         }
                     }
@@ -207,8 +222,8 @@ impl ServerInstance {
             }
             Err(_) => {
                 env::set_current_dir("../..").unwrap();
-                return Err("failed to open child process".to_string())
-            },
+                return Err("failed to open child process".to_string());
+            }
         };
     }
     pub fn stop(&mut self) -> Result<(), String> {
@@ -225,7 +240,7 @@ impl ServerInstance {
             .unwrap()
             .send("stop\n".to_string())
             .unwrap();
-        self.kill_tx.as_mut().unwrap().send(());
+        self.kill_tx.as_mut().unwrap().send(()).unwrap();
         *status = Status::Stopped;
         Ok(())
     }
@@ -249,4 +264,29 @@ impl ServerInstance {
     pub fn get_path(&self) -> String {
         self.path.clone()
     }
+}
+
+fn instance_event_parser(line: &String) -> Option<(String, InstanceEvent)> {
+    // match if its a server message
+    if line.matches("[").count() == 2
+        && line.matches("<").count() == 0
+        && line.matches(":").count() == 3
+        && line.matches("/").count() == 1
+    {
+        if line.contains("joined the game") || line.contains("left the game") {
+            let i1 = line.find("]:").unwrap();
+            let tmp = &line.as_str()[i1 + 3..];
+            let i2 = tmp.find(char::is_whitespace).unwrap();
+
+            let tmp_name = &line.as_str()[i1 + 3..i2 + line.len() - tmp.len()];
+            let player_name = String::from(tmp_name);
+            if line.contains("joined the game") {
+                return Some((player_name, InstanceEvent::Joined));
+            }
+            if line.contains("left the game") {
+                return Some((player_name, InstanceEvent::Left));
+            }
+        }
+    }
+    None
 }
