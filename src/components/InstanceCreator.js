@@ -2,6 +2,7 @@ import "./InstanceCreator.scss";
 
 import React, { useContext, useEffect, useState } from "react";
 
+import Button from "react-bootstrap/Button";
 import CloseButton from "react-bootstrap/CloseButton";
 import Form from "react-bootstrap/Form";
 import Icon from "../components/Icon";
@@ -37,11 +38,13 @@ export default function InstanceCreator() {
 
 
   useEffect(() => {
-    fetch(`https://${domain}:${webport}/api/jar/${flavour}/versions`)
-      .then((response) => response.json())
-      .then((data) => {
-        setVersions(data)
-      })
+    if (flavour) {
+      fetch(`https://${domain}:${webport}/api/jar/${flavour}/versions`)
+        .then((response) => response.json())
+        .then((data) => {
+          setVersions(data)
+        })
+    }
   }, [flavour, domain, webport]);
 
   let createInstance = (event) => {
@@ -97,13 +100,13 @@ export default function InstanceCreator() {
             </div>
           </Form.Group>
           <div className="mb-3 version-row">
-            <Form.Group className="snapshot-checkbox">
+            {/* <Form.Group className="snapshot-checkbox">
               <Form.Label>Filter</Form.Label>
               <Form.Check
                 type="checkbox"
                 label="Snapshots"
               />
-            </Form.Group>
+            </Form.Group> */}
             <Form.Group className="flex-grow-1">
               <Form.Label>Minecraft Version</Form.Label>
               <Form.Select>
@@ -112,6 +115,11 @@ export default function InstanceCreator() {
                 ))}
               </Form.Select>
             </Form.Group>
+          </div>
+          <div className="d-grid create-button-wrapper">
+            <Button variant="primary" type="submit" size="lg">
+              Create!
+            </Button>
           </div>
         </Form>
       </Modal>

@@ -1,5 +1,4 @@
 import "./Instance.css";
-import "./Card.css";
 
 import React, { useContext, useEffect, useState } from "react";
 import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle } from '@fortawesome/free-solid-svg-icons'
