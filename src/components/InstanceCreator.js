@@ -66,7 +66,7 @@ export default function InstanceCreator() {
         <Form onSubmit={createInstance}>
           <Form.Group controlId="creationForm.Name" className="mb-3">
             <Form.Label>Instance Name</Form.Label>
-            <Form.Control autocomplete="off" type="text" placeholder="My Instance"
+            <Form.Control autoComplete="off" type="text" placeholder="My Instance"
               value={name} onChange={(event) => {
                 setName(event.target.value)
                 setUUID(`${event.target.value.replace(/[^0-9a-zA-Z]+/g, '')}-${Date.now().toString(16)}-${Math.floor(Math.random() * 1024)}`)
