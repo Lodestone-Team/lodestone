@@ -30,8 +30,6 @@ ChartJS.register(
 function SystemMonitor() {
     const labels = Array.from(Array(61).keys()).reverse();
 
-    console.log(labels);
-
     const { pollrate, domain, webport } = useContext(ServerContext);
 
     const [cpuHistory, setCpuHistory] = useState(new Array(61).fill(0));
@@ -80,9 +78,7 @@ function SystemMonitor() {
             // },
         ],
     }
-
-    console.log(data);
-
+    
     return (
         <Card>
             <Line
