@@ -33,8 +33,9 @@ function SystemMonitor() {
     const { pollrate, domain, webport } = useContext(ServerContext);
 
     const [cpuHistory, setCpuHistory] = useState(new Array(61).fill(0));
-    const [cpu, setCpu] = useState(0)
+    const [cpu, setCpu] = useState(0);
     const [mem, setMem] = useState(0);
+    const [totalMem, setTotalMem] = useState(0);
 
 
     const getMemUsage = async (domain, webport) => {
@@ -140,7 +141,7 @@ function SystemMonitor() {
                         labels: ["usage", "available"],
                         datasets: [
                             {
-                                data: [cpu, 1 - cpu],
+                                data: [cpu, 100 - cpu],
                                 backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
                             },
                         ],
