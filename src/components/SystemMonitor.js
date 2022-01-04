@@ -31,7 +31,7 @@ function SystemMonitor() {
     const labels = Array.from(Array(61).keys()).reverse();
 
     console.log(labels);
-    
+
     const { pollrate, domain, webport } = useContext(ServerContext);
 
     const [cpuHistory, setCpuHistory] = useState(new Array(61).fill(0));
@@ -49,13 +49,13 @@ function SystemMonitor() {
     const updateCPU = (domain, webport) => {
         const newCpu = [...cpuHistory];
         newCpu.shift()
-        
+
         const newCpuUsage = getCurCpuUsage(domain, webport);
         newCpu.push(newCpuUsage);
         setCpuHistory(newCpu)
     }
 
-    // useInterval(updateCPU(domain, webport), pollrate, false)
+    useInterval(() => { updateCPU(domain, webport) }, pollrate, false)
 
     const data = {
         labels, // TODO need way to map the 
@@ -120,13 +120,13 @@ function SystemMonitor() {
                         datasets: [
                             {
                                 data: [cpuHistory.at(-1), 1 - cpuHistory.at(-1)],
-                                backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)', ]
+                                backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
                             },
                         ],
 
                     }
                 }
-                options = {{
+                options={{
                     animation: false,
                 }}
             />
