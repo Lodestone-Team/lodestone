@@ -105,8 +105,9 @@ impl ServerInstance {
             .args(&self.jvm_args)
             .stdout(Stdio::piped())
             .stdin(Stdio::piped());
-        match command.spawn() {
-            Ok(proc) => {
+            match command.spawn() {
+                Ok(proc) => {
+                env::set_current_dir("../..").unwrap();
                 let (stdin_sender, stdin_receiver): (Sender<String>, Receiver<String>) =
                     mpsc::channel();
                 let (kill_tx, kill_rx): (Sender<()>, Receiver<()>) = mpsc::channel();
@@ -204,7 +205,10 @@ impl ServerInstance {
                 self.kill_tx = Some(kill_tx);
                 return Ok(());
             }
-            Err(_) => return Err("failed to open child process".to_string()),
+            Err(_) => {
+                env::set_current_dir("../..").unwrap();
+                return Err("failed to open child process".to_string())
+            },
         };
     }
     pub fn stop(&mut self) -> Result<(), String> {
