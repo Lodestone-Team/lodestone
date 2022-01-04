@@ -36,7 +36,7 @@ impl Fairing for CORS {
 
     async fn on_response<'r>(&self, req: &'r Request<'_>, res: &mut Response<'r>) {
         res.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        res.set_header(Header::new("Access-Control-Allow-Methods", "POST, GET, PATCH, OPTIONS, DELETE"));
+        res.set_header(Header::new("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS"));
         res.set_header(Header::new("Access-Control-Allow-Headers", "*"));
         res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
