@@ -36,7 +36,7 @@ impl Fairing for CORS {
 
     async fn on_response<'r>(&self, req: &'r Request<'_>, res: &mut Response<'r>) {
         res.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        res.set_header(Header::new("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS"));
+        res.set_header(Header::new("Access-Control-Allow-Methods", "POST, GET, PATCH, OPTIONS, DELETE"));
         res.set_header(Header::new("Access-Control-Allow-Headers", "*"));
         res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
@@ -47,8 +47,9 @@ impl Fairing for CORS {
 async fn rocket() -> _ {
     let mut client_options = ClientOptions::parse("mongodb://localhost:27017/?tls=false").unwrap();
     client_options.app_name = Some("MongoDB Client".to_string());
-
     let client = Client::with_options(client_options).unwrap();
+
+    env::set_current_dir(format!("{}/InstanceTest/", env::current_dir().unwrap().display())).unwrap();
 
     rocket::build()
         .mount(
@@ -86,7 +87,7 @@ async fn rocket() -> _ {
         .manage(MyManagedState {
             instance_manager: Arc::new(Mutex::new(
                 InstanceManager::new(
-                    format!("{}/InstanceTest/", env::current_dir().unwrap().display()),
+                    format!("{}/", env::current_dir().unwrap().display()),
                     client.clone(),
                 )
                 .unwrap(),
