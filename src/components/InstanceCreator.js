@@ -12,6 +12,7 @@ import PlusIcon from "../assets/plus.svg";
 import { ServerContext } from "../contexts/ServerContext";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faQuestionCircle } from '@fortawesome/free-solid-svg-icons'
+import { toast } from 'react-toastify';
 
 var utils = require("../utils")
 
@@ -23,6 +24,7 @@ export default function InstanceCreator() {
   const [flavour, setFlavour] = useState("");
   const [uuid, setUUID] = useState("");
   const [versions, setVersions] = useState([]);
+  const [version, setVersion] = useState("");
   const { pollrate, domain, webport } = useContext(ServerContext);
 
 
@@ -34,7 +36,7 @@ export default function InstanceCreator() {
         if (data.length > 0)
           setFlavour(data[0])
       })
-  }, [domain, webport]);
+  }, [show, domain, webport]);
 
 
   useEffect(() => {
@@ -49,6 +51,22 @@ export default function InstanceCreator() {
 
   let createInstance = (event) => {
     event.preventDefault();
+
+    fetch(`https://${domain}:${webport}/api/jar/${flavour}/${version}`).then(response => response.text()).then(url => {
+
+    //TODO add more error handling such as make sure all fields are filled out
+    console.log({ name, flavour, version, url});
+      fetch(`https://${domain}:${webport}/api/instance/${uuid}`, {
+        method: "POST",
+        body: JSON.stringify({ name, flavour, version, url}),
+      }).then(response => response.json()).then(data => {
+        toast.success(`Instance ${name} created!`);
+        console.log(data)
+        setShow(false);
+      })
+    });
+
+
   };
 
   return (
@@ -109,7 +127,7 @@ export default function InstanceCreator() {
             </Form.Group> */}
             <Form.Group className="flex-grow-1">
               <Form.Label>Minecraft Version</Form.Label>
-              <Form.Select>
+              <Form.Select value={version} onChange={(event) => setVersion(event.target.value)} >
                 {versions.map((myVersion) => (
                   <option key={myVersion} value={myVersion}>{myVersion}</option>
                 ))}

@@ -22,10 +22,9 @@ async function getStatus(uuid, domain, port) {
 }
 
 async function getPlayercount(uuid, domain, port) {
-  //TODO: replace placeholder value with actual playercount
-
-  //randomly return a number between 0 and 10
-  return Math.floor(Math.random() * 10) + "/20";
+  let response = await fetch(`https://${domain}:${port}/api/instance/${uuid}/playercount`);
+  let playercount = await response.text();
+  return `${playercount}/20`;
 }
 
 export default function Instance({ name, version, flavour, port, uuid }) {
