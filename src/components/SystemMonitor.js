@@ -61,17 +61,14 @@ function SystemMonitor() {
         labels, // TODO need way to map the 
         datasets: [
             {
-                xAxisID: "x",
-                yAxisID: "y",
-                label: "CPU",
-                data: [50, 60, 70, 80, 90, 100],
+                data: cpuHistory
             },
-            {
-                xAxisID: "x",
-                yAxisID: "y",
-                label: "RAM",
-                data: [30, 20, 10, 0, 10, 20],
-            },
+            // {
+            //     xAxisID: "x",
+            //     yAxisID: "y",
+            //     label: "CPU",
+            //     data: [50, 60, 70, 80, 90, 100],
+            // },
         ],
     }
 
@@ -119,15 +116,19 @@ function SystemMonitor() {
                 datasetIdKey="ram"
                 data={
                     {
-                        labels: ["usage", "empty"],
+                        labels: ["usage", "available"],
                         datasets: [
                             {
-                                data: [1535, 124]
+                                data: [cpuHistory.at(-1), 1 - cpuHistory.at(-1)],
+                                backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)', ]
                             },
                         ],
 
                     }
                 }
+                options = {{
+                    animation: false,
+                }}
             />
         </Card>
     );
