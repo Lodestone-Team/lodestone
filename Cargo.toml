@@ -28,7 +28,7 @@ rust-crypto = "^0.2"
 
 sys-info = "0.9.1"
 cpuid = "*"
-uptime_lib = "0.2.1"
+systemstat = "0.1.10"
 
 [dependencies.mongodb]
 version = "2.0.0"
