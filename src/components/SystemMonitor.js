@@ -38,12 +38,12 @@ function SystemMonitor() {
     const [ram, setRam] = useState(new Array(61).fill(0));
 
 
-    // return just a number/tuple idfk
+    /* return just a number/tuple idfk */
     const getCurCpuUsage = async (domain, webport) => {
-        // TODO fetch backend for data
-        // let response = await fetch(`https://${domain}:${webport}/api/sys/`);
+        let response = await fetch(`https://${domain}:${webport}/api/sys/cpuutil`);
         // TODO process data to get a percentage back
-        return 0;
+        let cpuUsage = parseInt(await response.text())
+        return cpuUsage;
     }
 
     const updateCPU = (domain, webport) => {
@@ -55,7 +55,7 @@ function SystemMonitor() {
         setCpuHistory(newCpu)
     }
 
-    useInterval(updateCPU(domain, webport), pollrate, true)
+    // useInterval(updateCPU(domain, webport), pollrate, false)
 
     const data = {
         labels, // TODO need way to map the 
