@@ -1,4 +1,8 @@
-.version-row{
-  display:flex;
-  flex-direction: column;
+.version-row {
+  display: flex;
+  flex-direction: row;
+
+  .snapshot-checkbox {
+    margin-right: 1em;
+  }
 }

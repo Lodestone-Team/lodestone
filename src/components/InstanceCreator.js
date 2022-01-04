@@ -97,14 +97,14 @@ export default function InstanceCreator() {
             </div>
           </Form.Group>
           <div className="mb-3 version-row">
-            <Form.Group >
+            <Form.Group className="snapshot-checkbox">
               <Form.Label>Filter</Form.Label>
               <Form.Check
                 type="checkbox"
                 label="Snapshots"
               />
             </Form.Group>
-            <Form.Group>
+            <Form.Group className="flex-grow-1">
               <Form.Label>Minecraft Version</Form.Label>
               <Form.Select>
                 {versions.map((myVersion) => (
