@@ -38,3 +38,7 @@ code {
 .clickable:hover{
   cursor: pointer;
 }
+
+.modal-content{
+  border: 0;
+}
