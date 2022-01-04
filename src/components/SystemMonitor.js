@@ -40,29 +40,32 @@ function SystemMonitor() {
     const getMemUsage = async (domain, webport) => {
         let response = await fetch(`https://${domain}:${webport}/api/sys/mem`);
         const split = (await response.text()).split("/");
-        let memUsage = parseInt(split[0]) / parseInt(split[1]);
+        let memUsage = parseFloat(split[0]) / parseFloat(split[1]);
         return memUsage;
     }
     
     const getCpuUsage = async (domain, webport) => {
         let response = await fetch(`https://${domain}:${webport}/api/sys/cpuutil`);
-        let cpuUsage = parseInt(await response.text())
-        return cpuUsage;
+        let cpuUsage = parseFloat(await response.text())
+        return cpuUsage*100;
     }
 
     const update = (domain, webport) => {
         const newCpuHistory = [...cpuHistory];
         newCpuHistory.shift()
-        const newCpuUsage = getCpuUsage(domain, webport);
-        newCpuHistory.push(newCpuUsage);
-        setCpuHistory(newCpuHistory)
-        setCpu(newCpuUsage)
 
-        const newMemUsage = getMemUsage(domain, webport);
-        setMem(newMemUsage);
+        getCpuUsage(domain, webport).then(cpu => {
+            setCpu(cpu);
+            newCpuHistory.push(cpu);
+            setCpuHistory(newCpuHistory);
+        });
+
+        getMemUsage(domain, webport).then(mem => {
+            setMem(mem);
+        });
     }
 
-    useInterval(() => { update(domain, webport) }, pollrate, false)
+    useInterval(() => { update(domain, webport) }, pollrate, true)
 
     const data = {
         labels, // TODO need way to map the 
@@ -84,7 +87,20 @@ function SystemMonitor() {
             <Line
                 datasetIdKey="cpuHistory"
                 type="line"
-                data={data}
+                data={{
+                    labels, // TODO need way to map the 
+                    datasets: [
+                        {
+                            data: cpuHistory
+                        },
+                        // {
+                        //     xAxisID: "x",
+                        //     yAxisID: "y",
+                        //     label: "CPU",
+                        //     data: [50, 60, 70, 80, 90, 100],
+                        // },
+                    ],
+                }}
                 options={{
                     scales: {
                         x: {
