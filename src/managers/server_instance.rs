@@ -242,6 +242,7 @@ impl ServerInstance {
             .unwrap();
         self.kill_tx.as_mut().unwrap().send(()).unwrap();
         *status = Status::Stopped;
+        self.player_online.lock().unwrap().clear();
         Ok(())
     }
 
