@@ -73,14 +73,19 @@ export default function InstanceCreator() {
     }
 
     let payload = JSON.stringify({ name, flavour, version, url });
-
     console.log(payload);
+
+    const creationToast = toast.loading("Creating instance...")
+
     fetch(`https://${domain}:${webport}/api/instance/${uuid}`, {
       method: "POST",
       body: payload,
-    }).then(response => response.json()).then(data => {
-      toast.success(`Instance ${name} created!`);
-      console.log(data)
+    }).then(response => {
+      if (!response.ok) {
+        toast.update(creationToast, { render: "Failed to create instance", type: "error" });
+        return;
+      }
+      toast.update(creationToast, { render: "Successfully created instance!", type: "success" });
       setShow(false);
     })
 
