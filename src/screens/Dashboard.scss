@@ -7,8 +7,11 @@
   justify-content: stretch;
   align-items: flex-start;
   padding: 2em;
-}
+  .title{
 
-.dashboard .title{
-
+  }
+  
+  >div{
+    margin-bottom: 2em;
+  }
 }

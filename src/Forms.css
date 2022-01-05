@@ -47,3 +47,10 @@
   background-color: #006405;
   border-color: #006405;
 }
+
+.btn-primary.disabled,
+.btn-primary:disabled {
+  color: #fff;
+  background-color: rgb(83, 231, 108);
+  border-color: rgb(83, 231, 108);
+}

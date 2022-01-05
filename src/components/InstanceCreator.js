@@ -23,8 +23,10 @@ export default function InstanceCreator() {
   const [name, setName] = useState("");
   const [flavour, setFlavour] = useState("");
   const [uuid, setUUID] = useState("");
+  const [url, setURL] = useState("");
   const [versions, setVersions] = useState([]);
   const [version, setVersion] = useState("");
+  const [ready, setReady] = useState(false);
   const { pollrate, domain, webport } = useContext(ServerContext);
 
 
@@ -33,8 +35,6 @@ export default function InstanceCreator() {
       .then((response) => response.json())
       .then((data) => {
         setFlavours(data)
-        if (data.length > 0)
-          setFlavour(data[0])
       })
   }, [show, domain, webport]);
 
@@ -49,29 +49,52 @@ export default function InstanceCreator() {
     }
   }, [flavour, domain, webport]);
 
+  useEffect(() => {
+    console.log(name)
+    if (version.length <= 0) return setReady(false);
+    if (name.length <= 0) return setReady(false);
+
+    fetch(`https://${domain}:${webport}/api/jar/${flavour}/${version}`).then(response => {
+      if (!response.ok) return;
+
+      response.text().then(url => {
+        setURL(url);
+        setReady(true);
+      });
+    })
+
+  }, [flavour, version, domain, webport, name]);
+
   let createInstance = (event) => {
     event.preventDefault();
+    if (!ready) {
+      toast.error("Please fill out all fields");
+      return;
+    }
 
-    fetch(`https://${domain}:${webport}/api/jar/${flavour}/${version}`).then(response => response.text()).then(url => {
+    let payload = JSON.stringify({ name, flavour, version, url });
 
-    //TODO add more error handling such as make sure all fields are filled out
-    console.log({ name, flavour, version, url});
-      fetch(`https://${domain}:${webport}/api/instance/${uuid}`, {
-        method: "POST",
-        body: JSON.stringify({ name, flavour, version, url}),
-      }).then(response => response.json()).then(data => {
-        toast.success(`Instance ${name} created!`);
-        console.log(data)
-        setShow(false);
-      })
-    });
-
+    console.log(payload);
+    fetch(`https://${domain}:${webport}/api/instance/${uuid}`, {
+      method: "POST",
+      body: payload,
+    }).then(response => response.json()).then(data => {
+      toast.success(`Instance ${name} created!`);
+      console.log(data)
+      setShow(false);
+    })
 
   };
 
   return (
     <>
-      <img src={PlusIcon} alt="Plus Icon" className="new-instance-button clickable" onClick={() => setShow(true)} />
+      <img src={PlusIcon} alt="Plus Icon" className="new-instance-button clickable" onClick={() => {
+        setShow(true);
+        setName("");
+        setVersion("");
+        setFlavour("");
+        setReady(false);
+      }} />
       <Modal show={show} onHide={() => setShow(false)}
         size="md"
         centered
@@ -128,6 +151,7 @@ export default function InstanceCreator() {
             <Form.Group className="flex-grow-1">
               <Form.Label>Minecraft Version</Form.Label>
               <Form.Select value={version} onChange={(event) => setVersion(event.target.value)} >
+                <option value="" selected disabled>Choose a version</option>
                 {versions.map((myVersion) => (
                   <option key={myVersion} value={myVersion}>{myVersion}</option>
                 ))}
@@ -135,7 +159,7 @@ export default function InstanceCreator() {
             </Form.Group>
           </div>
           <div className="d-grid create-button-wrapper">
-            <Button variant="primary" type="submit" size="lg">
+            <Button variant="primary" type="submit" size="lg" disabled={!ready}>
               Create!
             </Button>
           </div>
