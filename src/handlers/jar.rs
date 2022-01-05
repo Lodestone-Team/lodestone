@@ -8,9 +8,10 @@ pub async fn flavours() -> content::Json<String> {
 }
 
 
-mod VanillaStructs{
+mod vanilla_structs{
     use serde::{Deserialize, Serialize};
     #[derive(Deserialize, Serialize)]
+    #[allow(non_snake_case)]
     pub struct ServerVersion {
         pub id: String,
         pub r#type: String,
@@ -31,7 +32,7 @@ mod VanillaStructs{
     }
 }
 
-mod FabricStructs{
+mod fabric_structs{
     use serde::{Deserialize, Serialize};
     #[derive(Deserialize, Serialize)]
     pub struct ServerVersion {
@@ -76,7 +77,7 @@ pub async fn vanilla_versions(
     r#type: Option<String>,
     latest: Option<bool>,
 ) -> content::Json<String> {
-    let response: VanillaStructs::VersionManifest = serde_json::from_str(
+    let response: vanilla_structs::VersionManifest = serde_json::from_str(
         minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
             .send()
             .unwrap()
@@ -119,7 +120,7 @@ pub async fn vanilla_versions(
 pub fn vanilla_jar(
     requested_version: String,
 ) -> Result<content::Json<String>, status::NotFound<String>> {
-    let response: VanillaStructs::VersionManifest = serde_json::from_str(
+    let response: vanilla_structs::VersionManifest = serde_json::from_str(
         minreq::get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
             .send()
             .unwrap()
@@ -157,7 +158,7 @@ pub async fn fabric_filters() -> content::Json<String> {
 
 #[get("/api/jar/fabric/versions?<stable>")]
 pub async fn fabric_versions(stable: Option<bool>) -> content::Json<String> {
-    let response: Vec<FabricStructs::ServerVersion> = serde_json::from_str(
+    let response: Vec<fabric_structs::ServerVersion> = serde_json::from_str(
         minreq::get("https://meta.fabricmc.net/v2/versions/game")
             .send()
             .unwrap()
@@ -185,7 +186,7 @@ pub async fn fabric_versions(stable: Option<bool>) -> content::Json<String> {
 pub fn fabric_jar(
     requested_version: String,
 ) -> Result<content::Json<String>, status::NotFound<String>> {
-    let response: Vec<FabricStructs::LoaderVersion> = serde_json::from_str(
+    let response: Vec<fabric_structs::LoaderVersion> = serde_json::from_str(
         minreq::get(format!("https://meta.fabricmc.net/v2/versions/loader/{}", requested_version))
             .send()
             .unwrap()
@@ -196,7 +197,7 @@ pub fn fabric_jar(
 
     let loader_version = &response[0].loader.version;
 
-    let response: Vec<FabricStructs::InstallerVersion> = serde_json::from_str(
+    let response: Vec<fabric_structs::InstallerVersion> = serde_json::from_str(
         minreq::get("https://meta.fabricmc.net/v2/versions/installer")
             .send()
             .unwrap()

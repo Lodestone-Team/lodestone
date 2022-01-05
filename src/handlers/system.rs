@@ -2,8 +2,6 @@
 use std::thread;
 
 use rocket::http::Status;
-use rocket::State;
-use rocket::serde::json::Json;
 use sys_info::{os_type, os_release, cpu_num, cpu_speed, disk_info, mem_info, loadavg};
 use systemstat::{System, Platform, Duration};
 extern crate cpuid;

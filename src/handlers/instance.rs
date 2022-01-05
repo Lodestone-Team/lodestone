@@ -1,4 +1,4 @@
-use mongodb::{bson::doc, bson::bson};
+use mongodb::{bson::doc};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::State;

@@ -12,7 +12,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use mongodb::{bson::doc, options::ClientOptions, sync::Client as mongoDBClient};
 use reqwest::Client;
 use rocket::State;
-use rocket::response::status::NoContent;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize)]

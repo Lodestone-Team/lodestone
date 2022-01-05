@@ -7,7 +7,7 @@ use rocket::request::{FromRequest, Outcome};
 use rocket::serde::json::Json;
 use rocket::Request;
 use rocket::State;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 
 #[derive(FromForm, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -46,7 +46,7 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
                 let password = p.to_string();
                 match authenticate(&client, username.clone(), password) {
                     Ok(()) => Outcome::Success(AuthenticatedUser { username }),
-                    Err(reason) => Outcome::Failure((Status::Forbidden, LoginError::WrongPassword)),
+                    Err(_reason) => Outcome::Failure((Status::Forbidden, LoginError::WrongPassword)),
                 }
             }
             _ => Outcome::Failure((Status::BadRequest, LoginError::InvalidData)),

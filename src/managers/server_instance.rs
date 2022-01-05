@@ -1,13 +1,8 @@
-use crate::instance_manager::InstanceManager;
-use chashmap::CHashMap;
-use mongodb::{bson::doc, options::ClientOptions, sync::Client};
-use regex::internal::Input;
+use mongodb::{bson::doc, sync::Client};
 use serde::{Deserialize, Serialize};
-use std::char::UNICODE_VERSION;
 use std::env;
-use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, thread};
@@ -26,11 +21,6 @@ pub struct InstanceConfig {
     pub max_ram: Option<u32>,
 }
 
-#[derive(Clone, PartialEq)]
-enum BroadcastCommand {
-    Terminate,
-    Continue,
-}
 #[derive(Debug, Clone, Copy)]
 pub enum Status {
     Starting,
@@ -116,7 +106,7 @@ impl ServerInstance {
 
                 let stdin = proc.stdin.ok_or("failed to open stdin of child process")?;
                 self.stdin = Some(Arc::new(Mutex::new(stdin)));
-                let stdout = proc.stdout.ok_or("failed to open stdin of child process")?;
+                let stdout = proc.stdout.ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
                 let uuid_closure = self.uuid.clone();
                 let status_closure = self.status.clone();
