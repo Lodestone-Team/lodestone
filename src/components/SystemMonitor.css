@@ -1,0 +1,6 @@
+.systemMonitor {
+    display: flex;
+    flex-direction: row;
+    width: 500px;
+    height: 40vh;
+}

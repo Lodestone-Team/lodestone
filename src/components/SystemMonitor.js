@@ -14,6 +14,7 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 
 import Card from "./Card";
 import { ServerContext } from "../contexts/ServerContext";
+import "./SystemMonitor.css";
 import { useInterval } from '../utils';
 
 ChartJS.register(
@@ -84,7 +85,7 @@ function SystemMonitor() {
     }
     
     return (
-        <Card>
+        <Card className="systemMonitor">
             <Line
                 datasetIdKey="cpuHistory"
                 type="line"
