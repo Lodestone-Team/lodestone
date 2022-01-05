@@ -3,11 +3,12 @@
     flex-direction: row;
     width: 75%;
     padding: 12px;
-    height: 40vh;
 }
 
 .graphWrapper {
     margin: 12px;
+    display: flex;
+    flex-direction: column;
 }
 
 .lineGraphWrapper {
@@ -16,6 +17,11 @@
 
 .doughnutGraphWrapper {
     width: 25%;
+    align-items: center;
+}
+
+.doughnutGraphWrapper p {
+    text-align: center;
 }
 
 .lineGraph {
@@ -23,5 +29,5 @@
 }
 
 .doughnutGraph {
-    width: 65%;
+    width: 75%;
 }

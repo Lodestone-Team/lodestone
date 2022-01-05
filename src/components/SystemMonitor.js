@@ -29,6 +29,7 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
+    const bytesInGigabyte = 1048576;
     const labels = Array.from(Array(24).keys()).reverse().map((n) => 2.5 * n + 2.5);
 
     const { pollrate, domain, webport } = useContext(ServerContext);
@@ -38,6 +39,9 @@ function SystemMonitor() {
     const [mem, setMem] = useState([0, 1]);
     const [disk, setDisk] = useState([0, 1]);
 
+    const byteToGigabyte = (x) => {
+        return Math.round(x / bytesInGigabyte * 10) / 10;
+    } 
 
     const getMemUsage = async (domain, webport) => {
         let response = await fetch(`https://${domain}:${webport}/api/sys/mem`);
@@ -95,7 +99,11 @@ function SystemMonitor() {
     
     return (
         <Card className="systemMonitor">
+            
             <div className="graphWrapper lineGraphWrapper">
+                <p>
+                    CPU %
+                </p>
                 <div className="graph lineGraph">
                     <Line
                         datasetIdKey="cpuHistory"
@@ -145,6 +153,10 @@ function SystemMonitor() {
             <div className="graphWrapper doughnutGraphWrapper">
                 <p>
                     RAM %
+                    <br/>
+                    {byteToGigabyte(mem[0])}/{byteToGigabyte(mem[1])} GB
+                    <br/>
+                    Used
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
@@ -175,7 +187,9 @@ function SystemMonitor() {
                 <p>
                     DISK %
                     <br/>
-                    
+                    {byteToGigabyte(disk[0])}/{byteToGigabyte(disk[1])} GB
+                    <br/>
+                    Used
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
