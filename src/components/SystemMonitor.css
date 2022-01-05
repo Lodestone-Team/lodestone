@@ -1,6 +1,27 @@
 .systemMonitor {
     display: flex;
     flex-direction: row;
-    width: 500px;
+    width: 75%;
+    padding: 12px;
     height: 40vh;
+}
+
+.graphWrapper {
+    margin: 12px;
+}
+
+.lineGraphWrapper {
+    width: 50%;
+}
+
+.doughnutGraphWrapper {
+    width: 25%;
+}
+
+.lineGraph {
+    width: 100%
+}
+
+.doughnutGraph {
+    width: 65%;
 }

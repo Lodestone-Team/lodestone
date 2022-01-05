@@ -29,11 +29,11 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
-    const labels = Array.from(Array(61).keys()).reverse();
+    const labels = Array.from(Array(24).keys()).reverse().map((n) => 2.5 * n + 2.5);
 
     const { pollrate, domain, webport } = useContext(ServerContext);
 
-    const [cpuHistory, setCpuHistory] = useState(new Array(61).fill(0));
+    const [cpuHistory, setCpuHistory] = useState(new Array(24).fill(0));
     const [cpu, setCpu] = useState(0);
     const [mem, setMem] = useState(0);
     const [totalMem, setTotalMem] = useState(0);
@@ -86,91 +86,112 @@ function SystemMonitor() {
     
     return (
         <Card className="systemMonitor">
-            <Line
-                datasetIdKey="cpuHistory"
-                type="line"
-                data={{
-                    labels, // TODO need way to map the 
-                    datasets: [
-                        {
-                            data: cpuHistory
-                        },
-                        // {
-                        //     xAxisID: "x",
-                        //     yAxisID: "y",
-                        //     label: "CPU",
-                        //     data: [50, 60, 70, 80, 90, 100],
-                        // },
-                    ],
-                }}
-                options={{
-                    scales: {
-                        x: {
-                            ticks: {
-                                maxTicksLimit: 2,
-                                autoSkip: 5,
-                            }
-                        },
-                        y: {
-                            beginAtZero: true,
-                            min: 0,
-                            max: 100,
-                            ticks: {
-                                stepSize: 25,
-                            }
-
-                        }
-                    },
-                    legend: {
-                        display: false
-                    },
-                    tooltips: {
-                        callbacks: {
-                            label: function (tooltipItem) {
-                                return tooltipItem.yLabel;
-                            }
-                        }
-                    },
-                    animation: false
-                }}
-
-            />
-            <Doughnut
-                datasetIdKey="cpu"
-                data={
-                    {
-                        labels: ["usage", "available"],
-                        datasets: [
-                            {
-                                data: [cpu, 100 - cpu],
-                                backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+            <div className="graphWrapper lineGraphWrapper">
+                <div className="graph lineGraph">
+                    <Line
+                        datasetIdKey="cpuHistory"
+                        type="line"
+                        data={{
+                            labels, // TODO need way to map the
+                            datasets: [
+                                {
+                                    data: cpuHistory
+                                },
+                            ],
+                        }}
+                        options={{
+                            scales: {
+                                x: {
+                                    ticks: {
+                                        maxTicksLimit: 2,
+                                        autoSkip: 5,
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    min: 0,
+                                    max: 100,
+                                    ticks: {
+                                        stepSize: 25,
+                                    }
+                                }
                             },
-                        ],
-
-                    }
-                }
-                options={{
-                    animation: false,
-                }}
-            />
-            <Doughnut
-                datasetIdKey="mem"
-                data={
-                    {
-                        labels: ["usage", "available"],
-                        datasets: [
-                            {
-                                data: [mem, 1 - mem],
-                                backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+                            tooltips: {
+                                callbacks: {
+                                    label: function (tooltipItem) {
+                                        return tooltipItem.yLabel;
+                                    }
+                                }
                             },
-                        ],
-
-                    }
-                }
-                options={{
-                    animation: false,
-                }}
-            />
+                            animation: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                            }
+                        }}
+                    />
+                </div>
+            </div>
+            <div className="graphWrapper doughnutGraphWrapper">
+                <p>RAM %</p>
+                <div className="graph doughnutGraph">
+                    <Doughnut
+                        datasetIdKey="cpu"
+                        data={
+                            {
+                                labels: ["usage", "available"],
+                                datasets: [
+                                    {
+                                        data: [cpu, 100 - cpu],
+                                        backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+                                    },
+                                ],
+                            }
+                        }
+                        options={{
+                            animation: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                            }
+                        }}
+                    />
+                </div>
+            </div>
+            <div className="graphWrapper doughnutGraphWrapper">
+                <p>
+                    DISK %
+                    <br/>
+                    
+                </p>
+                <div className="graph doughnutGraph">
+                    <Doughnut
+                        datasetIdKey="mem"
+                        data={
+                            {
+                                labels: ["usage", "available"],
+                                datasets: [
+                                    {
+                                        data: [mem, 1 - mem],
+                                        backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+                                    },
+                                ],
+                            }
+                        }
+                        options={{
+                            animation: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                            }
+                        }}
+                    />
+                </div>
+            </div>
+            
         </Card>
     );
 }
