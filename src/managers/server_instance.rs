@@ -1,11 +1,12 @@
 use crate::instance_manager::InstanceManager;
 use chashmap::CHashMap;
 use mongodb::{bson::doc, options::ClientOptions, sync::Client};
+use regex::internal::Input;
 use serde::{Deserialize, Serialize};
 use std::char::UNICODE_VERSION;
 use std::env;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -53,10 +54,9 @@ pub struct ServerInstance {
     jvm_args: Vec<String>,
     path: String,
     pub uuid: String,
-    pub stdin: Option<Sender<String>>,
+    pub stdin: Option<Arc<Mutex<ChildStdin>>>,
     status: Arc<Mutex<Status>>,
     process: Arc<Mutex<Option<Child>>>,
-    kill_tx: Option<Sender<()>>,
     player_online: Arc<Mutex<Vec<String>>>,
 }
 /// Instance specific events,
@@ -87,7 +87,6 @@ impl ServerInstance {
             stdin: None,
             jvm_args,
             process: Arc::new(Mutex::new(None)),
-            kill_tx: None,
             path,
             uuid: config.uuid.as_ref().unwrap().clone(),
             player_online: Arc::new(Mutex::new(vec![])),
@@ -114,27 +113,11 @@ impl ServerInstance {
         match command.spawn() {
             Ok(proc) => {
                 env::set_current_dir("../..").unwrap();
-                let (stdin_sender, stdin_receiver): (Sender<String>, Receiver<String>) =
-                    mpsc::channel();
-                let (kill_tx, kill_rx): (Sender<()>, Receiver<()>) = mpsc::channel();
 
-                let mut stdin_writer = proc.stdin.ok_or("failed to open stdin of child process")?;
+                let stdin = proc.stdin.ok_or("failed to open stdin of child process")?;
+                self.stdin = Some(Arc::new(Mutex::new(stdin)));
                 let stdout = proc.stdout.ok_or("failed to open stdin of child process")?;
                 let reader = BufReader::new(stdout);
-                thread::spawn(move || {
-                    let stdin_receiver = stdin_receiver;
-                    loop {
-                        if kill_rx.try_recv().is_ok() {
-                            break;
-                        }
-                        let rec = stdin_receiver.recv().unwrap();
-                        println!("writing to stdin: {}", rec);
-                        stdin_writer.write_all(rec.as_bytes()).unwrap();
-                        stdin_writer.flush().unwrap();
-                    }
-
-                    println!("writer thread terminating");
-                });
                 let uuid_closure = self.uuid.clone();
                 let status_closure = self.status.clone();
                 let players_closure = self.player_online.clone();
@@ -184,7 +167,9 @@ impl ServerInstance {
                                 }
                                 InstanceEvent::Left => {
                                     let mut players = players_closure.lock().unwrap();
-                                    if let Some(index) = players.iter().position(|x| *x == event.0.clone()) {
+                                    if let Some(index) =
+                                        players.iter().position(|x| *x == event.0.clone())
+                                    {
                                         players.swap_remove(index);
                                     }
                                     drop(players);
@@ -200,7 +185,7 @@ impl ServerInstance {
                                             None,
                                         )
                                         .unwrap();
-                                },
+                                }
                             }
                         }
                     }
@@ -216,8 +201,6 @@ impl ServerInstance {
                     }
                     *status = Status::Stopped;
                 });
-                self.stdin = Some(stdin_sender);
-                self.kill_tx = Some(kill_tx);
                 return Ok(());
             }
             Err(_) => {
@@ -235,15 +218,22 @@ impl ServerInstance {
             Status::Running => println!("stopping instance"),
         }
         *status = Status::Stopping;
-        self.stdin
-            .clone()
-            .unwrap()
-            .send("stop\n".to_string())
-            .unwrap();
-        self.kill_tx.as_mut().unwrap().send(()).unwrap();
+        self.send_stdin("stop".to_string())?;
         *status = Status::Stopped;
         self.player_online.lock().unwrap().clear();
         Ok(())
+    }
+
+    pub fn send_stdin(&self, line: String) -> Result<(), String> {
+        match self.stdin.clone().as_mut() {
+            Some(stdin_mutex) => match stdin_mutex.lock() {
+                Ok(mut stdin) => Ok(stdin
+                    .write_all(line.as_bytes())
+                    .map_err(|_| "failed to write to process's stdin".to_string())?),
+                Err(_) => Err("failed to acquire lock on stdin".to_string()),
+            },
+            None => Err("could not find stdin of process".to_string()),
+        }
     }
 
     pub fn get_status(&self) -> Status {

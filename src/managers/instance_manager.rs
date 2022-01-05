@@ -190,7 +190,7 @@ impl InstanceManager {
     
     pub fn send_command(&self, uuid : String, command : String) -> Result<(), String> {
         let instance = self.instance_collection.get(&uuid).ok_or("cannot send command to instance as it does not exist".to_string())?;
-        instance.stdin.clone().unwrap().send(format!("{}\n", command)).map_err(|_| "failed to send command to instance".to_string())?;
+        instance.send_stdin(format!("{}\n", command)).map_err(|e| format!("failed to send command to instance {} : {}", instance.uuid.clone(), e))?;
         Ok(())
     }
 
