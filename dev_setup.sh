@@ -21,4 +21,4 @@ add-apt-repository ppa:linuxuprising/java
 echo oracle-java17-installer shared/accepted-oracle-license-v1-3 select true | sudo /usr/bin/debconf-set-selections
 apt-get install oracle-java17-installer -y
 apt install cpuidtool libcpuid14 libcpuid-dev
-
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
