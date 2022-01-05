@@ -29,21 +29,30 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
+    const bytesInGigabyte = 1048576;
     const labels = Array.from(Array(24).keys()).reverse().map((n) => 2.5 * n + 2.5);
 
     const { pollrate, domain, webport } = useContext(ServerContext);
 
     const [cpuHistory, setCpuHistory] = useState(new Array(24).fill(0));
     const [cpu, setCpu] = useState(0);
-    const [mem, setMem] = useState(0);
-    const [totalMem, setTotalMem] = useState(0);
+    const [mem, setMem] = useState([0, 1]);
+    const [disk, setDisk] = useState([0, 1]);
 
+    const byteToGigabyte = (x) => {
+        return Math.round(x / bytesInGigabyte * 10) / 10;
+    } 
 
     const getMemUsage = async (domain, webport) => {
         let response = await fetch(`https://${domain}:${webport}/api/sys/mem`);
-        const split = (await response.text()).split("/");
-        let memUsage = parseFloat(split[0]) / parseFloat(split[1]);
-        return memUsage;
+        const mem = (await response.text()).split("/").map(parseFloat);
+        return mem;
+    }
+
+    const getDiskUsage = async (domain, webport) => {
+        let response = await fetch(`https://${domain}:${webport}/api/sys/disk`);
+        const disk = (await response.text()).split("/").map(parseFloat);
+        return disk;
     }
     
     const getCpuUsage = async (domain, webport) => {
@@ -65,6 +74,10 @@ function SystemMonitor() {
         getMemUsage(domain, webport).then(mem => {
             setMem(mem);
         });
+
+        getDiskUsage(domain, webport).then(disk => {
+            setDisk(disk);
+        })
     }
 
     useInterval(() => { update(domain, webport) }, pollrate, true)
@@ -86,7 +99,11 @@ function SystemMonitor() {
     
     return (
         <Card className="systemMonitor">
+            
             <div className="graphWrapper lineGraphWrapper">
+                <p>
+                    CPU %
+                </p>
                 <div className="graph lineGraph">
                     <Line
                         datasetIdKey="cpuHistory"
@@ -134,7 +151,13 @@ function SystemMonitor() {
                 </div>
             </div>
             <div className="graphWrapper doughnutGraphWrapper">
-                <p>RAM %</p>
+                <p>
+                    RAM %
+                    <br/>
+                    {byteToGigabyte(mem[0])}/{byteToGigabyte(mem[1])} GB
+                    <br/>
+                    Used
+                </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
                         datasetIdKey="cpu"
@@ -143,7 +166,7 @@ function SystemMonitor() {
                                 labels: ["usage", "available"],
                                 datasets: [
                                     {
-                                        data: [cpu, 100 - cpu],
+                                        data: [mem[0] / mem[1], 1 - (mem[0] / mem[1])],
                                         backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
                                     },
                                 ],
@@ -164,7 +187,9 @@ function SystemMonitor() {
                 <p>
                     DISK %
                     <br/>
-                    
+                    {byteToGigabyte(disk[0])}/{byteToGigabyte(disk[1])} GB
+                    <br/>
+                    Used
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
@@ -174,7 +199,7 @@ function SystemMonitor() {
                                 labels: ["usage", "available"],
                                 datasets: [
                                     {
-                                        data: [mem, 1 - mem],
+                                        data: [disk[0] / disk[1], 1 - (disk[0] / disk[1])],
                                         backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
                                     },
                                 ],
