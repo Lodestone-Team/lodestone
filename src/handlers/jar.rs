@@ -1,7 +1,7 @@
 use rocket::response::{content, status};
 use serde_json::{json, Value};
 
-#[get("/api/jar/flavours")]
+#[get("/jar/flavours")]
 pub async fn flavours() -> content::Json<String> {
     content::Json(json!(["vanilla", "fabric"]).to_string())
     //Hard coded json bad
@@ -60,7 +60,7 @@ mod fabric_structs{
     }
 }
 
-#[get("/api/jar/vanilla/filters")]
+#[get("/jar/vanilla/filters")]
 pub async fn vanilla_filters() -> content::Json<String> {
     content::Json(
         json!({
@@ -72,7 +72,7 @@ pub async fn vanilla_filters() -> content::Json<String> {
     //Hard coded json bad
 }
 
-#[get("/api/jar/vanilla/versions?<type>&<latest>")]
+#[get("/jar/vanilla/versions?<type>&<latest>")]
 pub async fn vanilla_versions(
     r#type: Option<String>,
     latest: Option<bool>,
@@ -116,7 +116,7 @@ pub async fn vanilla_versions(
     content::Json(serde_json::to_string(&r).unwrap())
 }
 
-#[get("/api/jar/vanilla/<requested_version>")]
+#[get("/jar/vanilla/<requested_version>")]
 pub fn vanilla_jar(
     requested_version: String,
 ) -> Result<content::Json<String>, status::NotFound<String>> {
@@ -145,7 +145,7 @@ pub fn vanilla_jar(
     Err(status::NotFound("Jar not found".to_string()))
 }
 
-#[get("/api/jar/fabric/filters")]
+#[get("/jar/fabric/filters")]
 pub async fn fabric_filters() -> content::Json<String> {
     content::Json(
         json!({
@@ -156,7 +156,7 @@ pub async fn fabric_filters() -> content::Json<String> {
     //Hard coded json bad
 }
 
-#[get("/api/jar/fabric/versions?<stable>")]
+#[get("/jar/fabric/versions?<stable>")]
 pub async fn fabric_versions(stable: Option<bool>) -> content::Json<String> {
     let response: Vec<fabric_structs::ServerVersion> = serde_json::from_str(
         minreq::get("https://meta.fabricmc.net/v2/versions/game")
@@ -182,7 +182,7 @@ pub async fn fabric_versions(stable: Option<bool>) -> content::Json<String> {
     content::Json(serde_json::to_string(&r).unwrap())
 }
 
-#[get("/api/jar/fabric/<requested_version>")]
+#[get("/jar/fabric/<requested_version>")]
 pub fn fabric_jar(
     requested_version: String,
 ) -> Result<content::Json<String>, status::NotFound<String>> {

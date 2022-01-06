@@ -14,6 +14,7 @@ use instance_manager::InstanceManager;
 use managers::*;
 use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
+use rocket::fs::{relative, FileServer};
 use rocket::http::Header;
 use rocket::{Request, Response};
 
@@ -30,18 +31,20 @@ impl Fairing for CORS {
     fn info(&self) -> Info {
         Info {
             name: "Add CORS headers to responses",
-            kind: Kind::Response
+            kind: Kind::Response,
         }
     }
 
     async fn on_response<'r>(&self, req: &'r Request<'_>, res: &mut Response<'r>) {
         res.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        res.set_header(Header::new("Access-Control-Allow-Methods", "POST, GET, PATCH, OPTIONS, DELETE"));
+        res.set_header(Header::new(
+            "Access-Control-Allow-Methods",
+            "POST, GET, PATCH, OPTIONS, DELETE",
+        ));
         res.set_header(Header::new("Access-Control-Allow-Headers", "*"));
         res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
 }
-
 
 #[launch]
 async fn rocket() -> _ {
@@ -49,11 +52,15 @@ async fn rocket() -> _ {
     client_options.app_name = Some("MongoDB Client".to_string());
     let client = Client::with_options(client_options).unwrap();
 
-    env::set_current_dir(format!("{}/InstanceTest/", env::current_dir().unwrap().display())).unwrap();
+    env::set_current_dir(format!(
+        "{}/InstanceTest/",
+        env::current_dir().unwrap().display()
+    ))
+    .unwrap();
 
     rocket::build()
         .mount(
-            "/",
+            "/api/v1/",
             routes![
                 users::create,
                 users::test,
@@ -84,10 +91,11 @@ async fn rocket() -> _ {
                 system::get_uptime
             ],
         )
+        .mount("/", FileServer::from(relative!("static")))
         .manage(MyManagedState {
             instance_manager: Arc::new(Mutex::new(
                 InstanceManager::new(
-                    format!("{}/", env::current_dir().unwrap().display()),
+                    relative!("/Instances").to_string(),
                     client.clone(),
                 )
                 .unwrap(),

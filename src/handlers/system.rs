@@ -7,7 +7,7 @@ use systemstat::{System, Platform, Duration};
 extern crate cpuid;
 extern crate systemstat;
 
-#[get("/api/sys/mem")]
+#[get("/sys/mem")]
 pub async fn get_ram() -> (Status, String) {
     match mem_info() {
         Ok(mem) => return (Status::Ok, format!("{}/{}", mem.free, mem.total)),
@@ -15,7 +15,7 @@ pub async fn get_ram() -> (Status, String) {
     }
 }
 
-#[get("/api/sys/disk")]
+#[get("/sys/disk")]
 pub async fn get_disk() -> (Status, String) {
     match disk_info() {
         Ok(disk) => return (Status::Ok, format!("{}/{}", disk.free, disk.total)),
@@ -23,7 +23,7 @@ pub async fn get_disk() -> (Status, String) {
     }
 }
 
-#[get("/api/sys/cpuspeed")]
+#[get("/sys/cpuspeed")]
 pub async fn get_cpu_speed() -> (Status, String) {
     match cpu_speed() {
         Ok(cpuspeed) => return (Status::Ok, cpuspeed.to_string()),
@@ -31,7 +31,7 @@ pub async fn get_cpu_speed() -> (Status, String) {
     }
 }
 /// DOES NOT WORK IN WSL
-#[get("/api/sys/cpuinfo")]
+#[get("/sys/cpuinfo")]
 pub async fn get_cpu_info() -> (Status, String) {
     match cpuid::identify() {
         Ok(cpuinfo) => return (Status::Ok, format!("{} {}", cpuinfo.vendor, cpuinfo.codename)),
@@ -39,7 +39,7 @@ pub async fn get_cpu_info() -> (Status, String) {
     }
 }
 /// This handler will always take 1s+ to respond
-#[get("/api/sys/cpuutil")]
+#[get("/sys/cpuutil")]
 pub async fn get_utilization() -> (Status, String) {
     let sys = System::new();
     match sys.cpu_load_aggregate() {
@@ -51,7 +51,7 @@ pub async fn get_utilization() -> (Status, String) {
     }
 }
 
-#[get("/api/sys/osinfo")]
+#[get("/sys/osinfo")]
 pub async fn get_os_info() -> (Status, String) {
     match os_release() {
         Ok(release) => {
@@ -64,7 +64,7 @@ pub async fn get_os_info() -> (Status, String) {
     }
 }
 
-#[get("/api/sys/uptime")]
+#[get("/sys/uptime")]
 pub async fn get_uptime() -> (Status, String) {
     let sys = System::new();
     match sys.uptime() {
