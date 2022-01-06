@@ -14,7 +14,7 @@ use instance_manager::InstanceManager;
 use managers::*;
 use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
-use rocket::fs::{relative, FileServer};
+use rocket::fs::{FileServer};
 use rocket::http::Header;
 use rocket::{Request, Response};
 
@@ -52,11 +52,19 @@ async fn rocket() -> _ {
     client_options.app_name = Some("MongoDB Client".to_string());
     let client = Client::with_options(client_options).unwrap();
 
-    env::set_current_dir(format!(
-        "{}/InstanceTest/",
-        env::current_dir().unwrap().display()
-    ))
-    .unwrap();
+    let lodestone_path = match env::var("LODESTONE_PATH") {
+        Ok(val) => format!("{}/", val),
+        Err(_) => format!("{}/", env::current_dir().unwrap().display()),
+    };
+
+    let public_path = match env::var("LODESTONE_PUBLIC_PATH"){
+        Ok(val) => format!("{}/", val),
+        Err(_) => format!("{}public/", lodestone_path),
+    };
+
+    //print file locations to console
+    println!("Lodestone directory: {}", lodestone_path);
+    println!("Serving this folder as web dashboard: {}", public_path);
 
     rocket::build()
         .mount(
@@ -91,11 +99,11 @@ async fn rocket() -> _ {
                 system::get_uptime
             ],
         )
-        .mount("/", FileServer::from(relative!("static")))
+        .mount("/", FileServer::from(public_path))
         .manage(MyManagedState {
             instance_manager: Arc::new(Mutex::new(
                 InstanceManager::new(
-                    relative!("/Instances").to_string(),
+                    lodestone_path,
                     client.clone(),
                 )
                 .unwrap(),
