@@ -12,4 +12,7 @@
 ## vscode local history
 .history/
 
+
+## dev
 InstanceTest/
+.lodestone_config/
