@@ -1,3 +1,5 @@
+import "./SystemMonitor.css";
+
 import {
     ArcElement,
     CategoryScale,
@@ -9,12 +11,11 @@ import {
     Title,
     Tooltip,
 } from 'chart.js';
-import { Bar, Doughnut, Line } from "react-chartjs-2";
-import React, { useContext, useEffect, useRef, useState } from "react";
+import { Doughnut, Line } from "react-chartjs-2";
+import React, { useContext, useState } from "react";
 
 import Card from "./Card";
 import { ServerContext } from "../contexts/ServerContext";
-import "./SystemMonitor.css";
 import { useInterval } from '../utils';
 
 ChartJS.register(
@@ -32,74 +33,75 @@ function SystemMonitor() {
     const bytesInGigabyte = 1048576;
     const labels = Array.from(Array(24).keys()).reverse().map((n) => 2.5 * n + 2.5);
 
-    const { pollrate, domain, webport } = useContext(ServerContext);
+    const { pollrate, api_domain, api_path } = useContext(ServerContext);
 
     const [cpuHistory, setCpuHistory] = useState(new Array(24).fill(0));
+    // eslint-disable-next-line no-unused-vars
     const [cpu, setCpu] = useState(0);
     const [mem, setMem] = useState([0, 1]);
     const [disk, setDisk] = useState([0, 1]);
 
     const byteToGigabyte = (x) => {
         return Math.round(x / bytesInGigabyte * 10) / 10;
-    } 
+    }
 
-    const getMemUsage = async (domain, webport) => {
-        let response = await fetch(`https://${domain}:${webport}/api/sys/mem`);
+    const getMemUsage = async (api_domain, api_path) => {
+        let response = await fetch(`${api_domain}${api_path}/sys/mem`);
         const mem = (await response.text()).split("/").map(parseFloat);
         return mem;
     }
 
-    const getDiskUsage = async (domain, webport) => {
-        let response = await fetch(`https://${domain}:${webport}/api/sys/disk`);
+    const getDiskUsage = async (api_domain, api_path) => {
+        let response = await fetch(`${api_domain}${api_path}/sys/disk`);
         const disk = (await response.text()).split("/").map(parseFloat);
         return disk;
     }
-    
-    const getCpuUsage = async (domain, webport) => {
-        let response = await fetch(`https://${domain}:${webport}/api/sys/cpuutil`);
+
+    const getCpuUsage = async (api_domain, api_path) => {
+        let response = await fetch(`${api_domain}${api_path}/sys/cpuutil`);
         let cpuUsage = parseFloat(await response.text())
-        return cpuUsage*100;
+        return cpuUsage * 100;
     }
 
-    const update = (domain, webport) => {
+    const update = (api_domain, api_path) => {
         const newCpuHistory = [...cpuHistory];
         newCpuHistory.shift()
 
-        getCpuUsage(domain, webport).then(cpu => {
+        getCpuUsage(api_domain, api_path).then(cpu => {
             setCpu(cpu);
             newCpuHistory.push(cpu);
             setCpuHistory(newCpuHistory);
         });
 
-        getMemUsage(domain, webport).then(mem => {
+        getMemUsage(api_domain, api_path).then(mem => {
             setMem(mem);
         });
 
-        getDiskUsage(domain, webport).then(disk => {
+        getDiskUsage(api_domain, api_path).then(disk => {
             setDisk(disk);
         })
     }
 
-    useInterval(() => { update(domain, webport) }, pollrate, true)
+    useInterval(() => { update(api_domain, api_path) }, pollrate, true)
 
-    const data = {
-        labels, // TODO need way to map the 
-        datasets: [
-            {
-                data: cpuHistory
-            },
-            // {
-            //     xAxisID: "x",
-            //     yAxisID: "y",
-            //     label: "CPU",
-            //     data: [50, 60, 70, 80, 90, 100],
-            // },
-        ],
-    }
-    
+    // const data = {
+    //     labels, // TODO need way to map the 
+    //     datasets: [
+    //         {
+    //             data: cpuHistory
+    //         },
+    // {
+    //     xAxisID: "x",
+    //     yAxisID: "y",
+    //     label: "CPU",
+    //     data: [50, 60, 70, 80, 90, 100],
+    // },
+    //     ],
+    // }
+
     return (
         <Card className="systemMonitor">
-            
+
             <div className="graphWrapper lineGraphWrapper">
                 <p>
                     CPU %
@@ -153,9 +155,9 @@ function SystemMonitor() {
             <div className="graphWrapper doughnutGraphWrapper">
                 <p>
                     RAM %
-                    <br/>
+                    <br />
                     {byteToGigabyte(mem[0])}/{byteToGigabyte(mem[1])} GB
-                    <br/>
+                    <br />
                     Used
                 </p>
                 <div className="graph doughnutGraph">
@@ -186,9 +188,9 @@ function SystemMonitor() {
             <div className="graphWrapper doughnutGraphWrapper">
                 <p>
                     DISK %
-                    <br/>
+                    <br />
                     {byteToGigabyte(disk[0])}/{byteToGigabyte(disk[1])} GB
-                    <br/>
+                    <br />
                     Used
                 </p>
                 <div className="graph doughnutGraph">
@@ -216,7 +218,7 @@ function SystemMonitor() {
                     />
                 </div>
             </div>
-            
+
         </Card>
     );
 }

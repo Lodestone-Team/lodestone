@@ -1,45 +1,39 @@
 import "./Instance.css";
 
-import React, { useContext, useEffect, useState } from "react";
-import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle } from '@fortawesome/free-solid-svg-icons'
+import React, { useContext, useState } from "react";
+import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCircle, faTrash } from '@fortawesome/free-solid-svg-icons'
 
 import Card from "./Card";
 import Icon from "../components/Icon";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
-import {ServerContext} from "../contexts/ServerContext";
+import { ServerContext } from "../contexts/ServerContext";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faCircle as faRing } from '@fortawesome/free-regular-svg-icons'
 import { toast } from 'react-toastify';
 
 var utils = require("../utils")
 
-
-async function getStatus(uuid, domain, port) {
-  // 
-  let response = await fetch(`https://${domain}:${port}/api/instance/${uuid}/status`);
-  let status = await response.text();
-  return status;
-}
-
-async function getPlayercount(uuid, domain, port) {
-  let response = await fetch(`https://${domain}:${port}/api/instance/${uuid}/playercount`);
-  let playercount = await response.text();
-  return `${playercount}/20`;
-}
-
 export default function Instance({ name, version, flavour, port, uuid }) {
   const [playerCount, setPlayerCount] = useState("");
   const [status, setStatus] = useState("");
-  const {pollrate, domain, webport} = useContext(ServerContext);
+  const { pollrate, api_domain, api_path } = useContext(ServerContext);
+  const toastRef = React.useRef();
 
-  // useEffect(() => {
-  //   getStatus(uuid, domain, webport).then(setStatus);
-  //   getPlayercount(uuid, domain, webport).then(setPlayerCount);
-  // }, [uuid, domain, webport]);
+  const getStatus = async (uuid, api_domain, api_path) => {
+    let response = await fetch(`${api_domain}${api_path}/instance/${uuid}/status`);
+    let status = await response.text();
+    return status;
+  }
+
+  const getPlayercount = async (uuid, api_domain, api_path) => {
+    let response = await fetch(`${api_domain}${api_path}/instance/${uuid}/playercount`);
+    let playercount = await response.text();
+    return `${playercount}/20`; //TODO: get max playercount from server
+  }
 
   utils.useInterval(() => {
-    getStatus(uuid, domain, webport).then(setStatus);
-    getPlayercount(uuid, domain, webport).then(setPlayerCount);
+    getStatus(uuid, api_domain, api_path).then(setStatus);
+    getPlayercount(uuid, api_domain, api_path).then(setPlayerCount);
   }, pollrate, true);
 
   function renderStatusDot(status) {
@@ -57,13 +51,31 @@ export default function Instance({ name, version, flavour, port, uuid }) {
     }
   }
 
-  let startServer = () => {
-    //POST /api/instance/{uuid}/start
-    fetch(`https://${domain}:8000/api/instance/${uuid}/start`, {
+  const startServer = async () => {
+    //POST /api/v1/instance/{uuid}/start
+
+    fetch(`${api_domain}${api_path}/instance/${uuid}/start`, {
       method: 'POST',
     }).then(response => {
       if (response.ok) {
-        toast.success("Starting Server");
+        toast.info("Starting Server...");
+        getStatus(uuid).then(setStatus);
+      } else {
+        response.text().then(toast.error);
+      }
+    }).catch(error => {
+      console.error(error);
+      toast.error("Failed to connect to the server.");
+    });
+  }
+
+  const stopServer = async () => {
+    //POST /api/v1/instance/{uuid}/stop
+    fetch(`${api_domain}${api_path}/instance/${uuid}/stop`, {
+      method: 'POST',
+    }).then(response => {
+      if (response.ok) {
+        toast.info("Stopping Server...");
         getStatus(uuid).then(setStatus);
       } else {
         response.text().then(toast.error);
@@ -74,14 +86,13 @@ export default function Instance({ name, version, flavour, port, uuid }) {
     });
   }
 
-  let stopServer = () => {
-    //POST /api/instance/{uuid}/start
-    fetch(`https://${domain}:8000/api/instance/${uuid}/stop`, {
-      method: 'POST',
+  const deleteServer = async () => {
+    //DELETE /api/v1/instance/{uuid}
+    fetch(`${api_domain}${api_path}/instance/${uuid}`, {
+      method: 'DELETE',
     }).then(response => {
       if (response.ok) {
-        toast.success("Stopping Server");
-        getStatus(uuid).then(setStatus);
+        toast.success("Deleted Server");
       } else {
         response.text().then(toast.error);
       }
@@ -95,7 +106,7 @@ export default function Instance({ name, version, flavour, port, uuid }) {
     <Card className={"instance " + status} >
       <div className="title-bar">
         <h2 className="title">{utils.truncateString(name, 10)}</h2>
-        <h3 className="subtitle">{domain}:{port}</h3>
+        <h3 className="subtitle">{window.location.hostname}:{port}</h3>
       </div>
       <small>{utils.capitalize(flavour)} {version}</small>
       <span className="player-count">{playerCount ? playerCount : "..."}</span>
@@ -116,6 +127,15 @@ export default function Instance({ name, version, flavour, port, uuid }) {
             overlay={<Tooltip>Stop Server</Tooltip>}
           >
             <Icon icon={faStop} className="caution clickable" onClick={stopServer} />
+          </OverlayTrigger>
+
+
+          {/* TODO: move delete button into setting panel once that's done */}
+          <OverlayTrigger
+            placement="top"
+            overlay={<Tooltip>Delete Server</Tooltip>}
+          >
+            <Icon icon={faTrash} className="danger clickable" onClick={deleteServer} />
           </OverlayTrigger>
         </span>
       </div>

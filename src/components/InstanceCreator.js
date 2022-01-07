@@ -23,72 +23,74 @@ export default function InstanceCreator() {
   const [name, setName] = useState("");
   const [flavour, setFlavour] = useState("");
   const [uuid, setUUID] = useState("");
-  const [url, setURL] = useState("");
   const [versions, setVersions] = useState([]);
   const [version, setVersion] = useState("");
   const [ready, setReady] = useState(false);
-  const { pollrate, domain, webport } = useContext(ServerContext);
+  const { api_domain, api_path } = useContext(ServerContext);
 
+  const checkForm = () => {
+    if (name.length > 0 && flavour.length > 0 && version.length > 0) {
+      setReady(true);
+    }
+    else {
+      setReady(false);
+    }
+  }
 
+  // fetch flavours on showing of modal
   useEffect(() => {
-    fetch(`https://${domain}:${webport}/api/jar/flavours`)
+    fetch(`${api_domain}${api_path}/jar/flavours`)
       .then((response) => response.json())
       .then((data) => {
         setFlavours(data)
       })
-  }, [show, domain, webport]);
+  }, [show, api_domain, api_path]);
 
-
+  // fetch versions on selection of flavour
   useEffect(() => {
     if (flavour) {
-      fetch(`https://${domain}:${webport}/api/jar/${flavour}/versions`)
+      setVersions([]);
+      fetch(`${api_domain}${api_path}/jar/${flavour}/versions`)
         .then((response) => response.json())
         .then((data) => {
           setVersions(data)
         })
     }
-  }, [flavour, domain, webport]);
+  }, [flavour, api_domain, api_path]);
 
-  useEffect(() => {
-    console.log(name)
-    if (version.length <= 0) return setReady(false);
-    if (name.length <= 0) return setReady(false);
-
-    fetch(`https://${domain}:${webport}/api/jar/${flavour}/${version}`).then(response => {
-      if (!response.ok) return;
-
-      response.text().then(url => {
-        setURL(url);
-        setReady(true);
-      });
-    })
-
-  }, [flavour, version, domain, webport, name]);
-
-  let createInstance = (event) => {
+  let createInstance = async (event) => {
     event.preventDefault();
+
     if (!ready) {
       toast.error("Please fill out all fields");
       return;
     }
 
+    const toastId = toast.loading("Creating instance...");
+
+    let jarUrlResponse = await fetch(`${api_domain}${api_path}/jar/${flavour}/${version}`);
+    if (!jarUrlResponse.ok) {
+      let error = await jarUrlResponse.text();
+      toast.update(toastId, { render: error, type: toast.TYPE.INFO, autoClose: 5000 });
+      return;
+    }
+    let url = await jarUrlResponse.text();
     let payload = JSON.stringify({ name, flavour, version, url });
+
     console.log(payload);
 
-    const creationToast = toast.loading("Creating instance...")
-
-    fetch(`https://${domain}:${webport}/api/instance/${uuid}`, {
+    let creationResponse = await fetch(`${api_domain}${api_path}/instance/${uuid}`, {
       method: "POST",
       body: payload,
-    }).then(response => {
-      if (!response.ok) {
-        toast.update(creationToast, { render: "Failed to create instance", type: "error" });
-        return;
-      }
-      toast.update(creationToast, { render: "Successfully created instance!", type: "success" });
-      setShow(false);
-    })
+    });
+    if (!creationResponse.ok) {
+      let error = await creationResponse.text();
+      toast.update(toastId, { render: error, type: toast.TYPE.ERROR, autoClose: 5000 });
+      return;
+    }
 
+    toast.update(toastId, { render: "Successfully created instance!", type: toast.TYPE.SUCCESS, autoClose: 5000 });
+    setShow(false);
   };
 
   return (
@@ -116,6 +118,7 @@ export default function InstanceCreator() {
               value={name} onChange={(event) => {
                 setName(event.target.value)
                 setUUID(`${event.target.value.replace(/[^0-9a-zA-Z]+/g, '')}-${Date.now().toString(16)}-${Math.floor(Math.random() * 1024)}`)
+                checkForm();
               }} />
             <Form.Text id="uuidBlock" muted>
               UUID: {name ? uuid : ""}
@@ -140,7 +143,10 @@ export default function InstanceCreator() {
                   label={utils.capitalize(myFlavour)}
                   name="flavour"
                   value={myFlavour}
-                  onChange={(event) => setFlavour(event.target.value)}
+                  onChange={(event) => {
+                    setFlavour(event.target.value);
+                    checkForm();
+                  }}
                   checked={myFlavour === flavour}
                 />))}
             </div>
@@ -155,7 +161,10 @@ export default function InstanceCreator() {
             </Form.Group> */}
             <Form.Group className="flex-grow-1">
               <Form.Label>Minecraft Version</Form.Label>
-              <Form.Select value={version} onChange={(event) => setVersion(event.target.value)} >
+              <Form.Select value={version} onChange={(event) => {
+                setVersion(event.target.value);
+                checkForm();
+              }} >
                 <option value="" selected disabled>Choose a version</option>
                 {versions.map((myVersion) => (
                   <option key={myVersion} value={myVersion}>{myVersion}</option>

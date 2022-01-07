@@ -10,17 +10,18 @@ const defaultTilt = {
   max: 5
 };
 
-export default function Card({children, className, options = defaultTilt}) {
-  // const tilt = useRef(null);
+export default function Card({ children, className, options = defaultTilt, tilt = false }) {
+  const tiltRef = useRef(null);
 
-  // useEffect(() => {
-  //   VanillaTilt.init(tilt.current, options);
-  // }, [options]);
-  
+  useEffect(() => {
+    if (tilt)
+      VanillaTilt.init(tiltRef.current, options);
+  }, [options, tilt]);
+
   return (
     <div
-    // ref={tilt}
-    className={"card " + (className ? className : "") }>
+      ref={tiltRef}
+      className={"card " + (className ? className : "")}>
       {children}
     </div>
   )

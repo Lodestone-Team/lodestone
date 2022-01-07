@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
 export const capitalize = (str) => {
   return str.charAt(0).toUpperCase() + str.slice(1);

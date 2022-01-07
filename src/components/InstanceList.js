@@ -1,6 +1,6 @@
 import "./InstanceList.css";
 
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useState } from "react";
 
 import Instance from "./Instance";
 import InstanceCreator from "./InstanceCreator";
@@ -8,23 +8,18 @@ import { ServerContext } from "../contexts/ServerContext";
 
 var utils = require("../utils")
 
-async function getStatus(domain, port) {
-  let response = await fetch(`https://${domain}:${port}/api/instances`);
+async function getStatus(api_domain, api_path) {
+  let response = await fetch(`${api_domain}${api_path}/instances`);
   let instances = await response.json();
   return instances;
 }
 
 export default function InstanceList() {
   const [instances, setInstances] = useState([]);
-  const { pollrate, domain, webport } = useContext(ServerContext);
-
-
-  // useEffect(() => {
-  //   getStatus(domain, webport).then(setInstances);
-  // }, [domain, webport]);
+  const { pollrate, api_domain, api_path } = useContext(ServerContext);
 
   utils.useInterval(() => {
-    getStatus(domain, webport).then(setInstances);
+    getStatus(api_domain, api_path).then(setInstances);
   }, pollrate, true);
 
   return (
