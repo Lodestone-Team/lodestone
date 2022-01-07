@@ -56,6 +56,7 @@ async fn rocket() -> _ {
         Ok(val) => format!("{}/", val),
         Err(_) => format!("{}/", env::current_dir().unwrap().display()),
     };
+    env::set_current_dir(&lodestone_path).unwrap();
 
     let static_path = format!("{}web/", lodestone_path);
 
