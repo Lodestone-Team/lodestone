@@ -16,8 +16,10 @@ use managers::*;
 use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::{FileServer};
-use rocket::http::Header;
+use rocket::http::{Header, Status};
 use rocket::{Request, Response};
+use std::path::{Path, PathBuf};
+
 
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
@@ -45,6 +47,11 @@ impl Fairing for CORS {
         res.set_header(Header::new("Access-Control-Allow-Headers", "Origin, Content-Type, X-Auth-Token"));
         res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
+}
+
+#[options("/<path..>")]
+fn options_handler<'a>(path: PathBuf) -> Status{
+    Status::Ok
 }
 
 #[launch]
@@ -101,6 +108,7 @@ async fn rocket() -> _ {
             ],
         )
         .mount("/", FileServer::from(static_path))
+        .mount("/", routes![options_handler])
         .manage(MyManagedState {
             instance_manager: Arc::new(Mutex::new(
                 InstanceManager::new(
