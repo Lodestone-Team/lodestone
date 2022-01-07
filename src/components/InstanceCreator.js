@@ -1,6 +1,6 @@
 import "./InstanceCreator.scss";
 
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 
 import Button from "react-bootstrap/Button";
 import CloseButton from "react-bootstrap/CloseButton";
@@ -26,16 +26,32 @@ export default function InstanceCreator() {
   const [versions, setVersions] = useState([]);
   const [version, setVersion] = useState("");
   const [ready, setReady] = useState(false);
+  const [waiting, setWaiting] = useState(false);
   const { api_domain, api_path } = useContext(ServerContext);
+  const toastId = useRef("");
 
-  const checkForm = () => {
+  const checkError = () => {
+    if (waiting) {
+      toast.error("Waiting for the previous request to finish...");
+      return true;
+    }
+
+    if (!ready) {
+      toast.error("Please fill out all fields");
+      return true;
+    }
+
+    return false;
+  }
+
+  useEffect(() => {
     if (name.length > 0 && flavour.length > 0 && version.length > 0) {
       setReady(true);
     }
     else {
       setReady(false);
     }
-  }
+  }, [name, flavour, version]);
 
   // fetch flavours on showing of modal
   useEffect(() => {
@@ -50,6 +66,7 @@ export default function InstanceCreator() {
   useEffect(() => {
     if (flavour) {
       setVersions([]);
+      setVersion("");
       fetch(`${api_domain}${api_path}/jar/${flavour}/versions`)
         .then((response) => response.json())
         .then((data) => {
@@ -61,17 +78,18 @@ export default function InstanceCreator() {
   let createInstance = async (event) => {
     event.preventDefault();
 
-    if (!ready) {
-      toast.error("Please fill out all fields");
-      return;
-    }
+    if (checkError()) return;
 
-    const toastId = toast.loading("Creating instance...");
+    toastId.current = toast.loading("Creating instance...");
+
+    setWaiting(true);
 
     let jarUrlResponse = await fetch(`${api_domain}${api_path}/jar/${flavour}/${version}`);
     if (!jarUrlResponse.ok) {
       let error = await jarUrlResponse.text();
-      toast.update(toastId, { render: error, type: toast.TYPE.INFO, autoClose: 5000 });
+      toast.update(toastId.current, { render: error, type: toast.TYPE.INFO, autoClose: 5000, isLoading: false });
+      toastId.current = "";
+      setWaiting(false);
       return;
     }
     let url = await jarUrlResponse.text();
@@ -85,24 +103,56 @@ export default function InstanceCreator() {
     });
     if (!creationResponse.ok) {
       let error = await creationResponse.text();
-      toast.update(toastId, { render: error, type: toast.TYPE.ERROR, autoClose: 5000 });
+      toast.update(toastId.current, { render: error, type: toast.TYPE.ERROR, autoClose: 5000, isLoading: false });
+      toastId.current = "";
+      setWaiting(false);
       return;
     }
 
-    toast.update(toastId, { render: "Successfully created instance!", type: toast.TYPE.SUCCESS, autoClose: 5000 });
+    toast.update(toastId.current, { render: "Successfully created instance!", type: toast.TYPE.SUCCESS, autoClose: 5000, isLoading: false, progress: 1});
+    toastId.current = "";
+    setWaiting(false);
     setShow(false);
   };
+
+  utils.useInterval(() => {
+    if (toastId.current) {
+      fetch(`${api_domain}${api_path}/instance/${uuid}/download-progress`)
+        .then((response) => {
+          if (response.ok) {
+            return response;
+          }
+        }).then((response) => {
+          if (response) {
+            return response.text();
+          }
+        }).then((progress) => {
+          if (progress) {
+            //progress is in "1000/1000" format
+            let progressArray = progress.split("/");
+            let progressPercentage = parseInt(progressArray[0]) / parseInt(progressArray[1]);
+            console.log(progressPercentage);
+            toast.update(toastId.current, { render: `Creating... ${(100*progressPercentage).toFixed(0)}%`, type: toast.TYPE.INFO, isLoading: true, progress: progressPercentage });
+          }
+        });
+    }
+  }, 1000);
 
   return (
     <>
       <img src={PlusIcon} alt="Plus Icon" className="new-instance-button clickable" onClick={() => {
+        if (waiting) {
+          toast.error("Waiting for the previous request to finish...");
+          return;
+        }
         setShow(true);
         setName("");
         setVersion("");
         setFlavour("");
+        setVersions([]);
         setReady(false);
       }} />
-      <Modal show={show} onHide={() => setShow(false)}
+      <Modal show={show} onHide={() => { setShow(false); }}
         size="md"
         centered
         contentClassName="card main"
@@ -111,14 +161,14 @@ export default function InstanceCreator() {
           <h2 className="title">Create new Instance</h2>
           <CloseButton onClick={() => setShow(false)} />
         </div>
-        <Form onSubmit={createInstance}>
+        <Form onSubmit={createInstance} disabled>
           <Form.Group controlId="creationForm.Name" className="mb-3">
             <Form.Label>Instance Name</Form.Label>
-            <Form.Control autoComplete="off" type="text" placeholder="My Instance"
+            <Form.Control autoComplete="off" type="text" placeholder="My Instance" disabled={waiting}
               value={name} onChange={(event) => {
                 setName(event.target.value)
                 setUUID(`${event.target.value.replace(/[^0-9a-zA-Z]+/g, '')}-${Date.now().toString(16)}-${Math.floor(Math.random() * 1024)}`)
-                checkForm();
+                // checkForm();
               }} />
             <Form.Text id="uuidBlock" muted>
               UUID: {name ? uuid : ""}
@@ -143,9 +193,10 @@ export default function InstanceCreator() {
                   label={utils.capitalize(myFlavour)}
                   name="flavour"
                   value={myFlavour}
+                  disabled={waiting}
                   onChange={(event) => {
                     setFlavour(event.target.value);
-                    checkForm();
+                    // checkForm();
                   }}
                   checked={myFlavour === flavour}
                 />))}
@@ -161,11 +212,11 @@ export default function InstanceCreator() {
             </Form.Group> */}
             <Form.Group className="flex-grow-1">
               <Form.Label>Minecraft Version</Form.Label>
-              <Form.Select value={version} onChange={(event) => {
+              <Form.Select disabled={waiting} value={version} onChange={(event) => {
                 setVersion(event.target.value);
-                checkForm();
+                // checkForm();
               }} >
-                <option value="" selected disabled>Choose a version</option>
+                <option value="" disabled>Choose a version</option>
                 {versions.map((myVersion) => (
                   <option key={myVersion} value={myVersion}>{myVersion}</option>
                 ))}
@@ -173,7 +224,7 @@ export default function InstanceCreator() {
             </Form.Group>
           </div>
           <div className="d-grid create-button-wrapper">
-            <Button variant="primary" type="submit" size="lg" disabled={!ready}>
+            <Button variant="primary" type="submit" size="lg" disabled={!ready || waiting}>
               Create!
             </Button>
           </div>

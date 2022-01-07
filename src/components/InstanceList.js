@@ -8,18 +8,23 @@ import { ServerContext } from "../contexts/ServerContext";
 
 var utils = require("../utils")
 
-async function getStatus(api_domain, api_path) {
-  let response = await fetch(`${api_domain}${api_path}/instances`);
-  let instances = await response.json();
-  return instances;
-}
-
 export default function InstanceList() {
   const [instances, setInstances] = useState([]);
   const { pollrate, api_domain, api_path } = useContext(ServerContext);
 
+  const getInstances = async () => {
+    let response = await fetch(`${api_domain}${api_path}/instances`);
+    let instances = await response.json();
+    return instances;
+  }
+
+  const updateInstances = async () => {
+    let instances = await getInstances();
+    setInstances(instances);
+  }
+
   utils.useInterval(() => {
-    getStatus(api_domain, api_path).then(setInstances);
+    updateInstances();
   }, pollrate, true);
 
   return (

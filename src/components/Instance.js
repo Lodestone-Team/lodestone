@@ -13,11 +13,10 @@ import { toast } from 'react-toastify';
 
 var utils = require("../utils")
 
-export default function Instance({ name, version, flavour, port, uuid }) {
+export default function Instance({ name, version, flavour, port, uuid, updateInstances }) {
   const [playerCount, setPlayerCount] = useState("");
   const [status, setStatus] = useState("");
   const { pollrate, api_domain, api_path } = useContext(ServerContext);
-  const toastRef = React.useRef();
 
   const getStatus = async (uuid, api_domain, api_path) => {
     let response = await fetch(`${api_domain}${api_path}/instance/${uuid}/status`);
