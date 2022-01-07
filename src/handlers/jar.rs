@@ -3,7 +3,8 @@ use serde_json::{json, Value};
 
 #[get("/jar/flavours")]
 pub async fn flavours() -> content::Json<String> {
-    content::Json(json!(["vanilla", "fabric"]).to_string())
+    content::Json(json!(["vanilla"]).to_string())
+    // content::Json(json!(["vanilla", "fabric"]).to_string())
     //Hard coded json bad
 }
 
