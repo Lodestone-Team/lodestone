@@ -5,6 +5,7 @@ extern crate sanitize_filename;
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
 use std::env;
+use std::fs::create_dir_all;
 use std::sync::Arc;
 mod handlers;
 mod managers;
@@ -59,6 +60,9 @@ async fn rocket() -> _ {
     env::set_current_dir(&lodestone_path).unwrap();
 
     let static_path = format!("{}web/", lodestone_path);
+    
+    //create the web direcotry if it doesn't exist
+    create_dir_all(&static_path).unwrap();
 
     //print file locations to console
     println!("Lodestone directory: {}", lodestone_path);
