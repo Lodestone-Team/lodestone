@@ -51,6 +51,6 @@
 .btn-primary.disabled,
 .btn-primary:disabled {
   color: #fff;
-  background-color: rgb(83, 231, 108);
-  border-color: rgb(83, 231, 108);
+  background-color: #C0E3C2;
+  border-color: #C0E3C2;
 }
