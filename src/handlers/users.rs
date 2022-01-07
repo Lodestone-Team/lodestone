@@ -59,7 +59,7 @@ pub async fn create(auth_info: Json<AuthInfo>, state: &State<MyManagedState>) ->
     let auth_info = auth_info.into_inner();
     match create_user(state, auth_info.username, auth_info.password) {
         Ok(()) => (Status::Created, "".to_string()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 

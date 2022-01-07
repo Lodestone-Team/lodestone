@@ -37,7 +37,7 @@ pub async fn setup(uuid : String, config: Json<InstanceConfig>, state: &State<My
     config.uuid = Some(uuid);
     match manager.create_instance(config, state).await {
         Ok(uuid) => (Status::Created, uuid),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -45,7 +45,7 @@ pub async fn setup(uuid : String, config: Json<InstanceConfig>, state: &State<My
 pub async fn delete(uuid : String, state: &State<MyManagedState>) -> (Status, String) {
     match state.instance_manager.lock().await.delete_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -69,7 +69,7 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.start_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -77,7 +77,7 @@ pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, Stri
 pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     match state.instance_manager.lock().await.stop_instance(uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -86,7 +86,7 @@ pub async fn status(state: &State<MyManagedState>, uuid: String) -> (Status, Str
     match state.instance_manager.lock().await.get_status(uuid) {
         //return status in lowercase
         Ok(status) => (Status::Ok, status.to_lowercase()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -100,7 +100,7 @@ pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) 
         .send_command(uuid, command)
     {
         Ok(()) => (Status::Ok, "Ok".to_string()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -113,7 +113,7 @@ pub async fn player_count(uuid: String, state: &State<MyManagedState>) -> (Statu
         .player_num(uuid)
     {
         Ok(size) => (Status::Ok, size.to_string()),
-        Err(reason) => (Status::InternalServerError, reason),
+        Err(reason) => (Status::BadRequest, reason),
     }
 }
 
@@ -126,7 +126,7 @@ pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status
         .player_list(uuid)
     {
         Ok(vec) => (Status::Ok, content::Json(serde_json::to_string(&vec).unwrap())),
-        Err(reason) => (Status::InternalServerError, content::Json(reason)),
+        Err(reason) => (Status::BadRequest, content::Json(reason)),
     }
 }
 
@@ -160,7 +160,7 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
         }, None)
         {
             Err(err) => {
-                return (Status::InternalServerError, content::Json(err.to_string()))
+                return (Status::BadRequest, content::Json(err.to_string()))
             },
             Ok(logs) => {
                 for log in logs {

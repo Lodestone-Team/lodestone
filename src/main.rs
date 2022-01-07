@@ -41,7 +41,7 @@ impl Fairing for CORS {
             "Access-Control-Allow-Methods",
             "POST, GET, PATCH, OPTIONS, DELETE",
         ));
-        res.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        res.set_header(Header::new("Access-Control-Allow-Headers", "Origin, Content-Type, X-Auth-Token"));
         res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
 }
@@ -57,14 +57,10 @@ async fn rocket() -> _ {
         Err(_) => format!("{}/", env::current_dir().unwrap().display()),
     };
 
-    let public_path = match env::var("LODESTONE_PUBLIC_PATH"){
-        Ok(val) => format!("{}/", val),
-        Err(_) => format!("{}public/", lodestone_path),
-    };
+    let static_path = format!("{}web/", lodestone_path);
 
     //print file locations to console
     println!("Lodestone directory: {}", lodestone_path);
-    println!("Serving this folder as web dashboard: {}", public_path);
 
     rocket::build()
         .mount(
@@ -99,7 +95,7 @@ async fn rocket() -> _ {
                 system::get_uptime
             ],
         )
-        .mount("/", FileServer::from(public_path))
+        .mount("/", FileServer::from(static_path))
         .manage(MyManagedState {
             instance_manager: Arc::new(Mutex::new(
                 InstanceManager::new(
