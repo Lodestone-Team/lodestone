@@ -30,12 +30,13 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
-    const bytesInGigabyte = 1048576;
-    const labels = Array.from(Array(24).keys()).reverse().map((n) => 2.5 * n + 2.5);
-
     const { pollrate, api_domain, api_path } = useContext(ServerContext);
+    const pollrate_s = pollrate / 1000.0;
+    const bytesInGigabyte = 1048576;
+    const labels = Array.from(Array(60 / pollrate_s).keys()).reverse().map((n) => pollrate_s * n + pollrate_s + "s");
 
-    const [cpuHistory, setCpuHistory] = useState(new Array(24).fill(0));
+
+    const [cpuHistory, setCpuHistory] = useState(new Array(60 / pollrate_s).fill(0));
     // eslint-disable-next-line no-unused-vars
     const [cpu, setCpu] = useState(0);
     const [mem, setMem] = useState([0, 1]);
