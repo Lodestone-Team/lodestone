@@ -136,7 +136,7 @@ export default function InstanceCreator() {
           }
         });
     }
-  }, 1000);
+  }, 250);
 
   return (
     <>
