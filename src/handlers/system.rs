@@ -4,7 +4,6 @@ use std::thread;
 use rocket::http::Status;
 use sys_info::{os_type, os_release, cpu_num, cpu_speed, disk_info, mem_info, loadavg};
 use systemstat::{System, Platform, Duration};
-extern crate cpuid;
 extern crate systemstat;
 
 #[get("/sys/mem")]
@@ -33,10 +32,12 @@ pub async fn get_cpu_speed() -> (Status, String) {
 /// DOES NOT WORK IN WSL
 #[get("/sys/cpuinfo")]
 pub async fn get_cpu_info() -> (Status, String) {
-    match cpuid::identify() {
-        Ok(cpuinfo) => return (Status::Ok, format!("{} {}", cpuinfo.vendor, cpuinfo.codename)),
-        Err(_) => return (Status::BadRequest, "failed to get cpu info".to_string())
-    }
+    // TODO: get CPU info without extra dependencies
+    (Status::Ok, "testcpu".to_string())
+    // match cpuid::identify() {
+    //     Ok(cpuinfo) => return (Status::Ok, format!("{} {}", cpuinfo.vendor, cpuinfo.codename)),
+    //     Err(_) => return (Status::BadRequest, "failed to get cpu info".to_string())
+    // }
 }
 /// This handler will always take 1s+ to respond
 #[get("/sys/cpuutil")]
