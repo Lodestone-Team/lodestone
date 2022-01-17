@@ -18,21 +18,21 @@ export default function Instance({ name, version, flavour, port, uuid, updateIns
   const [status, setStatus] = useState("");
   const { pollrate, api_domain, api_path } = useContext(ServerContext);
 
-  const getStatus = async (uuid, api_domain, api_path) => {
+  const getStatus = async (uuid) => {
     let response = await fetch(`${api_domain}${api_path}/instance/${uuid}/status`);
     let status = await response.text();
     return status;
   }
 
-  const getPlayercount = async (uuid, api_domain, api_path) => {
+  const getPlayercount = async (uuid) => {
     let response = await fetch(`${api_domain}${api_path}/instance/${uuid}/playercount`);
     let playercount = await response.text();
     return `${playercount}/20`; //TODO: get max playercount from server
   }
 
   utils.useInterval(() => {
-    getStatus(uuid, api_domain, api_path).then(setStatus);
-    getPlayercount(uuid, api_domain, api_path).then(setPlayerCount);
+    getStatus(uuid).then(setStatus);
+    getPlayercount(uuid).then(setPlayerCount);
   }, pollrate, true);
 
   function renderStatusDot(status) {

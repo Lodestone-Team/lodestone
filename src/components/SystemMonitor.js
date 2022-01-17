@@ -46,44 +46,44 @@ function SystemMonitor() {
         return Math.round(x / bytesInGigabyte * 10) / 10;
     }
 
-    const getMemUsage = async (api_domain, api_path) => {
+    const getMemUsage = async () => {
         let response = await fetch(`${api_domain}${api_path}/sys/mem`);
         const mem = (await response.text()).split("/").map(parseFloat);
         return mem;
     }
 
-    const getDiskUsage = async (api_domain, api_path) => {
+    const getDiskUsage = async () => {
         let response = await fetch(`${api_domain}${api_path}/sys/disk`);
         const disk = (await response.text()).split("/").map(parseFloat);
         return disk;
     }
 
-    const getCpuUsage = async (api_domain, api_path) => {
+    const getCpuUsage = async () => {
         let response = await fetch(`${api_domain}${api_path}/sys/cpuutil`);
         let cpuUsage = parseFloat(await response.text())
         return cpuUsage * 100;
     }
 
-    const update = (api_domain, api_path) => {
+    const update = () => {
         const newCpuHistory = [...cpuHistory];
         newCpuHistory.shift()
 
-        getCpuUsage(api_domain, api_path).then(cpu => {
+        getCpuUsage().then(cpu => {
             setCpu(cpu);
             newCpuHistory.push(cpu);
             setCpuHistory(newCpuHistory);
         });
 
-        getMemUsage(api_domain, api_path).then(mem => {
+        getMemUsage().then(mem => {
             setMem(mem);
         });
 
-        getDiskUsage(api_domain, api_path).then(disk => {
+        getDiskUsage().then(disk => {
             setDisk(disk);
         })
     }
 
-    useInterval(() => { update(api_domain, api_path) }, pollrate, true)
+    useInterval(() => { update() }, pollrate, true)
 
     // const data = {
     //     labels, // TODO need way to map the 
