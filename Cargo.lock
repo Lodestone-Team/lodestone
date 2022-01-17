@@ -7,7 +7,7 @@ name = "Lodestone"
 version = "0.1.0"
 dependencies = [
  "chashmap",
- "cpuid",
+ "downloader",
  "futures-util",
  "indicatif",
  "minreq",
@@ -445,15 +445,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cpuid"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c4b055219ace68cabfbb8071c4aad068565d11b67e092e151b17b9fd3bdba9"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "crossbeam-utils"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -582,6 +573,19 @@ name = "discard"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
+
+[[package]]
+name = "downloader"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "074093edfa907e8203c17c5111b04e114e03bde5ccdfa21a388fa4f34dabad96"
+dependencies = [
+ "futures",
+ "rand 0.8.4",
+ "reqwest",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "either"
