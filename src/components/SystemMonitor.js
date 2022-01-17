@@ -155,11 +155,11 @@ function SystemMonitor() {
             </div>
             <div className="graphWrapper doughnutGraphWrapper">
                 <p>
-                    RAM %
+                    RAM
                     <br />
                     {byteToGigabyte(mem[0])}/{byteToGigabyte(mem[1])} GB
                     <br />
-                    Used
+                    Free
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
@@ -188,11 +188,11 @@ function SystemMonitor() {
             </div>
             <div className="graphWrapper doughnutGraphWrapper">
                 <p>
-                    DISK %
+                    DISK
                     <br />
                     {byteToGigabyte(disk[0])}/{byteToGigabyte(disk[1])} GB
                     <br />
-                    Used
+                    Free
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
