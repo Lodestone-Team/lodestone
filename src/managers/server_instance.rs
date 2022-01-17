@@ -21,7 +21,7 @@ pub struct InstanceConfig {
     pub max_ram: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Status {
     Starting,
     Stopping,
@@ -218,7 +218,7 @@ impl ServerInstance {
         match self.stdin.clone().as_mut() {
             Some(stdin_mutex) => match stdin_mutex.lock() {
                 Ok(mut stdin) => Ok(stdin
-                    .write_all(line.as_bytes())
+                    .write_all(format!("{}\n", line).as_bytes())
                     .map_err(|_| "failed to write to process's stdin".to_string())?),
                 Err(_) => Err("failed to acquire lock on stdin".to_string()),
             },

@@ -11,6 +11,7 @@ use crate::util;
 use crate::properties_manager::PropertiesManager;
 use crate::util::db_util::mongo_schema::*;
 
+
 pub struct InstanceManager {
     instance_collection : HashMap<String, ServerInstance>,
     taken_ports : Vec<u32>, 
@@ -151,17 +152,22 @@ impl InstanceManager {
 
     // TODO: basically drop database
     pub fn delete_instance(&mut self, uuid : String) -> Result<(), String> {
+        use crate::server_instance::Status;
         match self.instance_collection.remove(&uuid) {
             None => Err("instance not found".to_string()),
             Some(instance) => {
-                // handling db
-                self.mongodb
+                if instance.get_status() == Status::Stopped {
+                    self.mongodb
                     .database(&uuid)
                     .drop(None)
                     .unwrap();
                 
                     fs::remove_dir_all(format!("instances/{}", instance.name)).map_err(|e| e.to_string())?;
-                Ok(())
+                    return Ok(())
+                }
+                Err("instance is running".to_string())
+                // handling db
+                
             }
         }
     }
@@ -189,7 +195,7 @@ impl InstanceManager {
     
     pub fn send_command(&self, uuid : String, command : String) -> Result<(), String> {
         let instance = self.instance_collection.get(&uuid).ok_or("cannot send command to instance as it does not exist".to_string())?;
-        instance.send_stdin(format!("{}\n", command)).map_err(|e| format!("failed to send command to instance {} : {}", instance.uuid.clone(), e))?;
+        instance.send_stdin(command).map_err(|e| format!("failed to send command to instance {} : {}", instance.uuid.clone(), e))?;
         Ok(())
     }
 
