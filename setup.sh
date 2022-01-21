@@ -43,7 +43,9 @@ if mkdir lodestone ; then
     wget https://nightly.link/CheatCod/Lodestone/workflows/node.js/main/frontend.zip -O frontend.zip
     printf "${CYAN}Download ok! ${NC}\n" 
     unzip lodestone.zip && rm lodestone.zip
+    mv target/release/Lodestone .
     chmod u+x Lodestone
+    rm -r target
     unzip -d web/ frontend.zip && rm frontend.zip
 
     printf "${CYAN}Setting up TLS for ${PUBLIC_IP}... ${NC}\n" 
