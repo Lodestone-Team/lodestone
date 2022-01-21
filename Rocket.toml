@@ -6,5 +6,5 @@ key = "private/rsa_sha256_key.pem"
 ca_certs = "private/ca_cert.pem"
 
 [release]
-port = 80
+port = 8000
 log = "critical"
