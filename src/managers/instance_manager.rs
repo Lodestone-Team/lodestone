@@ -153,6 +153,7 @@ impl InstanceManager {
     // TODO: basically drop database
     pub fn delete_instance(&mut self, uuid : String) -> Result<(), String> {
         use crate::server_instance::Status;
+        self.instance_collection.get(&uuid).ok_or("instance does not exist".to_string())?;        
         match self.instance_collection.remove(&uuid) {
             None => Err("instance not found".to_string()),
             Some(instance) => {
@@ -161,7 +162,6 @@ impl InstanceManager {
                     .database(&uuid)
                     .drop(None)
                     .unwrap();
-                
                     fs::remove_dir_all(format!("instances/{}", instance.name)).map_err(|e| e.to_string())?;
                     return Ok(())
                 }
