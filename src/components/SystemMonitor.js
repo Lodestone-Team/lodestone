@@ -85,21 +85,6 @@ function SystemMonitor() {
 
     useInterval(() => { update() }, pollrate, true)
 
-    // const data = {
-    //     labels, // TODO need way to map the 
-    //     datasets: [
-    //         {
-    //             data: cpuHistory
-    //         },
-    // {
-    //     xAxisID: "x",
-    //     yAxisID: "y",
-    //     label: "CPU",
-    //     data: [50, 60, 70, 80, 90, 100],
-    // },
-    //     ],
-    // }
-
     return (
         <Card className="systemMonitor">
 
@@ -120,6 +105,7 @@ function SystemMonitor() {
                             ],
                         }}
                         options={{
+                            tension: 0.4,
                             scales: {
                                 x: {
                                     ticks: {
