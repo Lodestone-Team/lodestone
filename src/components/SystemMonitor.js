@@ -160,7 +160,8 @@ function SystemMonitor() {
                                 datasets: [
                                     {
                                         data: [mem[0] / mem[1], 1 - (mem[0] / mem[1])],
-                                        backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+                                        backgroundColor: ['rgb(0, 143, 6)', 'rgb(215, 215, 215)',]
+
                                     },
                                 ],
                             }
@@ -193,7 +194,7 @@ function SystemMonitor() {
                                 datasets: [
                                     {
                                         data: [disk[0] / disk[1], 1 - (disk[0] / disk[1])],
-                                        backgroundColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)',]
+                                        backgroundColor: ['rgb(0, 143, 6)', 'rgb(215, 215, 215)',]
                                     },
                                 ],
                             }
