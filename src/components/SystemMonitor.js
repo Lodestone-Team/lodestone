@@ -100,12 +100,16 @@ function SystemMonitor() {
                             labels, // TODO need way to map the
                             datasets: [
                                 {
-                                    data: cpuHistory
+                                    backgroundColor: "rgba(0, 143, 6, 0.5)",
+                                    data: cpuHistory,
+                                    tension: 0.4,
+                                    pointRadius: 0,
+                                    fill: true,
+                                    borderColor: "rgba(0, 143, 6, 1)",
                                 },
                             ],
                         }}
                         options={{
-                            tension: 0.4,
                             scales: {
                                 x: {
                                     ticks: {
@@ -145,7 +149,7 @@ function SystemMonitor() {
                     <br />
                     {byteToGigabyte(mem[0])}/{byteToGigabyte(mem[1])} GB
                     <br />
-                    Free
+                    Used
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
@@ -178,7 +182,7 @@ function SystemMonitor() {
                     <br />
                     {byteToGigabyte(disk[0])}/{byteToGigabyte(disk[1])} GB
                     <br />
-                    Free
+                    Used
                 </p>
                 <div className="graph doughnutGraph">
                     <Doughnut
