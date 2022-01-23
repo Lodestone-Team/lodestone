@@ -153,16 +153,17 @@ impl InstanceManager {
     // TODO: basically drop database
     pub fn delete_instance(&mut self, uuid : String) -> Result<(), String> {
         use crate::server_instance::Status;
-        let instance = self.instance_collection.get(&uuid).ok_or("instance does not exist".to_string())?;        
         
-        match instance.get_status() {
+        match self.instance_collection.get(&uuid).ok_or("instance does not exist".to_string())?.get_status() {
             Status::Stopped => {
+                let name = self.instance_collection.get(&uuid).unwrap().name.clone();
+                self.instance_collection.remove(&uuid);
                 self.mongodb
                     .database(&uuid)
                     .drop(None)
                     .unwrap();
-                    fs::remove_dir_all(format!("instances/{}", instance.name)).map_err(|e| e.to_string())?;
-                    return Ok(())
+                fs::remove_dir_all(format!("instances/{}", name)).map_err(|e| e.to_string())?;
+                return Ok(())
             },
             _ => return Err("instance is running".to_string())
         }
