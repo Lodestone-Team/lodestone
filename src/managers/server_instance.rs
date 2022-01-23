@@ -194,6 +194,7 @@ impl ServerInstance {
                 return Ok(());
             }
             Err(_) => {
+                *status = Status::Stopped;
                 env::set_current_dir("../..").unwrap();
                 return Err("failed to open child process".to_string());
             }
