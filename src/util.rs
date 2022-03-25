@@ -32,7 +32,7 @@ pub async fn download_file(url: &str, path: &str, state: &State<MyManagedState>,
         .or(Err(format!("Failed to GET from '{}'", &url)))?;
     let total_size = res
         .content_length()
-        .ok_or(format!("Failed to get content length from '{}'", &url))?;
+        .unwrap_or(0);
     state.download_status.insert(uuid.to_string(), (0, total_size));
     // Indicatif setup
     let pb = ProgressBar::new(total_size);
@@ -56,7 +56,7 @@ pub async fn download_file(url: &str, path: &str, state: &State<MyManagedState>,
         pb.set_position(new);
     }
 
-    pb.finish_with_message(&format!("Downloaded {} to {}", url, path));
+    // pb.finish_with_message(&format!("Downloaded {} to {}", url, path));
     return Ok(());
 }
 
