@@ -17,7 +17,7 @@ use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::{FileServer};
 use rocket::http::{Header, Status};
-use rocket::{Request, Response};
+use rocket::{Request, Response, routes};
 use std::path::{Path, PathBuf};
 
 
@@ -60,19 +60,20 @@ async fn rocket() -> _ {
     client_options.app_name = Some("MongoDB Client".to_string());
     let client = Client::with_options(client_options).unwrap();
 
-    let lodestone_path = match env::var("LODESTONE_PATH") {
-        Ok(val) => format!("{}/", val),
-        Err(_) => format!("{}/", env::current_dir().unwrap().display()),
+    let mut lodestone_path = match env::var("LODESTONE_PATH") {
+        Ok(val) => PathBuf::from(val),
+        Err(_) => env::current_dir().unwrap(),
     };
+    lodestone_path = PathBuf::from("/home/peter/Lodestone/backend/lodestone/");
     env::set_current_dir(&lodestone_path).unwrap();
 
-    let static_path = format!("{}web/", lodestone_path);
+    let static_path = lodestone_path.join("web");
     
     //create the web direcotry if it doesn't exist
     create_dir_all(&static_path).unwrap();
 
     //print file locations to console
-    println!("Lodestone directory: {}", lodestone_path);
+    println!("Lodestone directory: {}", lodestone_path.display());
 
     rocket::build()
         .mount(
