@@ -3,7 +3,9 @@ use rocket::http::Status;
 use rocket::response::content;
 use rocket::State;
 use rocket::serde::json::Json;
+use serde_json::json;
 use crate::MyManagedState;
+use crate::managers::instance_manager::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
 use crate::util::db_util::mongo_schema::*;
 
@@ -170,4 +172,45 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
 }
 
     (Status::Ok, content::Json(serde_json::to_string(&r).unwrap()))
+}
+
+#[get("/instance/<uuid>/resources/<resource_type>/list")]
+pub async fn list_resource(uuid: String, resource_type: ResourceType, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
+    match state.instance_manager.lock().await.get_list(&uuid, resource_type) {
+        Ok(list) => {
+            (Status::Ok, content::Json(json!({
+                "loaded" : list.0,
+                "unloaded" : list.1,
+            }).to_string()))
+        },
+        Err(reason) => {
+            return (Status::BadRequest, content::Json(reason));
+        },
+    }
+
+}
+
+#[get("/instance/<uuid>/resources/<resource_type>/load/<resource_name>")]
+pub async fn load_resource(uuid: String, resource_type: ResourceType, resource_name : String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
+    match state.instance_manager.lock().await.load(&uuid, resource_type, &resource_name) {
+        Ok(list) => {
+            (Status::Ok, content::Json("Ok".to_string()))
+        },
+        Err(reason) => {
+            return (Status::BadRequest, content::Json(reason));
+        },
+    }
+}
+
+#[get("/instance/<uuid>/resources/<resource_type>/unload/<resource_name>")]
+pub async fn unload_resource(uuid: String, resource_type: ResourceType, resource_name : String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
+    match state.instance_manager.lock().await.unload(&uuid, resource_type, &resource_name) {
+        Ok(list) => {
+            (Status::Ok, content::Json("Ok".to_string()))
+        },
+        Err(reason) => {
+            return (Status::BadRequest, content::Json(reason));
+        },
+    }
+
 }
