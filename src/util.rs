@@ -1,5 +1,6 @@
 extern crate crypto;
 
+use std::path::PathBuf;
 use std::{cmp::min};
 use std::fs::File;
 use std::io::Write;
@@ -59,6 +60,28 @@ pub async fn download_file(url: &str, path: &str, state: &State<MyManagedState>,
     // pb.finish_with_message(&format!("Downloaded {} to {}", url, path));
     return Ok(());
 }
+/// List all files in a directory
+/// files_or_dir = 0 -> files, 1 -> directories
+pub fn list_dir(path: PathBuf, files_or_dirs : bool) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    if files_or_dirs {
+        for entry in std::fs::read_dir(path.clone()).or(Err(format!("Failed to read directory '{}'", path.to_str().unwrap())))? {
+            let entry = entry.or(Err(format!("Failed to read directory '{}'", path.to_str().unwrap())))?;
+            if entry.file_type().or(Err(format!("Failed to read directory '{}'", path.to_str().unwrap())))?.is_dir() {
+                files.push(entry.file_name().to_str().unwrap().to_string());
+            }
+        }
+    } else {
+        for entry in std::fs::read_dir(path.clone()).or(Err(format!("Failed to read directory '{}'", path.to_str().unwrap())))? {
+            let entry = entry.or(Err(format!("Failed to read directory '{}'", path.to_str().unwrap())))?;
+            if entry.file_type().or(Err(format!("Failed to read directory '{}'", path.to_str().unwrap())))?.is_file() {
+                files.push(entry.file_name().to_str().unwrap().to_string());
+            }
+        }
+    }
+    return Ok(files);
+}
+
 
 pub fn mongodb_create_user(password: &String ) {
     let mut client_options = ClientOptions::parse("MongoDB Connection String").unwrap();
