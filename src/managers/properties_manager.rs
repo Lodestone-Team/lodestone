@@ -33,8 +33,8 @@ impl PropertiesManager {
         Ok(())
     }
 
-    pub fn get_field(&mut self, field : String) -> Result<String, String> {
-        let line = self.properties.get_mut(&field).ok_or("property does not exist".to_string())?;
+    pub fn get_field(self, field : String) -> Result<String, String> {
+        let line = self.properties.get(&field).ok_or("property does not exist".to_string())?;
         Ok(line.2.clone())
     }
 
