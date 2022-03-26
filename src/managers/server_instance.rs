@@ -4,12 +4,16 @@ use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, thread};
 
+use crate::managers::server_instance::event_parser::{dispatch_macro, is_player_message};
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
+
 pub struct InstanceConfig {
     pub name: String,
     pub version: String,
@@ -64,8 +68,10 @@ pub struct ServerInstance {
     jvm_args: Vec<String>,
     path: PathBuf,
     uuid: String,
-    pub stdin: Option<Arc<Mutex<ChildStdin>>>,
+    port : u32,
+    pub stdin: Option<Sender<String>>,
     status: Arc<Mutex<Status>>,
+    kill_tx: Option<Sender<()>>,
     process: Arc<Mutex<Option<Child>>>,
     player_online: Arc<Mutex<Vec<String>>>,
 }
@@ -86,6 +92,7 @@ impl ServerInstance {
         jvm_args.push("-jar".to_string());
         jvm_args.push("server.jar".to_string());
         jvm_args.push("nogui".to_string());
+        println!("jvm_args: {:?}", jvm_args);
 
         ServerInstance {
             status: Arc::new(Mutex::new(Status::Stopped)),
@@ -95,6 +102,8 @@ impl ServerInstance {
             jvm_args,
             process: Arc::new(Mutex::new(None)),
             path,
+            port : config.port.expect("no port provided"),
+            kill_tx: None,
             uuid: config.uuid.as_ref().unwrap().clone(),
             player_online: Arc::new(Mutex::new(vec![])),
         }
@@ -121,19 +130,39 @@ impl ServerInstance {
             Ok(proc) => {
                 env::set_current_dir("../..").unwrap();
 
-                let stdin = proc.stdin.ok_or("failed to open stdin of child process")?;
-                self.stdin = Some(Arc::new(Mutex::new(stdin)));
+                let (stdin_sender, stdin_receiver): (Sender<String>, Receiver<String>) =
+                    mpsc::channel();
+                let (kill_tx, kill_rx): (Sender<()>, Receiver<()>) = mpsc::channel();
+                let mut stdin_writer = proc.stdin.ok_or("failed to open stdin of child process")?;
+                self.stdin = Some(stdin_sender.clone());
+                self.kill_tx = Some(kill_tx);
+                // self.stdin = Some(Arc::new(Mutex::new(stdin_writer.)));
                 let stdout = proc
                     .stdout
                     .ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
+                thread::spawn(move || {
+                    let stdin_receiver = stdin_receiver;
+                    loop {
+                        if kill_rx.try_recv().is_ok() {
+                            break;
+                        }
+                        let rec = stdin_receiver.recv().unwrap();
+                        println!("writing to stdin: {}", rec);
+                        stdin_writer.write_all(rec.as_bytes()).unwrap();
+                        stdin_writer.flush().unwrap();
+                    }
+                    println!("writer thread terminating");
+                });
                 let uuid_closure = self.uuid.clone();
                 let status_closure = self.status.clone();
                 let players_closure = self.player_online.clone();
                 let flavour_closure = self.flavour.clone();
+                let path_closure = self.path.clone();
+                let stdin_sender_closure = stdin_sender.clone();
                 thread::spawn(move || {
-                    use regex::Regex;
                     use event_parser::parse;
+                    use regex::Regex;
                     let re = Regex::new(r"\[Server thread/INFO\]: Done").unwrap();
                     for line_result in reader.lines() {
                         let mut status = status_closure.lock().unwrap();
@@ -199,6 +228,31 @@ impl ServerInstance {
                                 }
                             }
                         }
+                        if is_player_message(&line, flavour_closure) {
+                            println!("player msg: {}", line);
+                            match dispatch_macro(
+                                &line,
+                                flavour_closure,
+                                path_closure
+                                    .clone()
+                                    .parent()
+                                    .unwrap()
+                                    .parent()
+                                    .unwrap()
+                                    .join("macros/"),
+                            ) {
+                                (None, Ok(_)) => {}
+                                (None, Err(e)) => {
+                                    stdin_sender_closure.send(format!("say {}\n", e)).unwrap()
+                                }
+                                (Some(vec), Ok(_)) => {
+                                    for cmd in vec {
+                                        stdin_sender_closure.send(format!("{}\n", cmd)).unwrap();
+                                    }
+                                }
+                                (Some(_), Err(_)) => todo!(),
+                            }
+                        }
                     }
                     let mut status = status_closure.lock().unwrap();
                     println!("program exiting as reader thread is terminating...");
@@ -227,6 +281,7 @@ impl ServerInstance {
             Status::Stopped => return Err("cannot stop, instance is already stopped".to_string()),
             Status::Running => println!("stopping instance"),
         }
+        self.kill_tx.as_mut().unwrap().send(()).unwrap();
         *status = Status::Stopping;
         self.send_stdin("stop".to_string())?;
         self.player_online.lock().unwrap().clear();
@@ -234,15 +289,12 @@ impl ServerInstance {
     }
 
     pub fn send_stdin(&self, line: String) -> Result<(), String> {
-        match self.stdin.clone().as_mut() {
-            Some(stdin_mutex) => match stdin_mutex.lock() {
-                Ok(mut stdin) => Ok(stdin
-                    .write_all(format!("{}\n", line).as_bytes())
-                    .map_err(|_| "failed to write to process's stdin".to_string())?),
-                Err(_) => Err("failed to acquire lock on stdin".to_string()),
-            },
-            None => Err("could not find stdin of process".to_string()),
-        }
+        self.stdin
+            .as_ref()
+            .unwrap()
+            .send(format!("{}\n", line))
+            .unwrap();
+        Ok(())
     }
 
     pub fn get_name(&self) -> String {
@@ -276,8 +328,17 @@ impl ServerInstance {
     pub fn get_flavour(&self) -> Flavour {
         self.flavour
     }
+    pub fn get_port(&self) -> u32 {
+        self.port
+    }
 }
 mod event_parser {
+    use std::{
+        fs::File,
+        io::{self, BufRead},
+        path::PathBuf,
+    };
+
     use super::{Flavour, ServerInstance};
 
     pub enum InstanceEvent {
@@ -285,42 +346,160 @@ mod event_parser {
         Left,
     }
 
-    pub enum Event {
-        PlayerSpecificEvent{
-            time : String,
-            
-        }
+    pub enum Level {
+        Info,
+        Warn,
+        Error,
     }
-        pub fn is_server_message(line: &String, flavour : Flavour) -> bool {
-            match flavour {
-                Flavour::Vanilla | Flavour::Fabric => {
-                    // [*:*:*] [*/* */]: *
-                    line.matches("[").count() == 2 // fabric and vanilla has two sets of square brackets
+
+    pub enum PlayerSpecificEvent {
+        // SentCommand {
+        //     msg : String
+        // },
+        ConnectionEvent,
+        Said { msg: String },
+    }
+    pub enum EventVariants {
+        PlayerSpecificEvent(PlayerSpecificEvent),
+        InstanceEvent,
+    }
+
+    pub struct Event {
+        time: String,
+        level: Level,
+        even_variant: EventVariants,
+    }
+    pub fn is_server_message(line: &String, flavour: Flavour) -> bool {
+        match flavour {
+            Flavour::Vanilla | Flavour::Fabric => {
+                // [*:*:*] [*/* */]: *
+                line.matches("[").count() == 2 // fabric and vanilla has two sets of square brackets
                         && line.matches("<").count() == 0 // filter out play sent messages
                         && line.matches(":").count() == 3 // 2 for timestamp + 1 for final
                         && line.matches("/").count() == 1
-                }
-                Flavour::Paper => todo!(),
-                Flavour::Spigot => todo!(),
             }
+            Flavour::Paper => todo!(),
+            Flavour::Spigot => todo!(),
         }
-        pub fn parse(line: &String, flavour : Flavour) -> Option<(String, InstanceEvent)> {
-            if is_server_message(line, flavour) {
-                if line.contains("joined the game") || line.contains("left the game") {
-                    let i1 = line.find("]:").unwrap();
-                    let tmp = &line.as_str()[i1 + 3..];
-                    let i2 = tmp.find(char::is_whitespace).unwrap();
+    }
 
-                    let tmp_name = &line.as_str()[i1 + 3..i2 + line.len() - tmp.len()];
-                    let player_name = String::from(tmp_name);
-                    if line.contains("joined the game") {
-                        return Some((player_name, InstanceEvent::Joined));
-                    }
-                    if line.contains("left the game") {
-                        return Some((player_name, InstanceEvent::Left));
-                    }
+    pub fn is_player_message(line: &String, flavour: Flavour) -> bool {
+        match flavour {
+            Flavour::Vanilla | Flavour::Fabric => {
+                // [*:*:*] [*/* */]: *
+                line.matches("<").count() >= 1 && line.matches(">").count() >= 1
+            }
+            Flavour::Paper => todo!(),
+            Flavour::Spigot => todo!(),
+        }
+    }
+    pub fn parse(line: &String, flavour: Flavour) -> Option<(String, InstanceEvent)> {
+        if is_server_message(line, flavour) {
+            if line.contains("joined the game") || line.contains("left the game") {
+                let i1 = line.find("]:").unwrap();
+                let tmp = &line.as_str()[i1 + 3..];
+                let i2 = tmp.find(char::is_whitespace).unwrap();
+
+                let tmp_name = &line.as_str()[i1 + 3..i2 + line.len() - tmp.len()];
+                let player_name = String::from(tmp_name);
+                if line.contains("joined the game") {
+                    return Some((player_name, InstanceEvent::Joined));
+                }
+                if line.contains("left the game") {
+                    return Some((player_name, InstanceEvent::Left));
                 }
             }
-            None
         }
+        None
+    }
+    pub fn dispatch_macro(
+        line: &String,
+        flavour: Flavour,
+        path: PathBuf,
+    ) -> (Option<Vec<String>>, Result<(), String>) {
+        match flavour {
+            Flavour::Vanilla | Flavour::Fabric => {
+                let i = line.find(">").unwrap();
+                let tmp = line.as_str()[i + 2..].to_string();
+                // println!("tmp: {}", tmp);
+                let iterator = tmp.split_whitespace();
+                let mut iter = 0;
+                let mut args: Vec<String> = vec![];
+                let mut ret: Vec<String> = vec![];
+                let mut path_to_macro = path.clone();
+
+                for token in iterator.clone() {
+                    if iter == 0 {
+                        if token != ".macro" {
+                            return (None, Ok(()));
+                        }
+                    }
+                    if iter == 1 {
+                        path_to_macro.push(token);
+                        println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
+                        if !path_to_macro.exists() {
+                            return (None, Err("macro does not exist".to_string()));
+                        }
+                    }
+                    if iter >= 2 {
+                        args.push(token.to_string());
+                    }
+                    iter = iter + 1;
+                }
+                if iter == 1 {
+                    return (None, Err("Usage: .macro [macro file] args..".to_string()));
+                }
+                for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
+                    let mut line = line_result.unwrap();
+                    let iterline = line.clone();
+                    let iter = iterline.split_ascii_whitespace();
+                    for token in iter {
+                        let mut token_num = token.to_string();
+                        if token.chars().next().unwrap() == '$' {
+                            token_num.remove(0);
+                            match token_num.parse::<usize>() {
+                                Ok(num) => {
+                                    if num >= args.len() {
+                                        return (
+                                            None,
+                                            Err(format!("token: {} out of range", token)),
+                                        );
+                                    }
+                                    line = line.replace(token, args.get(num).unwrap());
+                                    println!("line: {}", line.replace(token, args.get(num).unwrap()));
+                                    
+                                }
+                                Err(_) => {
+                                    return (None, Err(format!("token: {} is not valid", token)))
+                                }
+                            }
+                        }
+                    }
+                    ret.push(line);
+                }
+                // iter = 0;
+                // for mut token in iterator {
+                //     let mut token_num = token.to_string();
+                //     if token.chars().next().unwrap() == '$' {
+                //         token_num.remove(0);
+                //         match token_num.parse::<usize>() {
+                //             Ok(num) => {
+                //                 if num >= args.len() {
+                //                     return (None, Err(format!("token: {} out of range", token)));
+                //                 }
+                //                 token = args.get(num).unwrap().as_str();
+                //             }
+                //             Err(_) => return (None, Err(format!("token: {} is not valid", token))),
+                //         }
+                //     };
+
+                //     iter = iter + 1;
+                // }
+                (Some(ret), Ok(()))
+            }
+
+            Flavour::Paper => todo!(),
+            Flavour::Spigot => todo!(),
+        }
+    }
 }
