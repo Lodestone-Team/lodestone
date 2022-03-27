@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,9 +11,10 @@ use std::{fmt, thread};
 
 use crate::managers::server_instance::event_parser::{dispatch_macro, is_player_message};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
 
+// this struct is neccessary to set up a server instance
 pub struct InstanceConfig {
     pub name: String,
     pub version: String,
@@ -74,6 +75,8 @@ pub struct ServerInstance {
     kill_tx: Option<Sender<()>>,
     process: Arc<Mutex<Option<Child>>>,
     player_online: Arc<Mutex<Vec<String>>>,
+    // used to reconstruct the server instance from the database
+    instance_config: InstanceConfig,
 }
 /// Instance specific events,
 /// Ex. Player joining, leaving, dying
@@ -106,6 +109,7 @@ impl ServerInstance {
             kill_tx: None,
             uuid: config.uuid.as_ref().unwrap().clone(),
             player_online: Arc::new(Mutex::new(vec![])),
+            instance_config : config.clone()
         }
     }
 
@@ -331,6 +335,10 @@ impl ServerInstance {
     pub fn get_port(&self) -> u32 {
         self.port
     }
+
+    pub fn get_instance_config(&self) -> &InstanceConfig {
+        &self.instance_config
+    }
 }
 mod event_parser {
     use std::{
@@ -339,7 +347,7 @@ mod event_parser {
         path::PathBuf,
     };
 
-    use super::{Flavour, ServerInstance};
+    use super::{Flavour};
 
     pub enum InstanceEvent {
         Joined,
