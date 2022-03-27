@@ -4,7 +4,7 @@ extern crate sanitize_filename;
 
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
-use std::{env};
+use std::env;
 use std::fs::create_dir_all;
 use std::sync::Arc;
 mod handlers;
@@ -15,11 +15,12 @@ use instance_manager::InstanceManager;
 use managers::*;
 use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
-use rocket::fs::{FileServer};
+use rocket::fs::FileServer;
 use rocket::http::{Header, Status};
-use rocket::{Request, Response, routes};
-use std::path::{PathBuf};
+use rocket::{routes, Request, Response};
+use std::path::PathBuf;
 use std::{thread, time};
+use std::io::{BufRead, BufReader, stdin};
 
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
@@ -44,13 +45,16 @@ impl Fairing for CORS {
             "Access-Control-Allow-Methods",
             "POST, GET, PATCH, OPTIONS, DELETE",
         ));
-        res.set_header(Header::new("Access-Control-Allow-Headers", "Origin, Content-Type, X-Auth-Token"));
+        res.set_header(Header::new(
+            "Access-Control-Allow-Headers",
+            "Origin, Content-Type, X-Auth-Token",
+        ));
         res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
 }
 
 #[options("/<path..>")]
-fn options_handler<'a>(path: PathBuf) -> Status{
+fn options_handler<'a>(path: PathBuf) -> Status {
     Status::Ok
 }
 
@@ -64,11 +68,11 @@ async fn main() {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
     };
-    lodestone_path = PathBuf::from("/home/peter/Lodestone/backend/lodestone/");
+    // lodestone_path = PathBuf::from("/home/peter/Lodestone/backend/lodestone/");
     env::set_current_dir(&lodestone_path).unwrap();
 
     let static_path = lodestone_path.join("web");
-    
+
     //create the web direcotry if it doesn't exist
     create_dir_all(&static_path).unwrap();
 
@@ -76,18 +80,16 @@ async fn main() {
     println!("Lodestone directory: {}", lodestone_path.display());
 
     let instance_manager = Arc::new(Mutex::new(
-        InstanceManager::new(
-            lodestone_path,
-            client.clone(),
-        )
-        .unwrap(),
+        InstanceManager::new(lodestone_path, client.clone()).unwrap(),
     ));
     let instance_manager_closure = instance_manager.clone();
-    rocket::tokio::spawn(async move {
-
-            println!("{:?}", instance_manager_closure.lock().await.list_instances());
-
-    });
+    // rocket::tokio::spawn(async move {
+    //     let reader = BufReader::new(stdin());
+    //     for line_result in reader.lines() {
+    //         let line = line_result.unwrap_or("failed".to_string());
+    //         println!("{}", line);
+    //     }
+    // });
     rocket::build()
         .mount(
             "/api/v1/",
@@ -131,6 +133,8 @@ async fn main() {
             download_status: CHashMap::new(),
             mongodb_client: client,
         })
-        .attach(CORS).launch().await;
-        println!("shutting down");
+        .attach(CORS)
+        .launch()
+        .await;
+    println!("shutting down");
 }
