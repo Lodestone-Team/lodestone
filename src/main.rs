@@ -19,7 +19,7 @@ use rocket::fs::{FileServer};
 use rocket::http::{Header, Status};
 use rocket::{Request, Response, routes};
 use std::path::{PathBuf};
-
+use std::{thread, time};
 
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
@@ -54,8 +54,8 @@ fn options_handler<'a>(path: PathBuf) -> Status{
     Status::Ok
 }
 
-#[launch]
-async fn rocket() -> _ {
+#[rocket::main]
+async fn main() {
     let mut client_options = ClientOptions::parse("mongodb://localhost:27017/?tls=false").unwrap();
     client_options.app_name = Some("MongoDB Client".to_string());
     let client = Client::with_options(client_options).unwrap();
@@ -84,9 +84,9 @@ async fn rocket() -> _ {
     ));
     let instance_manager_closure = instance_manager.clone();
     rocket::tokio::spawn(async move {
-        loop {
-            
-        }
+
+            println!("{:?}", instance_manager_closure.lock().await.list_instances());
+
     });
     rocket::build()
         .mount(
@@ -131,5 +131,6 @@ async fn rocket() -> _ {
             download_status: CHashMap::new(),
             mongodb_client: client,
         })
-        .attach(CORS)
+        .attach(CORS).launch().await;
+        println!("shutting down");
 }
