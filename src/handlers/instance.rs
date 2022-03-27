@@ -1,35 +1,18 @@
 use mongodb::{bson::doc};
 use rocket::http::Status;
 use rocket::response::content;
-use rocket::State;
+use rocket::{State, tokio};
 use rocket::serde::json::Json;
 use serde_json::json;
 use crate::MyManagedState;
-use crate::managers::instance_manager::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
 use crate::util::db_util::mongo_schema::*;
-
+use crate::instance_manager::resource_management::ResourceType;
 
 
 #[get("/instances")]
 pub async fn get_list(state: &State<MyManagedState>) -> content::Json<String> {
-    let mut r = Vec::new();
-    let mongodb_client = &state.mongodb_client;
-    let database_names = mongodb_client
-        .list_database_names(None, None)
-        .unwrap();
-    for database_name in database_names.iter() {
-        if database_name.contains("-") { // TODO use db filter instead
-            let config = mongodb_client
-                .database(&database_name)
-                .collection::<InstanceConfig>("config")
-                    .find_one(None, None)
-                    .unwrap()
-                    .unwrap();
-            r.push(config);
-        }
-    }
-    content::Json(serde_json::to_string(&r).unwrap())
+    content::Json(serde_json::to_string(&state.instance_manager.lock().await.list_instances()).unwrap())
 }
 
 #[post("/instance/<uuid>", data = "<config>")]
@@ -81,6 +64,7 @@ pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, Strin
         Ok(()) => (Status::Ok, "Ok".to_string()),
         Err(reason) => (Status::BadRequest, reason),
     }
+    
 }
 
 #[get("/instance/<uuid>/status")]
@@ -176,7 +160,7 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
 
 #[get("/instance/<uuid>/resources/<resource_type>/list")]
 pub async fn list_resource(uuid: String, resource_type: ResourceType, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
-    match state.instance_manager.lock().await.get_list(&uuid, resource_type) {
+    match state.instance_manager.lock().await.list_resource(&uuid, resource_type) {
         Ok(list) => {
             (Status::Ok, content::Json(json!({
                 "loaded" : list.0,
@@ -193,7 +177,7 @@ pub async fn list_resource(uuid: String, resource_type: ResourceType, state: &St
 #[get("/instance/<uuid>/resources/<resource_type>/load/<resource_name>")]
 pub async fn load_resource(uuid: String, resource_type: ResourceType, resource_name : String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
     match state.instance_manager.lock().await.load(&uuid, resource_type, &resource_name) {
-        Ok(list) => {
+        Ok(_) => {
             (Status::Ok, content::Json("Ok".to_string()))
         },
         Err(reason) => {
@@ -205,7 +189,7 @@ pub async fn load_resource(uuid: String, resource_type: ResourceType, resource_n
 #[get("/instance/<uuid>/resources/<resource_type>/unload/<resource_name>")]
 pub async fn unload_resource(uuid: String, resource_type: ResourceType, resource_name : String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
     match state.instance_manager.lock().await.unload(&uuid, resource_type, &resource_name) {
-        Ok(list) => {
+        Ok(_) => {
             (Status::Ok, content::Json("Ok".to_string()))
         },
         Err(reason) => {
