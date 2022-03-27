@@ -26,12 +26,31 @@ pub struct InstanceConfig {
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
 }
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Clone, Copy)]
 pub enum Flavour {
     Vanilla,
     Fabric,
     Paper,
     Spigot,
+}
+
+impl<'de> Deserialize<'de> for Flavour {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "vanilla" => Ok(Flavour::Vanilla),
+            "fabric" => Ok(Flavour::Fabric),
+            "paper" => Ok(Flavour::Paper),
+            "spigot" => Ok(Flavour::Spigot),
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown flavour: {}",
+                s
+            ))),
+        }
+    }
 }
 
 impl fmt::Display for Flavour {
