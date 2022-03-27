@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::{collections::HashMap, path::Path, fs::File, io::BufReader};
+use std::{collections::HashMap, fs::File, io::BufReader};
 use std::io::{prelude::*, LineWriter};
 use std::result::Result;
 pub struct PropertiesManager {
@@ -27,23 +27,23 @@ impl PropertiesManager {
         })
     }
 
-    pub fn edit_field(&mut self, field : String, value : String) -> Result<(), String> {
-        let line = self.properties.get_mut(&field).ok_or("property does not exist".to_string())?;
+    pub fn edit_field(&mut self, field : &String, value : String) -> Result<(), String> {
+        let line = self.properties.get_mut(field).ok_or("property does not exist".to_string())?;
         line.1 = value;
         Ok(())
     }
 
-    pub fn get_field(self, field : String) -> Result<String, String> {
-        let line = self.properties.get(&field).ok_or("property does not exist".to_string())?;
+    pub fn get_field(&self, field : &String) -> Result<String, String> {
+        let line = self.properties.get(field).ok_or("property does not exist".to_string())?;
         Ok(line.2.clone())
     }
 
     /// flush the internal properties buffer to file,
     /// this function is expensive so repeated calling is discouraged.
-    pub fn write_to_file(self) -> Result<(), String> {
-        let file = File::create(self.path_to_properties).map_err(|e| e.to_string())?;
+    pub fn write_to_file(&self) -> Result<(), String> {
+        let file = File::create(&self.path_to_properties).map_err(|e| e.to_string())?;
         let mut line_writer = LineWriter::new(file);
-        for entry in self.properties {
+        for entry in &self.properties {
             line_writer.write_all(format!("{}={}\n", entry.0, entry.1.1).as_bytes()).unwrap();
         }
         line_writer.flush().unwrap();
