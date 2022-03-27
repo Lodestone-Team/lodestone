@@ -115,7 +115,7 @@ impl ServerInstance {
 
     pub fn start(&mut self, mongodb_client: Client) -> Result<(), String> {
         let mut status = self.status.lock().unwrap();
-        env::set_current_dir(self.path.clone()).unwrap();
+        env::set_current_dir(&self.path).unwrap();
         match *status {
             Status::Starting => {
                 return Err("cannot start, instance is already starting".to_string())
@@ -124,6 +124,7 @@ impl ServerInstance {
             Status::Running => return Err("cannot start, instance is already running".to_string()),
             Status::Stopped => (),
         }
+        Command::new("bash").arg(&self.path.join("prelaunch.sh")).output().map_err(|e| println!("{}", e.to_string()));
         *status = Status::Starting;
         let mut command = Command::new("java");
         command
