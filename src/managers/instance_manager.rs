@@ -1,21 +1,16 @@
 use crate::managers::server_instance::{InstanceConfig, ServerInstance};
 use crate::properties_manager::PropertiesManager;
 use crate::util::db_util::mongo_schema::*;
-use crate::util::{self, list_dir};
+use crate::util::{self};
 use crate::MyManagedState;
-use fs_extra::dir::{self, CopyOptions};
 use mongodb::{bson::doc, sync::Client, IndexModel};
 use rocket::fairing::Result;
-use rocket::request::FromParam;
 use rocket::State;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs::{create_dir_all, read_dir};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{fs, fs::File};
-
-use super::server_instance::Status;
 
 pub struct InstanceManager {
     instance_collection: HashMap<String, ServerInstance>,
@@ -23,23 +18,6 @@ pub struct InstanceManager {
     /// path to lodestone installation directory
     path: PathBuf,
     mongodb: Client,
-}
-
-pub enum ResourceType {
-    World,
-    Mod,
-}
-
-impl<'r> FromParam<'r> for ResourceType {
-    type Error = &'static str;
-
-    fn from_param(param: &'r str) -> Result<Self, Self::Error> {
-        match param {
-            "world" => Ok(ResourceType::World),
-            "mod" => Ok(ResourceType::Mod),
-            _ => Err("invalid resource type"),
-        }
-    }
 }
 
 // TODO: DB IO
@@ -82,7 +60,15 @@ impl InstanceManager {
             taken_ports: HashSet::new(),
         })
     }
-    // TODO: server.properties
+
+    pub fn list_instances(&self) -> Vec<InstanceConfig> {
+        let mut instances: Vec<InstanceConfig> = Vec::new();
+        for (_, instance) in self.instance_collection.iter() {
+            instances.push(instance.get_instance_config().clone());
+        }
+        instances
+    }
+
     pub async fn create_instance(
         &mut self,
         mut config: InstanceConfig,
@@ -144,7 +130,7 @@ impl InstanceManager {
                         self.taken_ports.insert(port);
                         println!("using port {}", port);
                         let mut pm = PropertiesManager::new(path_to_properties).unwrap();
-                        pm.edit_field("server-port".to_string(), port.to_string())
+                        pm.edit_field(&"server-port".to_string(), port.to_string())
                             .unwrap();
                         pm.write_to_file().unwrap();
                         config.port = Some(port);
@@ -204,10 +190,10 @@ impl InstanceManager {
         Ok(config.uuid.unwrap())
     }
 
-    pub fn get_status(&mut self, uuid: String) -> Result<String, String> {
+    pub fn get_status(&self, uuid: String) -> Result<String, String> {
         let instance = self
             .instance_collection
-            .get_mut(&uuid)
+            .get(&uuid)
             .ok_or("instance does not exist".to_string())?;
         Ok(instance.get_status().to_string())
     }
@@ -308,210 +294,242 @@ impl InstanceManager {
         }
         ret
     }
+}
+pub mod resource_management {
+    use std::fs::{self, create_dir_all};
 
-    /// this code is completely garbage, someone should fix it
-    /// first is loaded resource, second is unloaded
-    pub fn get_list(
-        &self,
-        uuid: &String,
-        resource_type: ResourceType,
-    ) -> Result<(Vec<String>, Vec<String>), String> {
-        let path_to_instance = self.path.join("instances").join(
-            self.instance_collection
-                .get(uuid)
-                .ok_or("instance does not exist".to_string())?
-                .get_name(),
-        );
-        match resource_type {
-            ResourceType::World => {
-                create_dir_all(path_to_instance.join("lodestone_resources/").join("worlds"))
-                    .map_err(|_| {
-                        "failed to create worlds directory in the resource directory".to_string()
-                    })?;
-                let pm = PropertiesManager::new(path_to_instance.clone().join("server.properties"))
-                    .map_err(|e| format!("{}: {}", "failed to create properties manager", e))?;
-                let world_name = pm.get_field("level-name".to_string()).unwrap();
-                Ok((
-                    if path_to_instance.join(&world_name).is_dir() {
-                        vec![world_name]
-                    } else {
-                        vec![]
-                    },
-                    list_dir(
-                        path_to_instance.join("lodestone_resources").join("worlds"),
-                        false,
-                    )
-                    .unwrap(),
-                ))
-            }
-            ResourceType::Mod => {
-                create_dir_all(path_to_instance.join("lodestone_resources/").join("mods"))
-                    .map_err(|_| {
-                        "failed to create mods directory in the resource directory".to_string()
-                    })?;
-                Ok((
-                    list_dir(path_to_instance.join("mods"), false).unwrap(),
-                    list_dir(
-                        path_to_instance.join("lodestone_resources/").join("mods"),
-                        false,
-                    )
-                    .unwrap(),
-                ))
+    use rocket::request::FromParam;
+
+    use crate::{
+        managers::{properties_manager::PropertiesManager, server_instance::Status},
+        util::list_dir,
+    };
+
+    use super::InstanceManager;
+
+    pub enum ResourceType {
+        World,
+        Mod,
+    }
+
+    impl<'r> FromParam<'r> for ResourceType {
+        type Error = &'static str;
+
+        fn from_param(param: &'r str) -> Result<Self, Self::Error> {
+            match param {
+                "world" => Ok(ResourceType::World),
+                "mod" => Ok(ResourceType::Mod),
+                _ => Err("invalid resource type"),
             }
         }
     }
-
-    pub fn load(
-        &self,
-        uuid: &String,
-        resource_type: ResourceType,
-        resource_name: &String,
-    ) -> Result<(), String> {
-        if self
-            .instance_collection
-            .get(uuid)
-            .ok_or("instance does not exist".to_string())?
-            .get_status()
-            != Status::Stopped
-        {
-            return Err("instance is not stopped".to_string());
-        }
-
-        let path_to_instance = self
-            .path
-            .join("instances")
-            .join(self.instance_collection.get(uuid).unwrap().get_name());
-        match resource_type {
-            ResourceType::World => {
-                let pm = PropertiesManager::new(path_to_instance.clone().join("server.properties"))
-                    .map_err(|e| format!("{}: {}", "failed to create properties manager", e))?;
-                let world_name = pm.get_field("level-name".to_string()).unwrap();
-
-                // if path_to_instance.join(world_name.clone()).is_dir() && !path_to_instance.join("lodestone_resources").join("worlds").join(world_name.clone()).is_dir() {
-                // }
-                self.unload(&uuid, resource_type, &world_name)
-                    .map_err(|e| format!("{}: {}", "failed to unload world", e))?;
-                if !path_to_instance
-                    .join("lodestone_resources")
-                    .join("worlds")
-                    .join(resource_name)
-                    .is_dir()
-                {
-                    return Err(format!("world {} does not exist", resource_name));
-                }
-                fs_extra::dir::move_dir(
-                    path_to_instance
-                        .join("lodestone_resources")
-                        .join("worlds")
-                        .join(resource_name),
-                    path_to_instance,
-                    &CopyOptions::new(),
-                )
-                .map_err(|e| format!("{}: {}", "failed to move world", e))?;
-                Ok(())
-            }
-            ResourceType::Mod => {
-                self.unload(&uuid, resource_type, &resource_name)
-                    .map_err(|e| format!("{}: {}", "failed to unload mod", e))?;
-                if !path_to_instance
-                    .join("lodestone_resources")
-                    .join("mods")
-                    .join(resource_name)
-                    .is_file()
-                {
-                    return Err(format!("mod {} does not exist", resource_name));
-                }
-                fs_extra::file::move_file(
-                    path_to_instance
-                        .join("lodestone_resources")
-                        .join("mods")
-                        .join(resource_name),
-                    path_to_instance.join("mods").join(resource_name),
-                    &fs_extra::file::CopyOptions::new(),
-                )
-                .map_err(|e| format!("{}: {}", "failed to move mod", e))?;
-
-                Ok(())
-            }
-        }
-    }
-    pub fn unload(
-        &self,
-        uuid: &String,
-        resource_type: ResourceType,
-        resource_name: &String,
-    ) -> Result<(), String> {
-        if self
-            .instance_collection
-            .get(uuid)
-            .ok_or("instance does not exist".to_string())?
-            .get_status()
-            != Status::Stopped
-        {
-            return Err("instance is not stopped".to_string());
-        }
-
-        let path_to_instance = self
-            .path
-            .join("instances")
-            .join(self.instance_collection.get(uuid).unwrap().get_name());
-        match resource_type {
-            ResourceType::World => {
-                match (
-                    path_to_instance.join(resource_name).is_dir(),
-                    path_to_instance
-                        .join("lodestone_resources")
-                        .join("worlds")
-                        .join(resource_name)
-                        .is_dir(),
-                ) {
-                    // if there is already a world loaded, and if the world is in the resource already
-                    // simply delete the world in the instance directory? //!warn: may not be the best solution?
-                    (true, true) => Ok(fs::remove_dir_all(path_to_instance.join(resource_name))
-                        .map_err(|e| format!("failed to remove directory: {}", e.to_string()))?),
-                    // if there is already a world loaded, and if the world is NOT in the resource already
-                    // move the world from instance directory to resource directory
-                    (true, false) => {
-                        fs_extra::dir::move_dir(
-                            path_to_instance.join(resource_name),
+    impl InstanceManager {
+        /// this code is completely garbage, someone should fix it
+        /// first is loaded resource, second is unloaded
+        pub fn list_resource(
+            &self,
+            uuid: &String,
+            resource_type: ResourceType,
+        ) -> Result<(Vec<String>, Vec<String>), String> {
+            let path_to_instance = self.path.join("instances").join(
+                self.instance_collection
+                    .get(uuid)
+                    .ok_or("instance does not exist".to_string())?
+                    .get_name(),
+            );
+            match resource_type {
+                ResourceType::World => {
+                    create_dir_all(path_to_instance.join("lodestone_resources/").join("worlds"))
+                        .map_err(|_| {
+                            "failed to create worlds directory in the resource directory"
+                                .to_string()
+                        })?;
+                    let pm =
+                        PropertiesManager::new(path_to_instance.clone().join("server.properties"))
+                            .map_err(|e| {
+                                format!("{}: {}", "failed to create properties manager", e)
+                            })?;
+                    let world_name = pm.get_field(&"level-name".to_string()).unwrap();
+                    Ok((
+                        if path_to_instance.join(&world_name).is_dir() {
+                            vec![world_name]
+                        } else {
+                            vec![]
+                        },
+                        list_dir(
                             path_to_instance.join("lodestone_resources").join("worlds"),
-                            &CopyOptions::new(),
+                            false,
                         )
-                        .map_err(|e| format!("failed to move directory: {}", e.to_string()))?;
-                        Ok(())
-                    }
-                    // maybe should error
-                    (false, true) => Ok(()),
-                    (false, false) => Err("resource does not exist".to_string()),
+                        .unwrap(),
+                    ))
+                }
+                ResourceType::Mod => {
+                    create_dir_all(path_to_instance.join("lodestone_resources/").join("mods"))
+                        .map_err(|_| {
+                            "failed to create mods directory in the resource directory".to_string()
+                        })?;
+                    Ok((
+                        list_dir(path_to_instance.join("mods"), false).unwrap(),
+                        list_dir(
+                            path_to_instance.join("lodestone_resources/").join("mods"),
+                            false,
+                        )
+                        .unwrap(),
+                    ))
                 }
             }
-            ResourceType::Mod => {
-                match (
-                    path_to_instance.join("mods").join(resource_name).is_file(),
-                    path_to_instance
+        }
+
+        pub fn load(
+            &self,
+            uuid: &String,
+            resource_type: ResourceType,
+            resource_name: &String,
+        ) -> Result<(), String> {
+            let path_to_instance = self.path.join("instances").join(
+                self.instance_collection
+                    .get(uuid)
+                    .ok_or("instance does not exist".to_string())?
+                    .get_name(),
+            );
+            match resource_type {
+                ResourceType::World => {
+                    if self.instance_collection.get(uuid).unwrap().get_status() != Status::Stopped {
+                        return Err("instance is not stopped".to_string());
+                    }
+                    let mut pm =
+                        PropertiesManager::new(path_to_instance.clone().join("server.properties"))
+                            .map_err(|e| {
+                                format!("{}: {}", "failed to create properties manager", e)
+                            })?;
+                    let world_name = pm.get_field(&"level-name".to_string()).unwrap();
+
+                    self.unload(&uuid, resource_type, &world_name)
+                        .map_err(|e| format!("{}: {}", "failed to unload world", e))?;
+                    if !path_to_instance
+                        .join("lodestone_resources")
+                        .join("worlds")
+                        .join(resource_name)
+                        .is_dir()
+                    {
+                        return Err(format!("world {} does not exist", resource_name));
+                    }
+                    fs_extra::dir::move_dir(
+                        path_to_instance
+                            .join("lodestone_resources")
+                            .join("worlds")
+                            .join(resource_name),
+                        path_to_instance,
+                        &fs_extra::dir::CopyOptions::new(),
+                    )
+                    .map_err(|e| format!("{}: {}", "failed to move world", e))?;
+                    pm.edit_field(&"level-name".to_string(), resource_name.clone())
+                        .map_err(|e| format!("{}: {}", "failed to edit level-name", e))?;
+                    pm.write_to_file()
+                        .map_err(|e| format!("{}: {}", "failed to write to file", e))?;
+                    Ok(())
+                }
+                ResourceType::Mod => {
+                    self.unload(&uuid, resource_type, &resource_name)
+                        .map_err(|e| format!("{}: {}", "failed to unload mod", e))?;
+                    if !path_to_instance
                         .join("lodestone_resources")
                         .join("mods")
                         .join(resource_name)
-                        .is_file(),
-                ) {
-                    (true, true) => Ok(fs::remove_file(
-                        path_to_instance.join("mods").join(resource_name),
-                    )
-                    .map_err(|e| format!("failed to remove file: {}", e.to_string()))?),
-                    (true, false) => {
-                        fs_extra::file::move_file(
-                            path_to_instance.join("mods").join(resource_name),
-                            path_to_instance
-                                .join("lodestone_resources")
-                                .join("mods")
-                                .join(resource_name),
-                            &fs_extra::file::CopyOptions::new(),
-                        )
-                        .map_err(|e| format!("failed to move file: {}", e.to_string()))?;
-                        Ok(())
+                        .is_file()
+                    {
+                        return Err(format!("mod {} does not exist", resource_name));
                     }
-                    (false, true) => Ok(()),
-                    (false, false) => Err("resource does not exist".to_string()),
+                    fs_extra::file::move_file(
+                        path_to_instance
+                            .join("lodestone_resources")
+                            .join("mods")
+                            .join(resource_name),
+                        path_to_instance.join("mods").join(resource_name),
+                        &fs_extra::file::CopyOptions::new(),
+                    )
+                    .map_err(|e| format!("{}: {}", "failed to move mod", e))?;
+
+                    Ok(())
+                }
+            }
+        }
+        pub fn unload(
+            &self,
+            uuid: &String,
+            resource_type: ResourceType,
+            resource_name: &String,
+        ) -> Result<(), String> {
+            let path_to_instance = self.path.join("instances").join(
+                self.instance_collection
+                    .get(uuid)
+                    .ok_or("instance does not exist".to_string())?
+                    .get_name(),
+            );
+
+            match resource_type {
+                ResourceType::World => {
+                    if self.instance_collection.get(uuid).unwrap().get_status() != Status::Stopped {
+                        return Err("instance is not stopped".to_string());
+                    }
+                    match (
+                        path_to_instance.join(resource_name).is_dir(),
+                        path_to_instance
+                            .join("lodestone_resources")
+                            .join("worlds")
+                            .join(resource_name)
+                            .is_dir(),
+                    ) {
+                        // if there is already a world loaded, and if the world is in the resource already
+                        // simply delete the world in the instance directory? //!warn: may not be the best solution?
+                        (true, true) => Ok(fs::remove_dir_all(
+                            path_to_instance.join(resource_name),
+                        )
+                        .map_err(|e| format!("failed to remove directory: {}", e.to_string()))?),
+                        // if there is already a world loaded, and if the world is NOT in the resource already
+                        // move the world from instance directory to resource directory
+                        (true, false) => {
+                            fs_extra::dir::move_dir(
+                                path_to_instance.join(resource_name),
+                                path_to_instance.join("lodestone_resources").join("worlds"),
+                                &fs_extra::dir::CopyOptions::new(),
+                            )
+                            .map_err(|e| format!("failed to move directory: {}", e.to_string()))?;
+                            Ok(())
+                        }
+                        // maybe should error
+                        (false, true) => Ok(()),
+                        (false, false) => Err("resource does not exist".to_string()),
+                    }
+                }
+                ResourceType::Mod => {
+                    match (
+                        path_to_instance.join("mods").join(resource_name).is_file(),
+                        path_to_instance
+                            .join("lodestone_resources")
+                            .join("mods")
+                            .join(resource_name)
+                            .is_file(),
+                    ) {
+                        (true, true) => Ok(fs::remove_file(
+                            path_to_instance.join("mods").join(resource_name),
+                        )
+                        .map_err(|e| format!("failed to remove file: {}", e.to_string()))?),
+                        (true, false) => {
+                            fs_extra::file::move_file(
+                                path_to_instance.join("mods").join(resource_name),
+                                path_to_instance
+                                    .join("lodestone_resources")
+                                    .join("mods")
+                                    .join(resource_name),
+                                &fs_extra::file::CopyOptions::new(),
+                            )
+                            .map_err(|e| format!("failed to move file: {}", e.to_string()))?;
+                            Ok(())
+                        }
+                        (false, true) => Ok(()),
+                        (false, false) => Err("resource does not exist".to_string()),
+                    }
                 }
             }
         }
