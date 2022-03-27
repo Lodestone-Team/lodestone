@@ -4,7 +4,7 @@ extern crate sanitize_filename;
 
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
-use std::env;
+use std::{env};
 use std::fs::create_dir_all;
 use std::sync::Arc;
 mod handlers;
@@ -18,7 +18,7 @@ use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::{FileServer};
 use rocket::http::{Header, Status};
 use rocket::{Request, Response, routes};
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 
 
 pub struct MyManagedState {
@@ -75,6 +75,19 @@ async fn rocket() -> _ {
     //print file locations to console
     println!("Lodestone directory: {}", lodestone_path.display());
 
+    let instance_manager = Arc::new(Mutex::new(
+        InstanceManager::new(
+            lodestone_path,
+            client.clone(),
+        )
+        .unwrap(),
+    ));
+    let instance_manager_closure = instance_manager.clone();
+    rocket::tokio::spawn(async move {
+        loop {
+            
+        }
+    });
     rocket::build()
         .mount(
             "/api/v1/",
@@ -114,13 +127,7 @@ async fn rocket() -> _ {
         .mount("/", FileServer::from(static_path))
         .mount("/", routes![options_handler])
         .manage(MyManagedState {
-            instance_manager: Arc::new(Mutex::new(
-                InstanceManager::new(
-                    lodestone_path,
-                    client.clone(),
-                )
-                .unwrap(),
-            )),
+            instance_manager,
             download_status: CHashMap::new(),
             mongodb_client: client,
         })
