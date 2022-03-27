@@ -4,8 +4,10 @@ extern crate sanitize_filename;
 
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
-use std::env;
+use regex::Regex;
+use std::{env};
 use std::fs::create_dir_all;
+use std::io::{BufRead, BufReader, stdin};
 use std::sync::Arc;
 mod handlers;
 mod managers;
@@ -83,13 +85,20 @@ async fn main() {
         InstanceManager::new(lodestone_path, client.clone()).unwrap(),
     ));
     let instance_manager_closure = instance_manager.clone();
-    // rocket::tokio::spawn(async move {
-    //     let reader = BufReader::new(stdin());
-    //     for line_result in reader.lines() {
-    //         let line = line_result.unwrap_or("failed".to_string());
-    //         println!("{}", line);
-    //     }
-    // });
+    rocket::tokio::spawn(async move {
+        let reader = BufReader::new(stdin());
+        for line_result in reader.lines() {
+            let line = line_result.unwrap_or("failed".to_string());
+            let regex = Regex::new(r"instances[[:space:]]+(\w+)[[:space:]]+start").unwrap();
+            match regex.captures(&line) {
+                None => println!("not a match"),
+                Some(cap) => {
+                    println!("the matching string: {}", &cap[0]);
+                    println!("uuid: {}", &cap[1]);
+                }
+            }
+        }
+    });
     rocket::build()
         .mount(
             "/api/v1/",
