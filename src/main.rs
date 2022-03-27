@@ -4,8 +4,10 @@ extern crate sanitize_filename;
 
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
+use regex::Regex;
 use std::{env};
 use std::fs::create_dir_all;
+use std::io::{BufRead, BufReader, stdin};
 use std::sync::Arc;
 mod handlers;
 mod managers;
@@ -64,7 +66,6 @@ async fn main() {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
     };
-    lodestone_path = PathBuf::from("/home/peter/Lodestone/backend/lodestone/");
     env::set_current_dir(&lodestone_path).unwrap();
 
     let static_path = lodestone_path.join("web");
@@ -84,9 +85,18 @@ async fn main() {
     ));
     let instance_manager_closure = instance_manager.clone();
     rocket::tokio::spawn(async move {
-
-            println!("{:?}", instance_manager_closure.lock().await.list_instances());
-
+        let reader = BufReader::new(stdin());
+        for line_result in reader.lines() {
+            let line = line_result.unwrap_or("failed".to_string());
+            let regex = Regex::new(r"instances[[:space:]]+(\w+)[[:space:]]+start").unwrap();
+            match regex.captures(&line) {
+                None => println!("not a match"),
+                Some(cap) => {
+                    println!("the matching string: {}", &cap[0]);
+                    println!("uuid: {}", &cap[1]);
+                }
+            }
+        }
     });
     rocket::build()
         .mount(
