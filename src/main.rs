@@ -167,6 +167,17 @@ async fn main() {
                     Err(_) => println!("failed to get cpu info")
                 }
             }
+            if Regex::new(r"sys[[:space:]]+cpuutil").unwrap().is_match(&line) {
+                match os_release() {
+                    Ok(release) => {
+                        match os_type() {
+                            Ok(ostype) => println!("{} {}", ostype, release),
+                            Err(_) => eprintln!("failed to get os info")
+                        }
+                    }
+                    Err(_) => eprintln!("failed to get os info")
+                }
+            }
             // TODO #[get("/sys/osinfo")]
             if Regex::new(r"sys[[:space:]]+uptime").unwrap().is_match(&line) {
                 let sys = System::new();
