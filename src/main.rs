@@ -24,6 +24,9 @@ use rocket::http::{Header, Status};
 use rocket::{routes, Request, Response};
 use std::path::PathBuf;
 use std::{thread, time};
+use sys_info::{os_type, os_release, cpu_num, cpu_speed, disk_info, mem_info, loadavg};
+use systemstat::{System, Platform, Duration};
+
 
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
@@ -136,6 +139,42 @@ async fn main() {
             // }
             // TODO turn string into enum
 
+            if Regex::new(r"sys[[:space:]]+mem").unwrap().is_match(&line) {
+                match mem_info() {
+                    Ok(mem) => println!("{}/{}", mem.free, mem.total),
+                    Err(_) => eprintln!("failed to get ram")
+                }
+            }
+            if Regex::new(r"sys[[:space:]]+disk").unwrap().is_match(&line) {
+                match disk_info() {
+                    Ok(disk) => println!("{}/{}", disk.free, disk.total),
+                    Err(_) => eprintln!("failed to get disk")
+                }
+            }
+            if Regex::new(r"sys[[:space:]]+cpuspeed").unwrap().is_match(&line) {
+                match cpu_speed() {
+                    Ok(cpuspeed) => println!("{}", cpuspeed.to_string()),
+                    Err(_) => eprintln!("failed to get cpu speed")
+                }
+            }
+            if Regex::new(r"sys[[:space:]]+cpuutil").unwrap().is_match(&line) {
+                let sys = System::new();
+                match sys.cpu_load_aggregate() {
+                    Ok(load) => {
+                        thread::sleep(Duration::from_secs(1));
+                        println!("{}", load.done().unwrap().user.to_string())
+                    },
+                    Err(_) => println!("failed to get cpu info")
+                }
+            }
+            // TODO #[get("/sys/osinfo")]
+            if Regex::new(r"sys[[:space:]]+uptime").unwrap().is_match(&line) {
+                let sys = System::new();
+                match sys.uptime() {
+                    Ok(uptime) => println!("{}", uptime.as_secs_f64().to_string()),
+                    Err(_) => println!("failed to get cpu info")
+                }
+            }
             
         }
     });
