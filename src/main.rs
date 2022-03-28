@@ -6,6 +6,7 @@ extern crate sanitize_filename;
 
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
+use managers::instance_manager::resource_management::ResourceType;
 use regex::Regex;
 use std::env;
 use std::fs::create_dir_all;
@@ -24,9 +25,8 @@ use rocket::http::{Header, Status};
 use rocket::{routes, Request, Response};
 use std::path::PathBuf;
 use std::{thread, time};
-use sys_info::{os_type, os_release, cpu_num, cpu_speed, disk_info, mem_info, loadavg};
-use systemstat::{System, Platform, Duration};
-
+use sys_info::{cpu_num, cpu_speed, disk_info, loadavg, mem_info, os_release, os_type};
+use systemstat::{Duration, Platform, System};
 
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
@@ -128,7 +128,10 @@ async fn main() {
                     Err(reason) => eprintln!("{}", reason),
                 }
             }
-            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)").unwrap();
+            let regex = Regex::new(
+                r"instance[[:space:]]+(\w+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)",
+            )
+            .unwrap();
             // TODO implement mongodb get logs
             // match regex.capture(&line) {
             //     Some(cap) => match instance_manager.player_list(line_vec[1].to_string()) {
@@ -138,55 +141,83 @@ async fn main() {
             //     None() => ()
             // }
             // TODO turn string into enum
+            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
+            match regex.captures(&line) {
+                Some(cap) => {
+                    match instance_manager.list_resource(&cap[1].to_string(),
+                        if cap.get(2).unwrap().as_str().eq("Mod") {
+                            ResourceType::Mod
+                        } else {
+                            ResourceType::World
+                        },
+                    ) {
+                        Ok(list) => {
+                            println!("loaded: {:?}", list.0);
+                            println!("unloaded: {:?}", list.1);
+                        },
+                        Err(reason) => println!("{}", reason)
+                    }
+                },
+                _ => (), // Not a match, do nothing
+            }
 
             if Regex::new(r"sys[[:space:]]+mem").unwrap().is_match(&line) {
                 match mem_info() {
                     Ok(mem) => println!("{}/{}", mem.free, mem.total),
-                    Err(_) => eprintln!("failed to get ram")
+                    Err(_) => eprintln!("failed to get ram"),
                 }
             }
             if Regex::new(r"sys[[:space:]]+disk").unwrap().is_match(&line) {
                 match disk_info() {
                     Ok(disk) => println!("{}/{}", disk.free, disk.total),
-                    Err(_) => eprintln!("failed to get disk")
+                    Err(_) => eprintln!("failed to get disk"),
                 }
             }
-            if Regex::new(r"sys[[:space:]]+cpuspeed").unwrap().is_match(&line) {
+            if Regex::new(r"sys[[:space:]]+cpuspeed")
+                .unwrap()
+                .is_match(&line)
+            {
                 match cpu_speed() {
                     Ok(cpuspeed) => println!("{}", cpuspeed.to_string()),
-                    Err(_) => eprintln!("failed to get cpu speed")
+                    Err(_) => eprintln!("failed to get cpu speed"),
                 }
             }
-            if Regex::new(r"sys[[:space:]]+cpuutil").unwrap().is_match(&line) {
+            if Regex::new(r"sys[[:space:]]+cpuutil")
+                .unwrap()
+                .is_match(&line)
+            {
                 let sys = System::new();
                 match sys.cpu_load_aggregate() {
                     Ok(load) => {
                         thread::sleep(Duration::from_secs(1));
                         println!("{}", load.done().unwrap().user.to_string())
-                    },
-                    Err(_) => println!("failed to get cpu info")
+                    }
+                    Err(_) => println!("failed to get cpu info"),
                 }
             }
-            if Regex::new(r"sys[[:space:]]+cpuutil").unwrap().is_match(&line) {
+            if Regex::new(r"sys[[:space:]]+cpuutil")
+                .unwrap()
+                .is_match(&line)
+            {
                 match os_release() {
-                    Ok(release) => {
-                        match os_type() {
-                            Ok(ostype) => println!("{} {}", ostype, release),
-                            Err(_) => eprintln!("failed to get os info")
-                        }
-                    }
-                    Err(_) => eprintln!("failed to get os info")
+                    Ok(release) => match os_type() {
+                        Ok(ostype) => println!("{} {}", ostype, release),
+                        Err(_) => eprintln!("failed to get os info"),
+                    },
+                    Err(_) => eprintln!("failed to get os info"),
                 }
             }
             // TODO #[get("/sys/osinfo")]
-            if Regex::new(r"sys[[:space:]]+uptime").unwrap().is_match(&line) {
+            if Regex::new(r"sys[[:space:]]+uptime")
+                .unwrap()
+                .is_match(&line)
+            {
                 let sys = System::new();
                 match sys.uptime() {
                     Ok(uptime) => println!("{}", uptime.as_secs_f64().to_string()),
-                    Err(_) => println!("failed to get cpu info")
+                    Err(_) => println!("failed to get cpu info"),
                 }
             }
-            
         }
     });
     rocket::build()

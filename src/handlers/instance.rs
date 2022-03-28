@@ -118,7 +118,7 @@ pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status
 
 #[get("/instance/<uuid>/log?<start>&<end>")]
 pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
-    let mut r = Vec::new();
+    let mut result = Vec::new();
     let mongodb_client = &state.mongodb_client;
 
     let start_int = start.parse::<i64>().unwrap();
@@ -150,12 +150,12 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
             },
             Ok(logs) => {
                 for log in logs {
-                    r.push(log.unwrap());
+                    result.push(log.unwrap());
                 }
             },
 }
 
-    (Status::Ok, content::Json(serde_json::to_string(&r).unwrap()))
+    (Status::Ok, content::Json(serde_json::to_string(&result).unwrap()))
 }
 
 #[get("/instance/<uuid>/resources/<resource_type>/list")]
