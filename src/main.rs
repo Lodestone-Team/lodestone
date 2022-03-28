@@ -1,3 +1,5 @@
+#![allow(unused_must_use)]
+
 #[macro_use]
 extern crate rocket;
 extern crate sanitize_filename;
@@ -5,9 +7,9 @@ extern crate sanitize_filename;
 use chashmap::CHashMap;
 use futures_util::lock::Mutex;
 use regex::Regex;
-use std::{env};
+use std::env;
 use std::fs::create_dir_all;
-use std::io::{BufRead, BufReader, stdin};
+use std::io::{stdin, BufRead, BufReader};
 use std::sync::Arc;
 mod handlers;
 mod managers;
@@ -22,7 +24,6 @@ use rocket::http::{Header, Status};
 use rocket::{routes, Request, Response};
 use std::path::PathBuf;
 use std::{thread, time};
-use std::io::{BufRead, BufReader, stdin};
 
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
@@ -88,15 +89,54 @@ async fn main() {
     rocket::tokio::spawn(async move {
         let reader = BufReader::new(stdin());
         for line_result in reader.lines() {
-            let line = line_result.unwrap_or("failed".to_string());
-            let regex = Regex::new(r"instances[[:space:]]+(\w+)[[:space:]]+start").unwrap();
-            match regex.captures(&line) {
-                None => println!("not a match"),
-                Some(cap) => {
-                    println!("the matching string: {}", &cap[0]);
-                    println!("uuid: {}", &cap[1]);
+            let mut instance_manager = instance_manager_closure.lock().await;
+            let line = line_result.unwrap_or("failed to read stdin command".to_string());
+            let line_vec: Vec<&str> = line.split_whitespace().collect();
+            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+start").unwrap();
+            if regex.is_match(&line) {
+                instance_manager
+                    .start_instance(line_vec[1].to_string())
+                    .map_err(|err| eprintln!("{}", err));
+            }
+            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+stop").unwrap();
+            if regex.is_match(&line) {
+                instance_manager
+                    .stop_instance(line_vec[1].to_string())
+                    .map_err(|err| eprintln!("{}", err));
+            }
+            let regex =
+                Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+send[[:space:]]+(\w+)").unwrap();
+            if regex.is_match(&line) {
+                instance_manager
+                    .send_command(line_vec[1].to_string(), line_vec[3].to_string())
+                    .map_err(|err| eprintln!("{}", err));
+            }
+            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+playercount").unwrap();
+            if regex.is_match(&line) {
+                match instance_manager.player_num(line_vec[1].to_string()) {
+                    Ok(size) => println!("{}", size.to_string()),
+                    Err(reason) => eprintln!("{}", reason),
                 }
             }
+            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+playerlist").unwrap();
+            if regex.is_match(&line) {
+                match instance_manager.player_list(line_vec[1].to_string()) {
+                    Ok(list) => println!("{:?}", list),
+                    Err(reason) => eprintln!("{}", reason),
+                }
+            }
+            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)").unwrap();
+            // TODO implement mongodb get logs
+            // match regex.capture(&line) {
+            //     Some(cap) => match instance_manager.player_list(line_vec[1].to_string()) {
+            //         Ok(list) => println!("{:?}", list),
+            //         Err(reason) => eprintln!("{}", reason),
+            //     }
+            //     None() => ()
+            // }
+            // TODO turn string into enum
+
+            
         }
     });
     rocket::build()
