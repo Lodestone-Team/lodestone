@@ -25,7 +25,7 @@ pub struct InstanceConfig {
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
 }
-#[derive(Debug, Serialize, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Flavour {
     Vanilla,
     Fabric,
@@ -48,17 +48,41 @@ impl<'de> Deserialize<'de> for Flavour {
         }
     }
 }
-
-impl fmt::Display for Flavour {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Serialize for Flavour {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         match self {
-            Flavour::Vanilla => write!(f, "vanilla"),
-            Flavour::Fabric => write!(f, "fabric"),
-            Flavour::Paper => write!(f, "paper"),
-            Flavour::Spigot => write!(f, "spigot"),
+            Flavour::Vanilla => serializer.serialize_str("vanilla"),
+            Flavour::Fabric => serializer.serialize_str("fabric"),
+            Flavour::Paper => serializer.serialize_str("paper"),
+            Flavour::Spigot => serializer.serialize_str("spigot"),
         }
     }
 }
+
+impl ToString for Flavour {
+    fn to_string(&self) -> String {
+        match self {
+            Flavour::Vanilla => "vanilla".to_string(),
+            Flavour::Fabric => "fabric".to_string(),
+            Flavour::Paper => "paper".to_string(),
+            Flavour::Spigot => "spigot".to_string(),
+        }
+    }
+}
+
+// impl fmt::Display for Flavour {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match self {
+//             Flavour::Vanilla => write!(f, "vanilla"),
+//             Flavour::Fabric => write!(f, "fabric"),
+//             Flavour::Paper => write!(f, "paper"),
+//             Flavour::Spigot => write!(f, "spigot"),
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Status {

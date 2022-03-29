@@ -34,7 +34,7 @@ impl InstanceManager {
         }
 
         let mut instance_collection: HashMap<String, ServerInstance> = HashMap::new();
-
+        let mut taken_ports = HashSet::new();
         let database_names = mongodb.list_database_names(None, None).unwrap();
         for database_name in database_names.iter() {
             if database_name.contains("-") {
@@ -50,6 +50,7 @@ impl InstanceManager {
                     key,
                     ServerInstance::new(&config, path.join("instances").join(config.name.clone())),
                 );
+                taken_ports.insert(config.port.unwrap());
             }
         }
 
@@ -57,7 +58,7 @@ impl InstanceManager {
             instance_collection,
             path,
             mongodb,
-            taken_ports: HashSet::new(),
+            taken_ports,
         })
     }
 
@@ -94,7 +95,7 @@ impl InstanceManager {
             ));
         }
 
-        fs::create_dir_all("tmp").map_err(|_| "couldn't create temp folder".to_string())?;
+        fs::create_dir_all("tmp").map_err(|_| "couldn't create tmp folder".to_string())?;
         util::download_file(
             &config.url.clone().unwrap(),
             format!("tmp/{}", &config.uuid.clone().unwrap()).as_str(),
