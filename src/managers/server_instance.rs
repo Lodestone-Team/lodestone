@@ -502,7 +502,7 @@ mod event_parser {
         stdin_sender: Sender<String>,
     ) {
         match flavour {
-            Flavour::Vanilla | Flavour::Fabric => {
+            Flavour::Vanilla | Flavour::Fabric | Flavour::Paper => {
                 let i = line.find(">").unwrap();
                 let tmp = line.as_str()[i + 2..].to_string();
                 // println!("tmp: {}", tmp);
@@ -821,8 +821,6 @@ mod event_parser {
                     pc = pc + 1;
                 }
             }
-
-            Flavour::Paper => {},
             Flavour::Spigot => todo!(),
         }
     }
