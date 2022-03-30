@@ -2,8 +2,7 @@ use mongodb::{bson::doc};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::{State, tokio};
-use rocket::serde::json::Json;
-use serde_json::json;
+use rocket::serde::json::{json, Json, Value};
 use crate::MyManagedState;
 use crate::managers::server_instance::InstanceConfig;
 use crate::util::db_util::mongo_schema::*;
@@ -11,8 +10,8 @@ use crate::instance_manager::resource_management::ResourceType;
 
 
 #[get("/instances")]
-pub async fn get_list(state: &State<MyManagedState>) -> content::Json<String> {
-    content::Json(serde_json::to_string(&state.instance_manager.lock().await.list_instances()).unwrap())
+pub async fn get_list(state: &State<MyManagedState>) -> Value {
+    json!(&state.instance_manager.lock().await.list_instances())
 }
 
 #[post("/instance/<uuid>", data = "<config>")]
@@ -104,20 +103,20 @@ pub async fn player_count(uuid: String, state: &State<MyManagedState>) -> (Statu
 }
 
 #[get("/instance/<uuid>/playerlist")]
-pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
+pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status, Value) {
     match state
         .instance_manager
         .lock()
         .await
         .player_list(uuid)
     {
-        Ok(vec) => (Status::Ok, content::Json(serde_json::to_string(&vec).unwrap())),
-        Err(reason) => (Status::BadRequest, content::Json(reason)),
+        Ok(vec) => (Status::Ok, json!(vec)),
+        Err(reason) => (Status::BadRequest, json!(reason)),
     }
 }
 
 #[get("/instance/<uuid>/log?<start>&<end>")]
-pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> (Status, content::Json<String>) {
+pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> (Status, Value) {
     let mut result = Vec::new();
     let mongodb_client = &state.mongodb_client;
 
@@ -146,7 +145,7 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
         }, None)
         {
             Err(err) => {
-                return (Status::BadRequest, content::Json(err.to_string()))
+                return (Status::BadRequest, json!(err.to_string()));
             },
             Ok(logs) => {
                 for log in logs {
@@ -155,7 +154,7 @@ pub async fn get_logs(uuid: String, start: String, end: String, state: &State<My
             },
 }
 
-    (Status::Ok, content::Json(serde_json::to_string(&result).unwrap()))
+    (Status::Ok, json!(result))
 }
 
 #[get("/instance/<uuid>/resources/<resource_type>/list")]

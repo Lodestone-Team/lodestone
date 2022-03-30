@@ -19,7 +19,6 @@ dependencies = [
  "rust-crypto",
  "sanitize-filename",
  "serde",
- "serde_json",
  "sys-info",
  "systemstat",
  "uuid",
