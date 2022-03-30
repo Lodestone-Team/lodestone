@@ -5,7 +5,11 @@ key = "private/rsa_sha256_key.pem"
 [gloabl.tls.mutual]
 ca_certs = "private/ca_cert.pem"
 
+[debug]
+log_level = "critical"
+
+
 [release]
 address = "0.0.0.0"
 port = 8000
-log = "critical"
+log_level = "critical"
