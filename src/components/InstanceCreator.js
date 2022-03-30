@@ -86,13 +86,20 @@ export default function InstanceCreator() {
 
     let jarUrlResponse = await fetch(`${api_domain}${api_path}/jar/${flavour}/${version}`);
     if (!jarUrlResponse.ok) {
-      let error = await jarUrlResponse.text();
-      toast.update(toastId.current, { render: error, type: toast.TYPE.INFO, autoClose: 5000, isLoading: false });
+      let error = await jarUrlResponse.json();
+      error = error.error ? error.error : "Couldn't get jar URL";
+      toast.update(toastId.current, { render: error, type: toast.TYPE.WARNING, isLoading: false, autoClose: 5000 });
       toastId.current = "";
       setWaiting(false);
       return;
     }
-    let url = await jarUrlResponse.text();
+    let url = (await jarUrlResponse.json()).url;
+    if(!url) {
+      toast.update(toastId.current, { render: "Couldn't get jar URL", type: toast.TYPE.WARNING, isLoading: false, autoClose: 5000 });
+      toastId.current = "";
+      setWaiting(false);
+      return;
+    }
     let payload = JSON.stringify({ name, flavour, version, url });
 
     console.log(payload);
@@ -103,13 +110,13 @@ export default function InstanceCreator() {
     });
     if (!creationResponse.ok) {
       let error = await creationResponse.text();
-      toast.update(toastId.current, { render: error, type: toast.TYPE.ERROR, autoClose: 5000, isLoading: false });
+      toast.update(toastId.current, { render: error, type: toast.TYPE.WARNING, isLoading: false, autoClose: 5000 });
       toastId.current = "";
       setWaiting(false);
       return;
     }
 
-    toast.update(toastId.current, { render: "Successfully created instance!", type: toast.TYPE.SUCCESS, autoClose: 5000, isLoading: false, progress: 1});
+    toast.update(toastId.current, { render: "Successfully created instance!", type: toast.TYPE.SUCCESS, isLoading: false, autoClose: 5000, progress: 0});
     toastId.current = "";
     setWaiting(false);
     setShow(false);
@@ -130,9 +137,13 @@ export default function InstanceCreator() {
           if (progress) {
             //progress is in "1000/1000" format
             let progressArray = progress.split("/");
-            let progressPercentage = parseInt(progressArray[0]) / parseInt(progressArray[1]);
-            console.log(progressPercentage);
-            toast.update(toastId.current, { render: `Creating... ${(100*progressPercentage).toFixed(0)}%`, type: toast.TYPE.INFO, isLoading: true, progress: progressPercentage });
+            //careful if progress[1] is 0
+            if(progressArray[1] === "0") {
+              toast.update(toastId.current, {type:toast.TYPE.INFO, progress: 0 });
+            }else{
+              let progressPercentage = parseInt(progressArray[0]) / parseInt(progressArray[1]);
+              toast.update(toastId.current, {type:toast.TYPE.INFO, progress: progressPercentage });
+            }
           }
         });
     }
