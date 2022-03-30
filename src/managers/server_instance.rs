@@ -210,7 +210,8 @@ impl ServerInstance {
                 thread::spawn(move || {
                     use event_parser::parse;
                     use regex::Regex;
-                    let re = Regex::new(r"\[Server thread/INFO\]: Done").unwrap();
+                    // TODO: generalize parser
+                    let re = Regex::new(r": Done").unwrap();
                     for line_result in reader.lines() {
                         let mut status = status_closure.lock().unwrap();
                         let line = line_result.unwrap();
@@ -380,6 +381,7 @@ impl ServerInstance {
 }
 mod event_parser {
     use std::{
+        collections::HashMap,
         fs::File,
         io::{self, BufRead},
         path::PathBuf,
@@ -426,7 +428,7 @@ mod event_parser {
                         && line.matches(":").count() == 3 // 2 for timestamp + 1 for final
                         && line.matches("/").count() == 1
             }
-            Flavour::Paper => todo!(),
+            Flavour::Paper => false,
             Flavour::Spigot => todo!(),
         }
     }
@@ -437,7 +439,7 @@ mod event_parser {
                 // [*:*:*] [*/* */]: *
                 line.matches("<").count() >= 1 && line.matches(">").count() >= 1
             }
-            Flavour::Paper => todo!(),
+            Flavour::Paper => true,
             Flavour::Spigot => todo!(),
         }
     }
@@ -460,6 +462,39 @@ mod event_parser {
         }
         None
     }
+
+    enum Data {
+        Int(i32),
+        String(String),
+    }
+
+    impl Data {
+        fn get_string(&self) -> Option<String> {
+            match self {
+                Data::Int(i) => Some(i.to_string()),
+                Data::String(s) => None,
+            }
+        }
+        fn get_int(&self) -> Option<i32> {
+            match self {
+                Data::Int(i) => Some(*i),
+                Data::String(s) => None,
+            }
+        }
+    }
+
+    fn eval(exp: &String, sym_table: &HashMap<String, Data>) -> Option<Data> {
+        if exp.chars().next().unwrap() == '$' {
+            let data = sym_table.get(&exp.as_str()[1..].to_string()).unwrap();
+            match data {
+                Data::Int(n) => Some(Data::Int(n.clone())),
+                Data::String(s) => Some(Data::String(s.clone())),
+            }
+        } else {
+            Some(Data::Int(exp.parse::<i32>().unwrap()))
+        }
+    }
+
     pub fn dispatch_macro(
         line: &String,
         flavour: Flavour,
@@ -473,10 +508,8 @@ mod event_parser {
                 // println!("tmp: {}", tmp);
                 let iterator = tmp.split_whitespace();
                 let mut iter = 0;
-                let mut args: Vec<String> = vec![];
-                let mut ret: Vec<String> = vec![];
                 let mut path_to_macro = path.clone();
-
+                let mut sym_table: HashMap<String, Data> = HashMap::new();
                 for token in iterator.clone() {
                     if iter == 0 {
                         if token != ".macro" {
@@ -492,67 +525,300 @@ mod event_parser {
                         }
                     }
                     if iter >= 2 {
-                        args.push(token.to_string());
+                        match token.parse::<i32>() {
+                            Ok(n) => {
+                                sym_table.insert((iter - 2).to_string(), Data::Int(n));
+                            }
+                            Err(_) => {
+                                sym_table.insert(
+                                    (iter - 2).to_string(),
+                                    Data::String(token.to_string()),
+                                );
+                            }
+                        }
                     }
                     iter = iter + 1;
                 }
                 if iter == 1 {
-                    stdin_sender
-                        .send("/say Usage: .macro [macro file] args..\n".to_string())
-                        ;
+                    stdin_sender.send("/say Usage: .macro [macro file] args..\n".to_string());
                     return;
                 }
+
+                let mut lines: Vec<String> = vec![];
+
                 for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
-                    let mut line = line_result.unwrap();
-                    let iterline = line.clone();
-                    let iter = iterline.split_ascii_whitespace();
-                    for token in iter {
-                        let mut token_num = token.to_string();
-                        if token.chars().next().unwrap() == '$' {
-                            token_num.remove(0);
-                            match token_num.parse::<usize>() {
-                                Ok(num) => {
-                                    if num >= args.len() {
-                                        stdin_sender
-                                            .send(format!("/say token: {} out of range\n", token))
-                                            ;
-                                        return;
-                                    }
-                                    line = line.replace(token, args.get(num).unwrap());
-                                    println!(
-                                        "line: {}",
-                                        line.replace(token, args.get(num).unwrap())
-                                    );
+                    lines.push(line_result.unwrap());
+                }
+                let mut pc = 0;
+                while pc < lines.len() {
+                    let mut line = lines[pc].clone();
+                    let mut tokens: Vec<String> = vec![];
+                    for token in line.split_whitespace() {
+                        tokens.push(token.to_string());
+                    }
+                    if tokens.len() == 0 {
+                        continue;
+                    }
+                    match tokens.first().unwrap().as_str() {
+                        "[" => match tokens.get(1).unwrap().as_str() {
+                            "delay" => {
+                                thread::sleep(time::Duration::from_secs(
+                                    tokens
+                                        .get(2)
+                                        .unwrap()
+                                        .parse::<u64>()
+                                        .map_err(|e| {
+                                            stdin_sender.send(format!("/say {}\n", e));
+                                        })
+                                        .unwrap_or(0),
+                                ));
+                                pc = pc + 1;
+                                continue;
+                            }
+                            "goto" => {
+                                pc = eval(tokens.get(2).unwrap(), &sym_table).unwrap().get_int().unwrap() as usize;
+                                continue;
+                            }
+                            "let" => {
+                                let mut var_name = tokens.get(2).unwrap().clone();
+                                if var_name.chars().next().unwrap() == '$' {
+                                    var_name.remove(0);
                                 }
-                                Err(_) => {
-                                    stdin_sender
-                                        .send(format!("/say token: {} is not valid\n", token))
-                                        ;
-                                    return;
+                                let var_value = tokens.get(4).unwrap();
+                                match var_value.parse::<i32>() {
+                                    Ok(n) => {
+                                        sym_table.insert(var_name.to_string(), Data::Int(n));
+                                    }
+                                    Err(_) => {
+                                        sym_table.insert(
+                                            var_name.to_string(),
+                                            Data::String(var_value.to_string()),
+                                        );
+                                    }
+                                }
+                                pc = pc + 1;
+
+                                continue;
+                            }
+                            "add" => {
+                                let mut var_name = tokens.get(2).unwrap().clone();
+                                if var_name.chars().next().unwrap() == '$' {
+                                    var_name.remove(0);
+                                }
+                                let op_1 = tokens.get(3).unwrap();
+                                let op_2 = tokens.get(4).unwrap();
+                                sym_table.insert(
+                                    var_name.to_string(),
+                                    Data::Int(
+                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                            + eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                                    ),
+                                );
+                                pc = pc + 1;
+
+                                continue;
+                            }
+                            "sub" => {
+                                let mut var_name = tokens.get(2).unwrap().clone();
+                                if var_name.chars().next().unwrap() == '$' {
+                                    var_name.remove(0);
+                                }
+                                let op_1 = tokens.get(3).unwrap();
+                                let op_2 = tokens.get(4).unwrap();
+                                sym_table.insert(
+                                    var_name.to_string(),
+                                    Data::Int(
+                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                            - eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                                    ),
+                                );
+                                pc = pc + 1;
+
+                                continue;
+                            }
+
+                            "mult" => {
+                                let mut var_name = tokens.get(2).unwrap().clone();
+                                if var_name.chars().next().unwrap() == '$' {
+                                    var_name.remove(0);
+                                }
+                                let op_1 = tokens.get(3).unwrap();
+                                let op_2 = tokens.get(4).unwrap();
+                                sym_table.insert(
+                                    var_name.to_string(),
+                                    Data::Int(
+                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                            * eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                                    ),
+                                );
+                                pc = pc + 1;
+
+                                continue;
+                            }
+
+                            "div" => {
+                                let mut var_name = tokens.get(2).unwrap().clone();
+                                if var_name.chars().next().unwrap() == '$' {
+                                    var_name.remove(0);
+                                }
+                                let op_1 = tokens.get(3).unwrap();
+                                let op_2 = tokens.get(4).unwrap();
+                                sym_table.insert(
+                                    var_name.to_string(),
+                                    Data::Int(
+                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                            / eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                                    ),
+                                );
+                                pc = pc + 1;
+                                continue;
+                            }
+
+                            "mod" => {
+                                let mut var_name = tokens.get(2).unwrap().clone();
+                                if var_name.chars().next().unwrap() == '$' {
+                                    var_name.remove(0);
+                                }
+                                let op_1 = tokens.get(3).unwrap();
+                                let op_2 = tokens.get(4).unwrap();
+                                sym_table.insert(
+                                    var_name.to_string(),
+                                    Data::Int(
+                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                            % eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                                    ),
+                                );
+                                pc = pc + 1;
+                                continue;
+                            }
+
+                            "beq" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_2 = tokens.get(3).unwrap();
+                                let op_3 = tokens.get(4).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                                if op_1_data == op_2_data {
+                                    pc = op_3_data as usize;
+                                    continue;
+                                }
+                                pc = pc + 1;
+                                continue;
+
+                            }
+                            "bne" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_2 = tokens.get(3).unwrap();
+                                let op_3 = tokens.get(4).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                                if op_1_data != op_2_data {
+                                    pc = op_3_data as usize;
+                                    continue;
+                                }
+                                pc = pc + 1;
+                                continue;
+
+                            }
+                            "bge" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_2 = tokens.get(3).unwrap();
+                                let op_3 = tokens.get(4).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                                if op_1_data >= op_2_data {
+                                    pc = op_3_data as usize;
+                                    continue;
+                                }
+                                pc = pc + 1;
+                            }
+                            "ble" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_2 = tokens.get(3).unwrap();
+                                let op_3 = tokens.get(4).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                                if op_1_data <= op_2_data {
+                                    pc = op_3_data as usize;
+                                    continue;
+                                }
+                                pc = pc + 1;
+                            }
+                            "bgt" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_2 = tokens.get(3).unwrap();
+                                let op_3 = tokens.get(4).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                                if op_1_data > op_2_data {
+                                    pc = op_3_data as usize;
+                                    continue;
+                                }
+                                pc = pc + 1;
+                                continue;
+
+                            }
+
+                            "blt" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_2 = tokens.get(3).unwrap();
+                                let op_3 = tokens.get(4).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                                if op_1_data < op_2_data {
+                                    pc = op_3_data as usize;
+                                    continue;
+                                }
+                                pc = pc + 1;
+                                continue;
+
+                            }
+                            "jalr" => {
+                                let op_1 = tokens.get(2).unwrap();
+                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                                sym_table.insert(
+                                    "31".to_string(),
+                                    Data::Int((pc + 1) as i32),
+                                );
+                                pc = op_1_data as usize;
+                                continue;
+
+                            }
+
+                            _ => panic!("Unknown instruction {}", tokens.get(1).unwrap()),
+                        },
+
+                        _ => {
+                            for token in tokens {
+                                if token.chars().next().unwrap() == '$' {
+                                    let sym = token.as_str()[1..].to_string();
+                                    let data = sym_table
+                                        .get(&sym)
+                                        .ok_or_else(|| {
+                                            stdin_sender
+                                                .send(format!("/say {} is not defined\n", sym));
+                                        })
+                                        .unwrap();
+                                    match data {
+                                        Data::Int(n) => {
+                                            line = line.replace(&token, &n.to_string());
+                                        }
+                                        Data::String(s) => {
+                                            line = line.replace(&token, s.as_str());
+                                        }
+                                    }
                                 }
                             }
+                            stdin_sender.send(format!("{}\n", line));
                         }
                     }
-                    ret.push(line);
-                }
-                for cmd in ret {
-                    if cmd.chars().next().unwrap() == '[' {
-                        // convert cmd to a vector of strings
-                        let mut cmd_vec: Vec<String> = vec![];
-                        let cmd_iter = cmd.split_whitespace();
-                        for token in cmd_iter {
-                            cmd_vec.push(token.to_string());
-                        }
-                        if cmd_vec.get(1).unwrap() == "delay" {
-                            thread::sleep(time::Duration::from_secs(
-                                cmd_vec.get(2).unwrap().parse::<u64>().map_err(|e| {
-                                    stdin_sender.send(format!("/say {}\n", e));
-                                }).unwrap_or(0),
-                            ));
-                        }
-                    } else {
-                        stdin_sender.send(format!("{}\n", cmd));
-                    }
+                    pc = pc + 1;
                 }
             }
 
