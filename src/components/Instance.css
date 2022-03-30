@@ -1,6 +1,11 @@
 .instance{
   width: 18em;
+  height: 12em;
   --main-color: var(--gray);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
 }
 
 .instance.running{
@@ -11,6 +16,7 @@
   font-weight: 900;
   font-size: 50px;
   color: var(--main-color);
+  flex-grow: 1;
 }
 
 .instance-actions{

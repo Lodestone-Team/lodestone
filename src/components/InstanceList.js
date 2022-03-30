@@ -31,10 +31,10 @@ export default function InstanceList() {
     <div className="instance-list">
       {
         instances.map(instance => (
-          <Instance key={instance.uuid} {...instance} />
+          <Instance key={instance.uuid} {...instance} updateInstances={updateInstances} />
         ))
       }
-      <InstanceCreator />
+      <InstanceCreator updateInstances={updateInstances}/>
     </div>
   );
 };

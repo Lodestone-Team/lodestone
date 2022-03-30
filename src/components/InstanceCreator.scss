@@ -10,6 +10,30 @@
   }
 }
 
+.instance-creator-card{
+  align-items: stretch;
+  width: 14em;
+  .new-instance-button-wrapper{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .title-bar {
+    align-self: center;
+    align-items: center;
+    width: fit-content;
+    .title{
+      margin-right: 0;
+    }
+  }
+}
+
 .create-button-wrapper {
   margin-top: 3em;
+}
+
+
+.new-instance-button{
+  height: 40%;
 }

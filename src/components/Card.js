@@ -5,9 +5,9 @@ import React, { useEffect, useRef } from "react";
 import VanillaTilt from "vanilla-tilt";
 
 const defaultTilt = {
-  scale: 1.025,
+  scale: 1.05,
   speed: 1000,
-  max: 5
+  max: 10
 };
 
 export default function Card({ children, className, options = defaultTilt, tilt = false }) {

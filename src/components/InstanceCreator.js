@@ -13,11 +13,12 @@ import { ServerContext } from "../contexts/ServerContext";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faQuestionCircle } from '@fortawesome/free-solid-svg-icons'
 import { toast } from 'react-toastify';
+import Card from "./Card";
 
 var utils = require("../utils")
 
 
-export default function InstanceCreator() {
+export default function InstanceCreator(updateInstances) {
   const [show, setShow] = useState(false);
   const [flavours, setFlavours] = useState([]);
   const [name, setName] = useState("");
@@ -120,6 +121,7 @@ export default function InstanceCreator() {
     toastId.current = "";
     setWaiting(false);
     setShow(false);
+    updateInstances();
   };
 
   utils.useInterval(() => {
@@ -150,19 +152,26 @@ export default function InstanceCreator() {
   }, 250);
 
   return (
-    <>
-      <img src={PlusIcon} alt="Plus Icon" className="new-instance-button clickable" onClick={() => {
-        if (waiting) {
-          toast.error("Waiting for the previous request to finish...");
-          return;
-        }
-        setShow(true);
-        setName("");
-        setVersion("");
-        setFlavour("");
-        setVersions([]);
-        setReady(false);
-      }} />
+    <Card className="instance instance-creator-card" tilt={true} >
+      <div className="title-bar">
+        <h2 className="title">Create new Instance</h2>
+      </div>
+      <span className="new-instance-button-wrapper">
+        <img src={PlusIcon} alt="Plus Icon" className="new-instance-button clickable" onClick={() => {
+          if (waiting) {
+            toast.error("Waiting for the previous request to finish...");
+            return;
+          }
+          setShow(true);
+          setName("");
+          setVersion("");
+          setFlavour("");
+          setVersions([]);
+          setReady(false);
+        }} />
+      </span>
+
+      
       <Modal show={show} onHide={() => { setShow(false); }}
         size="md"
         centered
@@ -241,6 +250,6 @@ export default function InstanceCreator() {
           </div>
         </Form>
       </Modal>
-    </>
+    </Card>
   );
 }

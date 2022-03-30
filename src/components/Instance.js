@@ -92,6 +92,7 @@ export default function Instance({ name, version, flavour, port, uuid, updateIns
     }).then(response => {
       if (response.ok) {
         toast.success("Deleted Server");
+        updateInstances();
       } else {
         response.text().then(toast.error);
       }
