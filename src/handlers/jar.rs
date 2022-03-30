@@ -3,11 +3,11 @@ use serde_json::{json, Value};
 
 #[get("/jar/flavours")]
 pub async fn flavours() -> content::Json<String> {
-    content::Json(json!(["vanilla", "fabric"]).to_string())
-    // content::Json(json!(["vanilla", "fabric"]).to_string())
+    content::Json(json!(["vanilla", "fabric", "paper"]).to_string())
     //Hard coded json bad
 }
 
+// Beginning of vanilla
 
 mod vanilla_structs{
     use serde::{Deserialize, Serialize};
@@ -30,34 +30,6 @@ mod vanilla_structs{
     pub struct VersionManifest {
         pub versions: Vec<ServerVersion>,
         pub latest: LatestVersion,
-    }
-}
-
-mod fabric_structs{
-    use serde::{Deserialize, Serialize};
-    #[derive(Deserialize, Serialize)]
-    pub struct ServerVersion {
-        pub version: String,
-        pub stable: bool,
-    }
-
-
-    #[derive(Deserialize, Serialize)]
-    pub struct LoaderInstance{
-        pub version: String,
-    }
-
-    #[derive(Deserialize, Serialize)]
-    pub struct LoaderVersion {
-        pub loader: LoaderInstance,
-    }
-
-    #[derive(Deserialize, Serialize)]
-    pub struct InstallerVersion {
-        pub url: String,
-        pub maven: String,
-        pub version: String,
-        pub stable: bool,
     }
 }
 
@@ -118,7 +90,7 @@ pub async fn vanilla_versions(
 }
 
 #[get("/jar/vanilla/<requested_version>")]
-pub fn vanilla_jar(
+pub async fn vanilla_jar(
     requested_version: String,
 ) -> Result<content::Json<String>, status::NotFound<String>> {
     let response: vanilla_structs::VersionManifest = serde_json::from_str(
@@ -144,6 +116,37 @@ pub fn vanilla_jar(
     }
 
     Err(status::NotFound("Jar not found".to_string()))
+}
+
+// End of vanilla
+
+// Beginning of fabric
+mod fabric_structs{
+    use serde::{Deserialize, Serialize};
+    #[derive(Deserialize, Serialize)]
+    pub struct ServerVersion {
+        pub version: String,
+        pub stable: bool,
+    }
+
+
+    #[derive(Deserialize, Serialize)]
+    pub struct LoaderInstance{
+        pub version: String,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    pub struct LoaderVersion {
+        pub loader: LoaderInstance,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    pub struct InstallerVersion {
+        pub url: String,
+        pub maven: String,
+        pub version: String,
+        pub stable: bool,
+    }
 }
 
 #[get("/jar/fabric/filters")]
@@ -184,7 +187,7 @@ pub async fn fabric_versions(stable: Option<bool>) -> content::Json<String> {
 }
 
 #[get("/jar/fabric/<requested_version>")]
-pub fn fabric_jar(
+pub async fn fabric_jar(
     requested_version: String,
 ) -> Result<content::Json<String>, status::NotFound<String>> {
     let response: Vec<fabric_structs::LoaderVersion> = serde_json::from_str(
@@ -218,3 +221,79 @@ pub fn fabric_jar(
 
     // Err(status::NotFound("Jar not found".to_string()))
 }
+
+// End of fabric
+
+// Beginning of paper
+mod paper_structs{
+    use serde::{Deserialize, Serialize};
+    #[derive(Deserialize, Serialize)]
+    pub struct ProjectInfo {
+        // pub project_id: String,
+        // pub project_name: String,
+        // pub version_groups: Vec<String>,
+        pub versions: Vec<String>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    pub struct VersionInfo {
+        // pub project_id: String,
+        // pub project_name: String,
+        // pub version: String,
+        pub builds: Vec<i32>,
+    }
+}
+
+#[get("/jar/paper/filters")]
+pub async fn paper_filters() -> content::Json<String> {
+    content::Json(
+        json!({})
+        .to_string(),
+    )
+}
+#[get("/jar/paper/versions")]
+pub async fn paper_versions() -> content::Json<String> {
+    // fetch from https://papermc.io/api/v2/projects/paper/
+    let response: paper_structs::ProjectInfo = serde_json::from_str(
+        minreq::get("https://papermc.io/api/v2/projects/paper/")
+            .send()
+            .unwrap()
+            .as_str()
+            .unwrap(),
+    ).unwrap();
+
+
+    //return inverted versions list cuz paper sorts them backwards
+    content::Json(serde_json::to_string(&response.versions.iter().rev().collect::<Vec<&String>>()).unwrap())
+}
+
+#[get("/jar/paper/<requested_version>")]
+pub async fn paper_jar(
+    requested_version: String,
+) -> Result<content::Json<String>, status::NotFound<String>> {
+    // fetch from https://papermc.io/api/v2/projects/paper/versions/<version>
+    let response: paper_structs::VersionInfo = serde_json::from_str(
+        minreq::get(format!("https://papermc.io/api/v2/projects/paper/versions/{}", requested_version))
+            .send()
+            .unwrap()
+            .as_str()
+            .unwrap(),
+    ).unwrap();
+
+    if response.builds.len() == 0 {
+        return Err(status::NotFound("Version not found".to_string()));
+    }
+
+    //get the largest build number from response.builds
+    let largest_build = response.builds.iter().max().unwrap();
+
+    // example: https://papermc.io/api/v2/projects/paper/versions/1.17.1/builds/409/downloads/paper-1.17.1-409.jar
+    return Ok(content::Json(
+        format!(
+            "https://papermc.io/api/v2/projects/paper/versions/{}/builds/{}/downloads/paper-{}-{}.jar",
+            requested_version, largest_build, requested_version, largest_build
+        )
+    ));
+}
+
+// End of paper
