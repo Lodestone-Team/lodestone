@@ -822,7 +822,7 @@ mod event_parser {
                 }
             }
 
-            Flavour::Paper => todo!(),
+            Flavour::Paper => {},
             Flavour::Spigot => todo!(),
         }
     }
