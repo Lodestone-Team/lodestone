@@ -23,3 +23,6 @@ apt-get install oracle-java17-installer -y
 apt-get install cpuidtool libcpuid14 libcpuid-dev
 apt-get install unzip
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+
