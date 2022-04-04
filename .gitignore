@@ -18,3 +18,4 @@ InstanceTest/
 .lodestone_config/
 LodestoneTest/
 instances/
+db/
