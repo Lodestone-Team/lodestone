@@ -1,0 +1,42 @@
+name: backend
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Install Rust toolchain 
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v1
+      with:
+        working-directory: ./
+
+    - name: Build Backend
+      run: cargo build --verbose --release
+      
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: Lodestone
+        path: |
+          ./target/release/Lodestone
+          ./Rocket.toml
