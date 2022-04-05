@@ -1,9 +1,9 @@
-[global.tls]
-certs = "private/rsa_sha256_cert.pem"
-key = "private/rsa_sha256_key.pem"
+# [global.tls]
+# certs = "private/rsa_sha256_cert.pem"
+# key = "private/rsa_sha256_key.pem"
 
-[gloabl.tls.mutual]
-ca_certs = "private/ca_cert.pem"
+# [gloabl.tls.mutual]
+# ca_certs = "private/ca_cert.pem"
 
 [debug]
 log_level = "critical"
