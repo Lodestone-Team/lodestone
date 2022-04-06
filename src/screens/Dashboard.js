@@ -8,7 +8,7 @@ import SystemMonitor from "../components/SystemMonitor";
 
 const devServerContext = {
   pollrate: 5000,
-  api_domain: `http://${location.hostname}:8000`,
+  api_domain: `http://${window.location.hostname}:8000`,
   api_path: "/api/v1",
 }
 
