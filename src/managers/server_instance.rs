@@ -1,5 +1,6 @@
-use crate::managers::server_instance::event_parser::{dispatch_macro, is_player_message};
+use crate::event_processor::{BroadcastMessage, EventProcessor, PlayerEventVarient};
 use mongodb::{bson::doc, sync::Client};
+use rocket::tokio;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -9,6 +10,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, thread, time};
+
+use self::macro_code::dispatch_macro;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
@@ -182,13 +185,14 @@ impl ServerInstance {
                 let (kill_tx, kill_rx): (Sender<()>, Receiver<()>) = mpsc::channel();
                 let mut stdin_writer = proc.stdin.ok_or("failed to open stdin of child process")?;
                 self.stdin = Some(stdin_sender.clone());
+                let kill_tx_closure = kill_tx.clone();
                 self.kill_tx = Some(kill_tx);
                 // self.stdin = Some(Arc::new(Mutex::new(stdin_writer.)));
                 let stdout = proc
                     .stdout
                     .ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
-                thread::spawn(move || {
+                let stdin_thread = thread::spawn(move || {
                     let stdin_receiver = stdin_receiver;
                     loop {
                         if kill_rx.try_recv().is_ok() {
@@ -202,101 +206,20 @@ impl ServerInstance {
                     println!("writer thread terminating");
                 });
                 let uuid_closure = self.uuid.clone();
-                let status_closure = self.status.clone();
                 let players_closure = self.player_online.clone();
-                let flavour_closure = self.flavour.clone();
                 let path_closure = self.path.clone();
-                let stdin_sender_closure = stdin_sender.clone();
-                thread::spawn(move || {
-                    use event_parser::parse;
-                    use regex::Regex;
-                    // TODO: generalize parser
-                    let re = Regex::new(r": Done").unwrap();
+                let mongodb_client_closuer = mongodb_client.clone();
+                let event_processor = Arc::new(Mutex::new(EventProcessor::new()));
+                let event_processor_closure = event_processor.clone();
+                let status_closure = self.status.clone();
+                let stdout_thread = thread::spawn(move || {
                     for line_result in reader.lines() {
-                        let mut status = status_closure.lock().unwrap();
                         let line = line_result.unwrap();
-                        let time128 = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis();
-                        let time = i64::try_from(time128).unwrap();
-                        if re.is_match(line.as_str()) {
-                            *status = Status::Running;
-                        }
-                        drop(status);
-                        println!("Server said: {}", line);
-                        mongodb_client
-                            .database(uuid_closure.as_str())
-                            .collection("logs")
-                            .insert_one(
-                                doc! {
-                                    "time": time,
-                                    "log": line.clone()
-                                },
-                                None,
-                            )
-                            .unwrap();
-                        if let Some(event) = parse(&line, flavour_closure) {
-                            match event.1 {
-                                event_parser::InstanceEvent::Joined => {
-                                    players_closure.lock().unwrap().push(event.0.clone());
-                                    mongodb_client
-                                        .database(uuid_closure.as_str())
-                                        .collection("events")
-                                        .insert_one(
-                                            doc! {
-                                                "time": time,
-                                                "player": event.0.clone(),
-                                                "eventMsg": "joined the instance"
-                                            },
-                                            None,
-                                        )
-                                        .unwrap();
-                                }
-                                event_parser::InstanceEvent::Left => {
-                                    let mut players = players_closure.lock().unwrap();
-                                    if let Some(index) =
-                                        players.iter().position(|x| *x == event.0.clone())
-                                    {
-                                        players.swap_remove(index);
-                                    }
-                                    drop(players);
-                                    mongodb_client
-                                        .database(uuid_closure.as_str())
-                                        .collection("events")
-                                        .insert_one(
-                                            doc! {
-                                                "time": time,
-                                                "player": event.0.clone(),
-                                                "eventMsg": "left the instance"
-                                            },
-                                            None,
-                                        )
-                                        .unwrap();
-                                }
-                            }
-                        }
-                        let path_closure = path_closure.clone();
-                        let stdin_sender_closure = stdin_sender_closure.clone();
-                        if is_player_message(&line, flavour_closure) {
-                            println!("player msg: {}", line);
-                            // TODO: use green thread instead
-                            thread::spawn(move || {
-                                dispatch_macro(
-                                    &line,
-                                    flavour_closure,
-                                    path_closure
-                                        .clone()
-                                        .parent()
-                                        .unwrap()
-                                        .parent()
-                                        .unwrap()
-                                        .join("macros/"),
-                                    stdin_sender_closure.clone(),
-                                );
-                            });
-                        }
+                        println!("server said: {}", line);
+                        event_processor_closure.lock().unwrap().process(&line);
                     }
+                    event_processor_closure.lock().unwrap().kill();
+                    kill_tx_closure.send(()).unwrap();
                     let mut status = status_closure.lock().unwrap();
                     println!("program exiting as reader thread is terminating...");
                     match *status {
@@ -306,6 +229,82 @@ impl ServerInstance {
                         Status::Stopped => println!("instance already stopped"),
                     }
                     *status = Status::Stopped;
+                });
+                let event_processor_closure = event_processor.clone();
+                let server_message_thread = tokio::spawn(async move {
+                    let mut rec = event_processor_closure.lock().unwrap().subscribe_msg();
+                    loop {
+                        match rec.recv().await.unwrap() {
+                            BroadcastMessage::Message(sm) => {
+                                mongodb_client_closuer
+                                    .database(uuid_closure.as_str())
+                                    .collection("logs")
+                                    .insert_one(sm, None)
+                                    .unwrap();
+                            }
+                            BroadcastMessage::Kill => break,
+                        }
+                    }
+                    println!("server message thread exiting");
+                });
+                let event_processor_closure = event_processor.clone();
+                let status_closure = self.status.clone();
+
+                tokio::spawn(async move {
+                    let mut rec = event_processor_closure
+                        .lock()
+                        .unwrap()
+                        .subscribe_server_finished_setup();
+                    rec.recv().await.unwrap();
+                    *status_closure.lock().unwrap() = Status::Running;
+                });
+                let event_processor_closure = event_processor.clone();
+                let mongodb_client_closure = mongodb_client.clone();
+                let uuid_closure = self.uuid.clone();
+                let stdin_sender_closure = stdin_sender.clone();
+                tokio::spawn(async move {
+                    let mut rec = event_processor_closure
+                        .lock()
+                        .unwrap()
+                        .subscribe_all_event();
+                    loop {
+                        match rec.recv().await.unwrap() {
+                            BroadcastMessage::Message(player_event) => {
+                                mongodb_client_closure
+                                    .database(uuid_closure.as_str())
+                                    .collection("events")
+                                    .insert_one(player_event.clone(), None);
+                                if let PlayerEventVarient::Joined = player_event.event {
+                                    players_closure.lock().unwrap().push(player_event.player);
+                                } else if let PlayerEventVarient::Left = player_event.event {
+                                    if let Some(index) = players_closure
+                                        .lock()
+                                        .unwrap()
+                                        .iter()
+                                        .position(|x| *x == player_event.player.clone())
+                                    {
+                                        players_closure.lock().unwrap().swap_remove(index);
+                                    }
+                                }
+                                if let PlayerEventVarient::Chat(s) = player_event.event {
+                                    let a = stdin_sender_closure.clone();
+                                    dispatch_macro(
+                                        &s,
+                                        path_closure
+                                            .clone()
+                                            .parent()
+                                            .unwrap()
+                                            .parent()
+                                            .unwrap()
+                                            .join("macros/"),
+                                            a,
+                                        event_processor_closure.clone(),
+                                    ).await;
+                                }
+                            }
+                            BroadcastMessage::Kill => break,
+                        }
+                    }
                 });
                 return Ok(());
             }
@@ -324,7 +323,6 @@ impl ServerInstance {
             Status::Stopped => return Err("cannot stop, instance is already stopped".to_string()),
             Status::Running => println!("stopping instance"),
         }
-        self.kill_tx.as_mut().unwrap().send(()).unwrap();
         *status = Status::Stopping;
         self.send_stdin("stop".to_string())?;
         self.player_online.lock().unwrap().clear();
@@ -379,90 +377,17 @@ impl ServerInstance {
         &self.instance_config
     }
 }
-mod event_parser {
+mod macro_code {
     use std::{
         collections::HashMap,
         fs::File,
         io::{self, BufRead},
         path::PathBuf,
-        sync::mpsc::Sender,
+        sync::{mpsc::Sender, Arc, Mutex, MutexGuard},
         thread, time,
     };
 
-    use super::Flavour;
-
-    pub enum InstanceEvent {
-        Joined,
-        Left,
-    }
-
-    pub enum Level {
-        Info,
-        Warn,
-        Error,
-    }
-
-    pub enum PlayerSpecificEvent {
-        // SentCommand {
-        //     msg : String
-        // },
-        ConnectionEvent,
-        Said { msg: String },
-    }
-    pub enum EventVariants {
-        PlayerSpecificEvent(PlayerSpecificEvent),
-        InstanceEvent,
-    }
-
-    pub struct Event {
-        time: String,
-        level: Level,
-        even_variant: EventVariants,
-    }
-    pub fn is_server_message(line: &String, flavour: Flavour) -> bool {
-        match flavour {
-            Flavour::Vanilla | Flavour::Fabric => {
-                // [*:*:*] [*/* */]: *
-                line.matches("[").count() == 2 // fabric and vanilla has two sets of square brackets
-                        && line.matches("<").count() == 0 // filter out play sent messages
-                        && line.matches(":").count() == 3 // 2 for timestamp + 1 for final
-                        && line.matches("/").count() == 1
-            }
-            Flavour::Paper => false,
-            Flavour::Spigot => todo!(),
-        }
-    }
-
-    pub fn is_player_message(line: &String, flavour: Flavour) -> bool {
-        match flavour {
-            Flavour::Vanilla | Flavour::Fabric => {
-                // [*:*:*] [*/* */]: *
-                line.matches("<").count() >= 1 && line.matches(">").count() >= 1
-            }
-            Flavour::Paper => true,
-            Flavour::Spigot => todo!(),
-        }
-    }
-    pub fn parse(line: &String, flavour: Flavour) -> Option<(String, InstanceEvent)> {
-        if is_server_message(line, flavour) {
-            if line.contains("joined the game") || line.contains("left the game") {
-                let i1 = line.find("]:").unwrap();
-                let tmp = &line.as_str()[i1 + 3..];
-                let i2 = tmp.find(char::is_whitespace).unwrap();
-
-                let tmp_name = &line.as_str()[i1 + 3..i2 + line.len() - tmp.len()];
-                let player_name = String::from(tmp_name);
-                if line.contains("joined the game") {
-                    return Some((player_name, InstanceEvent::Joined));
-                }
-                if line.contains("left the game") {
-                    return Some((player_name, InstanceEvent::Left));
-                }
-            }
-        }
-        None
-    }
-
+    use crate::event_processor::{EventProcessor, SubscribeType, BroadcastMessage};
     enum Data {
         Int(i32),
         String(String),
@@ -495,333 +420,329 @@ mod event_parser {
         }
     }
 
-    pub fn dispatch_macro(
-        line: &String,
-        flavour: Flavour,
-        path: PathBuf,
-        stdin_sender: Sender<String>,
-    ) {
-        match flavour {
-            Flavour::Vanilla | Flavour::Fabric | Flavour::Paper => {
-                let i = line.find(">").unwrap();
-                let tmp = line.as_str()[i + 2..].to_string();
-                // println!("tmp: {}", tmp);
-                let iterator = tmp.split_whitespace();
-                let mut iter = 0;
-                let mut path_to_macro = path.clone();
-                let mut sym_table: HashMap<String, Data> = HashMap::new();
-                for token in iterator.clone() {
-                    if iter == 0 {
-                        if token != ".macro" {
-                            return;
+    pub async fn dispatch_macro(line: &String, path: PathBuf, stdin_sender: Sender<String>, event_processor : Arc<Mutex<EventProcessor>>) {
+        let iterator = line.split_whitespace();
+        let mut iter = 0;
+        let mut path_to_macro = path.clone();
+        let mut sym_table: HashMap<String, Data> = HashMap::new();
+        for token in iterator.clone() {
+            if iter == 0 {
+                if token != ".macro" {
+                    return;
+                }
+            }
+            if iter == 1 {
+                path_to_macro.push(token);
+                println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
+                if !path_to_macro.exists() {
+                    stdin_sender.send(format!("/say macro {} does no exist\n", token));
+                    return;
+                }
+            }
+            if iter >= 2 {
+                match token.parse::<i32>() {
+                    Ok(n) => {
+                        sym_table.insert((iter - 2).to_string(), Data::Int(n));
+                    }
+                    Err(_) => {
+                        sym_table.insert((iter - 2).to_string(), Data::String(token.to_string()));
+                    }
+                }
+            }
+            iter = iter + 1;
+        }
+        if iter == 1 {
+            stdin_sender.send("/say Usage: .macro [macro file] args..\n".to_string());
+            return;
+        }
+
+        let mut lines: Vec<String> = vec![];
+
+        for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
+            lines.push(line_result.unwrap());
+        }
+        let mut pc = 0;
+        while pc < lines.len() {
+            let mut line = lines[pc].clone();
+            let mut tokens: Vec<String> = vec![];
+            for token in line.split_whitespace() {
+                tokens.push(token.to_string());
+            }
+            if tokens.len() == 0 {
+                continue;
+            }
+            match tokens.first().unwrap().as_str() {
+                "[" => match tokens.get(1).unwrap().as_str() {
+                    "delay" => {
+                        thread::sleep(time::Duration::from_secs(
+                            tokens
+                                .get(2)
+                                .unwrap()
+                                .parse::<u64>()
+                                .map_err(|e| {
+                                    stdin_sender.send(format!("/say {}\n", e));
+                                })
+                                .unwrap_or(0),
+                        ));
+                        pc = pc + 1;
+                        continue;
+                    }
+
+                    "event" => {
+                        match tokens.get(2).unwrap().as_str() {
+                            "player_joined" => {
+                                let mut rec = event_processor.lock().unwrap().subscribe_event(SubscribeType::OnPlayerJoined);
+                                let a = rec.recv().await.unwrap();
+                                if let BroadcastMessage::Message(a) = a  {
+                                    sym_table.insert("PLAYERNAME".to_string(), Data::String(a.0));
+                                }
+                            }
+                            _ => {
+                                stdin_sender.send(format!("/say event {} not implemented\n", tokens.get(2).unwrap()));
+                                pc = pc + 1;
+                                continue;
+                            }
                         }
                     }
-                    if iter == 1 {
-                        path_to_macro.push(token);
-                        println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
-                        if !path_to_macro.exists() {
-                            stdin_sender.send(format!("/say macro {} does no exist\n", token));
-                            return;
-                        }
+
+                    "goto" => {
+                        pc = eval(tokens.get(2).unwrap(), &sym_table)
+                            .unwrap()
+                            .get_int()
+                            .unwrap() as usize;
+                        continue;
                     }
-                    if iter >= 2 {
-                        match token.parse::<i32>() {
+                    "let" => {
+                        let mut var_name = tokens.get(2).unwrap().clone();
+                        if var_name.chars().next().unwrap() == '$' {
+                            var_name.remove(0);
+                        }
+                        let var_value = tokens.get(4).unwrap();
+                        match var_value.parse::<i32>() {
                             Ok(n) => {
-                                sym_table.insert((iter - 2).to_string(), Data::Int(n));
+                                sym_table.insert(var_name.to_string(), Data::Int(n));
                             }
                             Err(_) => {
                                 sym_table.insert(
-                                    (iter - 2).to_string(),
-                                    Data::String(token.to_string()),
+                                    var_name.to_string(),
+                                    Data::String(var_value.to_string()),
                                 );
                             }
                         }
-                    }
-                    iter = iter + 1;
-                }
-                if iter == 1 {
-                    stdin_sender.send("/say Usage: .macro [macro file] args..\n".to_string());
-                    return;
-                }
+                        pc = pc + 1;
 
-                let mut lines: Vec<String> = vec![];
-
-                for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
-                    lines.push(line_result.unwrap());
-                }
-                let mut pc = 0;
-                while pc < lines.len() {
-                    let mut line = lines[pc].clone();
-                    let mut tokens: Vec<String> = vec![];
-                    for token in line.split_whitespace() {
-                        tokens.push(token.to_string());
-                    }
-                    if tokens.len() == 0 {
                         continue;
                     }
-                    match tokens.first().unwrap().as_str() {
-                        "[" => match tokens.get(1).unwrap().as_str() {
-                            "delay" => {
-                                thread::sleep(time::Duration::from_secs(
-                                    tokens
-                                        .get(2)
-                                        .unwrap()
-                                        .parse::<u64>()
-                                        .map_err(|e| {
-                                            stdin_sender.send(format!("/say {}\n", e));
-                                        })
-                                        .unwrap_or(0),
-                                ));
-                                pc = pc + 1;
-                                continue;
-                            }
-                            "goto" => {
-                                pc = eval(tokens.get(2).unwrap(), &sym_table).unwrap().get_int().unwrap() as usize;
-                                continue;
-                            }
-                            "let" => {
-                                let mut var_name = tokens.get(2).unwrap().clone();
-                                if var_name.chars().next().unwrap() == '$' {
-                                    var_name.remove(0);
+                    "add" => {
+                        let mut var_name = tokens.get(2).unwrap().clone();
+                        if var_name.chars().next().unwrap() == '$' {
+                            var_name.remove(0);
+                        }
+                        let op_1 = tokens.get(3).unwrap();
+                        let op_2 = tokens.get(4).unwrap();
+                        sym_table.insert(
+                            var_name.to_string(),
+                            Data::Int(
+                                eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                    + eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                            ),
+                        );
+                        pc = pc + 1;
+
+                        continue;
+                    }
+                    "sub" => {
+                        let mut var_name = tokens.get(2).unwrap().clone();
+                        if var_name.chars().next().unwrap() == '$' {
+                            var_name.remove(0);
+                        }
+                        let op_1 = tokens.get(3).unwrap();
+                        let op_2 = tokens.get(4).unwrap();
+                        sym_table.insert(
+                            var_name.to_string(),
+                            Data::Int(
+                                eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                    - eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                            ),
+                        );
+                        pc = pc + 1;
+
+                        continue;
+                    }
+
+                    "mult" => {
+                        let mut var_name = tokens.get(2).unwrap().clone();
+                        if var_name.chars().next().unwrap() == '$' {
+                            var_name.remove(0);
+                        }
+                        let op_1 = tokens.get(3).unwrap();
+                        let op_2 = tokens.get(4).unwrap();
+                        sym_table.insert(
+                            var_name.to_string(),
+                            Data::Int(
+                                eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                    * eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                            ),
+                        );
+                        pc = pc + 1;
+
+                        continue;
+                    }
+
+                    "div" => {
+                        let mut var_name = tokens.get(2).unwrap().clone();
+                        if var_name.chars().next().unwrap() == '$' {
+                            var_name.remove(0);
+                        }
+                        let op_1 = tokens.get(3).unwrap();
+                        let op_2 = tokens.get(4).unwrap();
+                        sym_table.insert(
+                            var_name.to_string(),
+                            Data::Int(
+                                eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                    / eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                            ),
+                        );
+                        pc = pc + 1;
+                        continue;
+                    }
+
+                    "mod" => {
+                        let mut var_name = tokens.get(2).unwrap().clone();
+                        if var_name.chars().next().unwrap() == '$' {
+                            var_name.remove(0);
+                        }
+                        let op_1 = tokens.get(3).unwrap();
+                        let op_2 = tokens.get(4).unwrap();
+                        sym_table.insert(
+                            var_name.to_string(),
+                            Data::Int(
+                                eval(&op_1, &sym_table).unwrap().get_int().unwrap()
+                                    % eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
+                            ),
+                        );
+                        pc = pc + 1;
+                        continue;
+                    }
+
+                    "beq" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_2 = tokens.get(3).unwrap();
+                        let op_3 = tokens.get(4).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                        if op_1_data == op_2_data {
+                            pc = op_3_data as usize;
+                            continue;
+                        }
+                        pc = pc + 1;
+                        continue;
+                    }
+                    "bne" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_2 = tokens.get(3).unwrap();
+                        let op_3 = tokens.get(4).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                        if op_1_data != op_2_data {
+                            pc = op_3_data as usize;
+                            continue;
+                        }
+                        pc = pc + 1;
+                        continue;
+                    }
+                    "bge" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_2 = tokens.get(3).unwrap();
+                        let op_3 = tokens.get(4).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                        if op_1_data >= op_2_data {
+                            pc = op_3_data as usize;
+                            continue;
+                        }
+                        pc = pc + 1;
+                    }
+                    "ble" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_2 = tokens.get(3).unwrap();
+                        let op_3 = tokens.get(4).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                        if op_1_data <= op_2_data {
+                            pc = op_3_data as usize;
+                            continue;
+                        }
+                        pc = pc + 1;
+                    }
+                    "bgt" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_2 = tokens.get(3).unwrap();
+                        let op_3 = tokens.get(4).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                        if op_1_data > op_2_data {
+                            pc = op_3_data as usize;
+                            continue;
+                        }
+                        pc = pc + 1;
+                        continue;
+                    }
+
+                    "blt" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_2 = tokens.get(3).unwrap();
+                        let op_3 = tokens.get(4).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
+                        if op_1_data < op_2_data {
+                            pc = op_3_data as usize;
+                            continue;
+                        }
+                        pc = pc + 1;
+                        continue;
+                    }
+                    "jalr" => {
+                        let op_1 = tokens.get(2).unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
+                        sym_table.insert("31".to_string(), Data::Int((pc + 1) as i32));
+                        pc = op_1_data as usize;
+                        continue;
+                    }
+
+                    _ => panic!("Unknown instruction {}", tokens.get(1).unwrap()),
+                },
+
+                _ => {
+                    for token in tokens {
+                        if token.chars().next().unwrap() == '$' {
+                            let sym = token.as_str()[1..].to_string();
+                            let data = sym_table
+                                .get(&sym)
+                                .ok_or_else(|| {
+                                    stdin_sender.send(format!("/say {} is not defined\n", sym));
+                                })
+                                .unwrap();
+                            match data {
+                                Data::Int(n) => {
+                                    line = line.replace(&token, &n.to_string());
                                 }
-                                let var_value = tokens.get(4).unwrap();
-                                match var_value.parse::<i32>() {
-                                    Ok(n) => {
-                                        sym_table.insert(var_name.to_string(), Data::Int(n));
-                                    }
-                                    Err(_) => {
-                                        sym_table.insert(
-                                            var_name.to_string(),
-                                            Data::String(var_value.to_string()),
-                                        );
-                                    }
-                                }
-                                pc = pc + 1;
-
-                                continue;
-                            }
-                            "add" => {
-                                let mut var_name = tokens.get(2).unwrap().clone();
-                                if var_name.chars().next().unwrap() == '$' {
-                                    var_name.remove(0);
-                                }
-                                let op_1 = tokens.get(3).unwrap();
-                                let op_2 = tokens.get(4).unwrap();
-                                sym_table.insert(
-                                    var_name.to_string(),
-                                    Data::Int(
-                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
-                                            + eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
-                                    ),
-                                );
-                                pc = pc + 1;
-
-                                continue;
-                            }
-                            "sub" => {
-                                let mut var_name = tokens.get(2).unwrap().clone();
-                                if var_name.chars().next().unwrap() == '$' {
-                                    var_name.remove(0);
-                                }
-                                let op_1 = tokens.get(3).unwrap();
-                                let op_2 = tokens.get(4).unwrap();
-                                sym_table.insert(
-                                    var_name.to_string(),
-                                    Data::Int(
-                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
-                                            - eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
-                                    ),
-                                );
-                                pc = pc + 1;
-
-                                continue;
-                            }
-
-                            "mult" => {
-                                let mut var_name = tokens.get(2).unwrap().clone();
-                                if var_name.chars().next().unwrap() == '$' {
-                                    var_name.remove(0);
-                                }
-                                let op_1 = tokens.get(3).unwrap();
-                                let op_2 = tokens.get(4).unwrap();
-                                sym_table.insert(
-                                    var_name.to_string(),
-                                    Data::Int(
-                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
-                                            * eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
-                                    ),
-                                );
-                                pc = pc + 1;
-
-                                continue;
-                            }
-
-                            "div" => {
-                                let mut var_name = tokens.get(2).unwrap().clone();
-                                if var_name.chars().next().unwrap() == '$' {
-                                    var_name.remove(0);
-                                }
-                                let op_1 = tokens.get(3).unwrap();
-                                let op_2 = tokens.get(4).unwrap();
-                                sym_table.insert(
-                                    var_name.to_string(),
-                                    Data::Int(
-                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
-                                            / eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
-                                    ),
-                                );
-                                pc = pc + 1;
-                                continue;
-                            }
-
-                            "mod" => {
-                                let mut var_name = tokens.get(2).unwrap().clone();
-                                if var_name.chars().next().unwrap() == '$' {
-                                    var_name.remove(0);
-                                }
-                                let op_1 = tokens.get(3).unwrap();
-                                let op_2 = tokens.get(4).unwrap();
-                                sym_table.insert(
-                                    var_name.to_string(),
-                                    Data::Int(
-                                        eval(&op_1, &sym_table).unwrap().get_int().unwrap()
-                                            % eval(&op_2, &sym_table).unwrap().get_int().unwrap(),
-                                    ),
-                                );
-                                pc = pc + 1;
-                                continue;
-                            }
-
-                            "beq" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_2 = tokens.get(3).unwrap();
-                                let op_3 = tokens.get(4).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
-                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
-                                if op_1_data == op_2_data {
-                                    pc = op_3_data as usize;
-                                    continue;
-                                }
-                                pc = pc + 1;
-                                continue;
-
-                            }
-                            "bne" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_2 = tokens.get(3).unwrap();
-                                let op_3 = tokens.get(4).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
-                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
-                                if op_1_data != op_2_data {
-                                    pc = op_3_data as usize;
-                                    continue;
-                                }
-                                pc = pc + 1;
-                                continue;
-
-                            }
-                            "bge" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_2 = tokens.get(3).unwrap();
-                                let op_3 = tokens.get(4).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
-                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
-                                if op_1_data >= op_2_data {
-                                    pc = op_3_data as usize;
-                                    continue;
-                                }
-                                pc = pc + 1;
-                            }
-                            "ble" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_2 = tokens.get(3).unwrap();
-                                let op_3 = tokens.get(4).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
-                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
-                                if op_1_data <= op_2_data {
-                                    pc = op_3_data as usize;
-                                    continue;
-                                }
-                                pc = pc + 1;
-                            }
-                            "bgt" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_2 = tokens.get(3).unwrap();
-                                let op_3 = tokens.get(4).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
-                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
-                                if op_1_data > op_2_data {
-                                    pc = op_3_data as usize;
-                                    continue;
-                                }
-                                pc = pc + 1;
-                                continue;
-
-                            }
-
-                            "blt" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_2 = tokens.get(3).unwrap();
-                                let op_3 = tokens.get(4).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
-                                let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
-                                if op_1_data < op_2_data {
-                                    pc = op_3_data as usize;
-                                    continue;
-                                }
-                                pc = pc + 1;
-                                continue;
-
-                            }
-                            "jalr" => {
-                                let op_1 = tokens.get(2).unwrap();
-                                let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                                sym_table.insert(
-                                    "31".to_string(),
-                                    Data::Int((pc + 1) as i32),
-                                );
-                                pc = op_1_data as usize;
-                                continue;
-
-                            }
-
-                            _ => panic!("Unknown instruction {}", tokens.get(1).unwrap()),
-                        },
-
-                        _ => {
-                            for token in tokens {
-                                if token.chars().next().unwrap() == '$' {
-                                    let sym = token.as_str()[1..].to_string();
-                                    let data = sym_table
-                                        .get(&sym)
-                                        .ok_or_else(|| {
-                                            stdin_sender
-                                                .send(format!("/say {} is not defined\n", sym));
-                                        })
-                                        .unwrap();
-                                    match data {
-                                        Data::Int(n) => {
-                                            line = line.replace(&token, &n.to_string());
-                                        }
-                                        Data::String(s) => {
-                                            line = line.replace(&token, s.as_str());
-                                        }
-                                    }
+                                Data::String(s) => {
+                                    line = line.replace(&token, s.as_str());
                                 }
                             }
-                            stdin_sender.send(format!("{}\n", line));
                         }
                     }
-                    pc = pc + 1;
+                    stdin_sender.send(format!("{}\n", line));
                 }
             }
-            Flavour::Spigot => todo!(),
+            pc = pc + 1;
         }
     }
 }
