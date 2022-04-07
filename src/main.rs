@@ -15,6 +15,7 @@ use std::sync::Arc;
 mod handlers;
 mod managers;
 mod util;
+mod event_processor;
 use handlers::*;
 use instance_manager::InstanceManager;
 use managers::*;
@@ -100,33 +101,33 @@ async fn main() {
             let mut instance_manager = instance_manager_closure.lock().await;
             let line = line_result.unwrap_or("failed to read stdin command".to_string());
             let line_vec: Vec<&str> = line.split_whitespace().collect();
-            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+start").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+((.+)-(.+))[[:space:]]+start").unwrap();
             if regex.is_match(&line) {
                 instance_manager
                     .start_instance(line_vec[1].to_string())
                     .map_err(|err| eprintln!("{}", err));
             }
-            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+stop").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+stop").unwrap();
             if regex.is_match(&line) {
                 instance_manager
                     .stop_instance(line_vec[1].to_string())
                     .map_err(|err| eprintln!("{}", err));
             }
             let regex =
-                Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+send[[:space:]]+(\w+)").unwrap();
+                Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+send[[:space:]]+(.+)").unwrap();
             if regex.is_match(&line) {
                 instance_manager
-                    .send_command(line_vec[1].to_string(), line_vec[3].to_string())
+                    .send_command(line_vec[1].to_string(), regex.captures(&line).unwrap().get(2).unwrap().as_str().to_string())
                     .map_err(|err| eprintln!("{}", err));
             }
-            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+playercount").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+playercount").unwrap();
             if regex.is_match(&line) {
                 match instance_manager.player_num(line_vec[1].to_string()) {
                     Ok(size) => println!("{}", size.to_string()),
                     Err(reason) => eprintln!("{}", reason),
                 }
             }
-            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+playerlist").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+playerlist").unwrap();
             if regex.is_match(&line) {
                 match instance_manager.player_list(line_vec[1].to_string()) {
                     Ok(list) => println!("{:?}", list),
@@ -134,7 +135,7 @@ async fn main() {
                 }
             }
             let regex = Regex::new(
-                r"instance[[:space:]]+(\w+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)",
+                r"instance[[:space:]]+(.+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)",
             )
             .unwrap();
             // TODO implement mongodb get logs
@@ -146,7 +147,7 @@ async fn main() {
             //     None() => ()
             // }
             // TODO turn string into enum
-            let regex = Regex::new(r"instance[[:space:]]+(\w+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
             match regex.captures(&line) {
                 Some(cap) => {
                     match instance_manager.list_resource(&cap[1].to_string(),
