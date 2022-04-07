@@ -31,129 +31,113 @@ pub enum PlayerEventVarient {
     Advancement(String),
 }
 
-pub enum SubscribeType {
-    OnPlayerJoined,
-    OnPlayerLeft,
-    OnPlayerChat,
-    OnPlayerDied,
-    OnPlayerIllegalMoved,
-    OnPlayerAdvancement,
-}
-
-#[derive(Clone)]
-pub enum BroadcastMessage<T> {
-    Message(T),
-    Kill,
-}
-use BroadcastMessage::{Kill, Message};
 pub struct EventProcessor {
-    server_msg_tx: Sender<BroadcastMessage<ServerMessage>>,
-    player_all_event_tx: Sender<BroadcastMessage<PlayerEvent>>,
-    player_joined_tx: Sender<BroadcastMessage<(String, String)>>,
-    player_left_tx: Sender<BroadcastMessage<(String, String)>>,
-    player_chat_tx: Sender<BroadcastMessage<(String, String)>>,
-    player_died_tx: Sender<BroadcastMessage<(String, String)>>,
-    player_illegal_moved_tx: Sender<BroadcastMessage<(String, String)>>,
-    player_advancement_tx: Sender<BroadcastMessage<(String, String)>>,
-    server_finished_setup_tx: Sender<BroadcastMessage<()>>,
+    on_server_message: Vec<Box<dyn Fn(ServerMessage) + Send>>,
+
+    on_player_event: Vec<Box<dyn Fn(PlayerEvent) + Send>>,
+    on_player_joined: Vec<Box<dyn Fn(String) + Send>>,
+    on_player_left: Vec<Box<dyn Fn(String) + Send>>,
+    on_chat: Vec<Box<dyn Fn(String, String) + Send>>,
+    on_player_died: Vec<Box<dyn Fn(String, String) + Send>>,
+    on_player_illegal_moved: Vec<Box<dyn Fn(String, String) + Send>>,
+    on_player_advancement: Vec<Box<dyn Fn(String, String) + Send>>,
+    on_server_startup: Vec<Box<dyn Fn() + Send>>,
 }
 
 impl EventProcessor {
     pub fn new() -> EventProcessor {
-        let (server_msg_tx, _) = channel(16);
-        let (player_all_event_tx, _) = channel(16);
-        let (player_joined_tx, _) = channel(16);
-        let (player_left_tx, _) = channel(16);
-        let (player_chat_tx, _) = channel(16);
-        let (player_died_tx, _) = channel(16);
-        let (player_illegal_moved_tx, _) = channel(16);
-        let (player_advancement_tx, _) = channel(16);
-        let (server_finished_setup_tx, _) = channel(16);
-
         EventProcessor {
-            server_msg_tx,
-            player_all_event_tx,
-            player_joined_tx,
-            player_left_tx,
-            player_chat_tx,
-            player_died_tx,
-            player_illegal_moved_tx,
-            player_advancement_tx,
-            server_finished_setup_tx,
+            on_server_message: vec![],
+            on_player_event: vec![],
+            on_player_joined: vec![],
+            on_player_left: vec![],
+            on_chat: vec![],
+            on_player_died: vec![],
+            on_player_illegal_moved: vec![],
+            on_player_advancement: vec![],
+            on_server_startup: vec![],
         }
     }
     pub fn process(&self, line: &String) {
         if let Some(msg) = parse(&line) {
-            self.server_msg_tx.send(Message(msg.clone()));
+            for f in &self.on_server_message {
+                f(msg.clone());
+            }
             if let Some(player_event) = parse_player_event(&msg.message) {
-                self.player_all_event_tx.send(Message(player_event.clone()));
+                for f in &self.on_player_event {
+                    f(player_event.clone());
+                }
                 match player_event.event {
                     PlayerEventVarient::Joined => {
-                        self.player_joined_tx
-                            .send(Message((player_event.player.clone(), msg.message.clone())));
+                        for f in &self.on_player_joined {
+                            f(player_event.player.clone());
+                        }
                     }
                     PlayerEventVarient::Left => {
-                        self.player_left_tx
-                            .send(Message((player_event.player.clone(), msg.message.clone())));
+                        println!("processed a left event");
+                        for f in &self.on_player_left {
+                            f(player_event.player.clone());
+                        }
                     }
                     PlayerEventVarient::Chat(s) => {
-                        self.player_chat_tx
-                            .send(Message((player_event.player.clone(), s)));
+                        for f in &self.on_chat {
+                            f(player_event.player.clone(), s.clone());
+                        }
                     }
                     PlayerEventVarient::Died(s) => {
-                        self.player_died_tx
-                            .send(Message((player_event.player.clone(), s)));
+                        for f in &self.on_player_died {
+                            f(player_event.player.clone(), s.clone());
+                        }
                     }
                     PlayerEventVarient::IllegalMove(s) => {
-                        self.player_illegal_moved_tx
-                            .send(Message((player_event.player.clone(), s)));
+                        for f in &self.on_player_illegal_moved {
+                            f(player_event.player.clone(), s.clone());
+                        }
                     }
                     PlayerEventVarient::Advancement(s) => {
-                        self.player_advancement_tx
-                            .send(Message((player_event.player.clone(), s)));
+                        for f in &self.on_player_advancement {
+                            f(player_event.player.clone(), s.clone());
+                        }
                     }
                 }
             } else {
                 let re = Regex::new(r"Done .+! For help, type").unwrap();
                 if re.is_match(line) {
-                    self.server_finished_setup_tx.send(Message(()));
+                    for f in &self.on_server_startup {
+                        f();
+                    }
                 }
             }
         }
     }
 
-    pub fn kill(&self) {
-        self.player_advancement_tx.send(Kill);
-        self.player_all_event_tx.send(Kill);
-        self.player_chat_tx.send(Kill);
-        self.player_died_tx.send(Kill);
-        self.player_illegal_moved_tx.send(Kill);
-        self.player_joined_tx.send(Kill);
-        self.player_left_tx.send(Kill);
-        self.server_msg_tx.send(Kill);
+    pub fn on_server_message(&mut self, callback: Box<dyn Fn(ServerMessage) + Send>) {
+        self.on_server_message.push(callback);
+    }
+    pub fn on_player_event(&mut self, callback: Box<dyn Fn(PlayerEvent) + Send>) {
+        self.on_player_event.push(callback);
     }
 
-    pub fn subscribe_msg(&self) -> Receiver<BroadcastMessage<ServerMessage>> {
-        self.server_msg_tx.subscribe()
+    pub fn on_player_joined(&mut self, callback: Box<dyn Fn(String) + Send>) {
+        self.on_player_joined.push(callback);
     }
-    pub fn subscribe_all_event(&self) -> Receiver<BroadcastMessage<PlayerEvent>> {
-        self.player_all_event_tx.subscribe()
+    pub fn on_player_left(&mut self, callback: Box <dyn Fn(String) + Send>) {
+        self.on_player_left.push(callback);
     }
-    pub fn subscribe_event(
-        &self,
-        stype: SubscribeType,
-    ) -> Receiver<BroadcastMessage<(String, String)>> {
-        match stype {
-            SubscribeType::OnPlayerJoined => self.player_joined_tx.subscribe(),
-            SubscribeType::OnPlayerLeft => self.player_left_tx.subscribe(),
-            SubscribeType::OnPlayerChat => self.player_chat_tx.subscribe(),
-            SubscribeType::OnPlayerDied => self.player_died_tx.subscribe(),
-            SubscribeType::OnPlayerIllegalMoved => self.player_illegal_moved_tx.subscribe(),
-            SubscribeType::OnPlayerAdvancement => self.player_advancement_tx.subscribe(),
-        }
+    pub fn on_chat(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+        self.on_chat.push(callback);
     }
-    pub fn subscribe_server_finished_setup(&self) -> Receiver<BroadcastMessage<()>> {
-        self.server_finished_setup_tx.subscribe()
+    pub fn on_player_died(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+        self.on_player_died.push(callback);
+    }
+    pub fn on_player_illegal_moved(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+        self.on_player_illegal_moved.push(callback);
+    }
+    pub fn on_player_advancement(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+        self.on_player_advancement.push(callback);
+    }
+    pub fn on_server_startup(&mut self, callback: Box<dyn Fn() + Send>) {
+        self.on_server_startup.push(callback);
     }
 }
 

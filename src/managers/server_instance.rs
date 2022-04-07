@@ -1,11 +1,11 @@
-use crate::event_processor::{BroadcastMessage, EventProcessor, PlayerEventVarient};
+use crate::event_processor::{EventProcessor, PlayerEventVarient};
 use mongodb::{bson::doc, sync::Client};
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -112,7 +112,7 @@ pub struct ServerInstance {
     path: PathBuf,
     uuid: String,
     port: u32,
-    pub stdin: Option<Sender<String>>,
+    pub stdin: Option<Arc<Mutex<ChildStdin>>>,
     status: Arc<Mutex<Status>>,
     kill_tx: Option<Sender<()>>,
     process: Arc<Mutex<Option<Child>>>,
@@ -179,48 +179,28 @@ impl ServerInstance {
         match command.spawn() {
             Ok(proc) => {
                 env::set_current_dir("../..").unwrap();
-
-                let (stdin_sender, stdin_receiver): (Sender<String>, Receiver<String>) =
-                    mpsc::channel();
-                let (kill_tx, kill_rx): (Sender<()>, Receiver<()>) = mpsc::channel();
-                let mut stdin_writer = proc.stdin.ok_or("failed to open stdin of child process")?;
-                self.stdin = Some(stdin_sender.clone());
-                let kill_tx_closure = kill_tx.clone();
-                self.kill_tx = Some(kill_tx);
-                // self.stdin = Some(Arc::new(Mutex::new(stdin_writer.)));
+                let stdin = proc.stdin.ok_or("failed to open stdin of child process")?;
+                let stdin = Arc::new(Mutex::new(stdin));
+                let event_processor = Arc::new(Mutex::new(EventProcessor::new()));
+                self.stdin = Some(stdin.clone());
                 let stdout = proc
                     .stdout
                     .ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
-                let stdin_thread = thread::spawn(move || {
-                    let stdin_receiver = stdin_receiver;
-                    loop {
-                        if kill_rx.try_recv().is_ok() {
-                            break;
-                        }
-                        let rec = stdin_receiver.recv().unwrap();
-                        println!("writing to stdin: {}", rec);
-                        stdin_writer.write_all(rec.as_bytes()).unwrap();
-                        stdin_writer.flush().unwrap();
-                    }
-                    println!("writer thread terminating");
-                });
-                let uuid_closure = self.uuid.clone();
-                let players_closure = self.player_online.clone();
                 let path_closure = self.path.clone();
-                let mongodb_client_closuer = mongodb_client.clone();
-                let event_processor = Arc::new(Mutex::new(EventProcessor::new()));
+
+                let players_closure = self.player_online.clone();
+                let uuid_closure = self.uuid.clone();
                 let event_processor_closure = event_processor.clone();
                 let status_closure = self.status.clone();
-                let stdout_thread = thread::spawn(move || {
+                thread::spawn(move || {
                     for line_result in reader.lines() {
                         let line = line_result.unwrap();
                         println!("server said: {}", line);
                         event_processor_closure.lock().unwrap().process(&line);
                     }
-                    event_processor_closure.lock().unwrap().kill();
-                    kill_tx_closure.send(()).unwrap();
                     let mut status = status_closure.lock().unwrap();
+                    players_closure.lock().unwrap().clear();
                     println!("program exiting as reader thread is terminating...");
                     match *status {
                         Status::Starting => println!("instance failed to start"),
@@ -230,82 +210,81 @@ impl ServerInstance {
                     }
                     *status = Status::Stopped;
                 });
-                let event_processor_closure = event_processor.clone();
-                let server_message_thread = tokio::spawn(async move {
-                    let mut rec = event_processor_closure.lock().unwrap().subscribe_msg();
-                    loop {
-                        match rec.recv().await.unwrap() {
-                            BroadcastMessage::Message(sm) => {
-                                mongodb_client_closuer
-                                    .database(uuid_closure.as_str())
-                                    .collection("logs")
-                                    .insert_one(sm, None)
-                                    .unwrap();
-                            }
-                            BroadcastMessage::Kill => break,
-                        }
-                    }
-                    println!("server message thread exiting");
-                });
-                let event_processor_closure = event_processor.clone();
-                let status_closure = self.status.clone();
 
-                tokio::spawn(async move {
-                    let mut rec = event_processor_closure
-                        .lock()
-                        .unwrap()
-                        .subscribe_server_finished_setup();
-                    rec.recv().await.unwrap();
-                    *status_closure.lock().unwrap() = Status::Running;
-                });
-                let event_processor_closure = event_processor.clone();
                 let mongodb_client_closure = mongodb_client.clone();
+                event_processor.lock().unwrap().on_server_message(Box::new(
+                    move |server_message| {
+                        mongodb_client_closure
+                            .database(uuid_closure.as_str())
+                            .collection("logs")
+                            .insert_one(server_message, None)
+                            .unwrap();
+                    },
+                ));
+
+                let status_closure = self.status.clone();
+                event_processor
+                    .lock()
+                    .unwrap()
+                    .on_server_startup(Box::new(move || {
+                        *status_closure.lock().unwrap() = Status::Running;
+                    }));
                 let uuid_closure = self.uuid.clone();
-                let stdin_sender_closure = stdin_sender.clone();
-                tokio::spawn(async move {
-                    let mut rec = event_processor_closure
-                        .lock()
-                        .unwrap()
-                        .subscribe_all_event();
-                    loop {
-                        match rec.recv().await.unwrap() {
-                            BroadcastMessage::Message(player_event) => {
-                                mongodb_client_closure
-                                    .database(uuid_closure.as_str())
-                                    .collection("events")
-                                    .insert_one(player_event.clone(), None);
-                                if let PlayerEventVarient::Joined = player_event.event {
-                                    players_closure.lock().unwrap().push(player_event.player);
-                                } else if let PlayerEventVarient::Left = player_event.event {
-                                    if let Some(index) = players_closure
-                                        .lock()
-                                        .unwrap()
-                                        .iter()
-                                        .position(|x| *x == player_event.player.clone())
-                                    {
-                                        players_closure.lock().unwrap().swap_remove(index);
-                                    }
-                                }
-                                if let PlayerEventVarient::Chat(s) = player_event.event {
-                                    let a = stdin_sender_closure.clone();
-                                    dispatch_macro(
-                                        &s,
-                                        path_closure
-                                            .clone()
-                                            .parent()
-                                            .unwrap()
-                                            .parent()
-                                            .unwrap()
-                                            .join("macros/"),
-                                            a,
-                                        event_processor_closure.clone(),
-                                    ).await;
-                                }
-                            }
-                            BroadcastMessage::Kill => break,
-                        }
-                    }
-                });
+                let mongodb_client_closure = mongodb_client.clone();
+                let event_processor_closure = event_processor.clone();
+                event_processor
+                    .lock()
+                    .unwrap()
+                    .on_player_event(Box::new(move |player_event| {
+                        mongodb_client_closure
+                            .database(uuid_closure.as_str())
+                            .collection("events")
+                            .insert_one(player_event.clone(), None);
+                    }));
+                let players_closure = self.player_online.clone();
+                event_processor
+                    .lock()
+                    .unwrap()
+                    .on_player_joined(Box::new(move |player| {
+                        players_closure.lock().unwrap().push(player);
+                    }));
+
+                let players_closure = self.player_online.clone();
+                event_processor
+                    .lock()
+                    .unwrap()
+                    .on_player_left(Box::new(move |player| {
+                        println!("left callback {}", player);
+                        println!("players: {:?}", players_closure.lock().unwrap());
+                        // remove player from players_closur
+                        players_closure.lock().unwrap().retain(|p| p != &player);
+                        println!("left callback completed");
+
+                    }));
+
+                event_processor
+                    .lock()
+                    .unwrap()
+                    .on_chat(Box::new(move |player, msg| {
+                        let a = stdin.clone();
+                        let event_processor_closure = event_processor_closure.clone();
+                        let path_closure = path_closure.clone();
+                        thread::spawn(move || {
+                            dispatch_macro(
+                                &msg,
+                                path_closure
+                                    .clone()
+                                    .parent()
+                                    .unwrap()
+                                    .parent()
+                                    .unwrap()
+                                    .join("macros/"),
+                                a,
+                                event_processor_closure.clone(),
+                            );
+                        });
+                    }));
+
                 return Ok(());
             }
             Err(_) => {
@@ -330,12 +309,15 @@ impl ServerInstance {
     }
 
     pub fn send_stdin(&self, line: String) -> Result<(), String> {
-        self.stdin
-            .as_ref()
-            .unwrap()
-            .send(format!("{}\n", line))
-            .unwrap();
-        Ok(())
+        match self.stdin.clone().as_mut() {
+            Some(stdin_mutex) => match stdin_mutex.lock() {
+                Ok(mut stdin) => Ok(stdin
+                    .write_all(format!("{}\n", line).as_bytes())
+                    .map_err(|_| "failed to write to process's stdin".to_string())?),
+                Err(_) => Err("failed to acquire lock on stdin".to_string()),
+            },
+            None => Err("could not find stdin of process".to_string()),
+        }
     }
 
     pub fn get_name(&self) -> String {
@@ -381,13 +363,17 @@ mod macro_code {
     use std::{
         collections::HashMap,
         fs::File,
-        io::{self, BufRead},
+        io::{self, BufRead, Write},
         path::PathBuf,
-        sync::{mpsc::Sender, Arc, Mutex, MutexGuard},
+        process::ChildStdin,
+        sync::{
+            mpsc::{self, Sender},
+            Arc, Mutex, MutexGuard,
+        },
         thread, time,
     };
 
-    use crate::event_processor::{EventProcessor, SubscribeType, BroadcastMessage};
+    use crate::event_processor::EventProcessor;
     enum Data {
         Int(i32),
         String(String),
@@ -420,7 +406,12 @@ mod macro_code {
         }
     }
 
-    pub async fn dispatch_macro(line: &String, path: PathBuf, stdin_sender: Sender<String>, event_processor : Arc<Mutex<EventProcessor>>) {
+    pub fn dispatch_macro(
+        line: &String,
+        path: PathBuf,
+        stdin_sender: Arc<Mutex<ChildStdin>>,
+        event_processor: Arc<Mutex<EventProcessor>>,
+    ) {
         let iterator = line.split_whitespace();
         let mut iter = 0;
         let mut path_to_macro = path.clone();
@@ -435,7 +426,11 @@ mod macro_code {
                 path_to_macro.push(token);
                 println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
                 if !path_to_macro.exists() {
-                    stdin_sender.send(format!("/say macro {} does no exist\n", token));
+                    stdin_sender
+                        .lock()
+                        .as_mut()
+                        .unwrap()
+                        .write_all(format!("/say macro {} does no exist\n", token).as_bytes());
                     return;
                 }
             }
@@ -452,7 +447,11 @@ mod macro_code {
             iter = iter + 1;
         }
         if iter == 1 {
-            stdin_sender.send("/say Usage: .macro [macro file] args..\n".to_string());
+            stdin_sender
+                .lock()
+                .as_mut()
+                .unwrap()
+                .write_all("/say Usage: .macro [macro file] args..\n".as_bytes());
             return;
         }
 
@@ -480,7 +479,11 @@ mod macro_code {
                                 .unwrap()
                                 .parse::<u64>()
                                 .map_err(|e| {
-                                    stdin_sender.send(format!("/say {}\n", e));
+                                    stdin_sender
+                                        .lock()
+                                        .as_mut()
+                                        .unwrap()
+                                        .write_all((format!("/say {}\n", e)).as_bytes());
                                 })
                                 .unwrap_or(0),
                         ));
@@ -488,22 +491,26 @@ mod macro_code {
                         continue;
                     }
 
-                    "event" => {
-                        match tokens.get(2).unwrap().as_str() {
-                            "player_joined" => {
-                                let mut rec = event_processor.lock().unwrap().subscribe_event(SubscribeType::OnPlayerJoined);
-                                let a = rec.recv().await.unwrap();
-                                if let BroadcastMessage::Message(a) = a  {
-                                    sym_table.insert("PLAYERNAME".to_string(), Data::String(a.0));
-                                }
-                            }
-                            _ => {
-                                stdin_sender.send(format!("/say event {} not implemented\n", tokens.get(2).unwrap()));
-                                pc = pc + 1;
-                                continue;
-                            }
+                    "event" => match tokens.get(2).unwrap().as_str() {
+                        "player_joined" => {
+                            let (tx, rx) = mpsc::channel();
+                            event_processor.lock().unwrap().on_player_joined(Box::new(
+                                move |player| {
+                                    tx.send(player);
+                                },
+                            ));
+                            sym_table
+                                .insert("PLAYERNAME".to_string(), Data::String(rx.recv().unwrap()));
                         }
-                    }
+                        _ => {
+                            stdin_sender.lock().as_mut().unwrap().write_all(
+                                format!("/say event {} not implemented\n", tokens.get(2).unwrap())
+                                    .as_bytes(),
+                            );
+                            pc = pc + 1;
+                            continue;
+                        }
+                    },
 
                     "goto" => {
                         pc = eval(tokens.get(2).unwrap(), &sym_table)
@@ -726,7 +733,9 @@ mod macro_code {
                             let data = sym_table
                                 .get(&sym)
                                 .ok_or_else(|| {
-                                    stdin_sender.send(format!("/say {} is not defined\n", sym));
+                                    stdin_sender.lock().as_mut().unwrap().write_all(
+                                        format!("/say {} is not defined\n", sym).as_bytes(),
+                                    );
                                 })
                                 .unwrap();
                             match data {
@@ -739,7 +748,11 @@ mod macro_code {
                             }
                         }
                     }
-                    stdin_sender.send(format!("{}\n", line));
+                    stdin_sender
+                        .lock()
+                        .as_mut()
+                        .unwrap()
+                        .write_all(format!("{}\n", line).as_bytes());
                 }
             }
             pc = pc + 1;
