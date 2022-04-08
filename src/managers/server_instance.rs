@@ -193,13 +193,17 @@ impl ServerInstance {
                 let uuid_closure = self.uuid.clone();
                 let event_processor_closure = event_processor.clone();
                 let status_closure = self.status.clone();
+
                 thread::spawn(move || {
                     for line_result in reader.lines() {
                         let line = line_result.unwrap();
                         println!("server said: {}", line);
                         event_processor_closure.lock().unwrap().process(&line);
                     }
-                    event_processor_closure.lock().unwrap().notify_server_shutdown();
+                    event_processor_closure
+                        .lock()
+                        .unwrap()
+                        .notify_server_shutdown();
                     let mut status = status_closure.lock().unwrap();
                     players_closure.lock().unwrap().clear();
                     println!("program exiting as reader thread is terminating...");
@@ -257,7 +261,6 @@ impl ServerInstance {
                     .on_player_left(Box::new(move |player| {
                         // remove player from players_closur
                         players_closure.lock().unwrap().retain(|p| p != &player);
-
                     }));
 
                 event_processor
@@ -371,7 +374,10 @@ mod macro_code {
         thread, time,
     };
 
+    use regex::Regex;
+
     use crate::event_processor::EventProcessor;
+    #[derive(PartialEq)]
     enum Data {
         Int(i32),
         String(String),
@@ -449,7 +455,7 @@ mod macro_code {
                 .lock()
                 .as_mut()
                 .unwrap()
-                .write_all("/say Usage: .macro [macro file] args..\n".as_bytes());
+                .write_all("say Usage: .macro [macro file] args..\n".as_bytes());
             return;
         }
 
@@ -458,6 +464,20 @@ mod macro_code {
         for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
             lines.push(line_result.unwrap());
         }
+        let mut iter = 0;
+        for line in lines.clone() {
+            // split line into a vector of tokens
+            let mut tokens: Vec<String> = vec![];
+            for token in line.split_whitespace() {
+                tokens.push(token.to_string());
+            }
+            if tokens.get(0).unwrap() == ">" && tokens.get(1).unwrap() == "label" {
+                let label = tokens.get(2).unwrap();
+                sym_table.insert(label.to_string(), Data::Int(iter));
+            }
+            iter = iter + 1;
+        }
+
         let mut pc = 0;
         while pc < lines.len() {
             let mut line = lines[pc].clone();
@@ -469,7 +489,7 @@ mod macro_code {
                 continue;
             }
             match tokens.first().unwrap().as_str() {
-                "[" => match tokens.get(1).unwrap().as_str() {
+                ">" => match tokens.get(1).unwrap().as_str() {
                     "delay" => {
                         thread::sleep(time::Duration::from_secs(
                             tokens
@@ -481,7 +501,7 @@ mod macro_code {
                                         .lock()
                                         .as_mut()
                                         .unwrap()
-                                        .write_all((format!("/say {}\n", e)).as_bytes());
+                                        .write_all((format!("say {}\n", e)).as_bytes());
                                 })
                                 .unwrap_or(0),
                         ));
@@ -497,8 +517,10 @@ mod macro_code {
                                     tx.send(player);
                                 },
                             ));
-                            sym_table
-                                .insert("PLAYER_NAME".to_string(), Data::String(rx.recv().unwrap()));
+                            sym_table.insert(
+                                "PLAYER_NAME".to_string(),
+                                Data::String(rx.recv().unwrap()),
+                            );
                         }
                         "player_left" => {
                             let (tx, rx) = mpsc::channel();
@@ -507,8 +529,10 @@ mod macro_code {
                                     tx.send(player);
                                 },
                             ));
-                            sym_table
-                                .insert("PLAYER_NAME".to_string(), Data::String(rx.recv().unwrap()));
+                            sym_table.insert(
+                                "PLAYER_NAME".to_string(),
+                                Data::String(rx.recv().unwrap()),
+                            );
                         }
                         "player_chat" => {
                             let (tx, rx) = mpsc::channel();
@@ -518,14 +542,12 @@ mod macro_code {
                                 },
                             ));
                             let (player, msg) = rx.recv().unwrap();
-                            sym_table
-                                .insert("PLAYER_NAME".to_string(), Data::String(player));
-                            sym_table
-                                .insert("CHAT_MSG".to_string(), Data::String(msg));
+                            sym_table.insert("PLAYER_NAME".to_string(), Data::String(player));
+                            sym_table.insert("CHAT_MSG".to_string(), Data::String(msg));
                         }
                         _ => {
                             stdin_sender.lock().as_mut().unwrap().write_all(
-                                format!("/say event {} not implemented\n", tokens.get(2).unwrap())
+                                format!("say event {} not implemented\n", tokens.get(2).unwrap())
                                     .as_bytes(),
                             );
                             pc = pc + 1;
@@ -551,14 +573,25 @@ mod macro_code {
                                 sym_table.insert(var_name.to_string(), Data::Int(n));
                             }
                             Err(_) => {
-                                sym_table.insert(
-                                    var_name.to_string(),
-                                    Data::String(var_value.to_string()),
-                                );
+                                let re = Regex::new(r#""(.*)""#).unwrap();
+                                if re.is_match(var_value) {
+                                    let rhs = re
+                                        .captures(line.as_str())
+                                        .unwrap()
+                                        .get(1)
+                                        .unwrap()
+                                        .as_str()
+                                        .to_string();
+                                    sym_table.insert(var_name.to_string(), Data::String(rhs));
+                                } else {
+                                    sym_table.insert(
+                                        var_name.to_string(),
+                                        eval(&tokens[4], &sym_table).unwrap(),
+                                    );
+                                }
                             }
                         }
                         pc = pc + 1;
-
                         continue;
                     }
                     "add" => {
@@ -576,7 +609,6 @@ mod macro_code {
                             ),
                         );
                         pc = pc + 1;
-
                         continue;
                     }
                     "sub" => {
@@ -594,7 +626,6 @@ mod macro_code {
                             ),
                         );
                         pc = pc + 1;
-
                         continue;
                     }
 
@@ -613,7 +644,6 @@ mod macro_code {
                             ),
                         );
                         pc = pc + 1;
-
                         continue;
                     }
 
@@ -657,8 +687,8 @@ mod macro_code {
                         let op_1 = tokens.get(2).unwrap();
                         let op_2 = tokens.get(3).unwrap();
                         let op_3 = tokens.get(4).unwrap();
-                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap();
                         let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
                         if op_1_data == op_2_data {
                             pc = op_3_data as usize;
@@ -671,8 +701,8 @@ mod macro_code {
                         let op_1 = tokens.get(2).unwrap();
                         let op_2 = tokens.get(3).unwrap();
                         let op_3 = tokens.get(4).unwrap();
-                        let op_1_data = eval(&op_1, &sym_table).unwrap().get_int().unwrap();
-                        let op_2_data = eval(&op_2, &sym_table).unwrap().get_int().unwrap();
+                        let op_1_data = eval(&op_1, &sym_table).unwrap();
+                        let op_2_data = eval(&op_2, &sym_table).unwrap();
                         let op_3_data = eval(&op_3, &sym_table).unwrap().get_int().unwrap();
                         if op_1_data != op_2_data {
                             pc = op_3_data as usize;
@@ -693,6 +723,7 @@ mod macro_code {
                             continue;
                         }
                         pc = pc + 1;
+                        continue;
                     }
                     "ble" => {
                         let op_1 = tokens.get(2).unwrap();
@@ -706,6 +737,7 @@ mod macro_code {
                             continue;
                         }
                         pc = pc + 1;
+                        continue;
                     }
                     "bgt" => {
                         let op_1 = tokens.get(2).unwrap();
@@ -743,6 +775,10 @@ mod macro_code {
                         pc = op_1_data as usize;
                         continue;
                     }
+                    "label" => {
+                        pc = pc + 1;
+                        continue;
+                    }
 
                     _ => panic!("Unknown instruction {}", tokens.get(1).unwrap()),
                 },
@@ -755,7 +791,7 @@ mod macro_code {
                                 .get(&sym)
                                 .ok_or_else(|| {
                                     stdin_sender.lock().as_mut().unwrap().write_all(
-                                        format!("/say {} is not defined\n", sym).as_bytes(),
+                                        format!("say {} is not defined\n", sym).as_bytes(),
                                     );
                                 })
                                 .unwrap();
