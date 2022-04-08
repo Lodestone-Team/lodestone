@@ -101,6 +101,10 @@ async fn main() {
             let mut instance_manager = instance_manager_closure.lock().await;
             let line = line_result.unwrap_or("failed to read stdin command".to_string());
             let line_vec: Vec<&str> = line.split_whitespace().collect();
+            if line_vec.len() < 2 {
+                eprint!("Invalid command: {}\n", line);
+                continue;
+            }
             let identifier = instance_manager
             .name_to_uuid(&line_vec[1].to_string())
             .unwrap_or(line_vec[1].to_string());
