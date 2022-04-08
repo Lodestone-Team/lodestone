@@ -12,10 +12,10 @@ use std::env;
 use std::fs::create_dir_all;
 use std::io::{stdin, BufRead, BufReader};
 use std::sync::Arc;
+mod event_processor;
 mod handlers;
 mod managers;
 mod util;
-mod event_processor;
 use handlers::*;
 use instance_manager::InstanceManager;
 use managers::*;
@@ -101,35 +101,47 @@ async fn main() {
             let mut instance_manager = instance_manager_closure.lock().await;
             let line = line_result.unwrap_or("failed to read stdin command".to_string());
             let line_vec: Vec<&str> = line.split_whitespace().collect();
-            let regex = Regex::new(r"instance[[:space:]]+((.+)-(.+))[[:space:]]+start").unwrap();
+            let identifier = instance_manager
+            .name_to_uuid(&line_vec[1].to_string())
+            .unwrap_or(line_vec[1].to_string());
+            let regex = Regex::new(r"instance[[:space:]]+((.+))[[:space:]]+start").unwrap();
             if regex.is_match(&line) {
                 instance_manager
-                    .start_instance(line_vec[1].to_string())
+                    .start_instance(&identifier)
                     .map_err(|err| eprintln!("{}", err));
             }
             let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+stop").unwrap();
             if regex.is_match(&line) {
                 instance_manager
-                    .stop_instance(line_vec[1].to_string())
+                    .stop_instance(&identifier)
                     .map_err(|err| eprintln!("{}", err));
             }
             let regex =
                 Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+send[[:space:]]+(.+)").unwrap();
             if regex.is_match(&line) {
                 instance_manager
-                    .send_command(line_vec[1].to_string(), regex.captures(&line).unwrap().get(2).unwrap().as_str().to_string())
+                    .send_command(
+                        &identifier,
+                        regex
+                            .captures(&line)
+                            .unwrap()
+                            .get(2)
+                            .unwrap()
+                            .as_str()
+                            .to_string(),
+                    )
                     .map_err(|err| eprintln!("{}", err));
             }
             let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+playercount").unwrap();
             if regex.is_match(&line) {
-                match instance_manager.player_num(line_vec[1].to_string()) {
+                match instance_manager.player_num(&identifier) {
                     Ok(size) => println!("{}", size.to_string()),
                     Err(reason) => eprintln!("{}", reason),
                 }
             }
             let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+playerlist").unwrap();
             if regex.is_match(&line) {
-                match instance_manager.player_list(line_vec[1].to_string()) {
+                match instance_manager.player_list(&identifier) {
                     Ok(list) => println!("{:?}", list),
                     Err(reason) => eprintln!("{}", reason),
                 }
@@ -150,7 +162,8 @@ async fn main() {
             let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
             match regex.captures(&line) {
                 Some(cap) => {
-                    match instance_manager.list_resource(&cap[1].to_string(),
+                    match instance_manager.list_resource(
+                        &identifier,
                         if cap.get(2).unwrap().as_str().eq("Mod") {
                             ResourceType::Mod
                         } else {
@@ -160,10 +173,10 @@ async fn main() {
                         Ok(list) => {
                             println!("loaded: {:?}", list.0);
                             println!("unloaded: {:?}", list.1);
-                        },
-                        Err(reason) => println!("{}", reason)
+                        }
+                        Err(reason) => println!("{}", reason),
                     }
-                },
+                }
                 _ => (), // Not a match, do nothing
             }
 

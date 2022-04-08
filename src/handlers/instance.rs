@@ -27,7 +27,7 @@ pub async fn setup(uuid : String, config: Json<InstanceConfig>, state: &State<My
 
 #[delete("/instance/<uuid>")]
 pub async fn delete(uuid : String, state: &State<MyManagedState>) -> (Status, String) {
-    match state.instance_manager.lock().await.delete_instance(uuid) {
+    match state.instance_manager.lock().await.delete_instance(&uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
         Err(reason) => (Status::BadRequest, reason),
     }
@@ -51,7 +51,7 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
 
 #[post("/instance/<uuid>/start")]
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
-    match state.instance_manager.lock().await.start_instance(uuid) {
+    match state.instance_manager.lock().await.start_instance(&uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
         Err(reason) => (Status::BadRequest, reason),
     }
@@ -59,7 +59,7 @@ pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, Stri
 
 #[post("/instance/<uuid>/stop")]
 pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
-    match state.instance_manager.lock().await.stop_instance(uuid) {
+    match state.instance_manager.lock().await.stop_instance(&uuid) {
         Ok(()) => (Status::Ok, "Ok".to_string()),
         Err(reason) => (Status::BadRequest, reason),
     }
@@ -68,7 +68,7 @@ pub async fn stop(state: &State<MyManagedState>, uuid: String) -> (Status, Strin
 
 #[get("/instance/<uuid>/status")]
 pub async fn status(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
-    match state.instance_manager.lock().await.get_status(uuid) {
+    match state.instance_manager.lock().await.get_status(&uuid) {
         //return status in lowercase
         Ok(status) => (Status::Ok, status.to_lowercase()),
         Err(reason) => (Status::BadRequest, reason),
@@ -82,7 +82,7 @@ pub async fn send(uuid: String, command: String, state: &State<MyManagedState>) 
         .instance_manager
         .lock()
         .await
-        .send_command(uuid, command)
+        .send_command(&uuid, command)
     {
         Ok(()) => (Status::Ok, "Ok".to_string()),
         Err(reason) => (Status::BadRequest, reason),
@@ -95,7 +95,7 @@ pub async fn player_count(uuid: String, state: &State<MyManagedState>) -> (Statu
         .instance_manager
         .lock()
         .await
-        .player_num(uuid)
+        .player_num(&uuid)
     {
         Ok(size) => (Status::Ok, size.to_string()),
         Err(reason) => (Status::BadRequest, reason),
@@ -108,7 +108,7 @@ pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status
         .instance_manager
         .lock()
         .await
-        .player_list(uuid)
+        .player_list(&uuid)
     {
         Ok(vec) => (Status::Ok, json!(vec)),
         Err(reason) => (Status::BadRequest, json!(reason)),
