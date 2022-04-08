@@ -59,13 +59,18 @@ Variables can be assigned to other variables:
 
 ## Environmental variables (not yet fully implemented)
 `$0` first argument to the macro
-`$1` second argument to the macro
-`$x` xth argument to the macro (max 30)
-`$31` end of the program
-`$INSTANCE_NAME` name of the instance this macro belongs in
-`$INSTANCE_UUID` name of the instance this macro belongs in
-`$INSTANCE_PATH` path of the instance this macro belongs in
 
+`$1` second argument to the macro
+
+`$x` xth argument to the macro (max 30)
+
+`$31` end of the program
+
+`$INSTANCE_NAME` name of the instance this macro belongs in
+
+`$INSTANCE_UUID` name of the instance this macro belongs in
+
+`$INSTANCE_PATH` path of the instance this macro belongs in
 
 
 ## Instructions
