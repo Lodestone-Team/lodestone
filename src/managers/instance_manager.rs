@@ -191,41 +191,41 @@ impl InstanceManager {
         Ok(config.uuid.unwrap())
     }
 
-    pub fn get_status(&self, uuid: String) -> Result<String, String> {
+    pub fn get_status(&self, uuid: &String) -> Result<String, String> {
         let instance = self
             .instance_collection
-            .get(&uuid)
+            .get(uuid)
             .ok_or("instance does not exist".to_string())?;
         Ok(instance.get_status().to_string())
     }
 
     // TODO: basically drop database
-    pub fn delete_instance(&mut self, uuid: String) -> Result<(), String> {
+    pub fn delete_instance(&mut self, uuid: &String) -> Result<(), String> {
         use crate::server_instance::Status;
 
         match self
             .instance_collection
-            .get(&uuid)
+            .get(uuid)
             .ok_or("instance does not exist".to_string())?
             .get_status()
         {
             Status::Stopped => {
-                let name = self.instance_collection.get(&uuid).unwrap().get_name();
-                self.mongodb.database(&uuid).drop(None).unwrap();
+                let name = self.instance_collection.get(uuid).unwrap().get_name();
+                self.mongodb.database(uuid).drop(None).unwrap();
                 fs::remove_dir_all(format!("instances/{}", name)).map_err(|e| e.to_string())?;
 
                 self.taken_ports
-                    .remove(&self.instance_collection.get(&uuid).unwrap().get_port());
-                self.instance_collection.remove(&uuid);
+                    .remove(&self.instance_collection.get(uuid).unwrap().get_port());
+                self.instance_collection.remove(uuid);
                 return Ok(());
             }
             _ => return Err("instance is running".to_string()),
         }
     }
 
-    pub fn clone_instance(&mut self, uuid: String) -> Result<(), String> {
+    pub fn clone_instance(&mut self, uuid: &String) -> Result<(), String> {
         for pair in &self.instance_collection {
-            if pair.0 == &uuid {
+            if pair.0 == uuid {
                 if self.check_if_name_exists(&format!("{}_copy", &pair.1.get_name())) {
                     return Err(format!(
                         "{}_copy already exists as an instance",
@@ -237,26 +237,26 @@ impl InstanceManager {
         Ok(())
     }
 
-    pub fn player_list(&self, uuid: String) -> Result<Vec<String>, String> {
+    pub fn player_list(&self, uuid: &String) -> Result<Vec<String>, String> {
         let ins = self
             .instance_collection
-            .get(&uuid)
+            .get(uuid)
             .ok_or("instance does not exist".to_string())?;
         Ok(ins.get_player_list())
     }
 
-    pub fn player_num(&self, uuid: String) -> Result<u32, String> {
+    pub fn player_num(&self, uuid: &String) -> Result<u32, String> {
         let ins = self
             .instance_collection
-            .get(&uuid)
+            .get(uuid)
             .ok_or("instance does not exist".to_string())?;
         Ok(ins.get_player_num())
     }
 
-    pub fn send_command(&self, uuid: String, command: String) -> Result<(), String> {
+    pub fn send_command(&self, uuid: &String, command: String) -> Result<(), String> {
         let instance = self
             .instance_collection
-            .get(&uuid)
+            .get(uuid)
             .ok_or("cannot send command to instance as it does not exist".to_string())?;
         instance.send_stdin(command).map_err(|e| {
             format!(
@@ -268,18 +268,18 @@ impl InstanceManager {
         Ok(())
     }
 
-    pub fn start_instance(&mut self, uuid: String) -> Result<(), String> {
+    pub fn start_instance(&mut self, uuid: &String) -> Result<(), String> {
         let instance = self
             .instance_collection
-            .get_mut(&uuid)
+            .get_mut(uuid)
             .ok_or("instance cannot be started as it does not exist".to_string())?;
         instance.start(self.mongodb.clone())
     }
 
-    pub fn stop_instance(&mut self, uuid: String) -> Result<(), String> {
+    pub fn stop_instance(&mut self, uuid: &String) -> Result<(), String> {
         let instance = self
             .instance_collection
-            .get_mut(&uuid)
+            .get_mut(uuid)
             .ok_or("instance cannot be stopped as it does not exist".to_string())?;
         instance.stop()
     }
@@ -294,6 +294,15 @@ impl InstanceManager {
             }
         }
         ret
+    }
+
+    pub fn name_to_uuid(&self, name: &String) -> Result<String, String> {
+        for pair in &self.instance_collection {
+            if &pair.1.get_name() == name {
+                return Ok(pair.0.clone());
+            }
+        }
+        Err("instance does not exist".to_string())
     }
 }
 pub mod resource_management {
