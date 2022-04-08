@@ -2,7 +2,6 @@ use regex::Regex;
 use serde::Serialize;
 use std::process::{Child, Command, Stdio};
 
-
 use self::parser::{parse, parse_player_event};
 
 #[derive(Clone, Serialize)]
@@ -46,7 +45,6 @@ pub struct EventProcessor {
     on_server_startup: Vec<Box<dyn Fn() + Send>>,
     on_server_shutdown: Vec<Box<dyn Fn() + Send>>,
     on_custom_event: Vec<Box<dyn Fn(String) + Send>>,
-
 }
 
 impl EventProcessor {
@@ -164,7 +162,6 @@ impl EventProcessor {
     }
 }
 
-
 pub mod parser {
 
     use std::str::FromStr;
@@ -189,10 +186,22 @@ pub mod parser {
     pub fn parse(s: &String) -> Option<ServerMessage> {
         let vanilla_regex =
             Regex::new(r"^\[([0-9][0-9]:[0-9][0-9]:[0-9][0-9])\] \[(.+)/(\w+)\]: (.+)").unwrap();
+
+        let fabric_regex =
+            Regex::new(r"^\[([0-9][0-9]:[0-9][0-9]:[0-9][0-9])\] \[(.+)\] \[(.+)/(.+)\]: (.+)")
+                .unwrap();
         let spigot_regex =
             Regex::new(r"^\[([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) (.+)\]: (.+)").unwrap();
-
-        if vanilla_regex.is_match(s.as_str()) {
+        if fabric_regex.is_match(s.as_str()) {
+            let cap = fabric_regex.captures(s.as_str()).unwrap();
+            let message = cap.get(5).unwrap().as_str().to_string();
+            Some(ServerMessage {
+                timestamp: cap.get(1).unwrap().as_str().to_string(),
+                signal: Signal::from_str(cap.get(2).unwrap().as_str()).unwrap(),
+                message: message.clone(),
+                player_event: parse_player_event(&message),
+            })
+        } else if vanilla_regex.is_match(s.as_str()) {
             let cap = vanilla_regex.captures(s.as_str()).unwrap();
             let message = cap.get(4).unwrap().as_str().to_string();
             Some(ServerMessage {
