@@ -1,8 +1,10 @@
 use regex::Regex;
-use rocket::tokio::sync::broadcast::{channel, Receiver, Sender};
 use serde::Serialize;
+use std::process::{Child, Command, Stdio};
+
 
 use self::parser::{parse, parse_player_event};
+
 #[derive(Clone, Serialize)]
 pub enum Signal {
     Info,
@@ -42,6 +44,9 @@ pub struct EventProcessor {
     on_player_illegal_moved: Vec<Box<dyn Fn(String, String) + Send>>,
     on_player_advancement: Vec<Box<dyn Fn(String, String) + Send>>,
     on_server_startup: Vec<Box<dyn Fn() + Send>>,
+    on_server_shutdown: Vec<Box<dyn Fn() + Send>>,
+    on_custom_event: Vec<Box<dyn Fn(String) + Send>>,
+
 }
 
 impl EventProcessor {
@@ -56,6 +61,8 @@ impl EventProcessor {
             on_player_illegal_moved: vec![],
             on_player_advancement: vec![],
             on_server_startup: vec![],
+            on_server_shutdown: vec![],
+            on_custom_event: vec![],
         }
     }
     pub fn process(&self, line: &String) {
@@ -74,7 +81,6 @@ impl EventProcessor {
                         }
                     }
                     PlayerEventVarient::Left => {
-                        println!("processed a left event");
                         for f in &self.on_player_left {
                             f(player_event.player.clone());
                         }
@@ -121,7 +127,7 @@ impl EventProcessor {
     pub fn on_player_joined(&mut self, callback: Box<dyn Fn(String) + Send>) {
         self.on_player_joined.push(callback);
     }
-    pub fn on_player_left(&mut self, callback: Box <dyn Fn(String) + Send>) {
+    pub fn on_player_left(&mut self, callback: Box<dyn Fn(String) + Send>) {
         self.on_player_left.push(callback);
     }
     pub fn on_chat(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
@@ -139,7 +145,25 @@ impl EventProcessor {
     pub fn on_server_startup(&mut self, callback: Box<dyn Fn() + Send>) {
         self.on_server_startup.push(callback);
     }
+    pub fn on_server_shutdown(&mut self, callback: Box<dyn Fn() + Send>) {
+        self.on_server_shutdown.push(callback);
+    }
+    pub fn notify_server_shutdown(&self) {
+        for f in &self.on_server_shutdown {
+            f();
+        }
+    }
+
+    pub fn on_custom_event(&mut self, callback: Box<dyn Fn(String) + Send>) {
+        self.on_custom_event.push(callback);
+    }
+    pub fn notify_custom_event(&self, event: String) {
+        for f in &self.on_custom_event {
+            f(event.clone());
+        }
+    }
 }
+
 
 pub mod parser {
 
@@ -234,12 +258,14 @@ pub mod parser {
                 })
             } else {
                 // match for illegal movement
-                let re_illegal_movement = Regex::new(r"moved too quickly! (.+)").unwrap();
-                if re_illegal_movement.is_match(s) {
+                let re_moved_too_quick = Regex::new(r"moved too quickly! (.+)").unwrap();
+                let re_moved_wrongly = Regex::new(r"moved wrongly!").unwrap();
+
+                if re_moved_too_quick.is_match(s) {
                     Some(PlayerEvent {
                         player: s_vec[0].to_string(),
                         event: PlayerEventVarient::IllegalMove(
-                            re_illegal_movement
+                            re_moved_too_quick
                                 .captures(s)
                                 .unwrap()
                                 .get(1)
@@ -247,6 +273,11 @@ pub mod parser {
                                 .as_str()
                                 .to_string(),
                         ),
+                    })
+                } else if re_moved_wrongly.is_match(s) {
+                    Some(PlayerEvent {
+                        player: s_vec[0].to_string(),
+                        event: PlayerEventVarient::IllegalMove("moved wrongly".to_string()),
                     })
                 } else {
                     None

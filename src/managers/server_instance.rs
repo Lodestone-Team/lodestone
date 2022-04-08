@@ -199,6 +199,7 @@ impl ServerInstance {
                         println!("server said: {}", line);
                         event_processor_closure.lock().unwrap().process(&line);
                     }
+                    event_processor_closure.lock().unwrap().notify_server_shutdown();
                     let mut status = status_closure.lock().unwrap();
                     players_closure.lock().unwrap().clear();
                     println!("program exiting as reader thread is terminating...");
@@ -254,11 +255,8 @@ impl ServerInstance {
                     .lock()
                     .unwrap()
                     .on_player_left(Box::new(move |player| {
-                        println!("left callback {}", player);
-                        println!("players: {:?}", players_closure.lock().unwrap());
                         // remove player from players_closur
                         players_closure.lock().unwrap().retain(|p| p != &player);
-                        println!("left callback completed");
 
                     }));
 
@@ -500,7 +498,30 @@ mod macro_code {
                                 },
                             ));
                             sym_table
-                                .insert("PLAYERNAME".to_string(), Data::String(rx.recv().unwrap()));
+                                .insert("PLAYER_NAME".to_string(), Data::String(rx.recv().unwrap()));
+                        }
+                        "player_left" => {
+                            let (tx, rx) = mpsc::channel();
+                            event_processor.lock().unwrap().on_player_left(Box::new(
+                                move |player| {
+                                    tx.send(player);
+                                },
+                            ));
+                            sym_table
+                                .insert("PLAYER_NAME".to_string(), Data::String(rx.recv().unwrap()));
+                        }
+                        "player_chat" => {
+                            let (tx, rx) = mpsc::channel();
+                            event_processor.lock().unwrap().on_chat(Box::new(
+                                move |player, msg| {
+                                    tx.send((player, msg));
+                                },
+                            ));
+                            let (player, msg) = rx.recv().unwrap();
+                            sym_table
+                                .insert("PLAYER_NAME".to_string(), Data::String(player));
+                            sym_table
+                                .insert("CHAT_MSG".to_string(), Data::String(msg));
                         }
                         _ => {
                             stdin_sender.lock().as_mut().unwrap().write_all(
