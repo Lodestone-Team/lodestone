@@ -574,7 +574,7 @@ mod macro_code {
                             }
                             Err(_) => {
                                 let re = Regex::new(r#""(.*)""#).unwrap();
-                                if re.is_match(var_value) {
+                                if re.is_match(line.as_str()) {
                                     let rhs = re
                                         .captures(line.as_str())
                                         .unwrap()
