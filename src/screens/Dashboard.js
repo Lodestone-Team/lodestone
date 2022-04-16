@@ -3,36 +3,36 @@ import "./Dashboard.scss";
 import React, { useState, useEffect } from "react";
 
 import InstanceList from "../components/InstanceList";
-import { ServerContext } from "../contexts/ServerContext";
+import { ClientContext } from "../contexts/ClientContext";
 import SystemMonitor from "../components/SystemMonitor";
 
-const defaultServerContext = {
+const defaultClientContext = {
   pollrate: 5000,
-  api_domain: "127.0.0.1:8000",
+  api_domain: "http://127.0.0.1:8000",
   api_path: "/api/v1",
 }
 
 export default function Dashboard() {
-  //grab serverContext from localStorage or set default
-  const [serverContext, setServerContext] = useState(
-    JSON.parse(localStorage.getItem("serverContext")) || defaultServerContext
+  //grab ClientContext from localStorage or set default
+  const [clientContext, setClientContext] = useState(
+    JSON.parse(localStorage.getItem("ClientContext")) || defaultClientContext
   );
 
-  //update serverContext in localStorage everytime it changes using useEffect hook
+  //update ClientContext in localStorage everytime it changes using useEffect hook
   useEffect(() => {
-    localStorage.setItem("serverContext", JSON.stringify(serverContext));
-  }, [serverContext]);
+    localStorage.setItem("ClientContext", JSON.stringify(clientContext));
+  }, [clientContext]);
 
 
   return (
     <div className="dashboard-wrapper">
-      <ServerContext.Provider value={serverContext}>
+      <ClientContext.Provider value={clientContext}>
         <div className="dashboard">
           <h1 className="title">Dashboard</h1>
           <InstanceList />
           <SystemMonitor />
         </div>
-      </ServerContext.Provider>
+      </ClientContext.Provider>
       <div className="sidebar">
         {/* crude server context setting */}
         <div className="setting">
@@ -42,12 +42,12 @@ export default function Dashboard() {
             <input
               type="text"
               name="api_domain"
-              value={serverContext.api_domain}
+              value={clientContext.api_domain}
               onChange={(e) =>
-                setServerContext({
-                  pollrate: serverContext.pollrate,
+                setClientContext({
+                  pollrate: clientContext.pollrate,
                   api_domain: e.target.value,
-                  api_path: serverContext.api_path,
+                  api_path: clientContext.api_path,
                 })
               }
             />

@@ -15,7 +15,7 @@ import { Doughnut, Line } from "react-chartjs-2";
 import React, { useContext, useState } from "react";
 
 import Card from "./Card";
-import { ServerContext } from "../contexts/ServerContext";
+import { ClientContext } from "../contexts/ClientContext";
 import { useInterval } from '../utils';
 
 ChartJS.register(
@@ -30,7 +30,7 @@ ChartJS.register(
 );
 
 function SystemMonitor() {
-    const { pollrate, api_domain, api_path } = useContext(ServerContext);
+    const { pollrate, api_domain, api_path } = useContext(ClientContext);
     const pollrate_s = pollrate / 1000.0;
     const bytesInGigabyte = 1048576;
     const labels = Array.from(Array(60 / pollrate_s).keys()).reverse().map((n) => pollrate_s * n + pollrate_s + "s");

@@ -9,7 +9,7 @@ import Icon from "../components/Icon";
 import Modal from "react-bootstrap/Modal";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
 import PlusIcon from "../assets/plus.svg";
-import { ServerContext } from "../contexts/ServerContext";
+import { ClientContext } from "../contexts/ClientContext";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faQuestionCircle } from '@fortawesome/free-solid-svg-icons'
 import { toast } from 'react-toastify';
@@ -28,7 +28,7 @@ export default function InstanceCreator(updateInstances) {
   const [version, setVersion] = useState("");
   const [ready, setReady] = useState(false);
   const [waiting, setWaiting] = useState(false);
-  const { api_domain, api_path } = useContext(ServerContext);
+  const { api_domain, api_path } = useContext(ClientContext);
   const toastId = useRef("");
 
   const checkError = () => {

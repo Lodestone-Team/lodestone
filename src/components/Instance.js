@@ -6,7 +6,7 @@ import { faCircle, faExclamationCircle, faPauseCircle, faPlay, faStop, faStopCir
 import Card from "./Card";
 import Icon from "../components/Icon";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
-import { ServerContext } from "../contexts/ServerContext";
+import { ClientContext } from "../contexts/ClientContext";
 import Tooltip from "react-bootstrap/Tooltip";
 import { faCircle as faRing } from '@fortawesome/free-regular-svg-icons'
 import { toast } from 'react-toastify';
@@ -16,7 +16,7 @@ var utils = require("../utils")
 export default function Instance({ name, version, flavour, port, uuid, updateInstances }) {
   const [playerCount, setPlayerCount] = useState("");
   const [status, setStatus] = useState("");
-  const { pollrate, api_domain, api_path } = useContext(ServerContext);
+  const { pollrate, api_domain, api_path } = useContext(ClientContext);
 
   const getStatus = async (uuid) => {
     let response = await fetch(`${api_domain}${api_path}/instance/${uuid}/status`);
