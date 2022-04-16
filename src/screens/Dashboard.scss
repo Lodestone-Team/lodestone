@@ -1,17 +1,26 @@
-.dashboard{
+.dashboard-wrapper {
   background-color: #F5F5F5;
   width: 100%;
   height: 100%;
   display: flex;
-  flex-direction: column;
-  justify-content: stretch;
-  align-items: flex-start;
-  padding: 2em;
-  .title{
+  flex-direction: row;
+  .title {}
 
+  .sidebar{
+    background-color: #d0d0d0;
+    padding: 2em;
   }
-  
-  >div{
-    margin-bottom: 2em;
+
+  .dashboard {
+    display: flex;
+    flex-direction: column;
+    justify-content: stretch;
+    align-items: flex-start;
+    padding: 2em;
+    flex-grow: 1;
+
+    >div {
+      margin-bottom: 2em;
+    }
   }
 }
