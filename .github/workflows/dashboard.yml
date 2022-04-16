@@ -1,4 +1,4 @@
-name: frontend
+name: dashboard
 
 on:
   push:
@@ -34,11 +34,11 @@ jobs:
       run: npm ci
     # - run: npm test
 
-    - name: Build Frontend
+    - name: Build dashboard
       run: npm run build --if-present
 
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: frontend
+        name: dashboard
         path: ./build
