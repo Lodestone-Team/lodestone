@@ -28,13 +28,15 @@ export default function InstanceList() {
   }, pollrate, true);
 
   return (
-    <div className="instance-list">
-      {
-        instances.map(instance => (
-          <Instance key={instance.uuid} {...instance} updateInstances={updateInstances} />
-        ))
-      }
-      <InstanceCreator updateInstances={updateInstances}/>
+    <div className="instance-list-wrapper">
+      <div className="instance-list">
+        {
+          instances.map(instance => (
+            <Instance key={instance.uuid} {...instance} updateInstances={updateInstances} />
+          ))
+        }
+        <InstanceCreator updateInstances={updateInstances} />
+      </div>
     </div>
   );
 };

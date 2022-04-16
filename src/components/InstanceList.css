@@ -1,8 +1,14 @@
+.instance-list-wrapper{
+  overflow-x: scroll;
+  width: 100%;
+}
+
 .instance-list{
   display: flex;
   flex-direction: row;
   justify-content: flex-start;
   align-items: center;
+  width: fit-content;
 }
 
 .instance-list .instance{
