@@ -30,6 +30,7 @@ rust-crypto = "^0.2"
 sys-info = "0.9.1"
 systemstat = "0.1.10"
 downloader = "0.2.6"
+rlua = "0.19.1"
 
 [dependencies.mongodb]
 version = "2.0.0"
