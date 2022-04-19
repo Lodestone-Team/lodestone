@@ -1,4 +1,3 @@
-use mongodb::{bson::doc};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::{State};
@@ -115,47 +114,6 @@ pub async fn player_list(uuid: String, state: &State<MyManagedState>) -> (Status
     }
 }
 
-#[get("/instance/<uuid>/log?<start>&<end>")]
-pub async fn get_logs(uuid: String, start: String, end: String, state: &State<MyManagedState>) -> (Status, Value) {
-    let mut result = Vec::new();
-    let mongodb_client = &state.mongodb_client;
-
-    let start_int = start.parse::<i64>().unwrap();
-    let end_int = end.parse::<i64>().unwrap();
-
-// TODO use db filter instead
-    match mongodb_client
-        .database(&uuid)
-        .collection::<Log>("logs")
-        .find( doc! {
-            "$and": [ 
-                {
-                    "time": {
-                    
-                        "$gte": start_int
-                    }
-                },
-                {
-                    "time": {
-                        "$lte": end_int
-                    }
-                }
-
-            ] 
-        }, None)
-        {
-            Err(err) => {
-                return (Status::BadRequest, json!(err.to_string()));
-            },
-            Ok(logs) => {
-                for log in logs {
-                    result.push(log.unwrap());
-                }
-            },
-}
-
-    (Status::Ok, json!(result))
-}
 
 #[get("/instance/<uuid>/resources/<resource_type>/list")]
 pub async fn list_resource(uuid: String, resource_type: ResourceType, state: &State<MyManagedState>) -> (Status, content::Json<String>) {

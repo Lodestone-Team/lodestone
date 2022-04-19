@@ -1,5 +1,4 @@
 use crate::event_processor::{EventProcessor, PlayerEventVarient};
-use mongodb::{bson::doc, sync::Client};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -125,13 +124,11 @@ pub struct ServerInstance {
 impl ServerInstance {
     pub fn new(config: &InstanceConfig, path: PathBuf) -> ServerInstance {
         let mut jvm_args: Vec<String> = vec![];
-        match config.min_ram {
-            Some(min_ram) => jvm_args.push(format!("-Xms{}M", min_ram)),
-            None => (),
+        if let Some(min_ram) = config.min_ram {
+            jvm_args.push(format!("-Xms{}M", min_ram))
         }
-        match config.max_ram {
-            Some(max_ram) => jvm_args.push(format!("-Xmx{}M", max_ram)),
-            None => (),
+        if let Some(max_ram) = config.max_ram {
+            jvm_args.push(format!("-Xmx{}M", max_ram))
         }
         jvm_args.push("-jar".to_string());
         jvm_args.push("server.jar".to_string());
@@ -154,7 +151,7 @@ impl ServerInstance {
         }
     }
 
-    pub fn start(&mut self, mongodb_client: Client) -> Result<(), String> {
+    pub fn start(&mut self) -> Result<(), String> {
         let mut status = self.status.lock().unwrap();
         env::set_current_dir(&self.path).unwrap();
         match *status {
@@ -215,17 +212,6 @@ impl ServerInstance {
                     *status = Status::Stopped;
                 });
 
-                let mongodb_client_closure = mongodb_client.clone();
-                event_processor.lock().unwrap().on_server_message(Box::new(
-                    move |server_message| {
-                        mongodb_client_closure
-                            .database(uuid_closure.as_str())
-                            .collection("logs")
-                            .insert_one(server_message, None)
-                            .unwrap();
-                    },
-                ));
-
                 let status_closure = self.status.clone();
                 event_processor
                     .lock()
@@ -234,17 +220,6 @@ impl ServerInstance {
                         *status_closure.lock().unwrap() = Status::Running;
                     }));
                 let uuid_closure = self.uuid.clone();
-                let mongodb_client_closure = mongodb_client.clone();
-                let event_processor_closure = event_processor.clone();
-                event_processor
-                    .lock()
-                    .unwrap()
-                    .on_player_event(Box::new(move |player_event| {
-                        mongodb_client_closure
-                            .database(uuid_closure.as_str())
-                            .collection("events")
-                            .insert_one(player_event.clone(), None);
-                    }));
                 let players_closure = self.player_online.clone();
                 event_processor
                     .lock()
@@ -261,7 +236,7 @@ impl ServerInstance {
                         // remove player from players_closur
                         players_closure.lock().unwrap().retain(|p| p != &player);
                     }));
-
+                let event_processor_closure = event_processor.clone();
                 event_processor
                     .lock()
                     .unwrap()
@@ -394,8 +369,7 @@ mod macro_code {
                 if token != ".macro" {
                     return;
                 }
-            } else
-            if iter == 1 {
+            } else if iter == 1 {
                 path_to_macro.push(token);
                 path_to_macro.set_extension("lua");
                 println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
@@ -428,11 +402,12 @@ mod macro_code {
             program.push_str(format!("{}\n", line_result.unwrap()).as_str());
         }
 
-
         Lua::new().context(move |lua_ctx| {
             for (pos, arg) in args.iter().enumerate() {
                 println!("setting {} to {}", format!("arg{}", pos + 1), arg);
-                lua_ctx.globals().set(format!("arg{}", pos + 1), arg.clone());
+                lua_ctx
+                    .globals()
+                    .set(format!("arg{}", pos + 1), arg.clone());
             }
             let delay_sec = lua_ctx
                 .create_function(|_, time: u64| {
@@ -447,8 +422,7 @@ mod macro_code {
                     Ok(())
                 })
                 .unwrap();
-                lua_ctx.globals().set("delay_milli", delay_milli);
-            
+            lua_ctx.globals().set("delay_milli", delay_milli);
 
             let send_stdin = lua_ctx
                 .create_function(move |ctx, line: String| {
@@ -458,44 +432,49 @@ mod macro_code {
                     if reg.is_match(&line) {
                         for cap in reg.captures_iter(&line) {
                             println!("cap1: {}", cap.get(1).unwrap().as_str());
-                           after = after.replace(format!("${{{}}}", &cap[1]).as_str(), &globals.get::<_, String>(cap[1].to_string()).unwrap());
-                           println!("after: {}", after);
+                            after = after.replace(
+                                format!("${{{}}}", &cap[1]).as_str(),
+                                &globals.get::<_, String>(cap[1].to_string()).unwrap(),
+                            );
+                            println!("after: {}", after);
                         }
-                        
+
                         stdin_sender
                             .lock()
                             .as_mut()
                             .unwrap()
                             .write_all(format!("{}\n", after).as_bytes());
                     } else {
-                        stdin_sender.lock().unwrap().write_all(format!("{}\n", line).as_bytes());
+                        stdin_sender
+                            .lock()
+                            .unwrap()
+                            .write_all(format!("{}\n", line).as_bytes());
                     }
 
                     Ok(())
                 })
                 .unwrap();
-                lua_ctx.globals().set("sendStdin", send_stdin);
+            lua_ctx.globals().set("sendStdin", send_stdin);
 
-
-                match lua_ctx.load(&program).eval::<MultiValue>() {
-                    Ok(value) => {
-                        println!(
-                            "{}",
-                            value
-                                .iter()
-                                .map(|value| format!("{:?}", value))
-                                .collect::<Vec<_>>()
-                                .join("\t")
-                        );
-                    }
-                    // Err(Error::SyntaxError {
-                    //     incomplete_input: true,
-                    //     ..
-                    // }) => {}
-                    Err(e) => {
-                        eprintln!("error: {}", e);
-                    }
+            match lua_ctx.load(&program).eval::<MultiValue>() {
+                Ok(value) => {
+                    println!(
+                        "{}",
+                        value
+                            .iter()
+                            .map(|value| format!("{:?}", value))
+                            .collect::<Vec<_>>()
+                            .join("\t")
+                    );
                 }
+                // Err(Error::SyntaxError {
+                //     incomplete_input: true,
+                //     ..
+                // }) => {}
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                }
+            }
         });
     }
 }

@@ -19,7 +19,6 @@ mod util;
 use handlers::*;
 use instance_manager::InstanceManager;
 use managers::*;
-use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::FileServer;
 use rocket::http::{Header, Status};
@@ -32,7 +31,6 @@ use systemstat::{Duration, Platform, System};
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
     download_status: CHashMap<String, (u64, u64)>,
-    mongodb_client: Client,
 }
 
 pub struct CORS;
@@ -72,9 +70,6 @@ fn internal_server_error() -> &'static str {
 
 #[rocket::main]
 async fn main() {
-    let mut client_options = ClientOptions::parse("mongodb://localhost:27017/?tls=false").unwrap();
-    client_options.app_name = Some("MongoDB Client".to_string());
-    let client = Client::with_options(client_options).unwrap();
 
     let mut lodestone_path = match env::var("LODESTONE_PATH") {
         Ok(val) => PathBuf::from(val),
@@ -92,7 +87,7 @@ async fn main() {
     println!("Lodestone directory: {}", lodestone_path.display());
 
     let instance_manager = Arc::new(Mutex::new(
-        InstanceManager::new(lodestone_path, client.clone()).unwrap(),
+        InstanceManager::new(lodestone_path).unwrap(),
     ));
     let instance_manager_closure = instance_manager.clone();
     rocket::tokio::spawn(async move {
@@ -247,8 +242,8 @@ async fn main() {
         .mount(
             "/api/v1/",
             routes![
-                users::create,
-                users::test,
+                // users::create,
+                // users::test,
                 instance::start,
                 instance::stop,
                 instance::send,
@@ -257,7 +252,6 @@ async fn main() {
                 instance::download_status,
                 instance::status,
                 instance::get_list,
-                instance::get_logs,
                 instance::player_count,
                 instance::player_list,
                 instance::list_resource,
@@ -288,7 +282,6 @@ async fn main() {
         .manage(MyManagedState {
             instance_manager,
             download_status: CHashMap::new(),
-            mongodb_client: client,
         })
         .attach(CORS)
         .launch()

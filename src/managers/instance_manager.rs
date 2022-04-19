@@ -3,9 +3,9 @@ use crate::properties_manager::PropertiesManager;
 use crate::util::db_util::mongo_schema::*;
 use crate::util::{self};
 use crate::MyManagedState;
-use mongodb::{bson::doc, sync::Client, IndexModel};
 use rocket::fairing::Result;
 use rocket::State;
+use rocket::serde::json::serde_json::{from_str, to_string_pretty};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
@@ -17,47 +17,44 @@ pub struct InstanceManager {
     taken_ports: HashSet<u32>,
     /// path to lodestone installation directory
     path: PathBuf,
-    mongodb: Client,
 }
 
 // TODO: DB IO
 // TODO : should prob change parameter String to &str
 impl InstanceManager {
-    pub fn new(path: PathBuf, mongodb: Client) -> Result<InstanceManager, String> {
-        let path_to_config = path.join(".lodestone_config/");
+    pub fn new(path: PathBuf) -> Result<InstanceManager, String> {
+        let path_to_config = path.join(".lodestone/");
         fs::create_dir_all(path_to_config.as_path()).map_err(|e| e.to_string())?;
+        let path_to_instances = path.join("instances/");
+        fs::create_dir_all(path_to_instances.as_path()).map_err(|e| e.to_string())?;
         if !Path::exists(path_to_config.join("server.properties").as_path()) {
             let mut properties_file =
                 File::create(path_to_config.join("server.properties")).unwrap();
             properties_file.write_all(
         b"enable-jmx-monitoring=false\nrcon.port=25575\nenable-command-block=false\ngamemode=survival\nenable-query=false\nlevel-name=world\nmotd=AMinecraftServer\nquery.port=25565\npvp=true\ndifficulty=easy\nnetwork-compression-threshold=256\nmax-tick-time=60000\nrequire-resource-pack=false\nmax-players=20\nuse-native-transport=true\nonline-mode=true\nenable-status=true\nallow-flight=false\nvbroadcast-rcon-to-ops=true\nview-distance=10\nserver-ip=\nresource-pack-prompt=\nallow-nether=true\nserver-port=25565\nenable-rcon=false\nsync-chunk-writes=true\nop-permission-level=4\nprevent-proxy-connections=false\nhide-online-players=false\nresource-pack=\nentity-broadcast-range-percentage=100\nsimulation-distance=10\nrcon.password=\nplayer-idle-timeout=0\nforce-gamemode=false\nrate-limit=0\nhardcore=false\nwhite-list=false\nbroadcast-console-to-ops=true\nspawn-npcs=true\nspawn-animals=true\nfunction-permission-level=2\ntext-filtering-config=\nspawn-monsters=true\nenforce-whitelist=false\nresource-pack-sha1=\nspawn-protection=16\nmax-world-size=29999984\n").unwrap();
         }
-
         let mut instance_collection: HashMap<String, ServerInstance> = HashMap::new();
         let mut taken_ports = HashSet::new();
-        let database_names = mongodb.list_database_names(None, None).unwrap();
-        for database_name in database_names.iter() {
-            if database_name.contains("-") {
-                // TODO use db filter instead
-                let config = mongodb
-                    .database(database_name)
-                    .collection::<InstanceConfig>("config")
-                    .find_one(None, None)
-                    .unwrap()
-                    .unwrap();
-                let key = config.uuid.clone().unwrap();
-                instance_collection.insert(
-                    key,
-                    ServerInstance::new(&config, path.join("instances").join(config.name.clone())),
-                );
-                taken_ports.insert(config.port.unwrap());
+        // get all directories in instances folder
+        for entry in fs::read_dir(path_to_instances.as_path()).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                if entry.path().join(".lodestone_config").exists() {
+                    // open config file
+                    let mut config_file = File::open(entry.path().join(".lodestone_config")).unwrap();
+                    // read config file
+                    let mut config_file_contents = String::new();
+                    config_file.read_to_string(&mut config_file_contents).unwrap();
+                    let instance_config : InstanceConfig = from_str(str::replace(&config_file_contents, "\r\n", "\n").as_str()).unwrap();
+                    instance_collection.insert(instance_config.uuid.clone().unwrap(), ServerInstance::new(&instance_config, path.join("instances").join(instance_config.name.clone())));
+                    taken_ports.insert(instance_config.port.unwrap());
+                }
             }
         }
 
         Ok(InstanceManager {
             instance_collection,
             path,
-            mongodb,
             taken_ports,
         })
     }
@@ -120,7 +117,7 @@ impl InstanceManager {
 
         let path_to_properties = path_to_instance.join("server.properties");
         fs::copy(
-            ".lodestone_config/server.properties",
+            ".lodestone/server.properties",
             path_to_properties.clone(),
         )
         .unwrap();
@@ -145,48 +142,15 @@ impl InstanceManager {
         self.instance_collection
             .insert(config.uuid.clone().unwrap(), instance);
 
-        // TODO: DB IO
-        /* TODO:
-            create a database with the uuid name
-            create config collection
-                config is everything needed to reconstruct the config
-                store InstanceConfig into database
-        */
-        self.mongodb
-            .database(&config.uuid.clone().unwrap())
-            .collection("config")
-            .insert_one(
-                doc! {
-                    "name": &config.name,
-                    "version": &config.version,
-                    "flavour": &config.flavour.to_string(),
-                    "port": &config.port,
-                    "uuid": &config.uuid.clone().unwrap(),
-                    "url": &config.url.unwrap(),
-                    "min_ram": &config.min_ram.unwrap_or(1024),
-                    "max_ram": &config.max_ram.unwrap_or(2048)
-                },
-                None,
-            )
-            .unwrap();
-
-        self.mongodb
-            .database(&config.uuid.clone().unwrap())
-            .create_collection("logs", None)
-            .unwrap();
-
-        self.mongodb
-            .database(&config.uuid.clone().unwrap())
-            .collection::<Log>("logs")
-            .create_index(
-                IndexModel::builder()
-                    .keys(doc! {
-                        "time": -1
-                    })
-                    .build(),
-                None,
-            )
-            .unwrap();
+        // create the config file
+        let mut config_file = File::create(path_to_instance.join(".lodestone_config"))
+            .map_err(|_| "failed to create config file".to_string())?;
+        // serialize the config and write it to the file
+        let config_string = to_string_pretty(&config).unwrap();
+        config_file
+            .write_all(config_string.as_bytes())
+            .map_err(|_| "failed to write to config file".to_string())?;
+        
 
         Ok(config.uuid.unwrap())
     }
@@ -211,7 +175,6 @@ impl InstanceManager {
         {
             Status::Stopped => {
                 let name = self.instance_collection.get(uuid).unwrap().get_name();
-                self.mongodb.database(uuid).drop(None).unwrap();
                 fs::remove_dir_all(format!("instances/{}", name)).map_err(|e| e.to_string())?;
 
                 self.taken_ports
@@ -273,7 +236,7 @@ impl InstanceManager {
             .instance_collection
             .get_mut(uuid)
             .ok_or("instance cannot be started as it does not exist".to_string())?;
-        instance.start(self.mongodb.clone())
+        instance.start()
     }
 
     pub fn stop_instance(&mut self, uuid: &String) -> Result<(), String> {
