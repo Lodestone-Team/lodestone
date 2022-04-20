@@ -33,18 +33,17 @@ pub enum PlayerEventVarient {
 }
 
 pub struct EventProcessor {
-    on_server_message: Vec<Box<dyn Fn(ServerMessage) + Send>>,
-
-    on_player_event: Vec<Box<dyn Fn(PlayerEvent) + Send>>,
-    on_player_joined: Vec<Box<dyn Fn(String) + Send>>,
-    on_player_left: Vec<Box<dyn Fn(String) + Send>>,
-    on_chat: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_player_died: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_player_illegal_moved: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_player_advancement: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_server_startup: Vec<Box<dyn Fn() + Send>>,
-    on_server_shutdown: Vec<Box<dyn Fn() + Send>>,
-    on_custom_event: Vec<Box<dyn Fn(String) + Send>>,
+    pub on_server_message: Vec<Box<dyn Fn(ServerMessage) + Send>>,
+    pub on_player_event: Vec<Box<dyn Fn(PlayerEvent) + Send>>,
+    pub on_player_joined: Vec<Box<dyn Fn(String) + Send>>,
+    pub on_player_left: Vec<Box<dyn Fn(String) + Send>>,
+    pub on_chat: Vec<Box<dyn Fn(String, String) + Send>>,
+    pub on_player_died: Vec<Box<dyn Fn(String, String) + Send>>,
+    pub on_player_illegal_moved: Vec<Box<dyn Fn(String, String) + Send>>,
+    pub on_player_advancement: Vec<Box<dyn Fn(String, String) + Send>>,
+    pub on_server_startup: Vec<Box<dyn Fn() + Send>>,
+    pub on_server_shutdown: Vec<Box<dyn Fn() + Send>>,
+    pub on_custom_event: Vec<Box<dyn Fn(String) + Send>>,
 }
 
 impl EventProcessor {
