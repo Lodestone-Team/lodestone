@@ -121,22 +121,19 @@ impl InstanceManager {
             path_to_properties.clone(),
         )
         .unwrap();
-        match config.port {
-            None => {
-                for port in 25565..26000 {
-                    if !self.taken_ports.contains(&port) {
-                        self.taken_ports.insert(port);
-                        println!("using port {}", port);
-                        let mut pm = PropertiesManager::new(path_to_properties).unwrap();
-                        pm.edit_field(&"server-port".to_string(), port.to_string())
-                            .unwrap();
-                        pm.write_to_file().unwrap();
-                        config.port = Some(port);
-                        break;
-                    }
+        if let None = config.port {
+            for port in 25565..26000 {
+                if !self.taken_ports.contains(&port) {
+                    self.taken_ports.insert(port);
+                    println!("using port {}", port);
+                    let mut pm = PropertiesManager::new(path_to_properties).unwrap();
+                    pm.edit_field(&"server-port".to_string(), port.to_string())
+                        .unwrap();
+                    pm.write_to_file().unwrap();
+                    config.port = Some(port);
+                    break;
                 }
             }
-            Some(_) => (),
         }
         let instance = ServerInstance::new(&config, path_to_instance.clone());
         self.instance_collection
