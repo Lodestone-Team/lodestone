@@ -342,15 +342,15 @@ mod macro_code {
         path::PathBuf,
         process::ChildStdin,
         sync::{
-            mpsc::{self, Sender},
-            Arc, Mutex, MutexGuard,
+            mpsc::{self},
+            Arc, Mutex,
         },
         thread, time,
     };
 
     use regex::Regex;
 
-    use rlua::{Error, Lua, MultiValue};
+    use rlua::{Error, Function, Lua, MultiValue};
 
     use crate::event_processor::EventProcessor;
 
@@ -416,6 +416,26 @@ mod macro_code {
                 })
                 .unwrap();
             lua_ctx.globals().set("delay_sec", delay_sec);
+
+            let event_processor_clone = event_processor.clone();
+            let await_msg = lua_ctx
+                .create_function(move |lua_ctx, ()| {
+                    let (tx, rx) = mpsc::channel();
+                    let index = event_processor_clone.lock().unwrap().on_chat.len();
+                    event_processor_clone.lock().unwrap().on_chat.push(Box::new(
+                        move |player, player_msg| {
+                            tx.send((player, player_msg)).unwrap();
+                        },
+                    ));
+                    println!("awaiting message");
+                    let (player, player_msg) = rx.recv().unwrap();
+                    println!("got message from {}: {}", player, player_msg);
+                    // remove the callback
+                    event_processor_clone.lock().unwrap().on_chat.remove(index);
+                    Ok((player, player_msg))
+                })
+                .unwrap();
+            lua_ctx.globals().set("await_msg", await_msg);
             let delay_milli = lua_ctx
                 .create_function(|_, time: u64| {
                     thread::sleep(std::time::Duration::from_millis(time));
@@ -426,6 +446,7 @@ mod macro_code {
 
             let send_stdin = lua_ctx
                 .create_function(move |ctx, line: String| {
+                    // println!("sending {}", line);
                     let reg = Regex::new(r"\$\{(\w*)\}").unwrap();
                     let globals = ctx.globals();
                     let mut after = line.clone();
@@ -455,6 +476,17 @@ mod macro_code {
                 })
                 .unwrap();
             lua_ctx.globals().set("sendStdin", send_stdin);
+
+            lua_ctx.globals().set(
+                "isBadWord",
+                lua_ctx
+                    .create_function(|_, word: String| {
+                        use censor::*;
+                        let censor  = Standard  + "lambda";
+                        Ok((censor.check(word.as_str()),))
+                    })
+                    .unwrap(),
+            );
 
             match lua_ctx.load(&program).eval::<MultiValue>() {
                 Ok(value) => {
