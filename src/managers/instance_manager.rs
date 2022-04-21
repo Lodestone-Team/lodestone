@@ -267,6 +267,10 @@ impl InstanceManager {
         }
         Err("instance does not exist".to_string())
     }
+
+    pub fn get_path(&self) -> &PathBuf {
+        &self.path
+    }
 }
 pub mod resource_management {
     use std::fs::{self, create_dir_all};

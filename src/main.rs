@@ -257,6 +257,8 @@ async fn main() {
                 instance::list_resource,
                 instance::load_resource,
                 instance::unload_resource,
+                instance::upload_file,
+                instance::download_file,
                 jar::vanilla_versions,
                 jar::vanilla_jar,
                 jar::vanilla_filters,

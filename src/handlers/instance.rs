@@ -1,6 +1,11 @@
+use std::path::Path;
+use std::{fs};
+
 use rocket::http::Status;
-use rocket::response::content;
+use rocket::response::{content};
+use rocket::tokio::fs::File;
 use rocket::{State};
+use rocket::data::{Data, ToByteUnit};
 use rocket::serde::json::{json, Json, Value};
 use crate::MyManagedState;
 use crate::managers::server_instance::InstanceConfig;
@@ -154,4 +159,33 @@ pub async fn unload_resource(uuid: String, resource_type: ResourceType, resource
         },
     }
 
+}
+
+#[post("/files/<filename>", data = "<file>")]
+pub async fn upload_file(filename: String, file: Data<'_>, state: &State<MyManagedState>) -> (Status, content::Json<String>){
+    println!("test");
+    let mut path_to_files = state.instance_manager.lock().await.get_path().join("files");
+    fs::create_dir_all(path_to_files.as_path()).map_err(|e| e.to_string());
+    path_to_files.push(&filename);
+    match file.open(i64::from(512).kibibytes()).into_file(path_to_files.as_path()).await {
+        Ok(_) => {
+            (Status::Ok, content::Json(filename))
+        },
+        Err(reason) => {
+            (Status::InternalServerError, content::Json(reason.to_string()))
+        }
+    }
+}
+
+#[get("/files")]
+pub async fn download_file(state: &State<MyManagedState>) -> Result<File, content::Json<String>> {
+    let path_of_file = state.instance_manager.lock().await.get_path().join("files/NOTICE");
+    match File::open(path_of_file.as_path()).await {
+        Ok(file) => {
+            Ok(file)
+        },
+        Err(_) => {
+            Err(content::Json("something went wrong".to_string()))
+        }
+    }
 }
