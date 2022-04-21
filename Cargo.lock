@@ -6,6 +6,7 @@ version = 3
 name = "Lodestone"
 version = "0.1.0"
 dependencies = [
+ "censor",
  "chashmap",
  "downloader",
  "fs_extra",
@@ -156,6 +157,15 @@ name = "cc"
 version = "1.0.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22a9137b95ea06864e018375b72adfb7db6e6f68cfc8df5a04d00288050485ee"
+
+[[package]]
+name = "censor"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5563d2728feef9a6186acdd148bccbe850dad63c5ba55a3b3355abc9137cb3eb"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "cfg-if"
