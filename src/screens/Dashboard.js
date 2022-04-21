@@ -55,6 +55,39 @@ export default function Dashboard() {
     }
   }, [user, loading]);
 
+  /* File upload demo */
+  const [file, setFile] = useState();
+  const onFileChange = (event) => {
+    setFile(event.target.files[0]);
+  }
+  const onSubmitFile = () => {
+    const formData = new FormData();
+    formData.append("File", file)
+    fetch(`http://localhost:8000/api/v1/files/${file.name}`, {
+      method: "POST",
+      body: formData,
+    })
+      .then((res) => res.json())
+      .then((result) => {
+        console.log(result);
+      })
+      .catch((error) => {
+      console.log(error);
+    });
+  }
+  const onDownloadFile = () => {
+    fetch(`http://localhost:8000/api/v1/files`, {
+      method: "GET",
+    }).then((res) => res.blob())
+      .then((blob) => {
+        let url = window.URL.createObjectURL(blob);
+        let a = document.createElement('a');
+        a.href = url;
+        a.download = 'file';
+        a.click();
+      });
+  }
+
   return (
     <div className="dashboard-wrapper">
       <ClientContext.Provider value={clientContext}>
@@ -64,6 +97,12 @@ export default function Dashboard() {
           <SystemMonitor />
         </div>
       </ClientContext.Provider>
+      <div className="file-upload">
+        <input type="file" id="file-upload" name="filename" onChange={onFileChange}/>
+        <button onClick={onSubmitFile}>submit</button>
+        <button onClick={onDownloadFile}>download</button>
+
+      </div>
       <div className="sidebar">
         {/* crude server context setting */}
         <h3>Temporary Settings</h3>
