@@ -8,7 +8,7 @@ import SystemMonitor from "../components/SystemMonitor";
 import Login from "../components/Login";
 import Register from "../components/Register";
 import { auth, db, logout } from "../firebase";
-import { query, collection, getDocs, where } from "firebase/firestore";
+import { query, collection, getDoc, where, doc} from "firebase/firestore";
 import { useAuthState } from "react-firebase-hooks/auth";
 import Reset from "../components/Reset";
 
@@ -37,9 +37,9 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchUserName = async () => {
       try {
-        const q = query(collection(db, "users"), where("uid", "==", user?.uid));
-        const doc = await getDocs(q);
-        const data = doc.docs[0].data();
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        const data = userSnap.data();
         setName(data.name);
       } catch (err) {
         console.error(err);

@@ -12,9 +12,12 @@ import {
   getFirestore,
   query,
   getDocs,
+  getDoc,
   collection,
+  doc,
   where,
   addDoc,
+  setDoc,
 } from "firebase/firestore";
 const firebaseConfig = {
   apiKey: "AIzaSyBODDeIiJCLJBVQaWhkUVJLxBGhjrHM5Gc",
@@ -33,10 +36,10 @@ const signInWithGoogle = async () => {
   try {
     const res = await signInWithPopup(auth, googleProvider);
     const user = res.user;
-    const q = query(collection(db, "users"), where("uid", "==", user.uid));
-    const docs = await getDocs(q);
-    if (docs.docs.length === 0) {
-      await addDoc(collection(db, "users"), {
+    // check if the document of the same uid exists
+    const userRef = doc(db, "users", user.uid);
+    if (!(await getDoc(userRef)).exists()) {
+      await setDoc(userRef, {
         uid: user.uid,
         name: user.displayName,
         authProvider: "google",
@@ -60,11 +63,12 @@ const registerWithEmailAndPassword = async (name, email, password) => {
   try {
     const res = await createUserWithEmailAndPassword(auth, email, password);
     const user = res.user;
-    await addDoc(collection(db, "users"), {
+    const userRef = doc(db, "users", user.uid);
+    await setDoc(userRef, {
       uid: user.uid,
-      name,
+      name: name,
       authProvider: "local",
-      email,
+      email: email,
     });
   } catch (err) {
     console.error(err);
