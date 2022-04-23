@@ -25,6 +25,8 @@ pub struct InstanceConfig {
     pub uuid: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
+    // pub auto_start: bool,
+    // pub restart_on_crash: bool,
 }
 #[derive(Debug, Clone, Copy)]
 pub enum Flavour {
@@ -91,6 +93,7 @@ pub enum Status {
     Stopping,
     Running,
     Stopped,
+    Error,
 }
 
 impl fmt::Display for Status {
@@ -100,6 +103,7 @@ impl fmt::Display for Status {
             Status::Stopping => write!(f, "Stopping"),
             Status::Running => write!(f, "Running"),
             Status::Stopped => write!(f, "Stopped"),
+            Status::Error => write!(f, "Error"),
         }
     }
 }
@@ -112,9 +116,9 @@ pub struct ServerInstance {
     port: u32,
     pub stdin: Option<Arc<Mutex<ChildStdin>>>,
     status: Arc<Mutex<Status>>,
-    kill_tx: Option<Sender<()>>,
     process: Arc<Mutex<Option<Child>>>,
     player_online: Arc<Mutex<Vec<String>>>,
+    pub event_processor : Arc<Mutex<EventProcessor>>,
     // used to reconstruct the server instance from the database
     instance_config: InstanceConfig,
 }
@@ -144,84 +148,95 @@ impl ServerInstance {
             process: Arc::new(Mutex::new(None)),
             path,
             port: config.port.expect("no port provided"),
-            kill_tx: None,
             uuid: config.uuid.as_ref().unwrap().clone(),
             player_online: Arc::new(Mutex::new(vec![])),
+            event_processor : Arc::new(Mutex::new(EventProcessor::new())),
+
             instance_config: config.clone(),
         }
     }
 
     pub fn start(&mut self) -> Result<(), String> {
-        let mut status = self.status.lock().unwrap();
+        let status = self.status.lock().unwrap().clone();
+        println!("wtf");
         env::set_current_dir(&self.path).unwrap();
-        match *status {
+        match status {
             Status::Starting => {
                 return Err("cannot start, instance is already starting".to_string())
             }
             Status::Stopping => return Err("cannot start, instance is stopping".to_string()),
             Status::Running => return Err("cannot start, instance is already running".to_string()),
-            Status::Stopped => (),
+            _ => (),
         }
         Command::new("bash")
             .arg(&self.path.join("prelaunch.sh"))
             .output()
             .map_err(|e| println!("{}", e.to_string()));
-        *status = Status::Starting;
+        *self.status.lock().unwrap() = Status::Starting;
+        println!("debug");
         let mut command = Command::new("java");
         command
             .args(&self.jvm_args)
             .stdout(Stdio::piped())
             .stdin(Stdio::piped());
         match command.spawn() {
-            Ok(proc) => {
+            Ok(mut proc) => {
+
                 env::set_current_dir("../..").unwrap();
-                let stdin = proc.stdin.ok_or("failed to open stdin of child process")?;
+                let stdin = proc.stdin.take().ok_or("failed to open stdin of child process")?;
                 let stdin = Arc::new(Mutex::new(stdin));
-                let event_processor = Arc::new(Mutex::new(EventProcessor::new()));
                 self.stdin = Some(stdin.clone());
                 let stdout = proc
-                    .stdout
+                    .stdout.take()
                     .ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
                 let path_closure = self.path.clone();
 
                 let players_closure = self.player_online.clone();
-                let uuid_closure = self.uuid.clone();
-                let event_processor_closure = event_processor.clone();
+                let event_processor_closure = self.event_processor.clone();
                 let status_closure = self.status.clone();
-
+                let uuid_closure = self.uuid.clone();
                 thread::spawn(move || {
                     for line_result in reader.lines() {
                         let line = line_result.unwrap();
                         println!("server said: {}", line);
                         event_processor_closure.lock().unwrap().process(&line);
                     }
-                    event_processor_closure
-                        .lock()
-                        .unwrap()
-                        .notify_server_shutdown();
-                    let mut status = status_closure.lock().unwrap();
+                   
+                    let status = status_closure.lock().unwrap().clone();
                     players_closure.lock().unwrap().clear();
                     println!("program exiting as reader thread is terminating...");
-                    match *status {
-                        Status::Starting => println!("instance failed to start"),
-                        Status::Stopping => println!("instance stopped properly"),
-                        Status::Running => println!("instance exited unexpectedly, restarting..."), //TODO: Restart thru localhost
-                        Status::Stopped => println!("instance already stopped"),
+                    match status {
+                        Status::Stopping => {
+                            *status_closure.lock().unwrap() = Status::Stopped;
+                            println!("instance stopped properly")
+                        },
+                        Status::Error => println!("instance is already in error state"),
+                        _ => {
+                            *status_closure.lock().unwrap() = Status::Stopped;
+                            // make a post request to localhost
+                            let client = reqwest::blocking::Client::new();
+                            client.post(format!("http://localhost:8001/api/v1/instance/{}/start", uuid_closure))
+                                .send().unwrap();
+                            
+                        }
                     }
-                    *status = Status::Stopped;
+                    event_processor_closure
+                    .lock()
+                    .unwrap()
+                    .notify_server_shutdown();
+
                 });
 
                 let status_closure = self.status.clone();
-                event_processor
+                self.event_processor
                     .lock()
                     .unwrap()
                     .on_server_startup(Box::new(move || {
                         *status_closure.lock().unwrap() = Status::Running;
                     }));
-                let uuid_closure = self.uuid.clone();
                 let players_closure = self.player_online.clone();
-                event_processor
+                self.event_processor
                     .lock()
                     .unwrap()
                     .on_player_joined(Box::new(move |player| {
@@ -229,18 +244,18 @@ impl ServerInstance {
                     }));
 
                 let players_closure = self.player_online.clone();
-                event_processor
+                self.event_processor
                     .lock()
                     .unwrap()
                     .on_player_left(Box::new(move |player| {
                         // remove player from players_closur
                         players_closure.lock().unwrap().retain(|p| p != &player);
                     }));
-                let event_processor_closure = event_processor.clone();
-                event_processor
+                let event_processor_closure = self.event_processor.clone();
+                self.event_processor
                     .lock()
                     .unwrap()
-                    .on_chat(Box::new(move |player, msg| {
+                    .on_chat(Box::new(move |_, msg| {
                         let a = stdin.clone();
                         let event_processor_closure = event_processor_closure.clone();
                         let path_closure = path_closure.clone();
@@ -259,23 +274,55 @@ impl ServerInstance {
                             );
                         });
                     }));
+                let status_closure = self.status.clone();
+                let players_closure = self.player_online.clone();
+                // self.event_processor
+                //     .lock()
+                //     .unwrap()
+                //     .on_player_send_command(Box::new(move |_, cmd| {
+                //         if cmd.contains("Stopping the server") {
+                //             let mut status = status_closure.lock().unwrap();
+                //             players_closure.lock().unwrap().clear();
+                //             *status = Status::Stopping;
+                //         }
+                //     }));
+                self.process = Arc::new(Mutex::new(Some(proc)));
 
                 return Ok(());
             }
             Err(_) => {
-                *status = Status::Stopped;
+                *self.status.lock().unwrap() = Status::Stopped;
                 env::set_current_dir("../..").unwrap();
                 return Err("failed to open child process".to_string());
             }
         };
     }
+
+    // invokes the stopping procedure without actually sending stop command to server
+    // mainly used for when a player sends a stop command
+    // fn invoke_stop(server_instance : &mut Arc<Mutex<ServerInstance>>) -> Result<(), String> {
+    //     let lock = server_instance.lock().unwrap();
+    //     let mut status = lock.status.lock().unwrap();
+    //     match *status {
+    //         Status::Starting => return Err("cannot stop, instance is starting".to_string()),
+    //         Status::Stopping => return Err("cannot stop, instance is already stopping".to_string()),
+    //         Status::Stopped => return Err("cannot stop, instance is already stopped".to_string()),
+    //         Status::Running => println!("stopping instance"),
+    //     }
+    //     *status = Status::Stopping;
+    //     server_instance.lock().unwrap().player_online.lock().unwrap().clear();
+    //     Ok(())
+    // }
+
     pub fn stop(&mut self) -> Result<(), String> {
+        println!("stop called");
         let mut status = self.status.lock().unwrap();
         match *status {
             Status::Starting => return Err("cannot stop, instance is starting".to_string()),
             Status::Stopping => return Err("cannot stop, instance is already stopping".to_string()),
             Status::Stopped => return Err("cannot stop, instance is already stopped".to_string()),
             Status::Running => println!("stopping instance"),
+            Status::Error => println!("instance is in error state"),
         }
         *status = Status::Stopping;
         self.send_stdin("stop".to_string())?;
@@ -482,7 +529,7 @@ mod macro_code {
                 lua_ctx
                     .create_function(|_, word: String| {
                         use censor::*;
-                        let censor  = Standard  + "lambda";
+                        let censor = Standard + "lambda";
                         Ok((censor.check(word.as_str()),))
                     })
                     .unwrap(),
