@@ -46,7 +46,11 @@ impl InstanceManager {
                     let mut config_file_contents = String::new();
                     config_file.read_to_string(&mut config_file_contents).unwrap();
                     let instance_config : InstanceConfig = from_str(str::replace(&config_file_contents, "\r\n", "\n").as_str()).unwrap();
-                    instance_collection.insert(instance_config.uuid.clone().unwrap(), ServerInstance::new(&instance_config, path.join("instances").join(instance_config.name.clone())));
+                    let mut server_instance = ServerInstance::new(&instance_config, path.join("instances").join(instance_config.name.clone()));
+                    if let Some(true) = instance_config.auto_start {
+                        server_instance.start();
+                    }
+                    instance_collection.insert(instance_config.uuid.clone().unwrap(), server_instance);
                     taken_ports.insert(instance_config.port.unwrap());
                 }
             }

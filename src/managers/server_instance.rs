@@ -25,8 +25,8 @@ pub struct InstanceConfig {
     pub uuid: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
-    // pub auto_start: bool,
-    // pub restart_on_crash: bool,
+    pub auto_start: Option<bool>,
+    pub restart_on_crash: Option<bool>,
 }
 #[derive(Debug, Clone, Copy)]
 pub enum Flavour {
@@ -87,7 +87,7 @@ impl ToString for Flavour {
 //     }
 // }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Status {
     Starting,
     Stopping,
@@ -118,7 +118,7 @@ pub struct ServerInstance {
     status: Arc<Mutex<Status>>,
     process: Arc<Mutex<Option<Child>>>,
     player_online: Arc<Mutex<Vec<String>>>,
-    pub event_processor : Arc<Mutex<EventProcessor>>,
+    pub event_processor: Arc<Mutex<EventProcessor>>,
     // used to reconstruct the server instance from the database
     instance_config: InstanceConfig,
 }
@@ -150,7 +150,7 @@ impl ServerInstance {
             port: config.port.expect("no port provided"),
             uuid: config.uuid.as_ref().unwrap().clone(),
             player_online: Arc::new(Mutex::new(vec![])),
-            event_processor : Arc::new(Mutex::new(EventProcessor::new())),
+            event_processor: Arc::new(Mutex::new(EventProcessor::new())),
 
             instance_config: config.clone(),
         }
@@ -181,13 +181,16 @@ impl ServerInstance {
             .stdin(Stdio::piped());
         match command.spawn() {
             Ok(mut proc) => {
-
                 env::set_current_dir("../..").unwrap();
-                let stdin = proc.stdin.take().ok_or("failed to open stdin of child process")?;
+                let stdin = proc
+                    .stdin
+                    .take()
+                    .ok_or("failed to open stdin of child process")?;
                 let stdin = Arc::new(Mutex::new(stdin));
                 self.stdin = Some(stdin.clone());
                 let stdout = proc
-                    .stdout.take()
+                    .stdout
+                    .take()
                     .ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
                 let path_closure = self.path.clone();
@@ -196,13 +199,14 @@ impl ServerInstance {
                 let event_processor_closure = self.event_processor.clone();
                 let status_closure = self.status.clone();
                 let uuid_closure = self.uuid.clone();
+                let restart_on_crash = self.instance_config.restart_on_crash;
                 thread::spawn(move || {
                     for line_result in reader.lines() {
                         let line = line_result.unwrap();
                         println!("server said: {}", line);
                         event_processor_closure.lock().unwrap().process(&line);
                     }
-                   
+
                     let status = status_closure.lock().unwrap().clone();
                     players_closure.lock().unwrap().clear();
                     println!("program exiting as reader thread is terminating...");
@@ -210,22 +214,28 @@ impl ServerInstance {
                         Status::Stopping => {
                             *status_closure.lock().unwrap() = Status::Stopped;
                             println!("instance stopped properly")
-                        },
+                        }
                         Status::Error => println!("instance is already in error state"),
                         _ => {
                             *status_closure.lock().unwrap() = Status::Stopped;
-                            // make a post request to localhost
-                            let client = reqwest::blocking::Client::new();
-                            client.post(format!("http://localhost:8001/api/v1/instance/{}/start", uuid_closure))
-                                .send().unwrap();
-                            
+                            if let Some(true) = restart_on_crash {
+                                println!("restarting instance");
+                                // make a post request to localhost
+                                let client = reqwest::blocking::Client::new();
+                                client
+                                    .post(format!(
+                                        "http://localhost:8001/api/v1/instance/{}/start",
+                                        uuid_closure
+                                    ))
+                                    .send()
+                                    .unwrap();
+                            }
                         }
                     }
                     event_processor_closure
-                    .lock()
-                    .unwrap()
-                    .notify_server_shutdown();
-
+                        .lock()
+                        .unwrap()
+                        .notify_server_shutdown();
                 });
 
                 let status_closure = self.status.clone();
@@ -276,16 +286,16 @@ impl ServerInstance {
                     }));
                 let status_closure = self.status.clone();
                 let players_closure = self.player_online.clone();
-                // self.event_processor
-                //     .lock()
-                //     .unwrap()
-                //     .on_player_send_command(Box::new(move |_, cmd| {
-                //         if cmd.contains("Stopping the server") {
-                //             let mut status = status_closure.lock().unwrap();
-                //             players_closure.lock().unwrap().clear();
-                //             *status = Status::Stopping;
-                //         }
-                //     }));
+                self.event_processor
+                    .lock()
+                    .unwrap()
+                    .on_player_send_command(Box::new(move |_, cmd| {
+                        if cmd.contains("Stopping the server") {
+                            let mut status = status_closure.lock().unwrap();
+                            players_closure.lock().unwrap().clear();
+                            *status = Status::Stopping;
+                        }
+                    }));
                 self.process = Arc::new(Mutex::new(Some(proc)));
 
                 return Ok(());
