@@ -30,6 +30,7 @@ pub enum PlayerEventVarient {
     Died(String),
     IllegalMove(String),
     Advancement(String),
+    Command(String)
 }
 
 pub struct EventProcessor {
@@ -41,6 +42,7 @@ pub struct EventProcessor {
     pub on_player_died: Vec<Box<dyn Fn(String, String) + Send>>,
     pub on_player_illegal_moved: Vec<Box<dyn Fn(String, String) + Send>>,
     pub on_player_advancement: Vec<Box<dyn Fn(String, String) + Send>>,
+    pub on_player_send_command: Vec<Box<dyn Fn(String, String) + Send>>,
     pub on_server_startup: Vec<Box<dyn Fn() + Send>>,
     pub on_server_shutdown: Vec<Box<dyn Fn() + Send>>,
     pub on_custom_event: Vec<Box<dyn Fn(String) + Send>>,
@@ -57,6 +59,7 @@ impl EventProcessor {
             on_player_died: vec![],
             on_player_illegal_moved: vec![],
             on_player_advancement: vec![],
+            on_player_send_command: vec![],
             on_server_startup: vec![],
             on_server_shutdown: vec![],
             on_custom_event: vec![],
@@ -102,6 +105,11 @@ impl EventProcessor {
                             f(player_event.player.clone(), s.clone());
                         }
                     }
+                    PlayerEventVarient::Command(cmd) => {
+                        for f in &self.on_player_send_command {
+                            f(player_event.player.clone(), cmd.clone());
+                        }
+                    },
                 }
             } else {
                 let re = Regex::new(r"Done .+! For help, type").unwrap();
@@ -142,6 +150,7 @@ impl EventProcessor {
     pub fn on_server_startup(&mut self, callback: Box<dyn Fn() + Send>) {
         self.on_server_startup.push(callback);
     }
+    /// triggers ONLY when the subprocess exists, NOT when a shutdown command is sent
     pub fn on_server_shutdown(&mut self, callback: Box<dyn Fn() + Send>) {
         self.on_server_shutdown.push(callback);
     }
@@ -149,6 +158,10 @@ impl EventProcessor {
         for f in &self.on_server_shutdown {
             f();
         }
+    }
+
+    pub fn on_player_send_command(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+        self.on_player_send_command.push(callback);
     }
 
     pub fn on_custom_event(&mut self, callback: Box<dyn Fn(String) + Send>) {
@@ -225,9 +238,14 @@ pub mod parser {
 
     pub fn parse_player_event(s: &String) -> Option<PlayerEvent> {
         let s_vec: Vec<&str> = s.split(" ").collect();
-        // if the first char is [, it is a /say message
+        // if the first char is [, it is a command
         if s.chars().next().unwrap() == '[' {
-            None
+            let re_command = Regex::new(r"\[(\w+): (.+)\]").unwrap();
+            let cap = re_command.captures(s).unwrap();
+            Some(PlayerEvent {
+                event: PlayerEventVarient::Command(cap.get(2).unwrap().as_str().to_string()),
+                player: cap.get(1).unwrap().as_str().to_string(),
+            })
         } else if is_player_message(&s) {
             let re = Regex::new(r"^<(.+)> (.+)").unwrap();
             let cap = re.captures(s.as_str()).unwrap();
