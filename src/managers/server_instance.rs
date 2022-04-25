@@ -1,4 +1,5 @@
 use crate::event_processor::{EventProcessor, PlayerEventVarient};
+use crate::managers::properties_manager;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -9,7 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, thread, time};
 
-use self::macro_code::dispatch_macro;
+// use self::macro_code::dispatch_macro;
+
+use super::macro_manager::MacroManager;
+use super::properties_manager::PropertiesManager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
@@ -93,7 +97,6 @@ pub enum Status {
     Stopping,
     Running,
     Stopped,
-    Error,
 }
 
 impl fmt::Display for Status {
@@ -103,7 +106,6 @@ impl fmt::Display for Status {
             Status::Stopping => write!(f, "Stopping"),
             Status::Running => write!(f, "Running"),
             Status::Stopped => write!(f, "Stopped"),
-            Status::Error => write!(f, "Error"),
         }
     }
 }
@@ -121,6 +123,9 @@ pub struct ServerInstance {
     pub event_processor: Arc<Mutex<EventProcessor>>,
     // used to reconstruct the server instance from the database
     instance_config: InstanceConfig,
+
+    properties_manager: PropertiesManager,
+    macro_manager: Arc<Mutex<MacroManager>>,
 }
 /// Instance specific events,
 /// Ex. Player joining, leaving, dying
@@ -139,6 +144,13 @@ impl ServerInstance {
         jvm_args.push("nogui".to_string());
         println!("jvm_args: {:?}", jvm_args);
 
+        let properties_manager = PropertiesManager::new(path.join("server.properties")).unwrap();
+        let macro_manager = Arc::new(Mutex::new(MacroManager::new(
+            path.join("macros/"),
+            None,
+            None,
+        )));
+
         ServerInstance {
             status: Arc::new(Mutex::new(Status::Stopped)),
             flavour: config.flavour,
@@ -146,13 +158,16 @@ impl ServerInstance {
             stdin: None,
             jvm_args,
             process: Arc::new(Mutex::new(None)),
-            path,
+            path: path.clone(),
             port: config.port.expect("no port provided"),
             uuid: config.uuid.as_ref().unwrap().clone(),
             player_online: Arc::new(Mutex::new(vec![])),
             event_processor: Arc::new(Mutex::new(EventProcessor::new())),
 
             instance_config: config.clone(),
+
+            properties_manager,
+            macro_manager,
         }
     }
 
@@ -195,6 +210,15 @@ impl ServerInstance {
                 let reader = BufReader::new(stdout);
                 let path_closure = self.path.clone();
 
+                self.macro_manager
+                    .lock()
+                    .unwrap()
+                    .set_event_processor(Some(self.event_processor.clone()));
+                self.macro_manager
+                    .lock()
+                    .unwrap()
+                    .set_stdin_sender(Some(stdin.clone()));
+
                 let players_closure = self.player_online.clone();
                 let event_processor_closure = self.event_processor.clone();
                 let status_closure = self.status.clone();
@@ -215,8 +239,7 @@ impl ServerInstance {
                             *status_closure.lock().unwrap() = Status::Stopped;
                             println!("instance stopped properly")
                         }
-                        Status::Error => println!("instance is already in error state"),
-                        _ => {
+                        Status::Running => {
                             *status_closure.lock().unwrap() = Status::Stopped;
                             if let Some(true) = restart_on_crash {
                                 println!("restarting instance");
@@ -231,6 +254,12 @@ impl ServerInstance {
                                     .unwrap();
                             }
                         }
+                        Status::Starting => {
+                            println!("instance crashed while attemping to start");
+                        }
+                        _ => {
+                            println!("this is a really weird bug");
+                        }
                     }
                     event_processor_closure
                         .lock()
@@ -242,14 +271,14 @@ impl ServerInstance {
                 self.event_processor
                     .lock()
                     .unwrap()
-                    .on_server_startup(Box::new(move || {
+                    .on_server_startup(Arc::new(move || {
                         *status_closure.lock().unwrap() = Status::Running;
                     }));
                 let players_closure = self.player_online.clone();
                 self.event_processor
                     .lock()
                     .unwrap()
-                    .on_player_joined(Box::new(move |player| {
+                    .on_player_joined(Arc::new(move |player| {
                         players_closure.lock().unwrap().push(player);
                     }));
 
@@ -257,40 +286,38 @@ impl ServerInstance {
                 self.event_processor
                     .lock()
                     .unwrap()
-                    .on_player_left(Box::new(move |player| {
+                    .on_player_left(Arc::new(move |player| {
                         // remove player from players_closur
                         players_closure.lock().unwrap().retain(|p| p != &player);
                     }));
-                let event_processor_closure = self.event_processor.clone();
+                let macro_manager_closure = self.macro_manager.clone();
+                let stdin_sender = self.stdin.clone();
                 self.event_processor
                     .lock()
                     .unwrap()
-                    .on_chat(Box::new(move |_, msg| {
-                        let a = stdin.clone();
-                        let event_processor_closure = event_processor_closure.clone();
-                        let path_closure = path_closure.clone();
-                        thread::spawn(move || {
-                            dispatch_macro(
-                                &msg,
-                                path_closure
-                                    .clone()
-                                    .parent()
-                                    .unwrap()
-                                    .parent()
-                                    .unwrap()
-                                    .join("macros/"),
-                                a,
-                                event_processor_closure.clone(),
-                            );
-                        });
+                    .on_chat(Arc::new(move |_, msg| {
+                        // check if msg start with .macro
+                        if msg.starts_with(".macro") {
+                            let mut args = msg.split_whitespace();
+                            // if there is a second argument
+                            if let Some(macro_name) = args.nth(1) {
+                                // collect the args into a vec<String>
+                                let args = args.collect::<Vec<&str>>();
+                                macro_manager_closure.lock().unwrap().run(macro_name, args).unwrap();
+                            } else {
+
+                                stdin_sender.as_ref().unwrap().lock().unwrap().write_all(b"say Usage: .macro [file] [args..]\n").unwrap();
+                            }
+                            
+                        }
                     }));
                 let status_closure = self.status.clone();
                 let players_closure = self.player_online.clone();
                 self.event_processor
                     .lock()
                     .unwrap()
-                    .on_player_send_command(Box::new(move |_, cmd| {
-                        if cmd.contains("Stopping the server") {
+                    .on_server_message(Arc::new(move |msg| {
+                        if msg.message.contains("Stopping server") {
                             let mut status = status_closure.lock().unwrap();
                             players_closure.lock().unwrap().clear();
                             *status = Status::Stopping;
@@ -332,7 +359,6 @@ impl ServerInstance {
             Status::Stopping => return Err("cannot stop, instance is already stopping".to_string()),
             Status::Stopped => return Err("cannot stop, instance is already stopped".to_string()),
             Status::Running => println!("stopping instance"),
-            Status::Error => println!("instance is in error state"),
         }
         *status = Status::Stopping;
         self.send_stdin("stop".to_string())?;
@@ -391,179 +417,178 @@ impl ServerInstance {
         &self.instance_config
     }
 }
-mod macro_code {
-    use std::{
-        collections::HashMap,
-        fs::File,
-        io::{self, BufRead, Write},
-        path::PathBuf,
-        process::ChildStdin,
-        sync::{
-            mpsc::{self},
-            Arc, Mutex,
-        },
-        thread, time,
-    };
+// mod macro_code {
+//     use std::{
+//         collections::HashMap,
+//         fs::File,
+//         io::{self, BufRead, Write},
+//         path::PathBuf,
+//         process::ChildStdin,
+//         sync::{
+//             mpsc::{self},
+//             Arc, Mutex,
+//         },
+//         thread, time,
+//     };
 
-    use regex::Regex;
+//     use regex::Regex;
 
-    use rlua::{Error, Function, Lua, MultiValue};
+//     use rlua::{Error, Function, Lua, MultiValue};
 
-    use crate::event_processor::EventProcessor;
+//     use crate::event_processor::EventProcessor;
 
-    pub fn dispatch_macro(
-        line: &String,
-        path: PathBuf,
-        stdin_sender: Arc<Mutex<ChildStdin>>,
-        event_processor: Arc<Mutex<EventProcessor>>,
-    ) {
-        let iterator = line.split_whitespace();
-        let mut iter = 0;
-        let mut path_to_macro = path.clone();
-        let mut args = vec![];
-        for token in iterator.clone() {
-            if iter == 0 {
-                if token != ".macro" {
-                    return;
-                }
-            } else if iter == 1 {
-                path_to_macro.push(token);
-                path_to_macro.set_extension("lua");
-                println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
-                if !path_to_macro.exists() {
-                    stdin_sender
-                        .lock()
-                        .as_mut()
-                        .unwrap()
-                        .write_all(format!("/say macro {} does no exist\n", token).as_bytes());
-                    return;
-                }
-            } else {
-                println!("arg: {}", token);
-                args.push(token.to_string());
-            }
-            iter = iter + 1;
-        }
-        if iter == 1 {
-            stdin_sender
-                .lock()
-                .as_mut()
-                .unwrap()
-                .write_all("say Usage: .macro [macro file] args..\n".as_bytes());
-            return;
-        }
+//     pub fn dispatch_macro(
+//         line: &String,
+//         path: PathBuf,
+//         stdin_sender: Arc<Mutex<ChildStdin>>,
+//         event_processor: Arc<Mutex<EventProcessor>>,
+//     ) {
+//         let iterator = line.split_whitespace();
+//         let mut iter = 0;
+//         let mut path_to_macro = path.clone();
+//         let mut args = vec![];
+//         for token in iterator.clone() {
+//             if iter == 0 {
+//                 if token != ".macro" {
+//                     return;
+//                 }
+//             } else if iter == 1 {
+//                 path_to_macro.push(token);
+//                 path_to_macro.set_extension("lua");
+//                 println!("path_to_macro: {}", path_to_macro.to_str().unwrap());
+//                 if !path_to_macro.exists() {
+//                     stdin_sender
+//                         .lock()
+//                         .as_mut()
+//                         .unwrap()
+//                         .write_all(format!("/say macro {} does no exist\n", token).as_bytes());
+//                     return;
+//                 }
+//             } else {
+//                 println!("arg: {}", token);
+//                 args.push(token.to_string());
+//             }
+//             iter = iter + 1;
+//         }
+//         if iter == 1 {
+//             stdin_sender
+//                 .lock()
+//                 .as_mut()
+//                 .unwrap()
+//                 .write_all("say Usage: .macro [macro file] args..\n".as_bytes());
+//             return;
+//         }
 
-        let mut program: String = String::new();
+//         let mut program: String = String::new();
 
-        for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
-            program.push_str(format!("{}\n", line_result.unwrap()).as_str());
-        }
+//         for line_result in io::BufReader::new(File::open(path_to_macro).unwrap()).lines() {
+//             program.push_str(format!("{}\n", line_result.unwrap()).as_str());
+//         }
 
-        Lua::new().context(move |lua_ctx| {
-            for (pos, arg) in args.iter().enumerate() {
-                println!("setting {} to {}", format!("arg{}", pos + 1), arg);
-                lua_ctx
-                    .globals()
-                    .set(format!("arg{}", pos + 1), arg.clone());
-            }
-            let delay_sec = lua_ctx
-                .create_function(|_, time: u64| {
-                    thread::sleep(std::time::Duration::from_secs(time));
-                    Ok(())
-                })
-                .unwrap();
-            lua_ctx.globals().set("delay_sec", delay_sec);
+//         Lua::new().context(move |lua_ctx| {
+//             for (pos, arg) in args.iter().enumerate() {
+//                 println!("setting {} to {}", format!("arg{}", pos + 1), arg);
+//                 lua_ctx
+//                     .globals()
+//                     .set(format!("arg{}", pos + 1), arg.clone());
+//             }
+//             let delay_sec = lua_ctx
+//                 .create_function(|_, time: u64| {
+//                     thread::sleep(std::time::Duration::from_secs(time));
+//                     Ok(())
+//                 })
+//                 .unwrap();
+//             lua_ctx.globals().set("delay_sec", delay_sec);
 
-            let event_processor_clone = event_processor.clone();
-            let await_msg = lua_ctx
-                .create_function(move |lua_ctx, ()| {
-                    let (tx, rx) = mpsc::channel();
-                    let index = event_processor_clone.lock().unwrap().on_chat.len();
-                    event_processor_clone.lock().unwrap().on_chat.push(Box::new(
-                        move |player, player_msg| {
-                            tx.send((player, player_msg)).unwrap();
-                        },
-                    ));
-                    println!("awaiting message");
-                    let (player, player_msg) = rx.recv().unwrap();
-                    println!("got message from {}: {}", player, player_msg);
-                    // remove the callback
-                    event_processor_clone.lock().unwrap().on_chat.remove(index);
-                    Ok((player, player_msg))
-                })
-                .unwrap();
-            lua_ctx.globals().set("await_msg", await_msg);
-            let delay_milli = lua_ctx
-                .create_function(|_, time: u64| {
-                    thread::sleep(std::time::Duration::from_millis(time));
-                    Ok(())
-                })
-                .unwrap();
-            lua_ctx.globals().set("delay_milli", delay_milli);
+//             let event_processor_clone = event_processor.clone();
+//             let await_msg = lua_ctx
+//                 .create_function(move |lua_ctx, ()| {
+//                     let (tx, rx) = mpsc::channel();
+//                     let index = event_processor_clone.lock().unwrap().on_chat.len();
+//                     event_processor_clone.lock().unwrap().on_chat.push(Box::new(
+//                         move |player, player_msg| {
+//                             tx.send((player, player_msg)).unwrap();
+//                         },
+//                     ));
+//                     println!("awaiting message");
+//                     let (player, player_msg) = rx.recv().unwrap();
+//                     println!("got message from {}: {}", player, player_msg);
+//                     // remove the callback
+//                     event_processor_clone.lock().unwrap().on_chat.remove(index);
+//                     Ok((player, player_msg))
+//                 })
+//                 .unwrap();
+//             lua_ctx.globals().set("await_msg", await_msg);
+//             let delay_milli = lua_ctx
+//                 .create_function(|_, time: u64| {
+//                     thread::sleep(std::time::Duration::from_millis(time));
+//                     Ok(())
+//                 })
+//                 .unwrap();
+//             lua_ctx.globals().set("delay_milli", delay_milli);
+//             let send_stdin = lua_ctx
+//                 .create_function(move |ctx, line: String| {
+//                     // println!("sending {}", line);
+//                     let reg = Regex::new(r"\$\{(\w*)\}").unwrap();
+//                     let globals = ctx.globals();
+//                     let mut after = line.clone();
+//                     if reg.is_match(&line) {
+//                         for cap in reg.captures_iter(&line) {
+//                             println!("cap1: {}", cap.get(1).unwrap().as_str());
+//                             after = after.replace(
+//                                 format!("${{{}}}", &cap[1]).as_str(),
+//                                 &globals.get::<_, String>(cap[1].to_string()).unwrap(),
+//                             );
+//                             println!("after: {}", after);
+//                         }
 
-            let send_stdin = lua_ctx
-                .create_function(move |ctx, line: String| {
-                    // println!("sending {}", line);
-                    let reg = Regex::new(r"\$\{(\w*)\}").unwrap();
-                    let globals = ctx.globals();
-                    let mut after = line.clone();
-                    if reg.is_match(&line) {
-                        for cap in reg.captures_iter(&line) {
-                            println!("cap1: {}", cap.get(1).unwrap().as_str());
-                            after = after.replace(
-                                format!("${{{}}}", &cap[1]).as_str(),
-                                &globals.get::<_, String>(cap[1].to_string()).unwrap(),
-                            );
-                            println!("after: {}", after);
-                        }
+//                         stdin_sender
+//                             .lock()
+//                             .as_mut()
+//                             .unwrap()
+//                             .write_all(format!("{}\n", after).as_bytes());
+//                     } else {
+//                         stdin_sender
+//                             .lock()
+//                             .unwrap()
+//                             .write_all(format!("{}\n", line).as_bytes());
+//                     }
 
-                        stdin_sender
-                            .lock()
-                            .as_mut()
-                            .unwrap()
-                            .write_all(format!("{}\n", after).as_bytes());
-                    } else {
-                        stdin_sender
-                            .lock()
-                            .unwrap()
-                            .write_all(format!("{}\n", line).as_bytes());
-                    }
+//                     Ok(())
+//                 })
+//                 .unwrap();
+//             lua_ctx.globals().set("sendStdin", send_stdin);
 
-                    Ok(())
-                })
-                .unwrap();
-            lua_ctx.globals().set("sendStdin", send_stdin);
+//             lua_ctx.globals().set(
+//                 "isBadWord",
+//                 lua_ctx
+//                     .create_function(|_, word: String| {
+//                         use censor::*;
+//                         let censor = Standard + "lambda";
+//                         Ok((censor.check(word.as_str()),))
+//                     })
+//                     .unwrap(),
+//             );
 
-            lua_ctx.globals().set(
-                "isBadWord",
-                lua_ctx
-                    .create_function(|_, word: String| {
-                        use censor::*;
-                        let censor = Standard + "lambda";
-                        Ok((censor.check(word.as_str()),))
-                    })
-                    .unwrap(),
-            );
-
-            match lua_ctx.load(&program).eval::<MultiValue>() {
-                Ok(value) => {
-                    println!(
-                        "{}",
-                        value
-                            .iter()
-                            .map(|value| format!("{:?}", value))
-                            .collect::<Vec<_>>()
-                            .join("\t")
-                    );
-                }
-                // Err(Error::SyntaxError {
-                //     incomplete_input: true,
-                //     ..
-                // }) => {}
-                Err(e) => {
-                    eprintln!("error: {}", e);
-                }
-            }
-        });
-    }
-}
+//             match lua_ctx.load(&program).eval::<MultiValue>() {
+//                 Ok(value) => {
+//                     println!(
+//                         "{}",
+//                         value
+//                             .iter()
+//                             .map(|value| format!("{:?}", value))
+//                             .collect::<Vec<_>>()
+//                             .join("\t")
+//                     );
+//                 }
+//                 // Err(Error::SyntaxError {
+//                 //     incomplete_input: true,
+//                 //     ..
+//                 // }) => {}
+//                 Err(e) => {
+//                     eprintln!("error: {}", e);
+//                 }
+//             }
+//         });
+//     }
+// }
