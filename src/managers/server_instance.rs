@@ -1,7 +1,10 @@
 use crate::event_processor::{EventProcessor, PlayerEventVarient};
 use crate::managers::properties_manager;
+use rocket::serde::json::serde_json;
 use serde::{Deserialize, Serialize};
+use systemstat::Duration;
 use std::env;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -29,8 +32,11 @@ pub struct InstanceConfig {
     pub uuid: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
+    pub creation_time: Option<u64>,
     pub auto_start: Option<bool>,
     pub restart_on_crash: Option<bool>,
+    pub timeout: Option<i32>,
+    pub start_on_connection : Option<bool>,
 }
 #[derive(Debug, Clone, Copy)]
 pub enum Flavour {
@@ -132,6 +138,25 @@ pub struct ServerInstance {
 
 impl ServerInstance {
     pub fn new(config: &InstanceConfig, path: PathBuf) -> ServerInstance {
+        let mut config_override = config.clone();
+        if config.auto_start == None {
+            config_override.auto_start = Some(false);
+        }
+        if config.restart_on_crash == None {
+            config_override.restart_on_crash = Some(false);
+        }
+        if config.creation_time == None {
+            config_override.creation_time = Some(SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs());
+        }
+        if config.timeout == None {
+            config_override.timeout = Some(-1);
+        }
+        if config.start_on_connection == None {
+            config_override.start_on_connection = Some(false);
+        }
         let mut jvm_args: Vec<String> = vec![];
         if let Some(min_ram) = config.min_ram {
             jvm_args.push(format!("-Xms{}M", min_ram))
@@ -150,6 +175,10 @@ impl ServerInstance {
             None,
             None,
         )));
+        // serilize config_override to a file
+        let mut file = File::create(path.join(".lodestone_config")).unwrap();
+        let config_override_string = serde_json::to_string_pretty(&config_override).unwrap();
+        file.write_all(config_override_string.as_bytes()).unwrap();
 
         ServerInstance {
             status: Arc::new(Mutex::new(Status::Stopped)),
@@ -164,7 +193,7 @@ impl ServerInstance {
             player_online: Arc::new(Mutex::new(vec![])),
             event_processor: Arc::new(Mutex::new(EventProcessor::new())),
 
-            instance_config: config.clone(),
+            instance_config: config_override,
 
             properties_manager,
             macro_manager,
@@ -274,13 +303,7 @@ impl ServerInstance {
                     .on_server_startup(Arc::new(move || {
                         *status_closure.lock().unwrap() = Status::Running;
                     }));
-                let players_closure = self.player_online.clone();
-                self.event_processor
-                    .lock()
-                    .unwrap()
-                    .on_player_joined(Arc::new(move |player| {
-                        players_closure.lock().unwrap().push(player);
-                    }));
+
 
                 let players_closure = self.player_online.clone();
                 self.event_processor
@@ -296,18 +319,27 @@ impl ServerInstance {
                     .lock()
                     .unwrap()
                     .on_chat(Arc::new(move |_, msg| {
+                        let macro_manager_closure = macro_manager_closure.clone();
                         // check if msg start with .macro
                         if msg.starts_with(".macro") {
+                            let mut macro_name = String::new();
+
                             let mut args = msg.split_whitespace();
                             // if there is a second argument
-                            if let Some(macro_name) = args.nth(1) {
-                                // collect the args into a vec<String>
-                                let args = args.collect::<Vec<&str>>();
-                                macro_manager_closure.lock().unwrap().run(macro_name, args).unwrap();
+                            if let Some(name) = args.nth(1) {
+                                macro_name = name.to_string();
                             } else {
-
                                 stdin_sender.as_ref().unwrap().lock().unwrap().write_all(b"say Usage: .macro [file] [args..]\n").unwrap();
                             }
+                            // collect the string into a vec<String>
+                            let mut vec_string = vec![];
+                            for token in args {
+                                vec_string.push(token.to_owned())
+                            }
+                            thread::spawn(move || {
+                                macro_manager_closure.lock().unwrap().run(macro_name, vec_string).unwrap();
+
+                            });
                             
                         }
                     }));
@@ -322,6 +354,32 @@ impl ServerInstance {
                             players_closure.lock().unwrap().clear();
                             *status = Status::Stopping;
                         }
+                    }));
+
+                let players_closure = self.player_online.clone();
+                let status_closure = self.status.clone();
+                let stdin_sender = self.stdin.clone();
+                let timeout = self.instance_config.timeout.unwrap();
+                if timeout > 0 {
+                    thread::spawn(move ||{
+                        let mut i = timeout;
+                        while i > 0 {
+                            thread::sleep(Duration::from_secs(1));
+                            i -= 1;
+                            if players_closure.lock().unwrap().len()  > 0 || status_closure.lock().unwrap().to_owned() != Status::Running {
+                                i = timeout;
+                            }
+                        }
+                        stdin_sender.unwrap().lock().unwrap().write_all(b"stop\n").unwrap();
+                    });
+                }
+                
+                let players_closure = self.player_online.clone();
+                self.event_processor
+                    .lock()
+                    .unwrap()
+                    .on_player_joined(Arc::new(move |player| {
+                        players_closure.lock().unwrap().push(player);
                     }));
                 self.process = Arc::new(Mutex::new(Some(proc)));
 
@@ -414,6 +472,18 @@ impl ServerInstance {
     }
 
     pub fn get_instance_config(&self) -> &InstanceConfig {
+        &self.instance_config
+    }
+
+    /// Get the server instance's creation time.
+    #[must_use]
+    pub fn creation_time(&self) -> u64 {
+        self.instance_config.creation_time.unwrap()
+    }
+
+    /// Get a reference to the server instance's instance config.
+    #[must_use]
+    pub fn instance_config(&self) -> &InstanceConfig {
         &self.instance_config
     }
 }
