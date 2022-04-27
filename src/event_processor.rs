@@ -1,6 +1,8 @@
 use regex::Regex;
 use serde::Serialize;
-use std::{process::{Child, Command, Stdio}, thread, sync::Arc};
+use std::{process::{Child, Command, Stdio}, thread, sync::{Arc, Mutex}};
+
+use crate::managers::server_instance::ServerInstance;
 
 use self::parser::{parse, parse_player_event};
 
@@ -65,6 +67,8 @@ impl EventProcessor {
             on_custom_event: vec![],
         }
     }
+
+
     pub fn process(&self, line: &String) {
         if let Some(msg) = parse(&line) {
             for f in &self.on_server_message {
@@ -178,11 +182,24 @@ impl EventProcessor {
     pub fn on_server_shutdown(&mut self, callback: Arc<dyn Fn() + Send + Sync>) {
         self.on_server_shutdown.push(callback);
     }
-    pub fn notify_server_shutdown(&self) {
+    pub fn notify_server_shutdown(&mut self) {
         for f in &self.on_server_shutdown {
             let f = f.clone();
             thread::spawn(move || f());
         }
+        // self.on_chat.clear();
+        // self.on_player_advancement.clear();
+        // self.on_player_died.clear();
+        // self.on_player_illegal_moved.clear();
+        // self.on_player_joined.clear();
+        // self.on_player_left.clear();
+        // self.on_player_send_command.clear();
+        // self.on_player_event.clear();
+        // self.on_server_message.clear();
+        // self.on_server_startup.clear();
+        // self.on_server_shutdown.clear();
+        
+
     }
 
     pub fn on_player_send_command(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {

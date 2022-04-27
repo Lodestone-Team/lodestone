@@ -112,6 +112,7 @@ async fn main() {
             let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+send[[:space:]]+(.+)")
                 .unwrap();
             if regex.is_match(&line) {
+                println!("sending command");
                 instance_manager
                     .send_command(
                         &identifier,
@@ -123,7 +124,7 @@ async fn main() {
                             .as_str()
                             .to_string(),
                     )
-                    .map_err(|err| eprintln!("{}", err));
+                    .map_err(|err| println!("{}", err));
             }
             let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+start").unwrap();
             if regex.is_match(&line) {

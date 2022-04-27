@@ -12,11 +12,14 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{fs, fs::File};
 
-use super::properties_manager;
+use super::tunnel_manager::TunnelManager;
+use super::{properties_manager, tunnel_manager};
 
 pub struct InstanceManager {
     instance_collection: HashMap<String, ServerInstance>,
     taken_ports: HashSet<u32>,
+    /// this is used to reply frontend with the list of instances
+    instance_list: Vec<InstanceConfig>,
     /// path to lodestone installation directory
     path: PathBuf,
 }
@@ -30,7 +33,10 @@ impl InstanceManager {
         let path_to_instances = path.join("instances/");
         fs::create_dir_all(path_to_instances.as_path()).map_err(|e| e.to_string())?;
         let mut instance_collection: HashMap<String, ServerInstance> = HashMap::new();
+        let mut instance_list = vec![];
         let mut taken_ports = HashSet::new();
+        let mut tunnel_manager = TunnelManager::new(path.join(".lodestone").join("bin").join("frpc"), "server_properties".to_owned(), 8001, Some("test".to_owned()));
+        tunnel_manager.start();
         // get all directories in instances folder
         for entry in fs::read_dir(path_to_instances.as_path()).unwrap() {
             let entry = entry.unwrap();
@@ -47,6 +53,13 @@ impl InstanceManager {
                     let instance_config: InstanceConfig =
                         from_str(str::replace(&config_file_contents, "\r\n", "\n").as_str())
                             .unwrap();
+                    // if the ip is already in token_ports
+                    if taken_ports.contains(&instance_config.port.unwrap()) {
+                        return Err(format!(
+                            "Port {} is already taken by another instance",
+                            instance_config.port.unwrap()
+                        ));
+                    }
                     let mut server_instance = ServerInstance::new(
                         &instance_config,
                         path.join("instances").join(instance_config.name.clone()),
@@ -54,14 +67,17 @@ impl InstanceManager {
                     if let Some(true) = instance_config.auto_start {
                         server_instance.start();
                     }
+                    instance_list.push(instance_config.clone());
                     instance_collection
                         .insert(instance_config.uuid.clone().unwrap(), server_instance);
                     taken_ports.insert(instance_config.port.unwrap());
                 }
             }
         }
-
+        // sort by creation time
+        instance_list.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
         Ok(InstanceManager {
+            instance_list,
             instance_collection,
             path,
             taken_ports,
@@ -69,11 +85,7 @@ impl InstanceManager {
     }
 
     pub fn list_instances(&self) -> Vec<InstanceConfig> {
-        let mut instances: Vec<InstanceConfig> = Vec::new();
-        for (_, instance) in self.instance_collection.iter() {
-            instances.push(instance.get_instance_config().clone());
-        }
-        instances
+        self.instance_list.clone()
     }
 
     pub async fn create_instance(
