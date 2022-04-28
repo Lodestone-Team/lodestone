@@ -5,21 +5,26 @@ extern crate rocket;
 extern crate sanitize_filename;
 
 use chashmap::CHashMap;
+use crossbeam_channel::unbounded;
 use futures_util::lock::Mutex;
 use managers::instance_manager::resource_management::ResourceType;
 use regex::Regex;
 use std::env;
 use std::fs::create_dir_all;
 use std::io::{stdin, BufRead, BufReader};
-use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc};
+use websocket::sync::Server;
+use websocket::OwnedMessage;
 mod event_processor;
 mod handlers;
 mod managers;
+pub mod use_state;
 mod util;
+pub mod ws_component;
 use handlers::*;
 use instance_manager::InstanceManager;
 use managers::*;
-use mongodb::{options::ClientOptions, sync::Client};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::FileServer;
 use rocket::http::{Header, Status};
@@ -29,10 +34,12 @@ use std::{thread, time};
 use sys_info::{cpu_num, cpu_speed, disk_info, loadavg, mem_info, os_release, os_type};
 use systemstat::{Duration, Platform, System};
 
+static mut WS_SENDER: Option<crossbeam_channel::Sender<String>> = None;
+
 pub struct MyManagedState {
     instance_manager: Arc<Mutex<InstanceManager>>,
     download_status: CHashMap<String, (u64, u64)>,
-    mongodb_client: Client,
+    ws_sender: std::sync::Mutex<crossbeam_channel::Sender<String>>,
 }
 
 pub struct CORS;
@@ -72,10 +79,6 @@ fn internal_server_error() -> &'static str {
 
 #[rocket::main]
 async fn main() {
-    let mut client_options = ClientOptions::parse("mongodb://localhost:27017/?tls=false").unwrap();
-    client_options.app_name = Some("MongoDB Client".to_string());
-    let client = Client::with_options(client_options).unwrap();
-
     let mut lodestone_path = match env::var("LODESTONE_PATH") {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
@@ -91,9 +94,7 @@ async fn main() {
     //print file locations to console
     println!("Lodestone directory: {}", lodestone_path.display());
 
-    let instance_manager = Arc::new(Mutex::new(
-        InstanceManager::new(lodestone_path, client.clone()).unwrap(),
-    ));
+    let instance_manager = Arc::new(Mutex::new(InstanceManager::new(lodestone_path).unwrap()));
     let instance_manager_closure = instance_manager.clone();
     rocket::tokio::spawn(async move {
         let reader = BufReader::new(stdin());
@@ -101,24 +102,17 @@ async fn main() {
             let mut instance_manager = instance_manager_closure.lock().await;
             let line = line_result.unwrap_or("failed to read stdin command".to_string());
             let line_vec: Vec<&str> = line.split_whitespace().collect();
+            if line_vec.len() < 2 {
+                eprint!("Invalid command: {}\n", line);
+                continue;
+            }
             let identifier = instance_manager
-            .name_to_uuid(&line_vec[1].to_string())
-            .unwrap_or(line_vec[1].to_string());
-            let regex = Regex::new(r"instance[[:space:]]+((.+))[[:space:]]+start").unwrap();
+                .name_to_uuid(&line_vec[1].to_string())
+                .unwrap_or(line_vec[1].to_string());
+            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+send[[:space:]]+(.+)")
+                .unwrap();
             if regex.is_match(&line) {
-                instance_manager
-                    .start_instance(&identifier)
-                    .map_err(|err| eprintln!("{}", err));
-            }
-            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+stop").unwrap();
-            if regex.is_match(&line) {
-                instance_manager
-                    .stop_instance(&identifier)
-                    .map_err(|err| eprintln!("{}", err));
-            }
-            let regex =
-                Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+send[[:space:]]+(.+)").unwrap();
-            if regex.is_match(&line) {
+                println!("sending command");
                 instance_manager
                     .send_command(
                         &identifier,
@@ -130,16 +124,29 @@ async fn main() {
                             .as_str()
                             .to_string(),
                     )
+                    .map_err(|err| println!("{}", err));
+            }
+            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+start").unwrap();
+            if regex.is_match(&line) {
+                instance_manager
+                    .start_instance(&identifier)
                     .map_err(|err| eprintln!("{}", err));
             }
-            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+playercount").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+stop").unwrap();
+            if regex.is_match(&line) {
+                instance_manager
+                    .stop_instance(&identifier)
+                    .map_err(|err| eprintln!("{}", err));
+            }
+
+            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+playercount").unwrap();
             if regex.is_match(&line) {
                 match instance_manager.player_num(&identifier) {
                     Ok(size) => println!("{}", size.to_string()),
                     Err(reason) => eprintln!("{}", reason),
                 }
             }
-            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+playerlist").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+playerlist").unwrap();
             if regex.is_match(&line) {
                 match instance_manager.player_list(&identifier) {
                     Ok(list) => println!("{:?}", list),
@@ -147,7 +154,7 @@ async fn main() {
                 }
             }
             let regex = Regex::new(
-                r"instance[[:space:]]+(.+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)",
+                r"instance[[:space:]]+([\w-]+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)",
             )
             .unwrap();
             // TODO implement mongodb get logs
@@ -159,7 +166,7 @@ async fn main() {
             //     None() => ()
             // }
             // TODO turn string into enum
-            let regex = Regex::new(r"instance[[:space:]]+(.+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
+            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
             match regex.captures(&line) {
                 Some(cap) => {
                     match instance_manager.list_resource(
@@ -239,12 +246,49 @@ async fn main() {
             }
         }
     });
+    let (tx, rx) = unbounded();
+
+    unsafe {
+        WS_SENDER = Some(tx.clone());
+    }
+
+    let server = Server::bind("0.0.0.0:8005").unwrap();
+    thread::spawn(move || {
+        for request in server.filter_map(Result::ok) {
+            let rx = rx.clone();
+            thread::spawn(move || {
+                if !request.protocols().contains(&"rust-websocket".to_string()) {
+                    println!("refused");
+                    request.reject().unwrap();
+                    return;
+                }
+
+                let mut client = request.use_protocol("rust-websocket").accept().unwrap();
+                client.set_nonblocking(true).unwrap();
+                let ip = client.peer_addr().unwrap();
+
+                println!("Connection from {}", ip);
+
+                let (mut receiver, mut sender) = client.split().unwrap();
+                // shutdown the connection if the client closes
+                loop {
+                    if let Ok(s) = rx.try_recv() {
+                        sender.send_message(&OwnedMessage::Text(s)).unwrap();
+                    }
+                    if let Ok(OwnedMessage::Close(_)) = receiver.recv_message() {
+                        println!("Client {} disconnected", ip);
+                        break;
+                    }
+                }
+            });
+        }
+    });
     rocket::build()
         .mount(
             "/api/v1/",
             routes![
-                users::create,
-                users::test,
+                // users::create,
+                // users::test,
                 instance::start,
                 instance::stop,
                 instance::send,
@@ -253,12 +297,14 @@ async fn main() {
                 instance::download_status,
                 instance::status,
                 instance::get_list,
-                instance::get_logs,
                 instance::player_count,
                 instance::player_list,
                 instance::list_resource,
                 instance::load_resource,
                 instance::unload_resource,
+                instance::upload_file,
+                instance::download_file,
+                // instance::events,
                 jar::vanilla_versions,
                 jar::vanilla_jar,
                 jar::vanilla_filters,
@@ -284,7 +330,7 @@ async fn main() {
         .manage(MyManagedState {
             instance_manager,
             download_status: CHashMap::new(),
-            mongodb_client: client,
+            ws_sender: std::sync::Mutex::new(tx),
         })
         .attach(CORS)
         .launch()

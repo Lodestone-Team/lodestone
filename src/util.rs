@@ -10,7 +10,6 @@ use crypto::sha3::Sha3;
 
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
-use mongodb::{bson::doc, options::ClientOptions, sync::Client as mongoDBClient};
 use reqwest::Client;
 use rocket::State;
 use serde::{Serialize, Deserialize};
@@ -83,23 +82,6 @@ pub fn list_dir(path: PathBuf, files_or_dirs : bool) -> Result<Vec<String>, Stri
 }
 
 
-pub fn mongodb_create_user(password: &String ) {
-    let mut client_options = ClientOptions::parse("MongoDB Connection String").unwrap();
-    client_options.app_name = Some("Initial Add User".to_string());
-    let client = mongoDBClient::with_options(client_options).unwrap();
-
-    client
-        .database("admin")
-        .run_command( doc! {
-            "createUser": "server",
-            "pwd": password,
-            "roles": [
-                { "role": "userAdminAnyDatabase", "db": "admin" },
-                { "role": "readWriteAnyDatabase", "db": "admin" },
-                { "role": "hostManager", "db": "admin" } 
-            ]
-        }, None).unwrap();
-}
 
 pub fn hash_password(password: &String) -> String{
     let mut hasher = Sha3::sha3_256();
@@ -107,50 +89,6 @@ pub fn hash_password(password: &String) -> String{
     hasher.result_str()
 }
 
-pub fn authenticate(mongodb_client: &mongodb::sync::Client, username: String, password: String) -> Result<(), String>{
-    let password = hash_password(&password);
-
-    let pairing_option = mongodb_client
-        .database("users")
-        .collection::<Authentication>("authentication")
-        .find_one( doc! {
-            "username": &username,
-            "password": &password
-        }, None)
-        .unwrap();
-    match pairing_option {
-        Some(_) => return Ok(()),
-        None => return Err("username or password does not match".to_string())
-    }
-}
-
-pub fn create_user(state: &State<MyManagedState>, username: String, password: String) -> Result<(), String>{
-    let mongodb_client = &state.mongodb_client; 
-    let password = hash_password(&password);
-    //check if username is duplicate
-    let exists_option = mongodb_client
-        .database("users")
-        .collection::<Authentication>("authentication")
-        .find_one( doc! {
-            "username": &username
-        }, None)
-        .unwrap();
-    match exists_option {
-        Some(_) => return Err("User already exists".to_string()),
-        None => {
-            mongodb_client
-                .database("users")
-                .collection("authentication")
-                .insert_one( doc! {
-                    "username": &username,
-                    "password": &password
-                }, None)
-                .unwrap();
-            return Ok(());
-        }
-    }
-
-}
 
 
 //TODO: permission stuff with user

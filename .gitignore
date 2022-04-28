@@ -15,7 +15,7 @@
 
 ## dev
 InstanceTest/
-.lodestone_config/
+.lodestone/
 LodestoneTest/
 instances/
 db/

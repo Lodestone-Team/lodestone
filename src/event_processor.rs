@@ -1,7 +1,8 @@
 use regex::Regex;
 use serde::Serialize;
-use std::process::{Child, Command, Stdio};
+use std::{process::{Child, Command, Stdio}, thread, sync::{Arc, Mutex}};
 
+use crate::managers::server_instance::ServerInstance;
 
 use self::parser::{parse, parse_player_event};
 
@@ -31,22 +32,22 @@ pub enum PlayerEventVarient {
     Died(String),
     IllegalMove(String),
     Advancement(String),
+    Command(String)
 }
 
 pub struct EventProcessor {
-    on_server_message: Vec<Box<dyn Fn(ServerMessage) + Send>>,
-
-    on_player_event: Vec<Box<dyn Fn(PlayerEvent) + Send>>,
-    on_player_joined: Vec<Box<dyn Fn(String) + Send>>,
-    on_player_left: Vec<Box<dyn Fn(String) + Send>>,
-    on_chat: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_player_died: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_player_illegal_moved: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_player_advancement: Vec<Box<dyn Fn(String, String) + Send>>,
-    on_server_startup: Vec<Box<dyn Fn() + Send>>,
-    on_server_shutdown: Vec<Box<dyn Fn() + Send>>,
-    on_custom_event: Vec<Box<dyn Fn(String) + Send>>,
-
+    pub on_server_message: Vec<Arc<dyn Fn(ServerMessage) + Send + Sync>>,
+    pub on_player_event: Vec<Arc<dyn Fn(PlayerEvent) + Send + Sync>>,
+    pub on_player_joined: Vec<Arc<dyn Fn(String) + Send + Sync>>,
+    pub on_player_left: Vec<Arc<dyn Fn(String) + Send + Sync>>,
+    pub on_chat: Vec<Arc<dyn Fn(String, String) + Send + Sync>>,
+    pub on_player_died: Vec<Arc<dyn Fn(String, String) + Send + Sync>>,
+    pub on_player_illegal_moved: Vec<Arc<dyn Fn(String, String) + Send + Sync>>,
+    pub on_player_advancement: Vec<Arc<dyn Fn(String, String) + Send + Sync>>,
+    pub on_player_send_command: Vec<Arc<dyn Fn(String, String) + Send + Sync>>,
+    pub on_server_startup: Vec<Arc<dyn Fn() + Send + Sync>>,
+    pub on_server_shutdown: Vec<Arc<dyn Fn() + Send + Sync>>,
+    pub on_custom_event: Vec<Arc<dyn Fn(String) + Send + Sync>>,
 }
 
 impl EventProcessor {
@@ -60,110 +61,162 @@ impl EventProcessor {
             on_player_died: vec![],
             on_player_illegal_moved: vec![],
             on_player_advancement: vec![],
+            on_player_send_command: vec![],
             on_server_startup: vec![],
             on_server_shutdown: vec![],
             on_custom_event: vec![],
         }
     }
+
+
     pub fn process(&self, line: &String) {
         if let Some(msg) = parse(&line) {
             for f in &self.on_server_message {
-                f(msg.clone());
+                let f = f.clone();
+                let msg = msg.clone();
+                thread::spawn(move || f(msg));
             }
             if let Some(player_event) = parse_player_event(&msg.message) {
                 for f in &self.on_player_event {
-                    f(player_event.clone());
+                    let f = f.clone();
+                    let player = player_event.clone();
+                    thread::spawn(move || f(player));
                 }
                 match player_event.event {
                     PlayerEventVarient::Joined => {
                         for f in &self.on_player_joined {
-                            f(player_event.player.clone());
+                            let f = f.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player));
                         }
                     }
                     PlayerEventVarient::Left => {
                         for f in &self.on_player_left {
-                            f(player_event.player.clone());
+                            let f = f.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player));
                         }
                     }
                     PlayerEventVarient::Chat(s) => {
                         for f in &self.on_chat {
-                            f(player_event.player.clone(), s.clone());
+                            let f = f.clone();
+                            let s = s.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player, s));
                         }
                     }
                     PlayerEventVarient::Died(s) => {
                         for f in &self.on_player_died {
-                            f(player_event.player.clone(), s.clone());
+                            let f = f.clone();
+                            let s = s.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player, s));
                         }
                     }
                     PlayerEventVarient::IllegalMove(s) => {
                         for f in &self.on_player_illegal_moved {
-                            f(player_event.player.clone(), s.clone());
+                            let f = f.clone();
+                            let s = s.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player, s));
                         }
                     }
                     PlayerEventVarient::Advancement(s) => {
                         for f in &self.on_player_advancement {
-                            f(player_event.player.clone(), s.clone());
+                            let f = f.clone();
+                            let s = s.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player, s));
                         }
                     }
+                    PlayerEventVarient::Command(cmd) => {
+                        for f in &self.on_player_send_command {
+                            let f = f.clone();
+                            let cmd = cmd.clone();
+                            let player = player_event.player.clone();
+                            thread::spawn(move || f(player, cmd));
+                        }
+                    },
                 }
             } else {
                 let re = Regex::new(r"Done .+! For help, type").unwrap();
                 if re.is_match(line) {
                     for f in &self.on_server_startup {
-                        f();
+                        let f = f.clone();
+            thread::spawn(move || f());
                     }
                 }
             }
         }
     }
 
-    pub fn on_server_message(&mut self, callback: Box<dyn Fn(ServerMessage) + Send>) {
+    pub fn on_server_message(&mut self, callback: Arc<dyn Fn(ServerMessage) + Send + Sync>) {
         self.on_server_message.push(callback);
     }
-    pub fn on_player_event(&mut self, callback: Box<dyn Fn(PlayerEvent) + Send>) {
+    pub fn on_player_event(&mut self, callback: Arc<dyn Fn(PlayerEvent) + Send + Sync>) {
         self.on_player_event.push(callback);
     }
 
-    pub fn on_player_joined(&mut self, callback: Box<dyn Fn(String) + Send>) {
+    pub fn on_player_joined(&mut self, callback: Arc<dyn Fn(String) + Send + Sync>) {
         self.on_player_joined.push(callback);
     }
-    pub fn on_player_left(&mut self, callback: Box<dyn Fn(String) + Send>) {
+    pub fn on_player_left(&mut self, callback: Arc<dyn Fn(String) + Send + Sync>) {
         self.on_player_left.push(callback);
     }
-    pub fn on_chat(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+    pub fn on_chat(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
         self.on_chat.push(callback);
     }
-    pub fn on_player_died(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+    pub fn on_player_died(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
         self.on_player_died.push(callback);
     }
-    pub fn on_player_illegal_moved(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+    pub fn on_player_illegal_moved(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
         self.on_player_illegal_moved.push(callback);
     }
-    pub fn on_player_advancement(&mut self, callback: Box<dyn Fn(String, String) + Send>) {
+    pub fn on_player_advancement(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
         self.on_player_advancement.push(callback);
     }
-    pub fn on_server_startup(&mut self, callback: Box<dyn Fn() + Send>) {
+    pub fn on_server_startup(&mut self, callback: Arc<dyn Fn() + Send + Sync>) {
         self.on_server_startup.push(callback);
     }
-    pub fn on_server_shutdown(&mut self, callback: Box<dyn Fn() + Send>) {
+    /// triggers ONLY when the subprocess exists, NOT when a shutdown command is sent
+    pub fn on_server_shutdown(&mut self, callback: Arc<dyn Fn() + Send + Sync>) {
         self.on_server_shutdown.push(callback);
     }
-    pub fn notify_server_shutdown(&self) {
+    pub fn notify_server_shutdown(&mut self) {
         for f in &self.on_server_shutdown {
-            f();
+            let f = f.clone();
+            thread::spawn(move || f());
         }
+        // self.on_chat.clear();
+        // self.on_player_advancement.clear();
+        // self.on_player_died.clear();
+        // self.on_player_illegal_moved.clear();
+        // self.on_player_joined.clear();
+        // self.on_player_left.clear();
+        // self.on_player_send_command.clear();
+        // self.on_player_event.clear();
+        // self.on_server_message.clear();
+        // self.on_server_startup.clear();
+        // self.on_server_shutdown.clear();
+        
+
     }
 
-    pub fn on_custom_event(&mut self, callback: Box<dyn Fn(String) + Send>) {
-        self.on_custom_event.push(callback);
+    pub fn on_player_send_command(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
+        self.on_player_send_command.push(callback);
     }
+
+    // pub fn on_custom_event(&mut self, callback: Box<dyn Fn(String) + Send + Sync>) {
+    //     self.on_custom_event.push(callback);
+    // }
     pub fn notify_custom_event(&self, event: String) {
         for f in &self.on_custom_event {
-            f(event.clone());
-        }
+            let f = f.clone();
+            let event = event.clone();
+            thread::spawn(move || f(event));
     }
 }
-
+}
 
 pub mod parser {
 
@@ -189,10 +242,22 @@ pub mod parser {
     pub fn parse(s: &String) -> Option<ServerMessage> {
         let vanilla_regex =
             Regex::new(r"^\[([0-9][0-9]:[0-9][0-9]:[0-9][0-9])\] \[(.+)/(\w+)\]: (.+)").unwrap();
+
+        let fabric_regex =
+            Regex::new(r"^\[([0-9][0-9]:[0-9][0-9]:[0-9][0-9])\] \[(.+)\] \[(.+)/(.+)\]: (.+)")
+                .unwrap();
         let spigot_regex =
             Regex::new(r"^\[([0-9][0-9]:[0-9][0-9]:[0-9][0-9]) (.+)\]: (.+)").unwrap();
-
-        if vanilla_regex.is_match(s.as_str()) {
+        if fabric_regex.is_match(s.as_str()) {
+            let cap = fabric_regex.captures(s.as_str()).unwrap();
+            let message = cap.get(5).unwrap().as_str().to_string();
+            Some(ServerMessage {
+                timestamp: cap.get(1).unwrap().as_str().to_string(),
+                signal: Signal::from_str(cap.get(2).unwrap().as_str()).unwrap(),
+                message: message.clone(),
+                player_event: parse_player_event(&message),
+            })
+        } else if vanilla_regex.is_match(s.as_str()) {
             let cap = vanilla_regex.captures(s.as_str()).unwrap();
             let message = cap.get(4).unwrap().as_str().to_string();
             Some(ServerMessage {
@@ -217,9 +282,14 @@ pub mod parser {
 
     pub fn parse_player_event(s: &String) -> Option<PlayerEvent> {
         let s_vec: Vec<&str> = s.split(" ").collect();
-        // if the first char is [, it is a /say message
-        if s.chars().next().unwrap() == '[' {
-            None
+        let re_player_command = Regex::new(r"\[(\w+): (.+)\]").unwrap();
+        // if the first char is [, it is a command
+        if re_player_command.is_match(s) {
+            let cap = re_player_command.captures(s).unwrap();
+            Some(PlayerEvent {
+                event: PlayerEventVarient::Command(cap.get(2).unwrap().as_str().to_string()),
+                player: cap.get(1).unwrap().as_str().to_string(),
+            })
         } else if is_player_message(&s) {
             let re = Regex::new(r"^<(.+)> (.+)").unwrap();
             let cap = re.captures(s.as_str()).unwrap();
