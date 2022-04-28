@@ -64,6 +64,7 @@ impl InstanceManager {
                         &instance_config,
                         path.join("instances").join(instance_config.name.clone()),
                     );
+                    println!("using port {} for instance {}", instance_config.port.unwrap(), instance_config.name);
                     if let Some(true) = instance_config.auto_start {
                         server_instance.start();
                     }

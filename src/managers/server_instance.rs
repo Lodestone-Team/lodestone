@@ -206,7 +206,7 @@ impl ServerInstance {
             event_processor.clone(),
         )));
 
-        let (proxy_kill_tx, proxy_kill_rx): (Sender<()>, Receiver<()>) = bounded(0);
+        let (proxy_kill_tx, proxy_kill_rx): (Sender<()>, Receiver<()>) = bounded(1);
 
         if let Some(true) = config.start_on_connection {
             let listener =
@@ -222,23 +222,16 @@ impl ServerInstance {
                         kill = true;
                         break;
                     }
-                    if let Ok((stream, _)) = listener.accept() {
-                        // drop(stream);
+                    if let Ok((_, _)) = listener.accept() {
                         break;
                     }
                 }
-                drop(listener);
-                drop(proxy_kill_rx);
-                println!("thread exiting");
                 if !kill {
                     println!("got tcp connection");
-                    // loop {
-                    //     thread::sleep(Duration::from_millis(1000));
-                    //     println!("block {}", uuid);
-                    // }
                     reqwest::blocking::Client::new()
                         .post(format!(
-                            "http://127.0.0.1:8001/api/v1/instance/asd-1804a3cf626-50/start"
+                            "http://127.0.0.1:8001/api/v1/instance/{}/start",
+                            uuid
                         ))
                         .send()
                         .unwrap();
@@ -304,9 +297,10 @@ impl ServerInstance {
         let status = self.status.clone();
         let stdin = self.stdin.clone();
         event_processor.on_player_left(Arc::new(move |player| {
+            player_online.lock().unwrap().retain(|p| p != &player);
+
             let timeout = timeout_last_left.lock().unwrap().to_owned();
             if timeout > 0 {
-                player_online.lock().unwrap().retain(|p| p != &player);
                 let mut i = timeout;
                 while i > 0 {
                     thread::sleep(Duration::from_secs(1));
@@ -317,7 +311,9 @@ impl ServerInstance {
                         i = timeout;
                         continue;
                     }
-                    println!("No player on server, shutting down in {} seconds", i);
+                    if i < 10 {
+                        println!("No activity on server, shutting down in {} seconds", i);
+                    }
                 }
                 // println!("{}", Arc::strong_count(&stdin));
                 stdin
@@ -349,7 +345,9 @@ impl ServerInstance {
                         i = timeout;
                         continue;
                     }
-                    println!("No activity on server, shutting down in {} seconds", i);
+                    if i < 10 {
+                        println!("No activity on server, shutting down in {} seconds", i);
+                    }
                 }
 
                 stdin
@@ -414,6 +412,7 @@ impl ServerInstance {
         event_processor.on_server_shutdown(Arc::new(move || {
             if start_on_connection.lock().unwrap().to_owned() {
                 let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
+                println!("awaiting connection on port {}", port);
                 listener.set_nonblocking(true).unwrap();
                 let mut kill = false;
                 while !kill {
@@ -421,6 +420,7 @@ impl ServerInstance {
                         println!("tcp");
                         break;
                     }
+                    proxy_kill_rx.as_ref().unwrap().try_recv();
                     if let Ok(_) = proxy_kill_rx.as_ref().unwrap().try_recv() {
                         println!("kill");
 
