@@ -59,15 +59,11 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
 
 #[post("/instance/<uuid>/start")]
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
-
+    state.instance_manager.lock().await;
     match state.instance_manager.lock().await.start_instance(&uuid) {
-        Ok(()) => {
-            println!("got start command");
-
-            return (Status::Ok, "Ok".to_string());
+        Ok(()) => {            return (Status::Ok, "Ok".to_string());
         }
         Err(reason) => {
-            println!("got start command");
         return (Status::BadRequest, reason);
         }
             
