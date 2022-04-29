@@ -12,23 +12,36 @@ use rlua::{Error, Lua, MultiValue};
 
 use crate::event_processor::EventProcessor;
 
+use super::server_instance::Status;
+
+#[derive(Clone)]
 pub struct MacroManager {
-    pub path: PathBuf,
+    pub path_to_macros: PathBuf,
+    pub path_to_instance: PathBuf,
     stdin_sender: Arc<Mutex<Option<ChildStdin>>>,
     event_processor: Arc<Mutex<EventProcessor>>,
+    players_online : Arc<Mutex<Vec<String>>>,
+    status : Arc<Mutex<Status>>
+
 }
 
 impl MacroManager {
     pub fn new(
-        path: PathBuf,
+        path_to_macros: PathBuf,
+        path_to_instance: PathBuf,
         stdin_sender: Arc<Mutex<Option<ChildStdin>>>,
         event_processor: Arc<Mutex<EventProcessor>>,
+        players_online : Arc<Mutex<Vec<String>>>,
+        status : Arc<Mutex<Status>>
     ) -> MacroManager {
-        fs::create_dir_all(path.as_path()).map_err(|e| e.to_string());
+        fs::create_dir_all(path_to_macros.as_path()).map_err(|e| e.to_string());
         MacroManager {
-            path,
+            path_to_macros,
+            path_to_instance,
             stdin_sender,
             event_processor,
+            players_online,
+            status
         }
     }
     pub fn run(
@@ -37,7 +50,7 @@ impl MacroManager {
         args: Vec<String>,
         executor: Option<String>,
     ) -> Result<(), String> {
-        let macro_file = fs::File::open(self.path.join(name).with_extension("lua"))
+        let macro_file = fs::File::open(self.path_to_macros.join(name).with_extension("lua"))
             .map_err(|e| e.to_string())?;
         let mut program: String = String::new();
 
@@ -60,10 +73,11 @@ impl MacroManager {
                 .unwrap();
             lua_ctx.globals().set("delay_sec", delay_sec);
             lua_ctx.globals().set("EXECUTOR", executor);
+            lua_ctx.globals().set("PATH_TO_INSTANCE", self.path_to_instance.to_str());
 
             let event_processor = self.event_processor.clone();
             let await_msg = lua_ctx
-                .create_function(move |lua_ctx, ()| {
+                .create_function(move |_lua_ctx, ()| {
                     let (tx, rx) = mpsc::channel();
                     let tx = Arc::new(Mutex::new(tx));
                     let index = event_processor.lock().unwrap().on_chat.len();
@@ -91,9 +105,9 @@ impl MacroManager {
             let stdin_sender_closure = self.stdin_sender.clone();
             let send_stdin = lua_ctx
                 .create_function(move |ctx, line: String| {
-                    if stdin_sender_closure.lock().unwrap().is_none() {
-                        return Err(Error::RuntimeError(format!("stdin is closed")));
-                    }
+                    // if stdin_sender_closure.lock().unwrap().is_none() {
+                    //     return Err(Error::RuntimeError(format!("stdin is closed")));
+                    // }
                     let reg = Regex::new(r"\$\{(\w*)\}").unwrap();
                     let globals = ctx.globals();
                     let mut after = line.clone();
@@ -125,6 +139,18 @@ impl MacroManager {
                 })
                 .unwrap();
             lua_ctx.globals().set("send_stdin", send_stdin);
+            let players_online = self.players_online.clone();
+            lua_ctx.globals().set("get_players_online", lua_ctx.create_function(move |_, ()| {
+                let mut players_online_vec = Vec::new();
+                for player in players_online.lock().unwrap().iter() {
+                    players_online_vec.push(player.clone());
+                }
+                Ok(players_online_vec)
+            }).unwrap());
+            let status = self.status.clone();
+            lua_ctx.globals().set("get_status", lua_ctx.create_function(move |_, ()| {
+                Ok(status.lock().unwrap().to_string())
+            }).unwrap());
 
             lua_ctx.globals().set(
                 "isBadWord",

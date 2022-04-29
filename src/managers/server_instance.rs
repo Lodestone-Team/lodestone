@@ -177,9 +177,9 @@ pub struct ServerInstance {
     player_online: Arc<Mutex<Vec<String>>>,
     pub event_processor: Arc<Mutex<EventProcessor>>,
     properties_manager: PropertiesManager,
-    macro_manager: Arc<Mutex<MacroManager>>,
-    proxy_kill_tx: Option<Sender<()>>,
-    proxy_kill_rx: Option<Receiver<()>>,
+    macro_manager: MacroManager,
+    proxy_kill_tx: Sender<()>,
+    proxy_kill_rx: Receiver<()>,
     /// used to reconstruct the server instance from the database
     /// this field MUST be synced to the main object
     instance_config: InstanceConfig,
@@ -200,11 +200,17 @@ impl ServerInstance {
         let properties_manager = PropertiesManager::new(path.join("server.properties")).unwrap();
 
         let event_processor = Arc::new(Mutex::new(EventProcessor::new()));
-        let macro_manager = Arc::new(Mutex::new(MacroManager::new(
+        let stdin : Arc<Mutex<Option<ChildStdin>>> = Arc::new(Mutex::new(None));
+        let player_online = Arc::new(Mutex::new(vec![]));
+        let status = Arc::new(Mutex::new(Status::Stopped));
+        let macro_manager = MacroManager::new(
             path.join("macros/"),
-            Arc::new(Mutex::new(None)),
+            path.clone(),
+            stdin.clone(),
             event_processor.clone(),
-        )));
+            player_online.clone(),
+            status.clone()
+        );
 
         let (proxy_kill_tx, proxy_kill_rx): (Sender<()>, Receiver<()>) = bounded(1);
 
@@ -246,29 +252,21 @@ impl ServerInstance {
         file.write_all(config_override_string.as_bytes()).unwrap();
 
         let mut server_instance = ServerInstance {
-            status: Arc::new(Mutex::new(Status::Stopped)),
+            status,
             flavour: config.flavour,
             name: config.name.clone(),
-            stdin: Arc::new(Mutex::new(None)),
+            stdin,
             jvm_args,
             process: None,
             path: path.clone(),
             port: config.port.expect("no port provided"),
             uuid: config.uuid.as_ref().unwrap().clone(),
-            player_online: Arc::new(Mutex::new(vec![])),
+            player_online,
             event_processor,
-            proxy_kill_tx: if let Some(true) = config.start_on_connection {
-                Some(proxy_kill_tx)
-            } else {
-                None
-            },
+            proxy_kill_tx,
             properties_manager,
             macro_manager,
-            proxy_kill_rx: if let Some(true) = config.start_on_connection {
-                Some(proxy_kill_rx)
-            } else {
-                None
-            },
+            proxy_kill_rx,
             version: config_override.version.clone(),
             min_ram: config_override.min_ram.unwrap(),
             max_ram: config_override.max_ram.unwrap(),
@@ -390,6 +388,7 @@ impl ServerInstance {
                         .unwrap()
                         .write_all(b"say Usage: .macro [file] [args..]\n")
                         .unwrap();
+                        return;
                 }
                 // collect the string into a vec<String>
                 let mut vec_string = vec![];
@@ -398,8 +397,6 @@ impl ServerInstance {
                 }
                 thread::spawn(move || {
                     macro_manager
-                        .lock()
-                        .unwrap()
                         .run(macro_name, vec_string, Some(player))
                         .unwrap();
                 });
@@ -415,39 +412,69 @@ impl ServerInstance {
                 println!("awaiting connection on port {}", port);
                 listener.set_nonblocking(true).unwrap();
                 let mut kill = false;
+                proxy_kill_rx.try_recv();
                 while !kill {
-                    if let Ok(_) = listener.accept() {
-                        println!("tcp");
+                    if let Ok(_) = proxy_kill_rx.try_recv() {
+                        println!("Proxy kill received");
+                        kill = true;
                         break;
                     }
-                    proxy_kill_rx.as_ref().unwrap().try_recv();
-                    if let Ok(_) = proxy_kill_rx.as_ref().unwrap().try_recv() {
-                        println!("kill");
-
-                        kill = true;
+                    if let Ok((_, _)) = listener.accept() {
                         break;
                     }
                 }
                 if !kill {
                     println!("got tcp connection");
-                    reqwest::blocking::Client::new()
+                    let a = reqwest::blocking::Client::new()
                         .post(format!(
                             "http://127.0.0.1:8001/api/v1/instance/{}/start",
                             uuid
                         ))
                         .send()
                         .unwrap();
+                        println!("{}", a.text().unwrap());
+                    println!("end")
                 }
             }
+        }));
+
+        let macro_manager = self.macro_manager.clone();
+
+        event_processor.on_server_startup(Arc::new(move || {
+            macro_manager.run("on_startup".to_owned(), vec![], None).map_err(|_| {
+                println!("no macro named \"on_startup\" found, skipping");
+            });
+        }));
+        let macro_manager = self.macro_manager.clone();
+
+        event_processor.on_server_shutdown(Arc::new(move || {
+            macro_manager.run("on_shutdown".to_owned(), vec![], None).map_err(|_| {
+                println!("no macro named \"on_shutdown\" found, skipping");
+            });
+        }));
+        
+        let macro_manager = self.macro_manager.clone();
+        event_processor.on_player_joined(Arc::new(move |player| {
+            macro_manager.run("on_player_joined".to_owned(), vec![player], None).map_err(|_| {
+                println!("no macro named \"on_player_joined\" found, skipping");
+            });
+        }));
+
+        let macro_manager = self.macro_manager.clone();
+        event_processor.on_player_left(Arc::new(move |player| {
+            macro_manager.run("on_player_left".to_owned(), vec![player], None).map_err(|_| {
+                println!("no macro named \"on_player_left\" found, skipping");
+            });
         }));
     }
 
     pub fn start(&mut self) -> Result<(), String> {
         let status = self.status.lock().unwrap().clone();
         env::set_current_dir(&self.path).unwrap();
-        if let Some(tx) = &self.proxy_kill_tx {
-            tx.send(()).unwrap();
+        if self.instance_config.start_on_connection.unwrap() == true {
+            self.proxy_kill_tx.send(()).unwrap();
         }
+
         match status {
             Status::Starting => {
                 return Err("cannot start, instance is already starting".to_string())
@@ -480,12 +507,8 @@ impl ServerInstance {
                     .ok_or("failed to open stdout of child process")?;
                 let reader = BufReader::new(stdout);
                 self.macro_manager
-                    .lock()
-                    .unwrap()
                     .set_event_processor(self.event_processor.clone());
                 self.macro_manager
-                    .lock()
-                    .unwrap()
                     .set_stdin_sender(self.stdin.clone());
 
                 let players_closure = self.player_online.clone();
@@ -505,11 +528,9 @@ impl ServerInstance {
                     println!("program exiting as reader thread is terminating...");
                     match status {
                         Status::Stopping => {
-                            *status_closure.lock().unwrap() = Status::Stopped;
                             println!("instance stopped properly")
                         }
                         Status::Running => {
-                            *status_closure.lock().unwrap() = Status::Stopped;
                             if let Some(true) = *restart_on_crash {
                                 println!("restarting instance");
                                 // make a post request to localhost
@@ -530,6 +551,8 @@ impl ServerInstance {
                             println!("this is a really weird bug");
                         }
                     }
+                    *status_closure.lock().unwrap() = Status::Stopped;
+
                     event_processor_closure
                         .lock()
                         .unwrap()
