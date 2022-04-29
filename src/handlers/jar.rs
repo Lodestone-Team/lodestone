@@ -127,6 +127,7 @@ mod fabric_structs{
     #[derive(Deserialize, Serialize)]
     pub struct LoaderInstance{
         pub version: String,
+        pub stable : bool,
     }
 
     #[derive(Deserialize, Serialize)]
@@ -189,8 +190,14 @@ pub async fn fabric_jar(
             .unwrap(),
     )
     .unwrap();
-
-    let loader_version = &response[0].loader.version;
+    
+    //get the latest stable loader
+    let mut latest_stable_loader = "".to_string();
+    for loader in &response {
+        if loader.loader.stable {
+            latest_stable_loader = loader.loader.version.clone();
+        }
+    }
 
     let response: Vec<fabric_structs::InstallerVersion> = from_str(
         minreq::get("https://meta.fabricmc.net/v2/versions/installer")
@@ -201,14 +208,22 @@ pub async fn fabric_jar(
     )
     .unwrap();
 
-    let installer_version = &response[0].version;
+    // get the latest stable installer
+    let mut latest_stable_installer = "".to_string();
+    for installer in response {
+        if  installer.stable {
+            latest_stable_installer = installer.version.clone();
+        }
+    }
+
+    // let installer_version = &response[0].version;
 
     Ok(json!({
-        "loader": loader_version,
-        "installer": installer_version,
+        "loader": latest_stable_loader,
+        "installer": latest_stable_installer,
         "url": format!(
             "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
-            requested_version, loader_version, installer_version
+            requested_version, latest_stable_loader, latest_stable_installer
         )
     }))
 }
