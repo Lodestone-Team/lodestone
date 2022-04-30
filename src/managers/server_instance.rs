@@ -182,7 +182,7 @@ pub struct ServerInstance {
     proxy_kill_rx: Receiver<()>,
     /// used to reconstruct the server instance from the database
     /// this field MUST be synced to the main object
-    instance_config: InstanceConfig,
+    pub instance_config: InstanceConfig,
 }
 
 impl ServerInstance {
@@ -310,7 +310,7 @@ impl ServerInstance {
                         continue;
                     }
                     if i < 10 {
-                        println!("No activity on server, shutting down in {} seconds", i);
+                        println!("Last player left the server, shutting down in {} seconds", i);
                     }
                 }
                 // println!("{}", Arc::strong_count(&stdin));
