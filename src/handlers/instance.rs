@@ -4,15 +4,15 @@ use std::path::Path;
 use crate::instance_manager::resource_management::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
 use crate::MyManagedState;
-use rocket::data::{Data, ToByteUnit};
+use rocket::data::{Capped, Data, ToByteUnit};
+use rocket::form::{Form, FromForm};
+use rocket::fs::{TempFile};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::serde::json::{json, Json, Value};
 use rocket::tokio::fs::File;
-use rocket::State;
-use rocket::response::stream::{Event, EventStream};
 use rocket::tokio::time::Duration;
-use rocket::response::stream::TextStream;
+use rocket::State;
 #[get("/instances")]
 pub async fn get_list(state: &State<MyManagedState>) -> Value {
     json!(&state.instance_manager.lock().await.list_instances())
@@ -61,12 +61,12 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     state.instance_manager.lock().await;
     match state.instance_manager.lock().await.start_instance(&uuid) {
-        Ok(()) => {            return (Status::Ok, "Ok".to_string());
+        Ok(()) => {
+            return (Status::Ok, "Ok".to_string());
         }
         Err(reason) => {
-        return (Status::BadRequest, reason);
+            return (Status::BadRequest, reason);
         }
-            
     }
 }
 
@@ -223,4 +223,26 @@ pub async fn download_file(state: &State<MyManagedState>) -> Result<File, conten
         Ok(file) => Ok(file),
         Err(_) => Err(content::Json("something went wrong".to_string())),
     }
+}
+
+#[derive(FromForm)]
+pub struct Upload<'r> {
+    // resource_type: &'r str,
+    resource_type: &'r str,
+    file: Capped<TempFile<'r>>,
+}
+#[post("/files/capped", data = "<upload>")]
+pub async fn upload_capped(upload: Form<Upload<'_>>, state: &State<MyManagedState>) {
+    let data = upload.into_inner(); 
+    println!("In capped upload");
+    // println!("resource_type: {}", match data.resource_type {
+    //     ResourceType::World => "world",
+    //     ResourceType::Mod => "mod"
+    // });
+    println!("resource type: {}", data.resource_type);
+    println!("completed: {}", match data.file.is_complete() {
+        true => "yes",
+        false => "no"
+    });
+    println!("what");
 }

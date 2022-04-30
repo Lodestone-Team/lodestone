@@ -1,0 +1,10 @@
+--X-INSOMNIA-BOUNDARY
+Content-Disposition: form-data; name="resource_type"
+
+tesst
+--X-INSOMNIA-BOUNDARY
+Content-Disposition: form-data; name="file"; filename="temp.txt"
+Content-Type: text/plain
+
+ttt
+--X-INSOMNIA-BOUNDARY--

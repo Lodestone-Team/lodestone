@@ -4,6 +4,7 @@ use crate::util::db_util::mongo_schema::*;
 use crate::util::{self};
 use crate::MyManagedState;
 use rocket::fairing::Result;
+// use rocket::form::{FromFormField};
 use rocket::serde::json::serde_json::{from_str, to_string_pretty};
 use rocket::State;
 use std::collections::HashMap;
@@ -294,6 +295,7 @@ pub mod resource_management {
 
     use super::InstanceManager;
 
+    // #[derive(FromFormField)]
     pub enum ResourceType {
         World,
         Mod,
