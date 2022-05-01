@@ -14,7 +14,7 @@ import Reset from "../components/Reset";
 
 const defaultClientContext = {
   pollrate: 5000,
-  api_domain: "http://127.0.0.1:8000",
+  api_domain: "http://127.0.0.1:8001",
   api_path: "/api/v1",
 }
 
