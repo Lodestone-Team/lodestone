@@ -8,7 +8,7 @@ use std::{
 };
 
 use regex::Regex;
-use rlua::{Error, Lua, MultiValue};
+use rlua::{Lua, MultiValue};
 
 use crate::event_processor::EventProcessor;
 

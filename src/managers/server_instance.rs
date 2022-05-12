@@ -1,19 +1,18 @@
-use crate::event_processor::{self, EventProcessor, PlayerEventVarient};
-use crate::managers::properties_manager;
+use crate::event_processor::{EventProcessor};
 use rocket::serde::json::serde_json;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{Shutdown, TcpListener};
+use std::net::{TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use systemstat::Duration;
 // use std::sync::mpsc::{self, Receiver, Sender};
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{fmt, thread, time};
+use std::{fmt, thread};
 // use self::macro_code::dispatch_macro;
 
 use super::macro_manager::MacroManager;
@@ -67,16 +66,6 @@ impl ToString for Flavour {
     }
 }
 
-// impl fmt::Display for Flavour {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match self {
-//             Flavour::Vanilla => write!(f, "vanilla"),
-//             Flavour::Fabric => write!(f, "fabric"),
-//             Flavour::Paper => write!(f, "paper"),
-//             Flavour::Spigot => write!(f, "spigot"),
-//         }
-//     }
-// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Status {

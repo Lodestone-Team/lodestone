@@ -12,8 +12,7 @@ use regex::Regex;
 use std::env;
 use std::fs::create_dir_all;
 use std::io::{stdin, BufRead, BufReader};
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc};
 use websocket::sync::Server;
 use websocket::OwnedMessage;
 mod event_processor;
@@ -28,10 +27,10 @@ use rocket::fs::FileServer;
 use rocket::http::{Header, Status};
 use rocket::{routes, Request, Response};
 use std::path::PathBuf;
-use std::{thread, time};
-use sys_info::{cpu_num, cpu_speed, disk_info, loadavg, mem_info, os_release, os_type};
+use std::{thread};
+use sys_info::{cpu_speed, disk_info, mem_info, os_release, os_type};
 use systemstat::{Duration, Platform, System};
-use log::{info, warn, LevelFilter};
+use log::{info, LevelFilter};
 
 static mut WS_SENDER: Option<crossbeam_channel::Sender<String>> = None;
 
@@ -79,11 +78,10 @@ fn internal_server_error() -> &'static str {
 #[rocket::main]
 async fn main() {
     env_logger::builder().filter_level(LevelFilter::Info).format_module_path(false).format_timestamp(None).format_target(false).init();
-    let mut lodestone_path = match env::var("LODESTONE_PATH") {
+    let lodestone_path = match env::var("LODESTONE_PATH") {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
     };
-    // lodestone_path = PathBuf::from("/home/peter/Lodestone/backend/lodestone/");
     env::set_current_dir(&lodestone_path).unwrap();
 
     let static_path = lodestone_path.join("web");
@@ -263,7 +261,7 @@ async fn main() {
                     return;
                 }
 
-                let mut client = request.use_protocol("rust-websocket").accept().unwrap();
+                let client = request.use_protocol("rust-websocket").accept().unwrap();
                 client.set_nonblocking(true).unwrap();
                 let ip = client.peer_addr().unwrap();
 

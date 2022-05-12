@@ -1,6 +1,5 @@
 use crate::managers::server_instance::{InstanceConfig, ServerInstance};
 use crate::properties_manager::PropertiesManager;
-use crate::util::db_util::mongo_schema::*;
 use crate::util::{self};
 use crate::MyManagedState;
 use rocket::fairing::Result;
@@ -9,11 +8,10 @@ use rocket::State;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::{fs, fs::File};
 
 use super::tunnel_manager::TunnelManager;
-use super::{properties_manager, tunnel_manager};
 
 pub struct InstanceManager {
     instance_collection: HashMap<String, ServerInstance>,
@@ -208,19 +206,6 @@ impl InstanceManager {
         }
     }
 
-    pub fn clone_instance(&mut self, uuid: &String) -> Result<(), String> {
-        for pair in &self.instance_collection {
-            if pair.0 == uuid {
-                if self.check_if_name_exists(&format!("{}_copy", &pair.1.get_name())) {
-                    return Err(format!(
-                        "{}_copy already exists as an instance",
-                        &pair.1.get_name()
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
 
     pub fn player_list(&self, uuid: &String) -> Result<Vec<String>, String> {
         let ins = self

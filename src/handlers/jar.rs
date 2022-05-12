@@ -1,5 +1,5 @@
 use rocket::http::Status;
-use rocket::serde::json::{json, Json, Value, from_str};
+use rocket::serde::json::{json, Value, from_str};
 
 #[get("/jar/flavours")]
 pub async fn flavours() -> Value {
