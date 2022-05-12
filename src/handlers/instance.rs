@@ -269,6 +269,9 @@ pub async fn upload_mod(
     if upload.file.content_type().unwrap().sub() != "java-archive" {
         return (Status::UnsupportedMediaType, "Need .jar".to_string());
     }
+    if !upload.file.is_complete() {
+        return (Status::PayloadTooLarge, "File too large".to_string());
+    }
     let instance_mod_path = state
         .instance_manager
         .lock()
@@ -280,7 +283,8 @@ pub async fn upload_mod(
         .join("mods")
         // .join("test.zip");
         .join(format!("{}.jar", upload.file.name().unwrap()));
-    match file_service::upload_file(instance_mod_path, upload.into_inner().file.into_inner()).await
+        println!("{}", instance_mod_path.to_str().unwrap());
+    match file_service::save_temp_file(instance_mod_path, upload.into_inner().file.into_inner()).await
     {
         Ok(_) => (Status::Ok, "File saved".to_string()),
         Err(_) => (
@@ -299,6 +303,9 @@ pub async fn upload_world(
     if !upload.file.content_type().unwrap().is_zip() {
         return (Status::UnsupportedMediaType, "Need .zip".to_string());
     }
+    if !upload.file.is_complete() {
+        return (Status::PayloadTooLarge, "File too large".to_string());
+    }
     let instance_mod_path = state
         .instance_manager
         .lock()
@@ -310,7 +317,7 @@ pub async fn upload_world(
         .join("worlds")
         // .join("test.zip");
         .join(format!("{}.zip", upload.file.name().unwrap()));
-    match file_service::upload_file(instance_mod_path, upload.into_inner().file.into_inner()).await
+    match file_service::save_temp_file(instance_mod_path, upload.into_inner().file.into_inner()).await
     {
         Ok(_) => (Status::Ok, "World .zip file saved".to_string()),
         Err(_) => (

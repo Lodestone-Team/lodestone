@@ -1,6 +1,9 @@
 use crate::event_processor::{self, EventProcessor, PlayerEventVarient};
 use crate::managers::properties_manager;
+use crate::services::file_service::{save_temp_file};
+use rocket::fs::TempFile;
 use rocket::serde::json::serde_json;
+use rocket::request::FromParam;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::File;
@@ -14,6 +17,7 @@ use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, thread, time};
+use zip::ZipArchive;
 // use self::macro_code::dispatch_macro;
 
 use super::macro_manager::MacroManager;
@@ -795,6 +799,54 @@ impl ServerInstance {
     #[must_use]
     pub fn instance_config(&self) -> &InstanceConfig {
         &self.instance_config
+    }
+
+    
+}
+
+#[derive(FromFormField)]
+pub enum ResourceType {
+    World,
+    Mod,
+}
+
+impl<'r> FromParam<'r> for ResourceType {
+    type Error = &'static str;
+
+    fn from_param(param: &'r str) -> Result<Self, Self::Error> {
+        match param {
+            "world" => Ok(ResourceType::World),
+            "mod" => Ok(ResourceType::Mod),
+            _ => Err("invalid resource type"),
+        }
+    }
+}
+
+impl ServerInstance {
+    pub async fn save_resource(
+        &self,
+        data: TempFile<'_>,
+        resource_type: ResourceType,
+    ) -> Result<(), String> {
+        let path_to_file = self
+            .path
+            .join("lodestone_resources")
+            .join(match resource_type {
+                ResourceType::Mod => "mods",
+                ResourceType::World => "worlds",
+            })
+            .join(format!("{}.{}", data.name().unwrap(), match resource_type {
+                ResourceType::Mod => "jar",
+                ResourceType::World => "zip",
+            }));
+        save_temp_file(path_to_file, data).await?;
+        match resource_type {
+            ResourceType::World => {
+                let zipped_world = ZipArchive::new(File::open(path_to_file).un);
+            },
+            _ => {}
+        }
+        return Ok(());
     }
 }
 // mod macro_code {
