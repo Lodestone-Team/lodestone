@@ -20,6 +20,7 @@ mod event_processor;
 mod handlers;
 mod managers;
 mod util;
+mod services;
 use handlers::*;
 use instance_manager::InstanceManager;
 use managers::*;
@@ -300,9 +301,11 @@ async fn main() {
                 instance::list_resource,
                 instance::load_resource,
                 instance::unload_resource,
-                instance::upload_file,
-                instance::download_file,
-                instance::upload_capped,
+                // instance::upload_file,
+                // instance::download_file,
+                // instance::upload_capped,
+                instance::upload_mod,
+                instance::upload_world,
                 // instance::events,
                 jar::vanilla_versions,
                 jar::vanilla_jar,

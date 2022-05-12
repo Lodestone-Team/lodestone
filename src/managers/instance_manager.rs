@@ -307,7 +307,7 @@ pub mod resource_management {
 
     use super::InstanceManager;
 
-    // #[derive(FromFormField)]
+    #[derive(FromFormField)]
     pub enum ResourceType {
         World,
         Mod,

@@ -3,11 +3,12 @@ use std::path::Path;
 
 use crate::instance_manager::resource_management::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
+use crate::services::file_service;
 use crate::MyManagedState;
 use rocket::data::{Capped, Data, ToByteUnit};
 use rocket::form::{Form, FromForm};
-use rocket::fs::{TempFile};
-use rocket::http::Status;
+use rocket::fs::TempFile;
+use rocket::http::{ContentType, Status};
 use rocket::response::content;
 use rocket::serde::json::{json, Json, Value};
 use rocket::tokio::fs::File;
@@ -188,61 +189,133 @@ pub async fn unload_resource(
     }
 }
 
-#[post("/files/<filename>", data = "<file>")]
-pub async fn upload_file(
-    filename: String,
-    file: Data<'_>,
-    state: &State<MyManagedState>,
-) -> (Status, content::Json<String>) {
-    println!("test");
-    let mut path_to_files = state.instance_manager.lock().await.get_path().join("files");
-    fs::create_dir_all(path_to_files.as_path()).map_err(|e| e.to_string());
-    path_to_files.push(&filename);
-    match file
-        .open(i64::from(512).kibibytes())
-        .into_file(path_to_files.as_path())
-        .await
-    {
-        Ok(_) => (Status::Ok, content::Json(filename)),
-        Err(reason) => (
-            Status::InternalServerError,
-            content::Json(reason.to_string()),
-        ),
-    }
-}
+// #[post("/files/<filename>", data = "<file>")]
+// pub async fn upload_file(
+//     filename: String,
+//     file: Data<'_>,
+//     state: &State<MyManagedState>,
+// ) -> (Status, content::Json<String>) {
+//     println!("test");
+//     let mut path_to_files = state.instance_manager.lock().await.get_path().join("files");
+//     fs::create_dir_all(path_to_files.as_path()).map_err(|e| e.to_string());
+//     path_to_files.push(&filename);
+//     match file
+//         .open(i64::from(512).kibibytes())
+//         .into_file(path_to_files.as_path())
+//         .await
+//     {
+//         Ok(_) => (Status::Ok, content::Json(filename)),
+//         Err(reason) => (
+//             Status::InternalServerError,
+//             content::Json(reason.to_string()),
+//         ),
+//     }
+// }
 
-#[get("/files")]
-pub async fn download_file(state: &State<MyManagedState>) -> Result<File, content::Json<String>> {
-    let path_of_file = state
+// #[get("/files")]
+// pub async fn download_file(state: &State<MyManagedState>) -> Result<File, content::Json<String>> {
+//     let path_of_file = state
+//         .instance_manager
+//         .lock()
+//         .await
+//         .get_path()
+//         .join("files/NOTICE");
+//     match File::open(path_of_file.as_path()).await {
+//         Ok(file) => Ok(file),
+//         Err(_) => Err(content::Json("something went wrong".to_string())),
+//     }
+// }
+
+// #[derive(FromForm)]
+// pub struct Upload<'r> {
+//     resource_type: ResourceType,
+//     // resource_type: &'r str,
+//     #[field(validate = ext(ContentType::ZIP))]
+//     file: Capped<TempFile<'r>>,
+// }
+// #[post("/files/capped", data = "<upload>")]
+// pub async fn upload_capped(upload: Form<Upload<'_>>, state: &State<MyManagedState>) {
+//     let data = upload.into_inner();
+//     println!("In capped upload");
+//     println!(
+//         "resource_type: {}",
+//         match data.resource_type {
+//             ResourceType::World => "world",
+//             ResourceType::Mod => "mod",
+//         }
+//     );
+//     // println!("resource type: {}", data.resource_type);
+//     println!(
+//         "completed: {}",
+//         match data.file.is_complete() {
+//             true => "yes",
+//             false => "no",
+//         }
+//     );
+//     println!("what");
+// }
+
+#[derive(FromForm)]
+pub struct Upload<'r> {
+    // TODO figure our how to check if valid jar file
+    file: Capped<TempFile<'r>>,
+}
+#[post("/instance/<uuid>/files/upload/mod", data = "<upload>")]
+pub async fn upload_mod(
+    uuid: String,
+    upload: Form<Upload<'_>>,
+    state: &State<MyManagedState>,
+) -> (Status, String) {
+    if upload.file.content_type().unwrap().sub() != "java-archive" {
+        return (Status::UnsupportedMediaType, "Need .jar".to_string());
+    }
+    let instance_mod_path = state
         .instance_manager
         .lock()
         .await
         .get_path()
-        .join("files/NOTICE");
-    match File::open(path_of_file.as_path()).await {
-        Ok(file) => Ok(file),
-        Err(_) => Err(content::Json("something went wrong".to_string())),
+        .join("instances")
+        .join(uuid)
+        .join("lodestone_resources")
+        .join("mods")
+        // .join("test.zip");
+        .join(format!("{}.jar", upload.file.name().unwrap()));
+    match file_service::upload_file(instance_mod_path, upload.into_inner().file.into_inner()).await
+    {
+        Ok(_) => (Status::Ok, "File saved".to_string()),
+        Err(_) => (
+            Status::InternalServerError,
+            "Failed to save file".to_string(),
+        ),
     }
 }
 
-#[derive(FromForm)]
-pub struct Upload<'r> {
-    // resource_type: &'r str,
-    resource_type: &'r str,
-    file: Capped<TempFile<'r>>,
-}
-#[post("/files/capped", data = "<upload>")]
-pub async fn upload_capped(upload: Form<Upload<'_>>, state: &State<MyManagedState>) {
-    let data = upload.into_inner(); 
-    println!("In capped upload");
-    // println!("resource_type: {}", match data.resource_type {
-    //     ResourceType::World => "world",
-    //     ResourceType::Mod => "mod"
-    // });
-    println!("resource type: {}", data.resource_type);
-    println!("completed: {}", match data.file.is_complete() {
-        true => "yes",
-        false => "no"
-    });
-    println!("what");
+#[post("/instance/<uuid>/files/upload/world", data = "<upload>")]
+pub async fn upload_world(
+    uuid: String,
+    upload: Form<Upload<'_>>,
+    state: &State<MyManagedState>,
+) -> (Status, String) {
+    if !upload.file.content_type().unwrap().is_zip() {
+        return (Status::UnsupportedMediaType, "Need .zip".to_string());
+    }
+    let instance_mod_path = state
+        .instance_manager
+        .lock()
+        .await
+        .get_path()
+        .join("instances")
+        .join(uuid)
+        .join("lodestone_resources")
+        .join("worlds")
+        // .join("test.zip");
+        .join(format!("{}.zip", upload.file.name().unwrap()));
+    match file_service::upload_file(instance_mod_path, upload.into_inner().file.into_inner()).await
+    {
+        Ok(_) => (Status::Ok, "World .zip file saved".to_string()),
+        Err(_) => (
+            Status::InternalServerError,
+            "Failed to save world .zip file".to_string(),
+        ),
+    }
 }
