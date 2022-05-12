@@ -194,7 +194,6 @@ pub async fn upload_file(
     file: Data<'_>,
     state: &State<MyManagedState>,
 ) -> (Status, content::Json<String>) {
-    println!("test");
     let mut path_to_files = state.instance_manager.lock().await.get_path().join("files");
     fs::create_dir_all(path_to_files.as_path()).map_err(|e| e.to_string());
     path_to_files.push(&filename);

@@ -31,6 +31,7 @@ use std::path::PathBuf;
 use std::{thread, time};
 use sys_info::{cpu_num, cpu_speed, disk_info, loadavg, mem_info, os_release, os_type};
 use systemstat::{Duration, Platform, System};
+use log::{info, warn, LevelFilter};
 
 static mut WS_SENDER: Option<crossbeam_channel::Sender<String>> = None;
 
@@ -77,6 +78,7 @@ fn internal_server_error() -> &'static str {
 
 #[rocket::main]
 async fn main() {
+    env_logger::builder().filter_level(LevelFilter::Info).format_module_path(false).format_timestamp(None).format_target(false).f.init();
     let mut lodestone_path = match env::var("LODESTONE_PATH") {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
@@ -90,7 +92,7 @@ async fn main() {
     create_dir_all(&static_path).unwrap();
 
     //print file locations to console
-    println!("Lodestone directory: {}", lodestone_path.display());
+    info!("Lodestone directory: {}", lodestone_path.display());
 
     let instance_manager = Arc::new(Mutex::new(InstanceManager::new(lodestone_path).unwrap()));
     let instance_manager_closure = instance_manager.clone();
@@ -250,7 +252,7 @@ async fn main() {
         WS_SENDER = Some(tx.clone());
     }
 
-    let server = Server::bind("0.0.0.0:8005").unwrap();
+    let server = Server::bind("0.0.0.0:8006").unwrap();
     thread::spawn(move || {
         for request in server.filter_map(Result::ok) {
             let rx = rx.clone();

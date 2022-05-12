@@ -69,7 +69,7 @@ impl InstanceManager {
                         &instance_config,
                         path.join("instances").join(instance_config.name.clone()),
                     );
-                    println!(
+                    info!(
                         "using port {} for instance {}",
                         instance_config.port.unwrap(),
                         instance_config.name
@@ -151,7 +151,7 @@ impl InstanceManager {
             for port in 25565..26000 {
                 if !self.taken_ports.contains(&port) {
                     self.taken_ports.insert(port);
-                    println!("using port {}", port);
+                    info!("{} using port {}", config.name, port);
                     properties_manager.edit_field(&"server-port".to_owned(), port.to_string());
                     properties_manager.write_to_file().unwrap();
                     config.port = Some(port);
