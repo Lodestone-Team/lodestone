@@ -78,7 +78,7 @@ fn internal_server_error() -> &'static str {
 
 #[rocket::main]
 async fn main() {
-    env_logger::builder().filter_level(LevelFilter::Info).format_module_path(false).format_timestamp(None).format_target(false).f.init();
+    env_logger::builder().filter_level(LevelFilter::Info).format_module_path(false).format_timestamp(None).format_target(false).init();
     let mut lodestone_path = match env::var("LODESTONE_PATH") {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
