@@ -1,6 +1,10 @@
 use regex::Regex;
 use serde::Serialize;
-use std::{process::{Child, Command, Stdio}, thread, sync::{Arc, Mutex}};
+use std::{
+    process::{Child, Command, Stdio},
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use crate::managers::server_instance::ServerInstance;
 
@@ -32,7 +36,7 @@ pub enum PlayerEventVarient {
     Died(String),
     IllegalMove(String),
     Advancement(String),
-    Command(String)
+    Command(String),
 }
 
 pub struct EventProcessor {
@@ -67,7 +71,6 @@ impl EventProcessor {
             on_custom_event: vec![],
         }
     }
-
 
     pub fn process(&self, line: &String) {
         if let Some(msg) = parse(&line) {
@@ -136,14 +139,14 @@ impl EventProcessor {
                             let player = player_event.player.clone();
                             thread::spawn(move || f(player, cmd));
                         }
-                    },
+                    }
                 }
             } else {
                 let re = Regex::new(r"Done .+! For help, type").unwrap();
                 if re.is_match(line) {
                     for f in &self.on_server_startup {
                         let f = f.clone();
-            thread::spawn(move || f());
+                        thread::spawn(move || f());
                     }
                 }
             }
@@ -198,8 +201,6 @@ impl EventProcessor {
         // self.on_server_message.clear();
         // self.on_server_startup.clear();
         // self.on_server_shutdown.clear();
-        
-
     }
 
     pub fn on_player_send_command(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
@@ -214,8 +215,8 @@ impl EventProcessor {
             let f = f.clone();
             let event = event.clone();
             thread::spawn(move || f(event));
+        }
     }
-}
 }
 
 pub mod parser {
@@ -313,11 +314,24 @@ pub mod parser {
             // match for advancement
             let re_chanllenge = Regex::new(r"completed the challenge \[(.+)\]").unwrap();
             let re_advancement = Regex::new(r"has made the advancement \[(.+)\]").unwrap();
-            if re_advancement.is_match(s) || re_chanllenge.is_match(s) {
+            if re_advancement.is_match(s) {
                 Some(PlayerEvent {
                     player: s_vec[0].to_string(),
                     event: PlayerEventVarient::Advancement(
                         re_advancement
+                            .captures(s)
+                            .unwrap()
+                            .get(1)
+                            .unwrap()
+                            .as_str()
+                            .to_string(),
+                    ),
+                })
+            } else if re_chanllenge.is_match(s) {
+                Some(PlayerEvent {
+                    player: s_vec[0].to_string(),
+                    event: PlayerEventVarient::Advancement(
+                        re_chanllenge
                             .captures(s)
                             .unwrap()
                             .get(1)
