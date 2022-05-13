@@ -1,10 +1,11 @@
-use crate::event_processor::{EventProcessor};
+use crate::event_processor::EventProcessor;
+use log::warn;
 use rocket::serde::json::serde_json;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener};
+use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use systemstat::Duration;
@@ -65,7 +66,6 @@ impl ToString for Flavour {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Status {
@@ -300,7 +300,7 @@ impl ServerInstance {
                     }
                     if i < 10 {
                         info!(
-                            "Last player left the server, shutting down in {} seconds",
+                            "[EventProcessor] Last player left the server, shutting down in {} seconds",
                             i
                         );
                     }
@@ -322,7 +322,6 @@ impl ServerInstance {
         event_processor.on_server_startup(Arc::new(move || {
             *status.lock().unwrap() = Status::Running;
             let timeout = timeout_no_activity.lock().unwrap().to_owned();
-            info!("No activity timeout set to {}", timeout);
             if timeout > 0 {
                 let mut i = timeout;
                 while i > 0 {
@@ -335,7 +334,10 @@ impl ServerInstance {
                         continue;
                     }
                     if i < 10 {
-                        info!("No activity on server, shutting down in {} seconds", i);
+                        info!(
+                            "[EventProcessor] No activity on server, shutting down in {} seconds",
+                            i
+                        );
                     }
                 }
 
@@ -349,8 +351,16 @@ impl ServerInstance {
             }
         }));
         let name = self.name.clone();
-        event_processor.on_server_message(Arc::new(move |message| {
-            info!("[{}] [{}] {}", name, message.timestamp, message.message);
+        event_processor.on_server_message(Arc::new(move |message| match message.signal {
+            crate::event_processor::Signal::Info => {
+                info!("[{}] [{}] {}", name, message.timestamp, message.message)
+            }
+            crate::event_processor::Signal::Warn => {
+                warn!("[{}] [{}] {}", name, message.timestamp, message.message)
+            }
+            crate::event_processor::Signal::Error => {
+                error!("[{}] [{}] {}", name, message.timestamp, message.message)
+            }
         }));
 
         let player_online = self.player_online.clone();
@@ -432,39 +442,52 @@ impl ServerInstance {
         }));
 
         let macro_manager = self.macro_manager.clone();
-
+        let name = self.name.clone();
         event_processor.on_server_startup(Arc::new(move || {
             macro_manager
                 .run("on_startup".to_owned(), vec![], None)
                 .map_err(|_| {
-                    info!("no macro named \"on_startup\" found, skipping");
+                    warn!(
+                        "[{}] [MacroManager] no macro named \"on_startup\" found, skipping",
+                        name
+                    );
                 });
         }));
         let macro_manager = self.macro_manager.clone();
+        let name = self.name.clone();
 
         event_processor.on_server_shutdown(Arc::new(move || {
             macro_manager
                 .run("on_shutdown".to_owned(), vec![], None)
                 .map_err(|_| {
-                    info!("no macro named \"on_shutdown\" found, skipping");
+                    warn!(
+                        "[{}] [MacroManager] no macro named \"on_shutdown\" found, skipping",
+                        name
+                    );
                 });
         }));
-
+        let name = self.name.clone();
         let macro_manager = self.macro_manager.clone();
         event_processor.on_player_joined(Arc::new(move |player| {
             macro_manager
                 .run("on_player_joined".to_owned(), vec![player], None)
                 .map_err(|_| {
-                    info!("no macro named \"on_player_joined\" found, skipping");
+                    warn!(
+                        "[{}] [MacroManager] no macro named \"on_player_joined\" found, skipping",
+                        name
+                    );
                 });
         }));
-
+        let name = self.name.clone();
         let macro_manager = self.macro_manager.clone();
         event_processor.on_player_left(Arc::new(move |player| {
             macro_manager
                 .run("on_player_left".to_owned(), vec![player], None)
                 .map_err(|_| {
-                    info!("no macro named \"on_player_left\" found, skipping");
+                    warn!(
+                        "[{}] [MacroManager] no macro named \"on_player_left\" found, skipping",
+                        name
+                    );
                 });
         }));
     }
@@ -525,10 +548,13 @@ impl ServerInstance {
 
                     let status = status_closure.lock().unwrap().clone();
                     players_closure.lock().unwrap().clear();
-                    info!("program exiting as reader thread is terminating...");
+                    info!(
+                        "[{}] program exiting as reader thread is terminating...",
+                        name_closure
+                    );
                     match status {
                         Status::Stopping => {
-                            info!("instance stopped properly")
+                            info!("[{}] instance stopped properly", name_closure);
                         }
                         Status::Running => {
                             if let Some(true) = *restart_on_crash {
@@ -545,7 +571,10 @@ impl ServerInstance {
                             }
                         }
                         Status::Starting => {
-                            error!("instance crashed while attemping to start");
+                            error!(
+                                "[{}] instance crashed while attemping to start",
+                                name_closure
+                            );
                         }
                         _ => {
                             error!("this is a really weird bug");
