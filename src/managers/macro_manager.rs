@@ -8,11 +8,12 @@ use std::{
 };
 
 use regex::Regex;
-use rlua::{Error, Lua, MultiValue};
+use rlua::{Lua, MultiValue};
 
 use crate::event_processor::EventProcessor;
 
 use super::server_instance::Status;
+use log::{error, info};
 
 #[derive(Clone)]
 pub struct MacroManager {
@@ -20,9 +21,8 @@ pub struct MacroManager {
     pub path_to_instance: PathBuf,
     stdin_sender: Arc<Mutex<Option<ChildStdin>>>,
     event_processor: Arc<Mutex<EventProcessor>>,
-    players_online : Arc<Mutex<Vec<String>>>,
-    status : Arc<Mutex<Status>>
-
+    players_online: Arc<Mutex<Vec<String>>>,
+    status: Arc<Mutex<Status>>,
 }
 
 impl MacroManager {
@@ -31,8 +31,8 @@ impl MacroManager {
         path_to_instance: PathBuf,
         stdin_sender: Arc<Mutex<Option<ChildStdin>>>,
         event_processor: Arc<Mutex<EventProcessor>>,
-        players_online : Arc<Mutex<Vec<String>>>,
-        status : Arc<Mutex<Status>>
+        players_online: Arc<Mutex<Vec<String>>>,
+        status: Arc<Mutex<Status>>,
     ) -> MacroManager {
         fs::create_dir_all(path_to_macros.as_path()).map_err(|e| e.to_string());
         MacroManager {
@@ -41,7 +41,7 @@ impl MacroManager {
             stdin_sender,
             event_processor,
             players_online,
-            status
+            status,
         }
     }
     pub fn run(
@@ -50,7 +50,7 @@ impl MacroManager {
         args: Vec<String>,
         executor: Option<String>,
     ) -> Result<(), String> {
-        let macro_file = fs::File::open(self.path_to_macros.join(name).with_extension("lua"))
+        let macro_file = fs::File::open(self.path_to_macros.join(name.clone()).with_extension("lua"))
             .map_err(|e| e.to_string())?;
         let mut program: String = String::new();
 
@@ -60,7 +60,6 @@ impl MacroManager {
 
         Lua::new().context(move |lua_ctx| {
             for (pos, arg) in args.iter().enumerate() {
-                println!("setting {} to {}", format!("arg{}", pos + 1), arg);
                 lua_ctx
                     .globals()
                     .set(format!("arg{}", pos + 1), arg.clone());
@@ -73,7 +72,9 @@ impl MacroManager {
                 .unwrap();
             lua_ctx.globals().set("delay_sec", delay_sec);
             lua_ctx.globals().set("EXECUTOR", executor);
-            lua_ctx.globals().set("PATH_TO_INSTANCE", self.path_to_instance.to_str());
+            lua_ctx
+                .globals()
+                .set("PATH_TO_INSTANCE", self.path_to_instance.to_str());
 
             let event_processor = self.event_processor.clone();
             let await_msg = lua_ctx
@@ -86,9 +87,7 @@ impl MacroManager {
                             tx.lock().unwrap().send((player, player_msg)).unwrap();
                         },
                     ));
-                    println!("awaiting message");
                     let (player, player_msg) = rx.recv().unwrap();
-                    println!("got message from {}: {}", player, player_msg);
                     // remove the callback
                     event_processor.lock().unwrap().on_chat.remove(index);
                     Ok((player, player_msg))
@@ -105,20 +104,15 @@ impl MacroManager {
             let stdin_sender_closure = self.stdin_sender.clone();
             let send_stdin = lua_ctx
                 .create_function(move |ctx, line: String| {
-                    // if stdin_sender_closure.lock().unwrap().is_none() {
-                    //     return Err(Error::RuntimeError(format!("stdin is closed")));
-                    // }
                     let reg = Regex::new(r"\$\{(\w*)\}").unwrap();
                     let globals = ctx.globals();
                     let mut after = line.clone();
                     if reg.is_match(&line) {
                         for cap in reg.captures_iter(&line) {
-                            println!("cap1: {}", cap.get(1).unwrap().as_str());
                             after = after.replace(
                                 format!("${{{}}}", &cap[1]).as_str(),
                                 &globals.get::<_, String>(cap[1].to_string()).unwrap(),
                             );
-                            println!("after: {}", after);
                         }
 
                         stdin_sender_closure
@@ -140,17 +134,25 @@ impl MacroManager {
                 .unwrap();
             lua_ctx.globals().set("send_stdin", send_stdin);
             let players_online = self.players_online.clone();
-            lua_ctx.globals().set("get_players_online", lua_ctx.create_function(move |_, ()| {
-                let mut players_online_vec = Vec::new();
-                for player in players_online.lock().unwrap().iter() {
-                    players_online_vec.push(player.clone());
-                }
-                Ok(players_online_vec)
-            }).unwrap());
+            lua_ctx.globals().set(
+                "get_players_online",
+                lua_ctx
+                    .create_function(move |_, ()| {
+                        let mut players_online_vec = Vec::new();
+                        for player in players_online.lock().unwrap().iter() {
+                            players_online_vec.push(player.clone());
+                        }
+                        Ok(players_online_vec)
+                    })
+                    .unwrap(),
+            );
             let status = self.status.clone();
-            lua_ctx.globals().set("get_status", lua_ctx.create_function(move |_, ()| {
-                Ok(status.lock().unwrap().to_string())
-            }).unwrap());
+            lua_ctx.globals().set(
+                "get_status",
+                lua_ctx
+                    .create_function(move |_, ()| Ok(status.lock().unwrap().to_string()))
+                    .unwrap(),
+            );
 
             lua_ctx.globals().set(
                 "isBadWord",
@@ -162,24 +164,97 @@ impl MacroManager {
                     })
                     .unwrap(),
             );
+            let stdin_sender_closure = self.stdin_sender.clone();
+            let instance_name = self.path_to_instance.file_name().unwrap().to_str().unwrap().to_string();
+            let macro_name = name.clone();
+            lua_ctx.globals().set(
+                "log_info",
+                lua_ctx
+                    .create_function(move |_, msg: String| {
+                        stdin_sender_closure
+                            .lock()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .write_all(
+                                format!(
+                                    "tellraw @a [\"\",{{\"text\":\"[Info] \",\"color\":\"green\"}},{{\"text\":\"{}\"}}]\n",
+                                    msg
+                                )
+                                .as_bytes(),
+                            );
+                        info!("[{}] [MacroManager:{}] {}", instance_name, macro_name, msg );
+                        Ok(())
+                    })
+                    .unwrap(),
+            );
+            let stdin_sender_closure = self.stdin_sender.clone();
+            let instance_name = self.path_to_instance.file_name().unwrap().to_str().unwrap().to_string();
+            let macro_name = name.clone();
 
+            lua_ctx.globals().set(
+                "log_warn",
+                lua_ctx
+                    .create_function(move |_, msg: String| {
+                        stdin_sender_closure
+                            .lock()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .write_all(
+                                format!(
+                                    "tellraw @a [\"\",{{\"text\":\"[Warn] \",\"color\":\"yellow\"}},{{\"text\":\"{}\"}}]\n",
+                                    msg
+                                )
+                                .as_bytes(),
+                            );
+                        warn!("[{}] [MacroManager:{}] {}", instance_name, macro_name, msg );
+                        Ok(())
+                    })
+                    .unwrap(),
+            );
+            let stdin_sender_closure = self.stdin_sender.clone();
+            let instance_name = self.path_to_instance.file_name().unwrap().to_str().unwrap().to_string();
+            let macro_name = name.clone();
+
+            lua_ctx.globals().set(
+                "log_err",
+                lua_ctx
+                    .create_function(move |_, msg: String| {
+                        stdin_sender_closure
+                            .lock()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .write_all(
+                                format!(
+                                    "tellraw @a [\"\",{{\"text\":\"[Error] \",\"color\":\"red\"}},{{\"text\":\"{}\"}}]\n",
+                                    msg
+                                )
+                                .as_bytes(),
+                            );
+                        error!("[{}] [MacroManager:{}] {}", instance_name, macro_name, msg );
+                        Ok(())
+                    })
+                    .unwrap(),
+            );
+            let instance_name = self.path_to_instance.file_name().unwrap().to_str().unwrap().to_string();
+            let macro_name = name.clone();
             match lua_ctx.load(&program).eval::<MultiValue>() {
                 Ok(value) => {
-                    println!(
-                        "{}",
-                        value
-                            .iter()
-                            .map(|value| format!("{:?}", value))
-                            .collect::<Vec<_>>()
-                            .join("\t")
-                    );
+                    let string_value = value
+                    .iter()
+                    .map(|value| format!("{:?}", value))
+                    .collect::<Vec<_>>().join("\t");
+                    if !string_value.is_empty() {
+                        info!(
+                            "{}",
+                            string_value
+                        );
+                    }
                 }
-                // Err(Error::SyntaxError {
-                //     incomplete_input: true,
-                //     ..
-                // }) => {}
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    error!("[{}] [MacroManager:{}] {}",instance_name, macro_name, e);
                 }
             }
         });

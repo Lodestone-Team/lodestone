@@ -49,7 +49,7 @@ impl TunnelManager {
 
     pub fn start(&mut self) -> Result<(), TunnelErr> {
         let mut cmd = Command::new(&self.path_to_exe);
-        println!("attemping to start with domain: {}", &self.domain);
+        info!("attemping to start with domain: {}", &self.domain);
         cmd.arg("http")
             .arg("-s")
             .arg("ca-1.lodestone.link:7000")
@@ -66,7 +66,6 @@ impl TunnelManager {
             let reader = BufReader::new(proc.stdout.take().unwrap());
             for (pos, line_result) in reader.lines().enumerate() {
                 let line = line_result.unwrap();
-                println!("{}: {}",pos, line);
                 if pos > 10 {
                     return Err(TunnelErr::Timeout);
                 }

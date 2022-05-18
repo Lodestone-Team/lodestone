@@ -1,8 +1,7 @@
 use std::fs;
-use std::path::Path;
 
-use crate::instance_manager::resource_management::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
+use crate::managers::types::ResourceType;
 use crate::services::file_service;
 use crate::MyManagedState;
 use rocket::data::{Capped, Data, ToByteUnit};
@@ -258,6 +257,7 @@ pub async fn unload_resource(
 #[derive(FromForm)]
 pub struct Upload<'r> {
     // TODO figure our how to check if valid jar file
+    r#type: ResourceType,
     file: Capped<TempFile<'r>>,
 }
 #[post("/instance/<uuid>/files/upload/mod", data = "<upload>")]
@@ -283,8 +283,9 @@ pub async fn upload_mod(
         .join("mods")
         // .join("test.zip");
         .join(format!("{}.jar", upload.file.name().unwrap()));
-        println!("{}", instance_mod_path.to_str().unwrap());
-    match file_service::save_temp_file(instance_mod_path, upload.into_inner().file.into_inner()).await
+    println!("{}", instance_mod_path.to_str().unwrap());
+    match file_service::save_temp_file(&instance_mod_path, upload.into_inner().file.into_inner())
+        .await
     {
         Ok(_) => (Status::Ok, "File saved".to_string()),
         Err(_) => (
@@ -317,12 +318,35 @@ pub async fn upload_world(
         .join("worlds")
         // .join("test.zip");
         .join(format!("{}.zip", upload.file.name().unwrap()));
-    match file_service::save_temp_file(instance_mod_path, upload.into_inner().file.into_inner()).await
+    match file_service::save_temp_file(&instance_mod_path, upload.into_inner().file.into_inner())
+        .await
     {
         Ok(_) => (Status::Ok, "World .zip file saved".to_string()),
         Err(_) => (
             Status::InternalServerError,
             "Failed to save world .zip file".to_string(),
         ),
+    }
+}
+
+#[post("/instance/<uuid>/files/upload", data = "<upload>")]
+pub async fn upload(
+    uuid: String,
+    upload: Form<Upload<'_>>,
+    state: &State<MyManagedState>,
+) -> (Status, String) {
+    let upload_inner = upload.into_inner();
+    if !upload_inner.file.is_complete() {
+        return (Status::PayloadTooLarge, "File too large".to_string());
+    }
+    match state
+        .instance_manager
+        .lock()
+        .await
+        .upload(&uuid, upload_inner.file.into_inner(), upload_inner.r#type)
+        .await
+    {
+        Ok(_) => (Status::Ok, "Saved".to_string()),
+        Err(_) => (Status::InternalServerError, "Failed to save".to_string()),
     }
 }

@@ -1,20 +1,20 @@
 use crate::managers::server_instance::{InstanceConfig, ServerInstance};
+use crate::managers::types::{ResourceType};
 use crate::properties_manager::PropertiesManager;
-use crate::util::db_util::mongo_schema::*;
 use crate::util::{self};
 use crate::MyManagedState;
 use rocket::fairing::Result;
 use rocket::form::{FromFormField};
+use rocket::fs::TempFile;
 use rocket::serde::json::serde_json::{from_str, to_string_pretty};
 use rocket::State;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::{fs, fs::File};
 
 use super::tunnel_manager::TunnelManager;
-use super::{properties_manager, tunnel_manager};
 
 pub struct InstanceManager {
     instance_collection: HashMap<String, ServerInstance>,
@@ -70,7 +70,7 @@ impl InstanceManager {
                         &instance_config,
                         path.join("instances").join(instance_config.name.clone()),
                     );
-                    println!(
+                    info!(
                         "using port {} for instance {}",
                         instance_config.port.unwrap(),
                         instance_config.name
@@ -152,7 +152,7 @@ impl InstanceManager {
             for port in 25565..26000 {
                 if !self.taken_ports.contains(&port) {
                     self.taken_ports.insert(port);
-                    println!("using port {}", port);
+                    info!("{} using port {}", config.name, port);
                     properties_manager.edit_field(&"server-port".to_owned(), port.to_string());
                     properties_manager.write_to_file().unwrap();
                     config.port = Some(port);
@@ -210,19 +210,6 @@ impl InstanceManager {
         }
     }
 
-    pub fn clone_instance(&mut self, uuid: &String) -> Result<(), String> {
-        for pair in &self.instance_collection {
-            if pair.0 == uuid {
-                if self.check_if_name_exists(&format!("{}_copy", &pair.1.get_name())) {
-                    return Err(format!(
-                        "{}_copy already exists as an instance",
-                        &pair.1.get_name()
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
 
     pub fn player_list(&self, uuid: &String) -> Result<Vec<String>, String> {
         let ins = self
@@ -295,14 +282,28 @@ impl InstanceManager {
     pub fn get_path(&self) -> &PathBuf {
         &self.path
     }
+
+    pub async fn upload(
+        &self, 
+        uuid: &String,
+        data: TempFile<'_>, 
+        resource_type: ResourceType
+    ) -> Result<String, String> {
+        match self.instance_collection.get(uuid).unwrap().save_resource(data, resource_type).await {
+            Ok(_) => Ok("file saved".to_string()),
+            Err(e) => Err(e),
+        }
+    }
 }
 pub mod resource_management {
     use std::{
         fs::{self, create_dir_all},
         path::PathBuf,
     };
+    use crate::managers::types::{ResourceType};
 
     use rocket::fs::TempFile;
+
     use rocket::request::FromParam;
 
     use crate::{
@@ -311,25 +312,8 @@ pub mod resource_management {
     };
 
     use super::InstanceManager;
-
-    #[derive(FromFormField)]
-    pub enum ResourceType {
-        World,
-        Mod,
-    }
-
-    impl<'r> FromParam<'r> for ResourceType {
-        type Error = &'static str;
-
-        fn from_param(param: &'r str) -> Result<Self, Self::Error> {
-            match param {
-                "world" => Ok(ResourceType::World),
-                "mod" => Ok(ResourceType::Mod),
-                _ => Err("invalid resource type"),
-            }
-        }
-    }
     impl InstanceManager {
+
         /// this code is completely garbage, someone should fix it
         /// first is loaded resource, second is unloaded
         pub fn list_resource(
@@ -410,7 +394,7 @@ pub mod resource_management {
                     ResourceType::Mod => "jar",
                     ResourceType::World => "zip",
                 }));
-            save_temp_file(path_to_instance, data).await?;
+            save_temp_file(&path_to_instance, data).await?;
             match resource_type {
                 ResourceType::World => {
     
