@@ -8,7 +8,8 @@ pub async fn save_temp_file(path: &PathBuf, mut data: TempFile<'_>) -> Result<()
     match data.copy_to(path).await {
         Ok(()) => Ok(()),
         Err(err) => {
-            println!("{}", err);
+            warn!("{}", path.to_str().unwrap());
+            warn!("{}", err);
             Err("Error saving file".to_string())
         },
     }

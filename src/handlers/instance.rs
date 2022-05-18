@@ -260,6 +260,29 @@ pub struct Upload<'r> {
     r#type: ResourceType,
     file: Capped<TempFile<'r>>,
 }
+
+#[post("/instance/<uuid>/files/upload", data = "<upload>")]
+pub async fn upload(
+    uuid: String,
+    upload: Form<Upload<'_>>,
+    state: &State<MyManagedState>,
+) -> (Status, String) {
+    let upload_inner = upload.into_inner();
+    if !upload_inner.file.is_complete() {
+        return (Status::PayloadTooLarge, "File too large".to_string());
+    }
+    match state
+        .instance_manager
+        .lock()
+        .await
+        .upload(&uuid, upload_inner.file.into_inner(), upload_inner.r#type)
+        .await
+    {
+        Ok(_) => (Status::Ok, "Saved".to_string()),
+        Err(_) => (Status::InternalServerError, "Failed to save".to_string()),
+    }
+}
+
 #[post("/instance/<uuid>/files/upload/mod", data = "<upload>")]
 pub async fn upload_mod(
     uuid: String,
@@ -326,27 +349,5 @@ pub async fn upload_world(
             Status::InternalServerError,
             "Failed to save world .zip file".to_string(),
         ),
-    }
-}
-
-#[post("/instance/<uuid>/files/upload", data = "<upload>")]
-pub async fn upload(
-    uuid: String,
-    upload: Form<Upload<'_>>,
-    state: &State<MyManagedState>,
-) -> (Status, String) {
-    let upload_inner = upload.into_inner();
-    if !upload_inner.file.is_complete() {
-        return (Status::PayloadTooLarge, "File too large".to_string());
-    }
-    match state
-        .instance_manager
-        .lock()
-        .await
-        .upload(&uuid, upload_inner.file.into_inner(), upload_inner.r#type)
-        .await
-    {
-        Ok(_) => (Status::Ok, "Saved".to_string()),
-        Err(_) => (Status::InternalServerError, "Failed to save".to_string()),
     }
 }
