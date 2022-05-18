@@ -35,7 +35,7 @@ function SystemMonitor() {
     const bytesInGigabyte = 1048576;
     const labels = Array.from(Array(60 / pollrate_s).keys()).reverse().map((n) => pollrate_s * n + pollrate_s + "s");
 
-
+    //
     const [cpuHistory, setCpuHistory] = useState(new Array(60 / pollrate_s).fill(0));
     // eslint-disable-next-line no-unused-vars
     const [cpu, setCpu] = useState(0);
