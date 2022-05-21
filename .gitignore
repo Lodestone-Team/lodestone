@@ -21,3 +21,5 @@ instances/
 db/
 web
 lodestone-path/
+
+./run.sh
