@@ -257,7 +257,7 @@ pub async fn unload_resource(
 #[derive(FromForm)]
 pub struct Upload<'r> {
     // TODO figure our how to check if valid jar file
-    r#type: ResourceType,
+    resource_type: ResourceType,
     file: Capped<TempFile<'r>>,
 }
 
@@ -271,83 +271,28 @@ pub async fn upload(
     if !upload_inner.file.is_complete() {
         return (Status::PayloadTooLarge, "File too large".to_string());
     }
+    let is_correct_type = match upload_inner.resource_type {
+        ResourceType::Mod => upload_inner.file.content_type().unwrap().sub() == "java-archive",
+        ResourceType::World => upload_inner.file.content_type().unwrap().is_zip(),
+    };
+    if !is_correct_type {
+        return (
+            Status::UnsupportedMediaType,
+            "Non-matching resource type".to_string(),
+        );
+    }
     match state
         .instance_manager
         .lock()
         .await
-        .upload(&uuid, upload_inner.file.into_inner(), upload_inner.r#type)
+        .upload(
+            &uuid,
+            upload_inner.file.into_inner(),
+            upload_inner.resource_type,
+        )
         .await
     {
         Ok(_) => (Status::Ok, "Saved".to_string()),
         Err(_) => (Status::InternalServerError, "Failed to save".to_string()),
-    }
-}
-
-#[post("/instance/<uuid>/files/upload/mod", data = "<upload>")]
-pub async fn upload_mod(
-    uuid: String,
-    upload: Form<Upload<'_>>,
-    state: &State<MyManagedState>,
-) -> (Status, String) {
-    if upload.file.content_type().unwrap().sub() != "java-archive" {
-        return (Status::UnsupportedMediaType, "Need .jar".to_string());
-    }
-    if !upload.file.is_complete() {
-        return (Status::PayloadTooLarge, "File too large".to_string());
-    }
-    let instance_mod_path = state
-        .instance_manager
-        .lock()
-        .await
-        .get_path()
-        .join("instances")
-        .join(uuid)
-        .join("lodestone_resources")
-        .join("mods")
-        // .join("test.zip");
-        .join(format!("{}.jar", upload.file.name().unwrap()));
-    println!("{}", instance_mod_path.to_str().unwrap());
-    match file_service::save_temp_file(&instance_mod_path, upload.into_inner().file.into_inner())
-        .await
-    {
-        Ok(_) => (Status::Ok, "File saved".to_string()),
-        Err(_) => (
-            Status::InternalServerError,
-            "Failed to save file".to_string(),
-        ),
-    }
-}
-
-#[post("/instance/<uuid>/files/upload/world", data = "<upload>")]
-pub async fn upload_world(
-    uuid: String,
-    upload: Form<Upload<'_>>,
-    state: &State<MyManagedState>,
-) -> (Status, String) {
-    if !upload.file.content_type().unwrap().is_zip() {
-        return (Status::UnsupportedMediaType, "Need .zip".to_string());
-    }
-    if !upload.file.is_complete() {
-        return (Status::PayloadTooLarge, "File too large".to_string());
-    }
-    let instance_mod_path = state
-        .instance_manager
-        .lock()
-        .await
-        .get_path()
-        .join("instances")
-        .join(uuid)
-        .join("lodestone_resources")
-        .join("worlds")
-        // .join("test.zip");
-        .join(format!("{}.zip", upload.file.name().unwrap()));
-    match file_service::save_temp_file(&instance_mod_path, upload.into_inner().file.into_inner())
-        .await
-    {
-        Ok(_) => (Status::Ok, "World .zip file saved".to_string()),
-        Err(_) => (
-            Status::InternalServerError,
-            "Failed to save world .zip file".to_string(),
-        ),
     }
 }

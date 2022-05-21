@@ -289,7 +289,7 @@ impl InstanceManager {
         data: TempFile<'_>, 
         resource_type: ResourceType
     ) -> Result<String, String> {
-        match self.instance_collection.get(uuid).unwrap().save_resource(data, resource_type).await {
+        match self.instance_collection.get(uuid).unwrap().upload(data, resource_type).await {
             Ok(_) => Ok("file saved".to_string()),
             Err(e) => Err(e),
         }
