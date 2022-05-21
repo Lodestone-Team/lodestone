@@ -12,8 +12,7 @@ use regex::Regex;
 use std::env;
 use std::fs::create_dir_all;
 use std::io::{stdin, BufRead, BufReader};
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc};
 use websocket::sync::Server;
 use websocket::OwnedMessage;
 mod event_processor;
@@ -28,9 +27,10 @@ use rocket::fs::FileServer;
 use rocket::http::{Header, Status};
 use rocket::{routes, Request, Response};
 use std::path::PathBuf;
-use std::{thread, time};
-use sys_info::{cpu_num, cpu_speed, disk_info, loadavg, mem_info, os_release, os_type};
+use std::{thread};
+use sys_info::{cpu_speed, disk_info, mem_info, os_release, os_type};
 use systemstat::{Duration, Platform, System};
+use log::{info, LevelFilter};
 
 static mut WS_SENDER: Option<crossbeam_channel::Sender<String>> = None;
 
@@ -77,11 +77,11 @@ fn internal_server_error() -> &'static str {
 
 #[rocket::main]
 async fn main() {
-    let mut lodestone_path = match env::var("LODESTONE_PATH") {
+    env_logger::builder().filter_level(LevelFilter::Info).format_module_path(false).format_timestamp(None).format_target(false).init();
+    let lodestone_path = match env::var("LODESTONE_PATH") {
         Ok(val) => PathBuf::from(val),
         Err(_) => env::current_dir().unwrap(),
     };
-    // lodestone_path = PathBuf::from("/home/peter/Lodestone/backend/lodestone/");
     env::set_current_dir(&lodestone_path).unwrap();
 
     let static_path = lodestone_path.join("web");
@@ -90,7 +90,7 @@ async fn main() {
     create_dir_all(&static_path).unwrap();
 
     //print file locations to console
-    println!("Lodestone directory: {}", lodestone_path.display());
+    info!("Lodestone directory: {}", lodestone_path.display());
 
     let instance_manager = Arc::new(Mutex::new(InstanceManager::new(lodestone_path).unwrap()));
     let instance_manager_closure = instance_manager.clone();
@@ -128,27 +128,27 @@ async fn main() {
             if regex.is_match(&line) {
                 instance_manager
                     .start_instance(&identifier)
-                    .map_err(|err| eprintln!("{}", err));
+                    .map_err(|err| println!("{}", err));
             }
             let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+stop").unwrap();
             if regex.is_match(&line) {
                 instance_manager
                     .stop_instance(&identifier)
-                    .map_err(|err| eprintln!("{}", err));
+                    .map_err(|err| println!("{}", err));
             }
 
             let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+playercount").unwrap();
             if regex.is_match(&line) {
                 match instance_manager.player_num(&identifier) {
                     Ok(size) => println!("{}", size.to_string()),
-                    Err(reason) => eprintln!("{}", reason),
+                    Err(reason) => println!("{}", reason),
                 }
             }
             let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+playerlist").unwrap();
             if regex.is_match(&line) {
                 match instance_manager.player_list(&identifier) {
                     Ok(list) => println!("{:?}", list),
-                    Err(reason) => eprintln!("{}", reason),
+                    Err(reason) => println!("{}", reason),
                 }
             }
             let regex = Regex::new(
@@ -159,7 +159,7 @@ async fn main() {
             // match regex.capture(&line) {
             //     Some(cap) => match instance_manager.player_list(line_vec[1].to_string()) {
             //         Ok(list) => println!("{:?}", list),
-            //         Err(reason) => eprintln!("{}", reason),
+            //         Err(reason) => println!("{}", reason),
             //     }
             //     None() => ()
             // }
@@ -188,13 +188,13 @@ async fn main() {
             if Regex::new(r"sys[[:space:]]+mem").unwrap().is_match(&line) {
                 match mem_info() {
                     Ok(mem) => println!("{}/{}", mem.free, mem.total),
-                    Err(_) => eprintln!("failed to get ram"),
+                    Err(_) => println!("failed to get ram"),
                 }
             }
             if Regex::new(r"sys[[:space:]]+disk").unwrap().is_match(&line) {
                 match disk_info() {
                     Ok(disk) => println!("{}/{}", disk.free, disk.total),
-                    Err(_) => eprintln!("failed to get disk"),
+                    Err(_) => println!("failed to get disk"),
                 }
             }
             if Regex::new(r"sys[[:space:]]+cpuspeed")
@@ -203,7 +203,7 @@ async fn main() {
             {
                 match cpu_speed() {
                     Ok(cpuspeed) => println!("{}", cpuspeed.to_string()),
-                    Err(_) => eprintln!("failed to get cpu speed"),
+                    Err(_) => println!("failed to get cpu speed"),
                 }
             }
             if Regex::new(r"sys[[:space:]]+cpuutil")
@@ -226,9 +226,9 @@ async fn main() {
                 match os_release() {
                     Ok(release) => match os_type() {
                         Ok(ostype) => println!("{} {}", ostype, release),
-                        Err(_) => eprintln!("failed to get os info"),
+                        Err(_) => println!("failed to get os info"),
                     },
-                    Err(_) => eprintln!("failed to get os info"),
+                    Err(_) => println!("failed to get os info"),
                 }
             }
             // TODO #[get("/sys/osinfo")]
@@ -250,7 +250,7 @@ async fn main() {
         WS_SENDER = Some(tx.clone());
     }
 
-    let server = Server::bind("0.0.0.0:8005").unwrap();
+    let server = Server::bind("0.0.0.0:8006").unwrap();
     thread::spawn(move || {
         for request in server.filter_map(Result::ok) {
             let rx = rx.clone();
@@ -261,7 +261,7 @@ async fn main() {
                     return;
                 }
 
-                let mut client = request.use_protocol("rust-websocket").accept().unwrap();
+                let client = request.use_protocol("rust-websocket").accept().unwrap();
                 client.set_nonblocking(true).unwrap();
                 let ip = client.peer_addr().unwrap();
 

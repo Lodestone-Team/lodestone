@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 
 use crate::instance_manager::resource_management::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
@@ -10,9 +9,6 @@ use rocket::response::content;
 use rocket::serde::json::{json, Json, Value};
 use rocket::tokio::fs::File;
 use rocket::State;
-use rocket::response::stream::{Event, EventStream};
-use rocket::tokio::time::Duration;
-use rocket::response::stream::TextStream;
 #[get("/instances")]
 pub async fn get_list(state: &State<MyManagedState>) -> Value {
     json!(&state.instance_manager.lock().await.list_instances())
@@ -194,7 +190,6 @@ pub async fn upload_file(
     file: Data<'_>,
     state: &State<MyManagedState>,
 ) -> (Status, content::Json<String>) {
-    println!("test");
     let mut path_to_files = state.instance_manager.lock().await.get_path().join("files");
     fs::create_dir_all(path_to_files.as_path()).map_err(|e| e.to_string());
     path_to_files.push(&filename);

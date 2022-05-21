@@ -1,8 +1,10 @@
 use regex::Regex;
 use serde::Serialize;
-use std::{process::{Child, Command, Stdio}, thread, sync::{Arc, Mutex}};
+use std::{
+    sync::{Arc},
+    thread,
+};
 
-use crate::managers::server_instance::ServerInstance;
 
 use self::parser::{parse, parse_player_event};
 
@@ -32,7 +34,7 @@ pub enum PlayerEventVarient {
     Died(String),
     IllegalMove(String),
     Advancement(String),
-    Command(String)
+    Command(String),
 }
 
 pub struct EventProcessor {
@@ -67,7 +69,6 @@ impl EventProcessor {
             on_custom_event: vec![],
         }
     }
-
 
     pub fn process(&self, line: &String) {
         if let Some(msg) = parse(&line) {
@@ -136,14 +137,14 @@ impl EventProcessor {
                             let player = player_event.player.clone();
                             thread::spawn(move || f(player, cmd));
                         }
-                    },
+                    }
                 }
             } else {
                 let re = Regex::new(r"Done .+! For help, type").unwrap();
                 if re.is_match(line) {
                     for f in &self.on_server_startup {
                         let f = f.clone();
-            thread::spawn(move || f());
+                        thread::spawn(move || f());
                     }
                 }
             }
@@ -187,35 +188,19 @@ impl EventProcessor {
             let f = f.clone();
             thread::spawn(move || f());
         }
-        // self.on_chat.clear();
-        // self.on_player_advancement.clear();
-        // self.on_player_died.clear();
-        // self.on_player_illegal_moved.clear();
-        // self.on_player_joined.clear();
-        // self.on_player_left.clear();
-        // self.on_player_send_command.clear();
-        // self.on_player_event.clear();
-        // self.on_server_message.clear();
-        // self.on_server_startup.clear();
-        // self.on_server_shutdown.clear();
-        
-
     }
 
     pub fn on_player_send_command(&mut self, callback: Arc<dyn Fn(String, String) + Send + Sync>) {
         self.on_player_send_command.push(callback);
     }
 
-    // pub fn on_custom_event(&mut self, callback: Box<dyn Fn(String) + Send + Sync>) {
-    //     self.on_custom_event.push(callback);
-    // }
     pub fn notify_custom_event(&self, event: String) {
         for f in &self.on_custom_event {
             let f = f.clone();
             let event = event.clone();
             thread::spawn(move || f(event));
+        }
     }
-}
 }
 
 pub mod parser {
@@ -313,11 +298,24 @@ pub mod parser {
             // match for advancement
             let re_chanllenge = Regex::new(r"completed the challenge \[(.+)\]").unwrap();
             let re_advancement = Regex::new(r"has made the advancement \[(.+)\]").unwrap();
-            if re_advancement.is_match(s) || re_chanllenge.is_match(s) {
+            if re_advancement.is_match(s) {
                 Some(PlayerEvent {
                     player: s_vec[0].to_string(),
                     event: PlayerEventVarient::Advancement(
                         re_advancement
+                            .captures(s)
+                            .unwrap()
+                            .get(1)
+                            .unwrap()
+                            .as_str()
+                            .to_string(),
+                    ),
+                })
+            } else if re_chanllenge.is_match(s) {
+                Some(PlayerEvent {
+                    player: s_vec[0].to_string(),
+                    event: PlayerEventVarient::Advancement(
+                        re_chanllenge
                             .captures(s)
                             .unwrap()
                             .get(1)
