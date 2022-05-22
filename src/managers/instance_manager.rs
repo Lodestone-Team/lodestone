@@ -1,8 +1,11 @@
 use crate::managers::server_instance::{InstanceConfig, ServerInstance};
+use crate::managers::types::{ResourceType};
 use crate::properties_manager::PropertiesManager;
 use crate::util::{self};
 use crate::MyManagedState;
 use rocket::fairing::Result;
+use rocket::form::{FromFormField};
+use rocket::fs::TempFile;
 use rocket::serde::json::serde_json::{from_str, to_string_pretty};
 use rocket::State;
 use std::collections::HashMap;
@@ -199,7 +202,8 @@ impl InstanceManager {
                 self.taken_ports
                     .remove(&self.instance_collection.get(uuid).unwrap().get_port());
                 self.instance_collection.remove(uuid);
-                self.instance_list.retain(|x| x.uuid.as_ref().unwrap() != uuid);
+                self.instance_list
+                    .retain(|x| x.uuid.as_ref().unwrap() != uuid);
                 return Ok(());
             }
             _ => return Err("instance is running".to_string()),
@@ -278,36 +282,38 @@ impl InstanceManager {
     pub fn get_path(&self) -> &PathBuf {
         &self.path
     }
+
+    pub async fn upload(
+        &self, 
+        uuid: &String,
+        data: TempFile<'_>, 
+        resource_type: ResourceType
+    ) -> Result<String, String> {
+        match self.instance_collection.get(uuid).unwrap().upload(data, resource_type).await {
+            Ok(_) => Ok("file saved".to_string()),
+            Err(e) => Err(e),
+        }
+    }
 }
 pub mod resource_management {
-    use std::fs::{self, create_dir_all};
+    use std::{
+        fs::{self, create_dir_all},
+        path::PathBuf,
+    };
+    use crate::managers::types::{ResourceType};
+
+    use rocket::fs::TempFile;
 
     use rocket::request::FromParam;
 
     use crate::{
         managers::{properties_manager::PropertiesManager, server_instance::Status},
-        util::list_dir,
+        util::list_dir, services::file_service::save_temp_file,
     };
 
     use super::InstanceManager;
-
-    pub enum ResourceType {
-        World,
-        Mod,
-    }
-
-    impl<'r> FromParam<'r> for ResourceType {
-        type Error = &'static str;
-
-        fn from_param(param: &'r str) -> Result<Self, Self::Error> {
-            match param {
-                "world" => Ok(ResourceType::World),
-                "mod" => Ok(ResourceType::Mod),
-                _ => Err("invalid resource type"),
-            }
-        }
-    }
     impl InstanceManager {
+
         /// this code is completely garbage, someone should fix it
         /// first is loaded resource, second is unloaded
         pub fn list_resource(
@@ -363,6 +369,41 @@ pub mod resource_management {
                 }
             }
         }
+
+        pub async fn save_resource(
+            &self,
+            uuid: &String,
+            mut data: TempFile<'_>,
+            resource_type: ResourceType,
+        ) -> Result<(), String> {
+            let path_to_instance = self
+                .path
+                .join("instances")
+                .join(
+                    self.instance_collection
+                        .get(uuid)
+                        .ok_or("instance does not exist".to_string())?
+                        .get_name(),
+                )
+                .join("lodestone_resources")
+                .join(match resource_type {
+                    ResourceType::Mod => "mods",
+                    ResourceType::World => "worlds",
+                })
+                .join(format!("{}.{}", data.name().unwrap(), match resource_type {
+                    ResourceType::Mod => "jar",
+                    ResourceType::World => "zip",
+                }));
+            save_temp_file(&path_to_instance, data).await?;
+            match resource_type {
+                ResourceType::World => {
+    
+                },
+                _ => {}
+            }
+            return Ok(());
+        }
+
 
         pub fn load(
             &self,
