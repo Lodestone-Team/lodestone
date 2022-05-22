@@ -22,4 +22,4 @@ db/
 web
 lodestone-path/
 
-./run.sh
+run.sh
