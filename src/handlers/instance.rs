@@ -6,7 +6,7 @@ use crate::services::file_service;
 use crate::MyManagedState;
 use rocket::data::{Capped, Data, ToByteUnit};
 use rocket::form::{Form, FromForm};
-use rocket::fs::TempFile;
+use rocket::fs::{TempFile, NamedFile};
 use rocket::http::{ContentType, Status};
 use rocket::response::content;
 use rocket::serde::json::{json, Json, Value};
@@ -228,5 +228,31 @@ pub async fn upload(
     {
         Ok(_) => (Status::Ok, "Saved".to_string()),
         Err(_) => (Status::InternalServerError, "Failed to save".to_string()),
+    }
+}
+
+#[get("/instance/<uuid>/files/download/mod/<name>")]
+pub async fn download_mod(
+    uuid: String,
+    name: String,
+    state: &State<MyManagedState>,
+) -> (Status, Result<NamedFile, std::io::Error>) {
+    let file_result = state.instance_manager.lock().await.get_mod(&uuid, &name).await;
+    match file_result {
+        Ok(_) => (Status::Ok, Ok(file_result.unwrap())),
+        Err(_) => (Status::NotFound, file_result),
+    }
+}
+
+#[get("/instance/<uuid>/files/download/world/<name>")]
+pub async fn download_world(
+    uuid: String,
+    name: String,
+    state: &State<MyManagedState>,
+) -> (Status, Result<NamedFile, std::io::Error>) {
+    let file_result = state.instance_manager.lock().await.get_world(&uuid, &name).await;
+    match file_result {
+        Ok(_) => (Status::Ok, Ok(file_result.unwrap())),
+        Err(_) => (Status::NotFound, file_result),
     }
 }

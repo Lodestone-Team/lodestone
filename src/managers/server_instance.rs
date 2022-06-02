@@ -1,7 +1,7 @@
 use crate::event_processor::{self, EventProcessor};
 use crate::managers::types::ResourceType;
 use log::warn;
-use rocket::fs::TempFile;
+use rocket::fs::{TempFile, NamedFile};
 use rocket::serde::json::serde_json;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -696,13 +696,17 @@ impl ServerInstance {
         self.resource_manager.save_resource(data, resource_type).await
     }
 
-    pub fn list_resource(&self, resource_type: ResourceType) {
-        let path_to_folder = self
-            .path
-            .join("lodestone_resources")
-            .join(match resource_type {
-                ResourceType::Mod => "mods",
-                ResourceType::World => "worlds",
-            });
+    pub async fn get_mod(
+        &self,
+        name: &String,
+    ) -> Result<NamedFile, std::io::Error> {
+        self.resource_manager.get_mod(name).await
+    }
+
+    pub async fn get_world(
+        &self,
+        name: &String, 
+    ) -> Result<NamedFile, std::io::Error> {
+        self.resource_manager.get_world(name).await
     }
 }

@@ -1,7 +1,7 @@
-use std::fs::{create_dir_all, File, remove_file};
+use std::fs::{create_dir_all, remove_file, File};
 use std::path::PathBuf;
 
-use rocket::fs::TempFile;
+use rocket::fs::{NamedFile, TempFile};
 use zip::ZipArchive;
 
 use crate::services::file_service::save_temp_file;
@@ -51,5 +51,29 @@ impl ResourceManager {
             _ => {}
         }
         return Ok(());
+    }
+
+    pub async fn get_mod(&self, name: &String) -> Result<NamedFile, std::io::Error> {
+        let mut path_to_file = self.path_to_lodestone_resources.join("mods").join(name);
+        path_to_file.set_extension("jar");
+        if !path_to_file.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "File not found",
+            ));
+        }
+        return NamedFile::open(path_to_file).await;
+    }
+
+    pub async fn get_world(&self, name: &String) -> Result<NamedFile, std::io::Error> {
+        let mut path_to_file = self.path_to_lodestone_resources.join("mods").join(name);
+        path_to_file.set_extension("jar");
+        if !path_to_file.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "File not found",
+            ));
+        }
+        return NamedFile::open(path_to_file).await;
     }
 }
