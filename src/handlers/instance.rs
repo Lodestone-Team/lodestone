@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::File;
 
 use crate::managers::server_instance::InstanceConfig;
 use crate::managers::types::ResourceType;
@@ -10,8 +10,8 @@ use rocket::fs::{TempFile, NamedFile};
 use rocket::http::{ContentType, Status};
 use rocket::response::content;
 use rocket::serde::json::{json, Json, Value};
-use rocket::tokio::fs::File;
 use rocket::tokio::time::Duration;
+
 use rocket::State;
 #[get("/instances")]
 pub async fn get_list(state: &State<MyManagedState>) -> Value {
@@ -236,12 +236,18 @@ pub async fn download_mod(
     uuid: String,
     name: String,
     state: &State<MyManagedState>,
-) -> (Status, Result<NamedFile, std::io::Error>) {
+) -> (Status, Result<File, std::io::Error>) {
     let file_result = state.instance_manager.lock().await.get_mod(&uuid, &name).await;
-    match file_result {
-        Ok(_) => (Status::Ok, Ok(file_result.unwrap())),
-        Err(_) => (Status::NotFound, file_result),
+    
+    match File::open("/home/lemon/Lodestone/client/file") {
+        Ok(file) => (Status::Ok, Ok(file)),
+        Err(err) => (Status::NotFound, Err(err)),
     }
+
+    // match file_result {
+    //     Ok(_) => (Status::Ok, file_result),
+    //     Err(_) => (Status::NotFound, file_result),
+    // }
 }
 
 #[get("/instance/<uuid>/files/download/world/<name>")]
@@ -249,10 +255,10 @@ pub async fn download_world(
     uuid: String,
     name: String,
     state: &State<MyManagedState>,
-) -> (Status, Result<NamedFile, std::io::Error>) {
+) -> (Status, Result<File, std::io::Error>) {
     let file_result = state.instance_manager.lock().await.get_world(&uuid, &name).await;
     match file_result {
-        Ok(_) => (Status::Ok, Ok(file_result.unwrap())),
+        Ok(_) => (Status::Ok, file_result),
         Err(_) => (Status::NotFound, file_result),
     }
 }

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use rocket::fs::{NamedFile, TempFile};
 use zip::ZipArchive;
 
-use crate::services::file_service::save_temp_file;
+use crate::services::file_service::{save_temp_file, zipping};
 
 use super::types::ResourceType;
 
@@ -53,7 +53,7 @@ impl ResourceManager {
         return Ok(());
     }
 
-    pub async fn get_mod(&self, name: &String) -> Result<NamedFile, std::io::Error> {
+    pub async fn get_mod(&self, name: &String) -> Result<File, std::io::Error> {
         let mut path_to_file = self.path_to_lodestone_resources.join("mods").join(name);
         path_to_file.set_extension("jar");
         if !path_to_file.is_file() {
@@ -62,18 +62,24 @@ impl ResourceManager {
                 "File not found",
             ));
         }
-        return NamedFile::open(path_to_file).await;
+        return File::open(path_to_file);
     }
 
-    pub async fn get_world(&self, name: &String) -> Result<NamedFile, std::io::Error> {
-        let mut path_to_file = self.path_to_lodestone_resources.join("mods").join(name);
-        path_to_file.set_extension("jar");
-        if !path_to_file.is_file() {
+    pub async fn get_world(&self, name: &String) -> Result<File, std::io::Error> {
+        let path_to_worlds = self.path_to_lodestone_resources.join("worlds");
+        let path_to_world = path_to_worlds.join(name);
+        let mut path_to_world = self.path_to_lodestone_resources.join("worlds").join(name);
+        if !path_to_world.is_dir() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "File not found",
+                "World folder not found",
             ));
         }
-        return NamedFile::open(path_to_file).await;
+        
+        match zipping(path_to_world, path_to_worlds.clone(), name) {
+            Ok(file) => Ok(file),
+            Err(err) => Err(err),
+        }
+
     }
 }

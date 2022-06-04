@@ -21,21 +21,21 @@ pub async fn save_temp_file(path: &PathBuf, mut data: TempFile<'_>) -> Result<()
 }
 
 /// This will overwrite the destination if file exists
-pub fn zipping(src: PathBuf, dst_folder: PathBuf, file_name: &str) -> Result<(), Error> {
+pub fn zipping(src: PathBuf, dst_folder: PathBuf, file_name: &str) -> Result<File, Error> {
     if !dst_folder.is_dir() {
         create_dir_all(dst_folder.clone());
     }
     let mut file_path = dst_folder.clone();
     file_path.set_file_name(file_name);
     file_path.set_extension("zip");
-    let out = File::create(file_path)?;
+    let out = File::create(file_path.clone())?;
 
     let mut zip = ZipWriter::new(out);
 
-    build_zip(src, PathBuf::new(), &mut zip);
+    build_zip(src, PathBuf::new(), &mut zip)?;
 
     zip.finish().unwrap();
-    Ok(())
+    Ok(File::open(file_path)?)
 }
 
 fn build_zip(

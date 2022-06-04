@@ -299,7 +299,7 @@ impl InstanceManager {
         &self,
         uuid: &String,
         name: &String,
-    ) -> Result<NamedFile, std::io::Error> {
+    ) -> Result<File, std::io::Error> {
         self.instance_collection.get(uuid).unwrap().get_mod(name).await
     }
 
@@ -307,7 +307,7 @@ impl InstanceManager {
         &self,
         uuid: &String,
         name: &String,
-    ) -> Result<NamedFile, std::io::Error> {
+    ) -> Result<File, std::io::Error> {
         self.instance_collection.get(uuid).unwrap().get_world(name).await
     }
 }

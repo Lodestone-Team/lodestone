@@ -699,14 +699,14 @@ impl ServerInstance {
     pub async fn get_mod(
         &self,
         name: &String,
-    ) -> Result<NamedFile, std::io::Error> {
+    ) -> Result<File, std::io::Error> {
         self.resource_manager.get_mod(name).await
     }
 
     pub async fn get_world(
         &self,
         name: &String, 
-    ) -> Result<NamedFile, std::io::Error> {
+    ) -> Result<File, std::io::Error> {
         self.resource_manager.get_world(name).await
     }
 }
