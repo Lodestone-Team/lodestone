@@ -303,6 +303,7 @@ async fn main() {
                 instance::unload_resource,
                 instance::upload,
                 instance::download_mod,
+                instance::download_world,
                 // instance::events,
                 jar::vanilla_versions,
                 jar::vanilla_jar,

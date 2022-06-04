@@ -209,6 +209,8 @@ pub async fn upload(
         ResourceType::Mod => upload_inner.file.content_type().unwrap().sub() == "java-archive",
         ResourceType::World => upload_inner.file.content_type().unwrap().is_zip(),
     };
+    // let content_type = upload_inner.file.content_type().unwrap();
+    // info!("{}/{}", content_type.top(), content_type.sub());
     if !is_correct_type {
         return (
             Status::UnsupportedMediaType,
@@ -238,16 +240,10 @@ pub async fn download_mod(
     state: &State<MyManagedState>,
 ) -> (Status, Result<File, std::io::Error>) {
     let file_result = state.instance_manager.lock().await.get_mod(&uuid, &name).await;
-    
-    match File::open("/home/lemon/Lodestone/client/file") {
-        Ok(file) => (Status::Ok, Ok(file)),
-        Err(err) => (Status::NotFound, Err(err)),
+    match file_result {
+        Ok(_) => (Status::Ok, file_result),
+        Err(_) => (Status::NotFound, file_result),
     }
-
-    // match file_result {
-    //     Ok(_) => (Status::Ok, file_result),
-    //     Err(_) => (Status::NotFound, file_result),
-    // }
 }
 
 #[get("/instance/<uuid>/files/download/world/<name>")]
