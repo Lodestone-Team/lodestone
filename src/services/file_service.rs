@@ -25,9 +25,11 @@ pub fn zipping(src: PathBuf, dst_folder: PathBuf, file_name: &str) -> Result<Fil
     if !dst_folder.is_dir() {
         create_dir_all(dst_folder.clone());
     }
+    info!("{}", dst_folder.to_str().unwrap());
     let mut file_path = dst_folder.clone();
-    file_path.set_file_name(file_name);
+    file_path = file_path.join(file_name);
     file_path.set_extension("zip");
+    info!("{}", file_path.to_str().unwrap());
     let out = File::create(file_path.clone())?;
 
     let mut zip = ZipWriter::new(out);
