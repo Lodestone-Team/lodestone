@@ -5,7 +5,7 @@ use crate::util::{self};
 use crate::MyManagedState;
 use rocket::fairing::Result;
 use rocket::form::{FromFormField};
-use rocket::fs::TempFile;
+use rocket::fs::{TempFile, NamedFile};
 use rocket::serde::json::serde_json::{from_str, to_string_pretty};
 use rocket::State;
 use std::collections::HashMap;
@@ -293,6 +293,22 @@ impl InstanceManager {
             Ok(_) => Ok("file saved".to_string()),
             Err(e) => Err(e),
         }
+    }
+
+    pub async fn get_mod(
+        &self,
+        uuid: &String,
+        name: &String,
+    ) -> Result<File, std::io::Error> {
+        self.instance_collection.get(uuid).unwrap().get_mod(name).await
+    }
+
+    pub async fn get_world(
+        &self,
+        uuid: &String,
+        name: &String,
+    ) -> Result<File, std::io::Error> {
+        self.instance_collection.get(uuid).unwrap().get_world(name).await
     }
 }
 pub mod resource_management {
