@@ -1,13 +1,17 @@
-use std::fs;
+use std::fs::File;
 
-use crate::instance_manager::resource_management::ResourceType;
 use crate::managers::server_instance::InstanceConfig;
+use crate::managers::types::ResourceType;
+use crate::services::file_service;
 use crate::MyManagedState;
-use rocket::data::{Data, ToByteUnit};
-use rocket::http::Status;
+use rocket::data::{Capped, Data, ToByteUnit};
+use rocket::form::{Form, FromForm};
+use rocket::fs::{TempFile, NamedFile};
+use rocket::http::{ContentType, Status};
 use rocket::response::content;
 use rocket::serde::json::{json, Json, Value};
-use rocket::tokio::fs::File;
+use rocket::tokio::time::Duration;
+
 use rocket::State;
 #[get("/instances")]
 pub async fn get_list(state: &State<MyManagedState>) -> Value {
@@ -57,12 +61,12 @@ pub async fn download_status(uuid: String, state: &State<MyManagedState>) -> (St
 pub async fn start(state: &State<MyManagedState>, uuid: String) -> (Status, String) {
     state.instance_manager.lock().await;
     match state.instance_manager.lock().await.start_instance(&uuid) {
-        Ok(()) => {            return (Status::Ok, "Ok".to_string());
+        Ok(()) => {
+            return (Status::Ok, "Ok".to_string());
         }
         Err(reason) => {
-        return (Status::BadRequest, reason);
+            return (Status::BadRequest, reason);
         }
-            
     }
 }
 
@@ -184,38 +188,73 @@ pub async fn unload_resource(
     }
 }
 
-#[post("/files/<filename>", data = "<file>")]
-pub async fn upload_file(
-    filename: String,
-    file: Data<'_>,
-    state: &State<MyManagedState>,
-) -> (Status, content::Json<String>) {
-    let mut path_to_files = state.instance_manager.lock().await.get_path().join("files");
-    fs::create_dir_all(path_to_files.as_path()).map_err(|e| e.to_string());
-    path_to_files.push(&filename);
-    match file
-        .open(i64::from(512).kibibytes())
-        .into_file(path_to_files.as_path())
-        .await
-    {
-        Ok(_) => (Status::Ok, content::Json(filename)),
-        Err(reason) => (
-            Status::InternalServerError,
-            content::Json(reason.to_string()),
-        ),
-    }
+#[derive(FromForm)]
+pub struct Upload<'r> {
+    // TODO figure our how to check if valid jar file
+    resource_type: ResourceType,
+    file: Capped<TempFile<'r>>,
 }
 
-#[get("/files")]
-pub async fn download_file(state: &State<MyManagedState>) -> Result<File, content::Json<String>> {
-    let path_of_file = state
+#[post("/instance/<uuid>/files/upload", data = "<upload>")]
+pub async fn upload(
+    uuid: String,
+    upload: Form<Upload<'_>>,
+    state: &State<MyManagedState>,
+) -> (Status, String) {
+    let upload_inner = upload.into_inner();
+    if !upload_inner.file.is_complete() {
+        return (Status::PayloadTooLarge, "File too large".to_string());
+    }
+    let is_correct_type = match upload_inner.resource_type {
+        ResourceType::Mod => upload_inner.file.content_type().unwrap().sub() == "java-archive",
+        ResourceType::World => upload_inner.file.content_type().unwrap().is_zip(),
+    };
+    // let content_type = upload_inner.file.content_type().unwrap();
+    // info!("{}/{}", content_type.top(), content_type.sub());
+    if !is_correct_type {
+        return (
+            Status::UnsupportedMediaType,
+            "Non-matching resource type".to_string(),
+        );
+    }
+    match state
         .instance_manager
         .lock()
         .await
-        .get_path()
-        .join("files/NOTICE");
-    match File::open(path_of_file.as_path()).await {
-        Ok(file) => Ok(file),
-        Err(_) => Err(content::Json("something went wrong".to_string())),
+        .upload(
+            &uuid,
+            upload_inner.file.into_inner(),
+            upload_inner.resource_type,
+        )
+        .await
+    {
+        Ok(_) => (Status::Ok, "Saved".to_string()),
+        Err(_) => (Status::InternalServerError, "Failed to save".to_string()),
+    }
+}
+
+#[get("/instance/<uuid>/files/download/mod/<name>")]
+pub async fn download_mod(
+    uuid: String,
+    name: String,
+    state: &State<MyManagedState>,
+) -> (Status, Result<File, std::io::Error>) {
+    let file_result = state.instance_manager.lock().await.get_mod(&uuid, &name).await;
+    match file_result {
+        Ok(_) => (Status::Ok, file_result),
+        Err(_) => (Status::NotFound, file_result),
+    }
+}
+
+#[get("/instance/<uuid>/files/download/world/<name>")]
+pub async fn download_world(
+    uuid: String,
+    name: String,
+    state: &State<MyManagedState>,
+) -> (Status, Result<File, std::io::Error>) {
+    let file_result = state.instance_manager.lock().await.get_world(&uuid, &name).await;
+    match file_result {
+        Ok(_) => (Status::Ok, file_result),
+        Err(_) => (Status::NotFound, file_result),
     }
 }

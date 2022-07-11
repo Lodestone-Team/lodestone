@@ -1,4 +1,4 @@
-![workflow](https://github.com/LodestoneMC-org/backend/actions/workflows/backend.yml/badge.svg)
+![workflow](https://github.com/Lodestone-Team/client/actions/workflows/client.yml/badge.svg)
 
 # Lodestone
 
