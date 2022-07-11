@@ -110,6 +110,7 @@ pub struct InstanceConfig {
     pub timeout_last_left: Option<i32>,
     pub timeout_no_activity: Option<i32>,
     pub start_on_connection: Option<bool>,
+    pub backup_period: Option<i32>,
 }
 
 impl InstanceConfig {
@@ -144,6 +145,9 @@ impl InstanceConfig {
         if self.min_ram == None {
             config_override.min_ram = Some(1000);
         }
+        if self.backup_period == None {
+            config_override.backup_period = Some(-1);
+        }
         config_override
     }
 }
@@ -162,6 +166,7 @@ pub struct ServerInstance {
     timeout_last_left: Arc<Mutex<i32>>,
     timeout_no_activity: Arc<Mutex<i32>>,
     start_on_connection: Arc<Mutex<bool>>,
+    backup_period: Arc<Mutex<i32>>,
     jvm_args: Vec<String>,
     path: PathBuf,
     pub stdin: Arc<Mutex<Option<ChildStdin>>>,
@@ -273,6 +278,7 @@ impl ServerInstance {
             timeout_no_activity: Arc::new(Mutex::new(config_override.timeout_no_activity.unwrap())),
             start_on_connection: Arc::new(Mutex::new(config_override.start_on_connection.unwrap())),
             instance_config: config_override,
+            backup_period: Arc::new(Mutex::new(-1)),
         };
 
         server_instance.setup_event_processor();
@@ -290,6 +296,7 @@ impl ServerInstance {
         let player_online = self.player_online.clone();
         let status = self.status.clone();
         let stdin = self.stdin.clone();
+        let instance_name = self.name.clone();
         event_processor.on_player_left(Arc::new(move |player| {
             player_online.lock().unwrap().retain(|p| p != &player);
 
@@ -307,7 +314,7 @@ impl ServerInstance {
                     }
                     if i < 10 {
                         info!(
-                            "[EventProcessor] Last player left the server, shutting down in {} seconds",
+                            "[{}] [EventProcessor] Last player left the server, shutting down in {} seconds",instance_name,
                             i
                         );
                     }
@@ -326,8 +333,10 @@ impl ServerInstance {
         let player_online = self.player_online.clone();
         let status = self.status.clone();
         let stdin = self.stdin.clone();
+        let instance_name = self.name.clone();
         event_processor.on_server_startup(Arc::new(move || {
             *status.lock().unwrap() = Status::Running;
+            // sets up timeout no activity
             let timeout = timeout_no_activity.lock().unwrap().to_owned();
             if timeout > 0 {
                 let mut i = timeout;
@@ -342,7 +351,7 @@ impl ServerInstance {
                     }
                     if i < 10 {
                         info!(
-                            "[EventProcessor] No activity on server, shutting down in {} seconds",
+                            "[{}] [EventProcessor] No activity on server, shutting down in {} seconds",instance_name,
                             i
                         );
                     }
