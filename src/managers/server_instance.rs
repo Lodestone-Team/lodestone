@@ -1,9 +1,11 @@
-use crate::event_processor::EventProcessor;
+use crate::event_processor::{self, EventProcessor};
+use crate::managers::types::ResourceType;
 use log::warn;
+use rocket::fs::{TempFile, NamedFile};
 use rocket::serde::json::serde_json;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::fs::File;
+use std::fs::{File};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -14,10 +16,12 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, thread};
+
 // use self::macro_code::dispatch_macro;
 
 use super::macro_manager::MacroManager;
 use super::properties_manager::PropertiesManager;
+use super::resource_manager::ResourceManager;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Flavour {
@@ -171,6 +175,7 @@ pub struct ServerInstance {
     player_online: Arc<Mutex<Vec<String>>>,
     pub event_processor: Arc<Mutex<EventProcessor>>,
     properties_manager: PropertiesManager,
+    resource_manager: ResourceManager,
     macro_manager: MacroManager,
     proxy_kill_tx: Sender<()>,
     proxy_kill_rx: Receiver<()>,
@@ -192,6 +197,7 @@ impl ServerInstance {
         info!("jvm_args: {:?}", jvm_args);
 
         let properties_manager = PropertiesManager::new(path.join("server.properties")).unwrap();
+        let resource_manager = ResourceManager::new(path.clone());
 
         let event_processor = Arc::new(Mutex::new(EventProcessor::new()));
         let stdin: Arc<Mutex<Option<ChildStdin>>> = Arc::new(Mutex::new(None));
@@ -259,6 +265,7 @@ impl ServerInstance {
             event_processor,
             proxy_kill_tx,
             properties_manager,
+            resource_manager,
             macro_manager,
             proxy_kill_rx,
             version: config_override.version.clone(),
@@ -686,5 +693,29 @@ impl ServerInstance {
     #[must_use]
     pub fn instance_config(&self) -> &InstanceConfig {
         &self.instance_config
+    }
+}
+
+impl ServerInstance {
+    pub async fn upload(
+        &self,
+        data: TempFile<'_>,
+        resource_type: ResourceType,
+    ) -> Result<(), String> {
+        self.resource_manager.save_resource(data, resource_type).await
+    }
+
+    pub async fn get_mod(
+        &self,
+        name: &String,
+    ) -> Result<File, std::io::Error> {
+        self.resource_manager.get_mod(name).await
+    }
+
+    pub async fn get_world(
+        &self,
+        name: &String, 
+    ) -> Result<File, std::io::Error> {
+        self.resource_manager.get_world(name).await
     }
 }

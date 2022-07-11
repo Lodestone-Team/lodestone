@@ -39,14 +39,14 @@ function gen_ca_if_non_existent() {
 if mkdir lodestone ; then 
     cd lodestone
     printf "${CYAN}Starting download... ${NC}\n" 
-    wget https://nightly.link/Lodestone-Team/backend/workflows/backend/main/Lodestone.zip -O lodestone.zip
-    wget https://nightly.link/Lodestone-Team/frontend/workflows/frontend/main/frontend.zip -O frontend.zip
+    wget https://nightly.link/Lodestone-Team/client/workflows/client/main/Lodestone.zip -O lodestone.zip
+    wget https://nightly.link/Lodestone-Team/dashboard/workflows/dashboard/main/dashboard.zip -O dashboard.zip
     printf "${CYAN}Download ok! ${NC}\n" 
     unzip lodestone.zip && rm lodestone.zip
     mv target/release/Lodestone .
     chmod u+x Lodestone
     rm -r target
-    unzip -d web/ frontend.zip && rm frontend.zip
+    unzip -d web/ dashboard.zip && rm dashboard.zip
 
     printf "${CYAN}Setting up TLS for ${PUBLIC_IP}... ${NC}\n" 
 
