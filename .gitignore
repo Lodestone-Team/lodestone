@@ -12,6 +12,8 @@
 ## vscode local history
 .history/
 
+# Test ground should be local to every developer
+src/test_ground/
 
 ## dev
 InstanceTest/

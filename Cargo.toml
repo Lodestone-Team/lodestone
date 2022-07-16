@@ -8,11 +8,20 @@ exclude = [
     "InstanceTest/*"
 ]
 
+[[bin]]
+name = "test_ground"
+path = "src/test_ground/main.rs"
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 minreq = { version = "2.4.2", features = ["punycode","https-rustls-probe"] }
 serde = { version = "1.0", features = ["derive"] }
+# erased-serde = "0.3"
 chashmap = "2.2.2"
 regex = "1.5.4"
 
