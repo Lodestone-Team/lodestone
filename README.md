@@ -38,7 +38,7 @@
 
 <h3 align="center">Lodestone</h3>
 <p> Thanks to
-<a href="https://github.com/Arcslogger" >Wilbur Zhang (Arclogger)  </a>
+<a href="https://github.com/Arcslogger" >Wilbur Zhang (Arcslogger)  </a>
 for the logo!
 </p>
   <p align="center">
