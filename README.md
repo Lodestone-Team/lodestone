@@ -96,11 +96,11 @@ for the logo!
 
 Lodestone is a server wrapper tool (that means it wraps around your server program) that aims to simplfy the process of hosting a game server.
 
-It handles the complicated parts of setting up a server, such as getting dependencies, configuration and port forward. While exposing a simple yet powerful interface to the end user, giving you a truly one-click experience
+It handles the complicated parts of setting up a server, such as getting dependencies, configuration and port forward. While exposing a simple yet powerful interface to the end user, giving you a truly one-click experience.
 
 ### Simple
 
-Lodestone is simple to use if you just a server to play with your friends, just download the exectuable and run it.
+Lodestone is simple to use if you just want a server to play with your friends. You just need to download the exectuable and run it.
 
 ### Powerful
 
