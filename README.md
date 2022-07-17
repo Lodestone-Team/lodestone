@@ -155,6 +155,23 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
 
 ### Installation
 
+#### Building the dashboard
+
+1. Clone the dashboard repo
+   ```sh
+   git clone https://github.com/Lodestone-Team/dashboard
+   ```
+2. Install dependencies
+   ```sh
+   npm i
+   ```
+3. Build
+   ```sh
+   npm run build
+   ```
+   You should now see the `build` folder, you will need this for the client to host the webpage
+
+#### Running the client
 
 1. Clone the repo
    ```sh
@@ -164,9 +181,10 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
    ```sh
    export LODESTONE_PATH={}
    ```
-3. Running
+3. Copy the content under dashboard's `build` folder to `${LODESTONE_PATH}/web`
+4. Running
    ```sh
-   cargo run --main
+   cargo run --bin main
    ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
