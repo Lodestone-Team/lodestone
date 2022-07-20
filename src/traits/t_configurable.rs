@@ -1,11 +1,11 @@
 pub use std::path::PathBuf;
 
-use rocket::serde::json::serde_json;
+pub use rocket::serde::json::serde_json;
 pub use serde::{Deserialize, Serialize};
 
 use super::MaybeUnsupported;
 
-pub trait TConfiurable {
+pub trait TConfigurable {
     // getters
     fn uuid(&self) -> String;
     fn name(&self) -> String;
@@ -19,7 +19,7 @@ pub trait TConfiurable {
     fn port(&self) -> u32;
     fn min_ram(&self) -> MaybeUnsupported<u32>;
     fn max_ram(&self) -> MaybeUnsupported<u32>;
-    fn creation_time(&self) -> u32;
+    fn creation_time(&self) -> u64;
     fn path(&self) -> PathBuf;
     /// does start when lodestone starts
     fn auto_start(&self) -> bool;
