@@ -2,7 +2,6 @@ use rocket::serde::json::serde_json;
 
 use super::MaybeUnsupported;
 
-
 pub trait TPlayerManagement {
     fn get_player_count(&self) -> MaybeUnsupported<u32> {
         MaybeUnsupported::Unsupported

@@ -3,6 +3,7 @@ pub mod t_configurable;
 pub mod t_player;
 pub mod t_resource;
 pub mod t_macro;
+pub mod t_events;
 
 pub enum MaybeUnsupported<T> {
     Supported(T),
@@ -14,6 +15,7 @@ pub enum ErrorInner {
     FailedToReadFile,
     FailedToWriteFile,
     FileOrDirNotFound,
+    FiledOrDirAlreadyExists,
 
     // Stdin/stdout errors:
     FailedToWriteStdin,
@@ -22,14 +24,21 @@ pub enum ErrorInner {
     StdoutNotOpen,
     FailedToAquireLock,
 
+    // Network errors:
+    FailedToUpload,
+    FailedToDownload,
+
     // Instance operation errors
     InstanceAlreadyStarted,
     InstanceAlreadyStopped,
     InstanceAlreadyStarting,
     InstanceAlreadyStopping,
 
-    // File errors:
+    // Config file errors:
     MalformedFile,
+    FieldNotFound,
+    ValueNotFound,
+    TypeMismatch,
 
     // Macro errors:
     FailedToRun
