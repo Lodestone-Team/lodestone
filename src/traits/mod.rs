@@ -49,6 +49,6 @@ pub enum ErrorInner {
 }
 #[derive(Debug)]
 pub struct Error {
-    inner : ErrorInner,
-    detail : String
+    pub inner : ErrorInner,
+    pub detail : String
 }
