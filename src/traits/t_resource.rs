@@ -1,7 +1,4 @@
-use std::{
-    path::PathBuf,
-    sync::{atomic::AtomicU64, Arc, Mutex},
-};
+use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
 use rocket::serde::json::serde_json;
 use serde::Serialize;
@@ -27,9 +24,9 @@ where
 }
 
 pub struct DownloadReport {
-    pub total: AtomicU64,
-    pub downloaded: AtomicU64,
-    pub download_name: Arc<Mutex<String>>,
+    pub total: Arc<AtomicU64>,
+    pub downloaded: Arc<AtomicU64>,
+    pub download_name: Arc<RwLock<String>>,
 }
 #[async_trait]
 pub trait TResourceManagement {

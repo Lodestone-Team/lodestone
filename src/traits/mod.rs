@@ -3,17 +3,17 @@ pub mod t_configurable;
 pub mod t_player;
 pub mod t_resource;
 pub mod t_macro;
-pub mod t_events;
 
 pub enum MaybeUnsupported<T> {
     Supported(T),
     Unsupported,
 }
-
+#[derive(Debug)]
 pub enum ErrorInner {
     // IO errors:
     FailedToReadFile,
     FailedToWriteFile,
+    FailedToCreateFileOrDir,
     FileOrDirNotFound,
     FiledOrDirAlreadyExists,
 
@@ -40,10 +40,14 @@ pub enum ErrorInner {
     ValueNotFound,
     TypeMismatch,
 
+    // version string errors:
+    MalformedVersionString,
+    VersionNotFound,
+
     // Macro errors:
     FailedToRun
 }
-
+#[derive(Debug)]
 pub struct Error {
     inner : ErrorInner,
     detail : String
