@@ -21,6 +21,7 @@ mod managers;
 mod util;
 mod services;
 mod traits;
+mod implementations;
 use handlers::*;
 use instance_manager::InstanceManager;
 use managers::*;

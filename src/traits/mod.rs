@@ -45,7 +45,10 @@ pub enum ErrorInner {
     VersionNotFound,
 
     // Macro errors:
-    FailedToRun
+    FailedToRun,
+
+    // Process errors:
+    FailedToExecute
 }
 #[derive(Debug)]
 pub struct Error {
