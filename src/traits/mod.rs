@@ -3,6 +3,7 @@ pub mod t_configurable;
 pub mod t_player;
 pub mod t_resource;
 pub mod t_macro;
+pub mod t_events;
 
 pub enum MaybeUnsupported<T> {
     Supported(T),
