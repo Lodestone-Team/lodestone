@@ -261,7 +261,7 @@ async fn download_dependencies(
         let path_to_jre = path_to_runtimes.join(format!("jre_{}", jre_version));
         if !path_to_jre.exists() {
             std::fs::create_dir_all(&path_to_jre).unwrap();
-            download_resource("jre", path_to_jre.as_path(), Some(url.as_str())).await?;
+            download_resource("jre", &path_to_jre, Some(url.as_str())).await?;
         }
         // unzip jre
         if std::env::consts::OS == "windows" {

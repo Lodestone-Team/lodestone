@@ -2,6 +2,7 @@ use std::iter::Iterator;
 
 use super::MaybeUnsupported;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
     Starting,
     Running,
