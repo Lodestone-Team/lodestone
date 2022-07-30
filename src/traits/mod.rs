@@ -11,9 +11,10 @@ pub enum MaybeUnsupported<T> {
 #[derive(Debug)]
 pub enum ErrorInner {
     // IO errors:
-    FailedToReadFile,
-    FailedToWriteFile,
+    FailedToReadFileOrDir,
+    FailedToWriteFileOrDir,
     FailedToCreateFileOrDir,
+    FailedToRemoveFileOrDir,
     FileOrDirNotFound,
     FiledOrDirAlreadyExists,
 

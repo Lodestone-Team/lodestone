@@ -1,11 +1,13 @@
 extern crate crypto;
 
 use std::cmp::min;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
-use std::path::{PathBuf, Path};
-use std::sync::{Arc, RwLock};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, RwLock};
 
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
@@ -121,20 +123,19 @@ pub async fn download_resource(
     pb.set_message(&format!("Downloading {}", url));
 
     let mut downloaded_file = File::create(path.join(&file_name)).map_err(|_| Error {
-        inner: ErrorInner::FailedToWriteFile,
+        inner: ErrorInner::FailedToWriteFileOrDir,
         detail: format!("Failed to create file {}", path.join(&file_name).display()),
     })?;
     let downloaded = Arc::new(AtomicU64::new(0));
     let mut stream = response.bytes_stream();
     let downloaded_clone = downloaded.clone();
-    tokio::spawn(
-        async move {
+    tokio::spawn(async move {
         while let Some(item) = stream.next().await {
             let chunk = item.expect("Error while downloading file");
             downloaded_file
                 .write(&chunk)
                 .expect("Error while writing to file");
-                downloaded_clone.fetch_add(chunk.len() as u64, core::sync::atomic::Ordering::Relaxed);
+            downloaded_clone.fetch_add(chunk.len() as u64, core::sync::atomic::Ordering::Relaxed);
             pb.set_position(downloaded_clone.load(core::sync::atomic::Ordering::Relaxed));
         }
     });
@@ -147,6 +148,7 @@ pub async fn download_resource(
 
 /// List all files in a directory
 /// files_or_dir = 0 -> files, 1 -> directories
+#[deprecated]
 pub fn list_dir(path: PathBuf, files_or_dirs: bool) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     if files_or_dirs {
@@ -191,6 +193,112 @@ pub fn list_dir(path: PathBuf, files_or_dirs: bool) -> Result<Vec<String>, Strin
         }
     }
     return Ok(files);
+}
+/// List all files in a directory
+/// files_or_dir = 0 -> files, 1 -> directories
+pub fn list_dir_new(path: &Path, filter_file_or_dir: Option<bool>) -> Result<Vec<PathBuf>, Error> {
+    let ret: Vec<PathBuf> = std::fs::read_dir(&path)
+        .or(Err(Error {
+            inner: ErrorInner::FailedToReadFileOrDir,
+            detail: "".to_string(),
+        }))?
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_ok())
+        .filter(|entry| match filter_file_or_dir {
+            // unwrap is safe because we checked if file_type is ok
+            Some(true) => entry.file_type().unwrap().is_dir(),
+            Some(false) => entry.file_type().unwrap().is_file(),
+            None => true,
+        })
+        .map(|entry| entry.path())
+        .collect();
+    Ok(ret)
+}
+
+pub fn unzip_file(
+    file: &Path,
+    dest: &Path,
+    path_to_runtimes: &Path,
+) -> Result<HashSet<PathBuf>, Error> {
+    let os = std::env::consts::OS;
+    let arch = if std::env::consts::ARCH == "x86_64" {
+        "x64"
+    } else {
+        std::env::consts::ARCH
+    };
+    let _7zip_path = path_to_runtimes.join(format!("7z_{}_{}", os, arch));
+    if !_7zip_path.is_file() {
+        return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", format!("7z_{}_{}", os, arch))});
+    }
+    std::fs::create_dir_all(dest);
+    let before: HashSet<PathBuf> = list_dir_new(dest, None)
+        .or(Err(Error {
+            inner: ErrorInner::FailedToReadFileOrDir,
+            detail: "".to_string(),
+        }))?
+        .iter()
+        .cloned()
+        .collect();
+
+    let tmp_dir = dest.join("tmp_1c92md");
+    if file.extension().ok_or(Error {
+        inner: ErrorInner::MalformedFile,
+        detail: "Not a zip file".to_string(),
+    })? == "gz"
+    {
+        Command::new(&_7zip_path)
+            .arg("x")
+            .arg(file)
+            .arg("-aoa")
+            .arg(format!("-o{}", tmp_dir.display()))
+            .status()
+            .or(Err(Error {
+                inner: ErrorInner::FailedToExecute,
+                detail: "Failed to execute 7zip".to_string(),
+            }))?;
+
+        Command::new(&_7zip_path)
+            .arg("x")
+            .arg(&tmp_dir)
+            .arg("-aoa")
+            .arg("-ttar")
+            .arg(format!("-o{}", tmp_dir.display()))
+            .status()
+            .or(Err(Error {
+                inner: ErrorInner::FailedToExecute,
+                detail: "Failed to execute 7zip".to_string(),
+            }))?;
+
+        std::fs::remove_dir_all(&tmp_dir.join("tmp")).or(Err(Error {
+            inner: ErrorInner::FailedToRemoveFileOrDir,
+            detail: "Failed to remove tmp dir".to_string(),
+        }))?;
+    } else {
+        Command::new(&_7zip_path)
+            .arg("x")
+            .arg(file)
+            .arg(format!("-o{}", dest.display()))
+            .arg("aoa")
+            .status()
+            .or(Err(Error {
+                inner: ErrorInner::FailedToExecute,
+                detail: "Failed to execute 7zip".to_string(),
+            }))?;
+    }
+    let after: HashSet<PathBuf> = list_dir_new(dest, None)
+        .or(Err(Error {
+            inner: ErrorInner::FailedToReadFileOrDir,
+            detail: "".to_string(),
+        }))?
+        .iter()
+        .cloned()
+        .collect();
+    std::fs::remove_dir_all(tmp_dir).or(Err(Error {
+        inner: ErrorInner::FailedToRemoveFileOrDir,
+        detail: "Failed to remove tmp dir".to_string(),
+    }))?;
+    Ok((&after - &before).iter().cloned().collect())
 }
 
 pub fn hash_password(password: &String) -> String {
