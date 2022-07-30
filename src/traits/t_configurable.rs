@@ -43,34 +43,54 @@ pub trait TConfigurable {
     }
 
     // setters
-    fn set_name(&mut self, name: String);
-    fn set_description(&mut self, description: String);
-    fn set_jvm_args(&mut self, jvm_args: Vec<String>) -> MaybeUnsupported<()> {
+    fn set_name(&mut self, name: String) -> Result<(), crate::traits::Error>;
+    fn set_description(&mut self, description: String) -> Result<(), crate::traits::Error>;
+    fn set_jvm_args(
+        &mut self,
+        _jvm_args: Vec<String>,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
-    fn set_min_ram(&mut self, min_ram: u32) -> MaybeUnsupported<()> {
+    fn set_min_ram(&mut self, _min_ram: u32) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
-    fn set_max_ram(&mut self, max_ram: u32) -> MaybeUnsupported<()> {
+    fn set_max_ram(&mut self, _max_ram: u32) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
-    fn set_auto_start(&mut self, auto_start: bool);
-    fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> MaybeUnsupported<()> {
+    fn set_auto_start(
+        &mut self,
+        _auto_start: bool,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
-    fn set_timeout_last_left(&mut self, timeout_last_left: Option<i32>) -> MaybeUnsupported<()> {
+    fn set_restart_on_crash(
+        &mut self,
+        _restart_on_crash: bool,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
+        MaybeUnsupported::Unsupported
+    }
+    fn set_timeout_last_left(
+        &mut self,
+        _timeout_last_left: Option<i32>,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
     fn set_timeout_no_activity(
         &mut self,
-        timeout_no_activity: Option<i32>,
-    ) -> MaybeUnsupported<()> {
+        _timeout_no_activity: Option<i32>,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
-    fn set_start_on_connection(&mut self, start_on_connection: bool) -> MaybeUnsupported<()> {
+    fn set_start_on_connection(
+        &mut self,
+        _start_on_connection: bool,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
-    fn set_backup_period(&mut self, backup_period: Option<i32>) -> MaybeUnsupported<()> {
+    fn set_backup_period(
+        &mut self,
+        _backup_period: Option<i32>,
+    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
 

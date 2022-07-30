@@ -6,7 +6,7 @@ pub mod event;
 pub mod r#macro;
 pub mod player;
 
-use std::sync::atomic::{AtomicBool, AtomicI32};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ::serde::{Deserialize, Serialize};
@@ -102,12 +102,12 @@ pub struct Instance {
     path_to_resources: PathBuf,
 
     // variables which can be changed at runtime
-    auto_start: Arc<Mutex<bool>>,
-    restart_on_crash: Arc<Mutex<bool>>,
-    timeout_last_left: Arc<Option<AtomicI32>>,
-    timeout_no_activity: Arc<Option<AtomicI32>>,
+    auto_start: Arc<AtomicBool>,
+    restart_on_crash: Arc<AtomicBool>,
+    timeout_last_left: Arc<Mutex<Option<i32>>>,
+    timeout_no_activity: Arc<Mutex<Option<i32>>>,
     start_on_connection: Arc<AtomicBool>,
-    backup_period: Arc<Option<AtomicI32>>,
+    backup_period: Arc<Mutex<Option<i32>>>,
 }
 
 impl Instance {
@@ -176,12 +176,12 @@ impl Instance {
 
         Ok(Instance {
             state : State::Stopped,
-            auto_start: Arc::new(Mutex::new(config.auto_start)),
-            restart_on_crash: Arc::new(Mutex::new(config.restart_on_crash)),
-            timeout_last_left: Arc::new(config.timeout_last_left.map(|x| AtomicI32::new(x))),
-            timeout_no_activity: Arc::new(config.timeout_no_activity.map(|x| AtomicI32::new(x))),
+            auto_start: Arc::new(AtomicBool::new(config.auto_start)),
+            restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
+            timeout_last_left: Arc::new(Mutex::new(config.timeout_last_left)),
+            timeout_no_activity: Arc::new(Mutex::new(config.timeout_no_activity)),
             start_on_connection: Arc::new(AtomicBool::new(config.start_on_connection)),
-            backup_period: Arc::new(config.backup_period.map(|x| AtomicI32::new(x))),
+            backup_period: Arc::new(Mutex::new(config.backup_period)),
             config,
             path_to_config,
             path_to_properties,
@@ -192,24 +192,37 @@ impl Instance {
 
     pub fn restore(config: Config) -> Result<Instance, Error> {
         let path_to_config = config.path.join(".lodestone_config");
-        let path_to_eula = config.path.join("eula.txt");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
         let path_to_properties = config.path.join("server.properties");
 
         Ok(Instance {
             state : State::Stopped,
-            auto_start: Arc::new(Mutex::new(config.auto_start)),
-            restart_on_crash: Arc::new(Mutex::new(config.restart_on_crash)),
-            timeout_last_left: Arc::new(config.timeout_last_left.map(|x| AtomicI32::new(x))),
-            timeout_no_activity: Arc::new(config.timeout_no_activity.map(|x| AtomicI32::new(x))),
+            auto_start: Arc::new(AtomicBool::new(config.auto_start)),
+            restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
+            timeout_last_left: Arc::new(Mutex::new(config.timeout_last_left)),
+            timeout_no_activity: Arc::new(Mutex::new(config.timeout_no_activity)),
             start_on_connection: Arc::new(AtomicBool::new(config.start_on_connection)),
-            backup_period: Arc::new(config.backup_period.map(|x| AtomicI32::new(x))),
+            backup_period: Arc::new(Mutex::new(config.backup_period)),
             config,
             path_to_config,
             path_to_properties,
             path_to_macros,
             path_to_resources,
+        })
+    }
+
+    fn write_config_to_file(&self) -> Result<(), Error> {
+        std::fs::write(
+            &self.path_to_config,
+            to_string_pretty(&self.config).map_err(|_| Error {
+                inner: ErrorInner::MalformedFile,
+                detail: "config json malformed".to_string(),
+            })?,
+        )
+        .map_err(|_| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: format!("failed to write to config {}", &self.path_to_config.display()),
         })
     }
 }
