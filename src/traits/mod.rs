@@ -31,10 +31,10 @@ pub enum ErrorInner {
     FailedToDownload,
 
     // Instance operation errors
-    InstanceAlreadyStarted,
-    InstanceAlreadyStopped,
-    InstanceAlreadyStarting,
-    InstanceAlreadyStopping,
+    InstanceStarted,
+    InstanceStopped,
+    InstanceStarting,
+    InstanceStopping,
 
     // Config file errors:
     MalformedFile,
