@@ -1,15 +1,15 @@
 use std::{path::Path, str::FromStr};
 
-use rocket::serde::json::serde_json;
+use serde_json;
 
 use crate::{
     traits::{t_resource::DownloadReport, Error, ErrorInner},
-    util::download_resource,
+    util::download_file,
 };
 
 use super::{Instance, Flavour};
 
-async fn get_vanilla_jar_url(version: &str) -> Option<String> {
+pub async fn get_vanilla_jar_url(version: &str) -> Option<String> {
     let client = reqwest::Client::new();
     let response_text = client
         .get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
@@ -48,7 +48,7 @@ async fn get_vanilla_jar_url(version: &str) -> Option<String> {
     );
 }
 
-async fn get_fabric_jar_url(
+pub async fn get_fabric_jar_url(
     version: &str,
     fabric_loader_version: Option<&str>,
     fabric_installer_version: Option<&str>,
@@ -187,7 +187,7 @@ async fn get_fabric_jar_url(
     ));
 }
 
-async fn get_jre_url(version: &str) -> Option<(String, u64)> {
+pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     let client = reqwest::Client::new();
     let os = std::env::consts::OS;
     let arch = if std::env::consts::ARCH == "x86_64" {
@@ -240,7 +240,7 @@ async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     ));
 }
 
-async fn get_list_of_versions(flavour : Flavour) -> Vec<String> {
+pub async fn get_list_of_versions(flavour : Flavour) -> Vec<String> {
     match flavour {
         Flavour::Vanilla => todo!(),
         Flavour::Fabric => todo!(),
@@ -249,7 +249,7 @@ async fn get_list_of_versions(flavour : Flavour) -> Vec<String> {
     }
 }
 
-async fn download_dependencies(
+pub async fn download_dependencies(
     version: &str,
     flavour: Flavour,
     fabric_loader_version: Option<&str>,
@@ -261,7 +261,7 @@ async fn download_dependencies(
         let path_to_jre = path_to_runtimes.join(format!("jre_{}", jre_version));
         if !path_to_jre.exists() {
             std::fs::create_dir_all(&path_to_jre).unwrap();
-            download_resource("jre", &path_to_jre, Some(url.as_str())).await?;
+            download_file("jre", &path_to_jre, Some(url.as_str())).await?;
         }
         // unzip jre
         if std::env::consts::OS == "windows" {
@@ -276,7 +276,7 @@ async fn download_dependencies(
 
     match flavour {
         Flavour::Vanilla => {
-            download_resource(
+            download_file(
                 get_vanilla_jar_url(version)
                     .await
                     .ok_or(Error {
@@ -290,7 +290,7 @@ async fn download_dependencies(
             .await?
         }
         Flavour::Fabric => {
-            download_resource(
+            download_file(
                 get_fabric_jar_url(version, fabric_loader_version, fabric_installer_version)
                     .await
                     .ok_or(Error {
@@ -309,7 +309,7 @@ async fn download_dependencies(
     todo!()
 }
 mod tests {
-    use rocket::tokio;
+    use tokio;
 
     #[tokio::test]
     async fn test_get_vanilla_jar_url() {
