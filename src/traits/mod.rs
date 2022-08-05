@@ -1,3 +1,5 @@
+use self::{t_configurable::TConfigurable, t_events::TEventProcessing, t_macro::TMacro, t_player::TPlayerManagement, t_resource::TResourceManagement, t_server::TServer};
+
 pub mod t_server;
 pub mod t_configurable;
 pub mod t_player;
@@ -56,4 +58,8 @@ pub enum ErrorInner {
 pub struct Error {
     pub inner : ErrorInner,
     pub detail : String
+}
+
+pub trait TInstance : TConfigurable + TEventProcessing + TMacro + TPlayerManagement + TResourceManagement + TServer + Sync + Send {
+
 }
