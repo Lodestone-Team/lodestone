@@ -1,4 +1,4 @@
-use rocket::tokio;
+use tokio;
 
 use super::{Error, MaybeUnsupported};
 

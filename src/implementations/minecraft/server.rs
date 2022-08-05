@@ -3,7 +3,7 @@ use crate::traits::t_server::{State, TServer};
 use crate::traits::{Error, ErrorInner, MaybeUnsupported};
 
 use super::Instance;
-use rocket::tokio;
+use tokio;
 
 impl TServer for Instance {
     fn start(&mut self) -> Result<(), Error> {

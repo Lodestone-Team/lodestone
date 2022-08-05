@@ -4,7 +4,7 @@ use std::{
     sync::atomic,
 };
 
-use rocket::serde::{self, json::serde_json::json};
+
 
 use crate::traits::{
     self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, MaybeUnsupported::Supported,
@@ -312,8 +312,8 @@ impl TConfigurable for Instance {
         })
     }
 
-    fn setup_params(&self) -> serde::json::Value {
-        json!({
+    fn setup_params(&self) -> serde_json::Value {
+        serde_json::json!({
             "version" : "string"
         })
     }

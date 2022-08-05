@@ -1,6 +1,6 @@
 pub use std::path::PathBuf;
 
-pub use rocket::serde::json::serde_json;
+pub use serde_json;
 pub use serde::{Deserialize, Serialize};
 
 use super::MaybeUnsupported;

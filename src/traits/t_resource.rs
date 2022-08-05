@@ -1,6 +1,7 @@
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
-use rocket::serde::json::serde_json;
+use async_trait::async_trait;
+use serde_json;
 use serde::Serialize;
 
 use super::MaybeUnsupported;
@@ -42,7 +43,7 @@ pub trait TResourceManagement {
         MaybeUnsupported::Unsupported
     }
 
-    async fn download_resource(
+    async fn download_file(
         &mut self,
         override_name: Option<&str>,
         resource_type: ResourceType,

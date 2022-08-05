@@ -1,22 +1,26 @@
 pub mod configurable;
-pub mod resource;
-pub mod server;
-mod util;
 pub mod event;
 pub mod r#macro;
 pub mod player;
+pub mod resource;
+pub mod server;
+mod util;
 
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use ::serde::{Deserialize, Serialize};
-use rocket::serde;
-use rocket::serde::json::serde_json::to_string_pretty;
+use serde_json::to_string_pretty;
+use tokio;
+use tokio::sync::broadcast::Sender;
 
 use crate::traits::t_configurable::PathBuf;
 
-use crate::traits::t_server::State;
-use crate::traits::{Error, ErrorInner};
+use crate::traits::t_server::{State, TServer};
+use crate::traits::{Error, ErrorInner, TInstance};
+use crate::util::download_file;
+
+use self::util::get_jre_url;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Flavour {
@@ -91,8 +95,8 @@ pub struct Config {
 }
 pub struct Instance {
     config: Config,
-    state : State,
-
+    state: Arc<RwLock<State>>,
+    stdin_broadcast: Option<Sender<String>>,
     // file paths
     path_to_config: PathBuf,
     path_to_properties: PathBuf,
@@ -160,6 +164,11 @@ impl Instance {
                 &path_to_runtimes.display()
             ),
         })?;
+        let (url, jre_major_version) = get_jre_url(config.version.as_str()).await.ok_or(Error {
+            inner: ErrorInner::VersionNotFound,
+            detail: format!("Cannot get the jre version for version {}", config.version),
+        })?;
+        let downloaded = download_file(&url, &path_to_runtimes, None).await?;
 
         // create config file
         std::fs::write(
@@ -175,7 +184,7 @@ impl Instance {
         })?;
 
         Ok(Instance {
-            state : State::Stopped,
+            state: Arc::new(RwLock::new(State::Stopped)),
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
             timeout_last_left: Arc::new(Mutex::new(config.timeout_last_left)),
@@ -187,17 +196,18 @@ impl Instance {
             path_to_properties,
             path_to_macros,
             path_to_resources,
+            stdin_broadcast: None,
         })
     }
 
-    pub fn restore(config: Config) -> Result<Instance, Error> {
+    pub fn restore(config: Config) -> Instance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
         let path_to_properties = config.path.join("server.properties");
 
-        Ok(Instance {
-            state : State::Stopped,
+        Instance {
+            state: Arc::new(RwLock::new(State::Stopped)),
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
             timeout_last_left: Arc::new(Mutex::new(config.timeout_last_left)),
@@ -209,7 +219,8 @@ impl Instance {
             path_to_properties,
             path_to_macros,
             path_to_resources,
-        })
+            stdin_broadcast: None,
+        }
     }
 
     fn write_config_to_file(&self) -> Result<(), Error> {
@@ -222,7 +233,14 @@ impl Instance {
         )
         .map_err(|_| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("failed to write to config {}", &self.path_to_config.display()),
+            detail: format!(
+                "failed to write to config {}",
+                &self.path_to_config.display()
+            ),
         })
     }
+}
+
+impl TInstance for Instance {
+    
 }

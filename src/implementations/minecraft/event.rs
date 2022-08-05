@@ -8,7 +8,7 @@ impl TEventProcessing for Instance {
         todo!()
     }
 
-    fn subscribe(&self, event : String) -> crate::traits::MaybeUnsupported<rocket::tokio::sync::broadcast::Receiver<String>> {
+    fn subscribe(&self, event : String) -> crate::traits::MaybeUnsupported<tokio::sync::broadcast::Receiver<String>> {
         todo!()
     }
 }

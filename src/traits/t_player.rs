@@ -1,4 +1,4 @@
-use rocket::serde::json::serde_json;
+use serde_json;
 
 use super::MaybeUnsupported;
 

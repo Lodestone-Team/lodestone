@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
+use std::thread;
 
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
@@ -15,8 +16,8 @@ use crypto::sha3::Sha3;
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
-use rocket::{tokio, State};
 use serde::{Deserialize, Serialize};
+use tokio;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Authentication {
@@ -26,55 +27,9 @@ pub struct Authentication {
 
 use crate::traits::t_resource::DownloadReport;
 use crate::traits::{Error, ErrorInner};
-use crate::MyManagedState;
-#[deprecated]
-// copied from https://gist.github.com/giuliano-oliveira/4d11d6b3bb003dba3a1b53f43d81b30d
+
+
 pub async fn download_file(
-    url: &str,
-    path: &str,
-    state: &State<MyManagedState>,
-    uuid: &str,
-) -> Result<(), String> {
-    let client = Client::new();
-    // Reqwest setup
-    let res = client
-        .get(url)
-        .send()
-        .await
-        .or(Err(format!("Failed to GET from '{}'", &url)))?;
-    let total_size = res.content_length().unwrap_or(0);
-    state
-        .download_status
-        .insert(uuid.to_string(), (0, total_size));
-    // Indicatif setup
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
-        .progress_chars("#>-"));
-    pb.set_message(&format!("Downloading {}", url));
-
-    // download chunks
-    let mut file = File::create(path).or(Err(format!("Failed to create file '{}'", path)))?;
-    let mut downloaded: u64 = 0;
-    let mut stream = res.bytes_stream();
-
-    while let Some(item) = stream.next().await {
-        let chunk = item.or(Err(format!("Error while downloading file")))?;
-        file.write(&chunk)
-            .or(Err(format!("Error while writing to file")))?;
-        let new = min(downloaded + (chunk.len() as u64), total_size);
-        downloaded = new;
-        state
-            .download_status
-            .insert(uuid.to_string(), (new, total_size));
-        pb.set_position(new);
-    }
-
-    // pb.finish_with_message(&format!("Downloaded {} to {}", url, path));
-    return Ok(());
-}
-
-pub async fn download_resource(
     url: &str,
     path: &Path,
     name_override: Option<&str>,
@@ -129,7 +84,7 @@ pub async fn download_resource(
     let downloaded = Arc::new(AtomicU64::new(0));
     let mut stream = response.bytes_stream();
     let downloaded_clone = downloaded.clone();
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         while let Some(item) = stream.next().await {
             let chunk = item.expect("Error while downloading file");
             downloaded_file
@@ -138,6 +93,9 @@ pub async fn download_resource(
             downloaded_clone.fetch_add(chunk.len() as u64, core::sync::atomic::Ordering::Relaxed);
             pb.set_position(downloaded_clone.load(core::sync::atomic::Ordering::Relaxed));
         }
+    });
+    thread::spawn(move || {
+        futures::executor::block_on(handle);
     });
     Ok(DownloadReport {
         total: Arc::new(AtomicU64::new(total_size)),
@@ -148,55 +106,7 @@ pub async fn download_resource(
 
 /// List all files in a directory
 /// files_or_dir = 0 -> files, 1 -> directories
-#[deprecated]
-pub fn list_dir(path: PathBuf, files_or_dirs: bool) -> Result<Vec<String>, String> {
-    let mut files = Vec::new();
-    if files_or_dirs {
-        for entry in std::fs::read_dir(path.clone()).or(Err(format!(
-            "Failed to read directory '{}'",
-            path.to_str().unwrap()
-        )))? {
-            let entry = entry.or(Err(format!(
-                "Failed to read directory '{}'",
-                path.to_str().unwrap()
-            )))?;
-            if entry
-                .file_type()
-                .or(Err(format!(
-                    "Failed to read directory '{}'",
-                    path.to_str().unwrap()
-                )))?
-                .is_dir()
-            {
-                files.push(entry.file_name().to_str().unwrap().to_string());
-            }
-        }
-    } else {
-        for entry in std::fs::read_dir(path.clone()).or(Err(format!(
-            "Failed to read directory '{}'",
-            path.to_str().unwrap()
-        )))? {
-            let entry = entry.or(Err(format!(
-                "Failed to read directory '{}'",
-                path.to_str().unwrap()
-            )))?;
-            if entry
-                .file_type()
-                .or(Err(format!(
-                    "Failed to read directory '{}'",
-                    path.to_str().unwrap()
-                )))?
-                .is_file()
-            {
-                files.push(entry.file_name().to_str().unwrap().to_string());
-            }
-        }
-    }
-    return Ok(files);
-}
-/// List all files in a directory
-/// files_or_dir = 0 -> files, 1 -> directories
-pub fn list_dir_new(path: &Path, filter_file_or_dir: Option<bool>) -> Result<Vec<PathBuf>, Error> {
+pub fn list_dir(path: &Path, filter_file_or_dir: Option<bool>) -> Result<Vec<PathBuf>, Error> {
     let ret: Vec<PathBuf> = std::fs::read_dir(&path)
         .or(Err(Error {
             inner: ErrorInner::FailedToReadFileOrDir,
@@ -232,7 +142,7 @@ pub fn unzip_file(
         return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", format!("7z_{}_{}", os, arch))});
     }
     std::fs::create_dir_all(dest);
-    let before: HashSet<PathBuf> = list_dir_new(dest, None)
+    let before: HashSet<PathBuf> = list_dir(dest, None)
         .or(Err(Error {
             inner: ErrorInner::FailedToReadFileOrDir,
             detail: "".to_string(),
@@ -286,7 +196,7 @@ pub fn unzip_file(
                 detail: "Failed to execute 7zip".to_string(),
             }))?;
     }
-    let after: HashSet<PathBuf> = list_dir_new(dest, None)
+    let after: HashSet<PathBuf> = list_dir(dest, None)
         .or(Err(Error {
             inner: ErrorInner::FailedToReadFileOrDir,
             detail: "".to_string(),
