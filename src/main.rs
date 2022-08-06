@@ -1,4 +1,6 @@
+use http::{Request, Response, Method, header};
 use axum::{routing::get, Extension, Router};
+use tower_http::cors::{Any, CorsLayer};
 use implementations::minecraft;
 use log::{debug, info, warn};
 use serde_json::Value;
@@ -88,9 +90,17 @@ async fn main() {
         list_of_instances: restore_instances(&lodestone_path),
         event_broadcaster: tx.clone(),
     };
+
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::PATCH, Method::DELETE])
+        .allow_headers([header::ORIGIN, header::CONTENT_TYPE]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+        .allow_credentials(true)
+        .allow_origin(Any);
+
     let app = Router::new()
         .route("/ws", get(ws_handler))
-        .layer(Extension(shared_state));
+        .layer(Extension(shared_state))
+        .layer(cors);
 
     thread::spawn( {
         let tx = tx.clone();

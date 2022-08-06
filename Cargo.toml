@@ -19,12 +19,13 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+http = "0.2.8"
 axum = { version = "0.5.13", features = ["headers", "ws"] }
 futures = "0.3.21"
 headers = "0.3"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = "0.1"
-tower-http = { version = "0.3.0", features = ["fs", "trace"] }# erased-serde = "0.3"
+tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }# erased-serde = "0.3"
 regex = "1.5.4"
 
 serde_json = "1.0.82"
