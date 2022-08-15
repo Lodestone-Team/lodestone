@@ -1,3 +1,20 @@
 {
-  "extends": ["next/core-web-vitals", "prettier"]
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:@typescript-eslint/recommended",
+    "prettier"
+  ],
+  "parser": "@typescript-eslint/parser",
+  // want typescript-eslint/no-restricted-imports rule
+  "rules": {
+    "no-restricted-imports": "off",
+    "@typescript-eslint/no-restricted-imports": [
+      "warn",
+      {
+        "name": "react-redux",
+        "importNames": ["useSelector", "useDispatch"],
+        "message": "Use typed hooks `useAppDispatch` and `useAppSelector` instead."
+      }
+    ]
+  }
 }

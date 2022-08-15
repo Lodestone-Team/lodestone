@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 
-// See: https://usehooks-ts.com/react-hook/use-isomorphic-layout-effect
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
+
+import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
+import type { RootState, AppDispatch } from 'data/store';
 
 export function useIntervalImmediate(
   callback: () => void,
@@ -31,5 +33,9 @@ export function useIntervalImmediate(
   // Run the callback immediately.
   useEffect(() => {
     savedCallback.current();
-  } , []);
+  }, []);
 }
+
+// Use throughout your app instead of plain `useDispatch` and `useSelector`
+export const useAppDispatch: () => AppDispatch = useDispatch
+export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector
