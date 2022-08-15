@@ -1,8 +1,8 @@
 // A react component that renders the left and top navbar for the dashboard.
 // Also provides the instance context
 
-import LeftNav from './LeftNav';
-import TopNav from './TopNav';
+import LeftNav from 'components/LeftNav';
+import TopNav from 'components/TopNav';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (

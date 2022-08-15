@@ -6,4 +6,3 @@ interface ServerContextInterface {
 }
 
 export const ServerContext = createContext<ServerContextInterface|null>(null);
-

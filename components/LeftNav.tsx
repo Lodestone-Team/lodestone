@@ -1,26 +1,35 @@
-import SystemStat from "./SystemStat"
-import Image from "next/image"
-import InstanceList from "./InstanceList"
-import { useState } from "react";
-import { useInterval } from "usehooks-ts";
+import SystemStat from 'components/SystemStat';
+import InstanceList from 'components/InstanceList';
+import { useState } from 'react';
+import { useIntervalImmediate } from 'utils/hooks';
+
+// format duration in seconds to DD:HH:MM:SS
+const formatDuration = (duration: number) => {
+  const days = Math.floor(duration / 86400);
+  const hours = Math.floor((duration % 86400) / 3600);
+  const minutes = Math.floor((duration % 3600) / 60);
+  const seconds = Math.floor(duration % 60);
+  return `${days < 10 ? '0' + days : days}:${
+    hours < 10 ? '0' + hours : hours
+  }:${minutes < 10 ? '0' + minutes : minutes}:${
+    seconds < 10 ? '0' + seconds : seconds
+  }`;
+};
 
 export default function LeftNav() {
-  const [systemName, setSystemName] = useState<string>("PLACEHOLDER");
-  const [systemCpu, setSystemCpu] = useState<string>("PLACEHOLDER");
-  const [systemOs, setSystemOs] = useState<string>("PLACEHOLDER");
+  const [systemName, setSystemName] = useState<string>('PLACEHOLDER');
+  const [systemCpu, setSystemCpu] = useState<string>('PLACEHOLDER');
+  const [systemOs, setSystemOs] = useState<string>('PLACEHOLDER');
   const [systemStartTime, setSystemStartTime] = useState<Date>(new Date());
-  const [systemUptime, setSystemUptime] = useState<string>("");
+  const [systemUptime, setSystemUptime] = useState<string>('00:00:00:00');
 
-  useInterval(() => {
+  useIntervalImmediate(() => {
     // calculate system uptime in DD:HH:MM:SS format
     const uptime = Math.floor(
       (new Date().getTime() - systemStartTime.getTime()) / 1000
     );
-    const days = Math.floor(uptime / 86400);
-    const hours = Math.floor((uptime % 86400) / 3600);
-    const minutes = Math.floor((uptime % 3600) / 60);
-    const seconds = Math.floor(uptime % 60);
-    setSystemUptime(`${days}:${hours}:${minutes}:${seconds}`);
+
+    setSystemUptime(formatDuration(uptime));
   }, 1000);
 
   return (
@@ -35,5 +44,5 @@ export default function LeftNav() {
       </div>
       <InstanceList />
     </div>
-  )
+  );
 }
