@@ -2,23 +2,37 @@ import { Key, useEffect, useState } from 'react';
 import InstanceCard from 'components/InstanceCard';
 import { useFetch } from 'usehooks-ts';
 import { useAppDispatch, useAppSelector } from 'utils/hooks';
-import { selectInstanceList } from 'data/InstanceListSlice';
+import { fetchInstanceList, selectInstanceList } from 'data/InstanceList';
+import { selectClientInfo } from 'data/ClientInfo';
 
 export default function InstanceList() {
-  const { instances } = useAppSelector(selectInstanceList);
+  const { instances, loading, error } = useAppSelector(selectInstanceList);
   const dispatch = useAppDispatch();
+  const clientInfo = useAppSelector(selectClientInfo);
 
-  console.log(instances);
+  useEffect(() => {
+    if(clientInfo.loading)
+      return;
+    dispatch(fetchInstanceList(clientInfo));
+  }, [dispatch, clientInfo]);
+
+  // TODO: nicer looking loading and error indicators
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+  if (error) {
+    return <div>Error: {error}</div>;
+  }
+  if (!instances) {
+    return <div>No instances found</div>;
+  }
 
   return (
-    <div className="flex flex-col w-full grow">
-      <h1 className="font-bold text-medium">Server Instances</h1>
-      <div className="h-1 overflow-y-auto grow">
-        {/* {instances &&
-          instances.map((instance: { id: Key | null | undefined; title: string; }) => (
-            <InstanceCard key={instance.id} name={instance.title} />
-          ))} */}
-      </div>
+    <div className="h-1 overflow-y-auto grow">
+      {instances &&
+        Object.values(instances).map((instance) => (
+          <InstanceCard key={instance.id} name={instance.name} />
+        ))}
     </div>
   );
 }

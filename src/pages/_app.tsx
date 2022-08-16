@@ -1,6 +1,7 @@
 import 'globals.css';
 import type { AppProps } from 'next/app';
 import DashboardLayout from '../components/DashboardLayout';
+
 import { store } from 'data/store';
 import { Provider } from 'react-redux';
 

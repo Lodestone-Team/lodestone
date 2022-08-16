@@ -1,9 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit'
-import InstanceListReducer from './InstanceListSlice'
+import InstanceListReducer from './InstanceList'
+import ClientInfoReducer from './ClientInfo'
 
 export const store = configureStore({
   reducer: {
     instanceList: InstanceListReducer,
+    clientInfo: ClientInfoReducer,
   },
 })
 

@@ -33,7 +33,7 @@ export default function LeftNav() {
   }, 1000);
 
   return (
-    <div className="flex flex-col items-center w-2/12 h-full px-8 pt-10 border-r bg-gray-700 border-gray-500">
+    <div className="flex flex-col items-center w-2/12 h-full px-8 pt-10 bg-gray-700 border-r border-gray-500">
       <div className="w-full px-6 mb-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="logo" className="w-full" />
@@ -42,7 +42,10 @@ export default function LeftNav() {
         <SystemStat name="os" value={systemOs} />
         <SystemStat name="uptime" value={systemUptime} />
       </div>
-      <InstanceList />
+      <div className="flex flex-col w-full grow">
+        <h1 className="font-bold text-medium">Server Instances</h1>
+        <InstanceList />
+      </div>
     </div>
   );
 }
