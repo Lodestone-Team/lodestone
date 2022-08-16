@@ -1,5 +1,5 @@
 import { Key, useEffect, useState } from 'react';
-import InstanceCard from 'components/InstanceCard';
+import InstanceCard from './InstanceCard';
 import { useFetch } from 'usehooks-ts';
 import { useAppDispatch, useAppSelector } from 'utils/hooks';
 import { fetchInstanceList, selectInstanceList } from 'data/InstanceList';

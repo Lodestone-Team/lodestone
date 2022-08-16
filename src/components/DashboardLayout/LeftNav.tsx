@@ -1,5 +1,5 @@
-import SystemStat from 'components/SystemStat';
-import InstanceList from 'components/InstanceList';
+import SystemStat from './SystemStat';
+import InstanceList from './InstanceList';
 import { useState } from 'react';
 import { useIntervalImmediate } from 'utils/hooks';
 

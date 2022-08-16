@@ -4,13 +4,7 @@ import type { PayloadAction } from '@reduxjs/toolkit';
 import type { RootState } from 'data/store';
 import { Stats } from 'fs';
 
-export enum InstanceStatus {
-  Stopped = 'Stopped',
-  Starting = 'Starting',
-  Running = 'Running',
-  Stopping = 'Stopping',
-  Error = 'Error',
-}
+export type InstanceStatus = 'stopped' | 'running' | 'starting' | 'stopping' | 'crashed' | 'error';
 
 export interface InstanceState {
   id: string;
@@ -55,7 +49,7 @@ export const fetchInstanceList = createAsyncThunk(
           maxPlayerCount: 0, //TODO: update backend to return this value
           port: instance.port,
           ip: address,
-          status: InstanceStatus.Stopped, //TODO: update backend to return this value
+          status: 'stopped', //TODO: update backend to return this value
         }));
       })
       .catch((error) => {

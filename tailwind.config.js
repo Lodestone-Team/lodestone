@@ -15,7 +15,7 @@ module.exports = {
         accent: '#2AF588'
       },
       'ochre': {
-        DEAFULT: '#EFB440',
+        DEFAULT: '#EFB440',
         faded: '#AE8B32'
       },
       'red': {
