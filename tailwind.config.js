@@ -8,23 +8,38 @@ module.exports = {
     colors: {
       transparent: 'transparent',
       current: 'currentColor',
-      'blue': '#334675',
-      'green': '#2af588',
-      'darker-background': '#1d1e21',
-      'dark-background': '#26282c',
-      'dark-background-accent': '#36393f',
-      'light-background': '#e5e7eb',
-      'bright': '#e3e3e4',
-      'fade': '#767a82',
-      'selection-green': '#6dd277',
-      'selection-red': '#d26d6d',
+      'blue': '#59B2F3',
+      'green': {
+        DEFAULT: '#62DD76',
+        faded: '#61AE32',
+        accent: '#2AF588'
+      },
+      'ochre': {
+        DEAFULT: '#EFB440',
+        faded: '#AE8B32'
+      },
+      'red': {
+        DEFAULT: '#DD6262',
+        faded: '#AE3232'
+      },
+      'gray': {
+        300: '#E3E3E4',
+        400: '#A5A5AC',
+        500: '#767A82',
+        600: '#44464B',
+        700: '#36393F',
+        800: '#26282C',
+        900: '#1D1E21'
+      },
+      'white': '#FFFFFF',
     },
     fontFamily: {
       'body': ['Satoshi', 'sans-serif'],
       'heading': ['Chillax', 'sans-serif'],
+      'title': ['Chillax', 'sans-serif'],
     },
     fontSize: {
-      'small': '0.75rem',
+      'small': '0.7rem',
       'base': '1rem',
       'medium': '1.5rem',
       'large': '2rem',

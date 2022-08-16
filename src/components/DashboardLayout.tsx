@@ -6,7 +6,7 @@ import TopNav from 'components/TopNav';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-row w-screen h-screen text-bright font-body">
+    <div className="flex flex-row w-screen h-screen text-gray-300 font-body">
       <LeftNav />
       <div className="w-10/12 h-full">
         <TopNav />
