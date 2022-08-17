@@ -1,3 +1,6 @@
+Instance list is handling too many things
+too hard to encapsulate it and put it in a story
+
 import { ComponentStory, ComponentMeta } from '@storybook/react';
 import InstanceList from './InstanceList';
 import { Provider } from 'react-redux';
@@ -8,8 +11,7 @@ import Split from 'react-split';
 
 const mockedClientInfo = {
   loading: false,
-  address: 'mocked-address.com',
-  port: 3000,
+  apiUrl: 'mocked-address.com:3000',
 } as ClientInfoState;
 
 const mockedInstanceList = {
@@ -86,7 +88,7 @@ export default {
 const Template: ComponentStory<typeof InstanceList> = () => (
     <Split
     sizes={[25, 75]}
-    minSize={100}
+    snapOffset={0} 
     className="flex flex-row"
   >
     <div className="flex flex-col">

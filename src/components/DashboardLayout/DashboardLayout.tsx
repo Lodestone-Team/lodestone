@@ -4,7 +4,7 @@
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
 import { useRouter } from 'next/router';
-import { setAddress, setLoading, setPort } from 'data/ClientInfo';
+import { setapiUrl, setLoading } from 'data/ClientInfo';
 import { useEffect } from 'react';
 import { useAppDispatch } from 'utils/hooks';
 import Split from 'react-split';
@@ -19,29 +19,27 @@ export default function DashboardLayout({
   const { address, port, uuid } = router.query;
   const dispatch = useAppDispatch();
   const { width: windowWidth, height: windowHeight } = useWindowSize();
-  const minWidth = windowWidth/12*1.5;
-  const maxWidth = windowWidth/12*4;
+  const minWidth = (windowWidth / 12) * 1.5;
+  const maxWidth = (windowWidth / 12) * 4;
 
   useEffect(() => {
-    if (address) dispatch(setAddress(address as string));
+    if (!address || !port) return;
 
-    if (port) {
-      // try to parse port as number
-      let portNumber = 3000;
+    // try to parse port as number
+    let portNumber = 3000;
 
-      try {
-        portNumber = parseInt(port as string);
-        // quick error check for valid port number
-        if (portNumber < 1 || portNumber > 65535) {
-          portNumber = 3000;
-          // TODO: redirect to error page
-        }
-      } catch (e) {
-        console.log(`Invalid port number: ${port}`);
+    try {
+      portNumber = parseInt(port as string);
+      // quick error check for valid port number
+      if (portNumber < 1 || portNumber > 65535) {
+        portNumber = 3000;
+        // TODO: redirect to error page
       }
-
-      dispatch(setPort(parseInt(port as string)));
+    } catch (e) {
+      console.log(`Invalid port number: ${port}`);
     }
+
+    dispatch(setapiUrl(`http://${address}:${portNumber}`));
 
     dispatch(setLoading(!router.isReady));
   }, [address, port, dispatch]);

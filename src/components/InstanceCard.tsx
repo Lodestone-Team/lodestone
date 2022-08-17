@@ -1,9 +1,12 @@
-import { InstanceState, InstanceStatus } from 'data/InstanceList';
+import { InstanceState, InstanceStatus, updateStatus } from 'data/InstanceList';
 import { capitalizeFirstLetter } from 'utils/util';
 import Button from './Button';
 import Label, { LabelColor } from './Label';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faClone } from '@fortawesome/free-solid-svg-icons';
+import { useAppDispatch, useAppSelector } from 'utils/hooks';
+import { selectClientInfo } from 'data/ClientInfo';
+import { response } from 'msw';
 
 // a map from InstanceStatus to string names
 // instancestatus is a union type
@@ -14,26 +17,40 @@ const statusToColorMap: { [key in InstanceStatus]: LabelColor } = {
   stopping: 'ochre',
   crashed: 'red',
   error: 'red',
+  loading: 'gray',
 };
 
 // for the css style of the double border when focused
 const statusToBorderMap: { [key in InstanceStatus]: string } = {
-  stopped: 'border-gray-300 ring-gray-500',
-  running: 'border-green ring-green-faded/25',
-  starting: 'border-ochre ring-ochre-faded/25',
-  stopping: 'border-ochre ring-ochre-faded/25',
-  crashed: 'border-red ring-red-faded/25',
-  error: 'border-red ring-red-faded/25',
+  stopped: 'outline-gray-300 ring-gray-500',
+  running: 'outline-green ring-green-faded/25',
+  starting: 'outline-ochre ring-ochre-faded/25',
+  stopping: 'outline-ochre ring-ochre-faded/25',
+  crashed: 'outline-red ring-red-faded/25',
+  error: 'outline-red ring-red-faded/25',
+  loading: 'outline-gray-300 ring-gray-500',
 };
 
 const statusToActionMessageMap: { [key in InstanceStatus]: string } = {
   stopped: 'Start',
   running: 'Stop',
-  starting: 'Stop',
-  stopping: 'Stopping',
+  starting: 'Kill',
+  stopping: 'Kill',
   crashed: 'Restart',
   error: 'Restart',
+  loading: '...',
 };
+
+const statusToApiEndpointMap: { [key in InstanceStatus]: string } = {
+  stopped: '/start',
+  running: '/stop',
+  starting: '/kill',
+  stopping: '/kill',
+  crashed: '/restart',
+  error: '/restart',
+  loading: '',
+};
+
 interface InstanceCardProps extends InstanceState {
   focus?: boolean;
   onClick?: () => void;
@@ -49,10 +66,26 @@ export default function InstanceCard({
   ip,
   port,
   focus = false,
-  onClick: cardOnClick,
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  onClick : cardOnClick,
 }: InstanceCardProps) {
-  const buttonOnClick = () => {
-    // TODO
+  const clientInfo = useAppSelector(selectClientInfo);
+  const dispatch = useAppDispatch();
+
+  const buttonOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    // We only set status to loading
+    // Websocket will update the status to the actual status
+    if (status === 'loading') return;
+    dispatch(updateStatus({id, status: 'loading'}));
+    fetch(`${clientInfo.apiUrl}${statusToApiEndpointMap[status]}/${id}`,{
+      method: 'POST',
+    }).then((response) => {
+      // TODO: send notification
+    }).catch((error) => {
+      // dispatch(updateStatus({id, status: 'error'}));
+      // TODO: send notification
+    })
   };
 
   const statusColor = statusToColorMap[status];
@@ -63,8 +96,9 @@ export default function InstanceCard({
   return (
     <div
       className={`flex flex-col p-3 font-bold tracking-tight bg-gray-800 rounded-xl gap-y-3 w-fit ${
-        focus ? `border-2 ring-4 ${borderClass} -m-0.5` : ''
-      }`}
+        focus ? `outline outline-2 ring-4 ${borderClass}` : ''
+      } ${cardOnClick ? 'cursor-pointer' : ''}`}
+      onClick={cardOnClick}
     >
       <div className="flex flex-row items-center">
         <div className="flex flex-col min-w-0 grow">
@@ -92,7 +126,7 @@ export default function InstanceCard({
           className="w-8 h-8"
         />
       </div>
-      <Button label={actionMessage} onClick={buttonOnClick} />
+      <Button label={actionMessage} onClick={buttonOnClick} disabled={status=='loading'} />
     </div>
   );
 }

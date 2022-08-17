@@ -1,9 +1,36 @@
+import { configureStore, createSlice } from '@reduxjs/toolkit';
 import { ComponentStory, ComponentMeta } from '@storybook/react';
+import { ClientInfoState } from 'data/ClientInfo';
+import { InstanceListState } from 'data/InstanceList';
+import { Provider } from 'react-redux';
 import Split from 'react-split';
 import InstanceCard from './InstanceCard';
 
+const mockedClientInfo = {
+  loading: false,
+  apiUrl: 'https://mocked-address.com:3000',
+} as ClientInfoState;
+
+const Mockstore = ({ children }: { children: React.ReactNode }) => {
+  const store = configureStore({
+    reducer: {
+      clientInfo: createSlice({
+        name: 'clientInfo',
+        initialState: mockedClientInfo,
+        reducers: {},
+      }).reducer,
+      instanceList: createSlice({
+        name: 'instanceList',
+        initialState: {} as InstanceListState,
+        reducers: {},
+      }).reducer,
+    },
+  });
+  return <Provider store={store}>{children}</Provider>;
+};
+
 export default {
-  title: 'Library/InstanceCard',
+  title: 'Components/InstanceCard',
   component: InstanceCard,
   argTypes: {
     onClick: { table: { disable: true } },
@@ -20,16 +47,14 @@ export default {
 } as ComponentMeta<typeof InstanceCard>;
 
 const Template: ComponentStory<typeof InstanceCard> = (args) => (
-  <Split
-    sizes={[25, 75]}
-    minSize={400}
-    className="flex flex-row"
-  >
-    <div className="flex flex-col child:w-full">
-      <InstanceCard {...args} />
-    </div>
-    <div>Other Stuff</div>
-  </Split>
+  <Mockstore>
+    <Split sizes={[25, 75]} snapOffset={0} className="flex flex-row">
+      <div className="flex flex-col child:w-full">
+        <InstanceCard {...args} />
+      </div>
+      <div>Other Stuff</div>
+    </Split>
+  </Mockstore>
 );
 
 export const Default = Template.bind({});

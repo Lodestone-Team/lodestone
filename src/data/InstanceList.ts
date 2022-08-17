@@ -4,8 +4,19 @@ import type { PayloadAction } from '@reduxjs/toolkit';
 import type { RootState } from 'data/store';
 import { Stats } from 'fs';
 
-export type InstanceStatus = 'stopped' | 'running' | 'starting' | 'stopping' | 'crashed' | 'error';
-export type InstanceType = 'minecraft' | 'minecraft-fabric' | 'minecraft-paper' | 'minecraft-forge';
+export type InstanceStatus =
+  | 'stopped'
+  | 'running'
+  | 'starting'
+  | 'stopping'
+  | 'crashed'
+  | 'error'
+  | 'loading';
+export type InstanceType =
+  | 'minecraft'
+  | 'minecraft-fabric'
+  | 'minecraft-paper'
+  | 'minecraft-forge';
 
 export interface InstanceState {
   id: string;
@@ -34,8 +45,8 @@ const initialState: InstanceListState = {
 // fetch instance using the client info
 export const fetchInstanceList = createAsyncThunk(
   'instanceList/fetch',
-  async ({ address, port }: ClientInfoState, thunkAPI) => {
-    return fetch(`http://${address}:${port}/list`)
+  async ({ apiUrl }: ClientInfoState, thunkAPI) => {
+    return fetch(`${apiUrl}/list`)
       .then((response) => {
         if (!response.ok) {
           throw new Error(response.statusText);
@@ -43,17 +54,21 @@ export const fetchInstanceList = createAsyncThunk(
         return response.json();
       })
       .then((data) => {
-        return data.map((instance: any) => ({
-          // TODO fix the any type here
-          id: instance.uuid,
-          name: instance.name,
-          playerCount: 0, //TODO: update backend to return this value
-          maxPlayerCount: 0, //TODO: update backend to return this value
-          port: instance.port,
-          ip: address,
-          status: 'stopped', //TODO: update backend to return this value
-          type: instance.type,
-        } as InstanceState));
+        const instances: { [id: string]: InstanceState } = {};
+        for (let i = 0; i < data.length; i++) {
+          instances[data[i].uuid] = {
+            // TODO fix the any type here
+            id: data[i].uuid,
+            name: data[i].name,
+            playerCount: 0, //TODO: update backend to return this value
+            maxPlayerCount: 0, //TODO: update backend to return this value
+            port: data[i].port,
+            ip: 'idkman', //TODO: update backend to return this value
+            status: 'stopped', //TODO: update backend to return this value
+            type: data[i].type,
+          };
+        }
+        return instances;
       })
       .catch((error) => {
         if (error instanceof Error) {
@@ -77,6 +92,12 @@ export const instanceListSlice = createSlice({
     },
     updateInstance(state, action: PayloadAction<InstanceState>) {
       state.instances[action.payload.id] = action.payload;
+    },
+    updateStatus(
+      state,
+      action: PayloadAction<{ id: string, status: InstanceStatus }>
+    ) {
+      state.instances[action.payload.id].status = action.payload.status;
     },
     overwriteInstanceList(state, action: PayloadAction<InstanceListState>) {
       state.instances = action.payload.instances;
@@ -108,6 +129,7 @@ export const {
   addInstance,
   removeInstance,
   updateInstance,
+  updateStatus,
   overwriteInstanceList,
 } = instanceListSlice.actions;
 
