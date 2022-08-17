@@ -52,5 +52,9 @@ module.exports = {
       'wide': '0.04em',
     },
   },
-  plugins: [],
+  plugins: [
+    function ({ addVariant }) {
+      addVariant('child', '& > *');
+    }
+  ],
 }

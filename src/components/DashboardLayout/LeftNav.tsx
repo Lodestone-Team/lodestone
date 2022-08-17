@@ -43,7 +43,7 @@ export default function LeftNav() {
         <SystemStat name="uptime" value={systemUptime} />
       </div>
       <div className="flex flex-col w-full grow">
-        <h1 className="font-bold text-medium">Server Instances</h1>
+        <h1 className="mb-4 font-bold text-center text-medium">Server Instances</h1>
         <InstanceList />
       </div>
     </div>

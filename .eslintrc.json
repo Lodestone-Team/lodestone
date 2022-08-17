@@ -16,6 +16,7 @@
         "importNames": ["useSelector", "useDispatch"],
         "message": "Use typed hooks `useAppDispatch` and `useAppSelector` instead."
       }
-    ]
+    ],
+    "@next/next/no-img-element": "off"
   }
 }

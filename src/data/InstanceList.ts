@@ -5,10 +5,12 @@ import type { RootState } from 'data/store';
 import { Stats } from 'fs';
 
 export type InstanceStatus = 'stopped' | 'running' | 'starting' | 'stopping' | 'crashed' | 'error';
+export type InstanceType = 'minecraft' | 'minecraft-fabric' | 'minecraft-paper' | 'minecraft-forge';
 
 export interface InstanceState {
   id: string;
   name: string;
+  type: InstanceType;
   playerCount: number;
   maxPlayerCount: number;
   port: number;
@@ -50,7 +52,8 @@ export const fetchInstanceList = createAsyncThunk(
           port: instance.port,
           ip: address,
           status: 'stopped', //TODO: update backend to return this value
-        }));
+          type: instance.type,
+        } as InstanceState));
       })
       .catch((error) => {
         if (error instanceof Error) {

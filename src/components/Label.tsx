@@ -2,14 +2,14 @@
 
 // declare labelsize as either small or large
 
-type LabelSize = 'small' | 'large';
+export type LabelSize = 'small' | 'large';
 
-type LabelColor = 'green' | 'yellow' | 'red' | 'gray';
+export type LabelColor = 'green' | 'ochre' | 'red' | 'gray';
 
 // a map from labelcolor to css classes
 const labelColorMap = {
   green: 'bg-green-faded/25 text-green',
-  yellow: 'bg-ochre-faded/25 text-ochre',
+  ochre: 'bg-ochre-faded/25 text-ochre',
   red: 'bg-red-faded/25 text-red',
   gray: 'bg-gray-700 text-gray-300', //TODO: make the gray color also semi-transparent
 };
@@ -31,7 +31,7 @@ export default function Label({
 }) {
   return (
     <span
-      className={`font-bold tracking-tight rounded-full ${labelSizeMap[size]} ${labelColorMap[color]}`}
+      className={`select-none font-bold tracking-tight rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]}`}
       {...rest}
     >
       {label}

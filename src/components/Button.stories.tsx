@@ -7,7 +7,8 @@ export default {
     component: Button,
     argTypes: {
         disabled: { control: 'boolean' },
-        className: { control: null },
+        onClick: { table: { disable: true } },
+        className: { table: { disable: true } },
     },
 } as ComponentMeta<typeof Button>;
 
@@ -22,4 +23,12 @@ export const Disabled = Template.bind({});
 Disabled.args = {
     label: 'Button',
     disabled: true,
+};
+
+export const StartServer = Template.bind({});
+StartServer.args = {
+    label: 'Start Server',
+    onClick: () => {
+        console.log('Start Server');
+    }
 };

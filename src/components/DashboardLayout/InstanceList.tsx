@@ -1,6 +1,5 @@
 import { Key, useEffect, useState } from 'react';
-import InstanceCard from './InstanceCard';
-import { useFetch } from 'usehooks-ts';
+import InstanceCard from 'components/InstanceCard';
 import { useAppDispatch, useAppSelector } from 'utils/hooks';
 import { fetchInstanceList, selectInstanceList } from 'data/InstanceList';
 import { selectClientInfo } from 'data/ClientInfo';
@@ -11,8 +10,7 @@ export default function InstanceList() {
   const clientInfo = useAppSelector(selectClientInfo);
 
   useEffect(() => {
-    if(clientInfo.loading)
-      return;
+    if (clientInfo.loading) return;
     dispatch(fetchInstanceList(clientInfo));
   }, [dispatch, clientInfo]);
 
@@ -28,10 +26,10 @@ export default function InstanceList() {
   }
 
   return (
-    <div className="h-1 overflow-y-auto grow">
+    <div className="flex flex-col h-1 overflow-y-auto gap-y-4 gap grow child:w-full">
       {instances &&
         Object.values(instances).map((instance) => (
-          <InstanceCard key={instance.id} name={instance.name} />
+          <InstanceCard key={instance.id} {...instance} />
         ))}
     </div>
   );
