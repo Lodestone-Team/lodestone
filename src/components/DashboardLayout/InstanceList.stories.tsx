@@ -1,6 +1,3 @@
-Instance list is handling too many things
-too hard to encapsulate it and put it in a story
-
 import { ComponentStory, ComponentMeta } from '@storybook/react';
 import InstanceList from './InstanceList';
 import { Provider } from 'react-redux';
