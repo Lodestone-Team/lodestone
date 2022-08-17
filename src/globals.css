@@ -26,3 +26,25 @@ a {
     color-scheme: dark;
   }
 }
+
+/* Some libraries don't like class name */
+/* So I guess I'll customize them here */
+.gutter-horizontal {
+  @apply bg-transparent hover:cursor-col-resize;
+  width: 0px !important;
+  padding-right: 5px !important;
+  margin-right: -5px !important;
+  padding-left: 5px !important;
+  margin-left: -5px !important;
+  z-index: 10000;
+}
+
+.gutter-vertical{
+  @apply bg-transparent hover:cursor-row-resize;
+  height: 0px !important;
+  padding-bottom: 5px !important;
+  margin-bottom: -5px !important;
+  padding-top: 5px !important;
+  margin-top: -5px !important;
+  z-index: 10000;
+}

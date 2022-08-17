@@ -7,6 +7,8 @@ import { useRouter } from 'next/router';
 import { setAddress, setLoading, setPort } from 'data/ClientInfo';
 import { useEffect } from 'react';
 import { useAppDispatch } from 'utils/hooks';
+import Split from 'react-split';
+import { useWindowSize } from 'usehooks-ts';
 
 export default function DashboardLayout({
   children,
@@ -16,12 +18,14 @@ export default function DashboardLayout({
   const router = useRouter();
   const { address, port, uuid } = router.query;
   const dispatch = useAppDispatch();
+  const { width: windowWidth, height: windowHeight } = useWindowSize();
+  const minWidth = windowWidth/12*1.5;
+  const maxWidth = windowWidth/12*4;
 
   useEffect(() => {
-    if(address)
-      dispatch(setAddress(address as string));
+    if (address) dispatch(setAddress(address as string));
 
-    if(port){
+    if (port) {
       // try to parse port as number
       let portNumber = 3000;
 
@@ -38,17 +42,23 @@ export default function DashboardLayout({
 
       dispatch(setPort(parseInt(port as string)));
     }
-    
+
     dispatch(setLoading(!router.isReady));
   }, [address, port, dispatch]);
 
   return (
-    <div className="flex flex-row w-screen h-screen text-gray-300 font-body">
+    <Split
+      sizes={[16, 84]}
+      minSize={[minWidth, 0]}
+      maxSize={[maxWidth, Infinity]}
+      snapOffset={0}
+      className="flex flex-row w-screen h-screen text-gray-300 font-body"
+    >
       <LeftNav />
-      <div className="w-10/12 h-full">
+      <div className="h-full">
         <TopNav />
         {children}
       </div>
-    </div>
+    </Split>
   );
 }

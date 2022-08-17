@@ -22,7 +22,7 @@ export default {
 const Template: ComponentStory<typeof InstanceCard> = (args) => (
   <Split
     sizes={[25, 75]}
-    minSize={100}
+    minSize={400}
     className="flex flex-row"
   >
     <div className="flex flex-col child:w-full">

@@ -26,6 +26,14 @@ const statusToBorderMap: { [key in InstanceStatus]: string } = {
   error: 'border-red ring-red-faded/25',
 };
 
+const statusToActionMessageMap: { [key in InstanceStatus]: string } = {
+  stopped: 'Start',
+  running: 'Stop',
+  starting: 'Stop',
+  stopping: 'Stopping',
+  crashed: 'Restart',
+  error: 'Restart',
+};
 interface InstanceCardProps extends InstanceState {
   focus?: boolean;
   onClick?: () => void;
@@ -50,11 +58,12 @@ export default function InstanceCard({
   const statusColor = statusToColorMap[status];
   const playerCountColor = status == 'running' ? 'green' : 'gray-500';
   const borderClass = statusToBorderMap[status];
+  const actionMessage = statusToActionMessageMap[status];
 
   return (
     <div
       className={`flex flex-col p-3 font-bold tracking-tight bg-gray-800 rounded-xl gap-y-3 w-fit ${
-        focus ? `border-2 ring-4 ${borderClass}` : 'm-0.5'
+        focus ? `border-2 ring-4 ${borderClass} -m-0.5` : ''
       }`}
     >
       <div className="flex flex-row items-center">
@@ -67,11 +76,11 @@ export default function InstanceCard({
               label={capitalizeFirstLetter(status)}
             />
           </div>
-          <h1 className={`text-${playerCountColor}`}>
+          <h1 className={`text-${playerCountColor} truncate`}>
             {playerCount}/{maxPlayerCount} Players
           </h1>
           <div className="flex flex-row gap-x-2 text-small">
-            <h1 className="text-gray-300 ">
+            <h1 className="text-gray-300 truncate">
               {ip}:{port}
               <FontAwesomeIcon className="ml-1 text-gray-500" icon={faClone} />
             </h1>
@@ -83,7 +92,7 @@ export default function InstanceCard({
           className="w-8 h-8"
         />
       </div>
-      <Button label="Lorem Ipsum" onClick={buttonOnClick} />
+      <Button label={actionMessage} onClick={buttonOnClick} />
     </div>
   );
 }
