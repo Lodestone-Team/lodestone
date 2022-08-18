@@ -7,6 +7,7 @@ export default {
   argTypes: {
     color: { control: 'inline-radio' },
     size: { control: 'inline-radio' },
+    children: { control: 'text' },
   },
 } as ComponentMeta<typeof Label>;
 
@@ -14,13 +15,13 @@ const Template: ComponentStory<typeof Label> = (args) => <Label {...args} />;
 
 export const RunningCard = Template.bind({});
 RunningCard.args = {
-  label: 'Running',
+  children: 'Running',
   color: 'green',
 };
 
 export const CrashedPage = Template.bind({});
 CrashedPage.args = {
-  label: 'Crashed',
+  children: 'Crashed',
   color: 'red',
   size: 'large',
 };
