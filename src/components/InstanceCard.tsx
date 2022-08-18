@@ -85,7 +85,7 @@ export default function InstanceCard({
     <div
       className={`flex flex-col p-3 font-bold tracking-tight bg-gray-800 rounded-xl gap-y-3 w-fit ${
         focus ? `outline outline-2 ring-4 ${borderClass}` : ''
-      } ${cardOnClick ? 'cursor-pointer' : ''}`}
+      }`}
       onClick={cardOnClick}
     >
       <div className="flex flex-row items-center">
