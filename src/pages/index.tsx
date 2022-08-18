@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 const Home: NextPage = () => {
 
   return (
-    <div className="mx-8 my-10">
+    <div className="px-8 py-10 bg-gray-800 grow">
       <h1 className="font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
         Home
       </h1>

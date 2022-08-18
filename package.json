@@ -27,6 +27,7 @@
     "react-dom": "18.2.0",
     "react-redux": "^8.0.2",
     "react-split": "^2.0.14",
+    "storybook-addon-next-router": "^4.0.0",
     "usehooks-ts": "^2.6.0"
   },
   "devDependencies": {

@@ -12,6 +12,7 @@ module.exports = {
     '@storybook/addon-essentials',
     '@storybook/addon-interactions',
     '@storybook/addon-postcss',
+    "storybook-addon-next-router",
   ],
   "framework": '@storybook/react',
   "core": {

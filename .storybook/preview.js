@@ -1,7 +1,9 @@
 import 'tailwindcss/tailwind.css';
+import '../src/globals.css';
 
 // Registers the msw addon
 import { initialize, mswDecorator } from 'msw-storybook-addon';
+import { RouterContext } from "next/dist/shared/lib/router-context";
 
 // Initialize MSW
 initialize();
@@ -27,5 +29,8 @@ export const parameters = {
       name: 'gray-700',
       value: '#36393F',
     }]
+  },
+  nextRouter: {
+    Provider: RouterContext.Provider,
   },
 }

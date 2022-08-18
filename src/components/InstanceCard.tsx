@@ -1,5 +1,5 @@
 import { InstanceState, InstanceStatus, updateStatus } from 'data/InstanceList';
-import { capitalizeFirstLetter } from 'utils/util';
+import { capitalizeFirstLetter, statusToLabelColor } from 'utils/util';
 import Button from './Button';
 import Label, { LabelColor } from './Label';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -7,18 +7,6 @@ import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { useAppDispatch, useAppSelector } from 'utils/hooks';
 import { selectClientInfo } from 'data/ClientInfo';
 import { response } from 'msw';
-
-// a map from InstanceStatus to string names
-// instancestatus is a union type
-const statusToColorMap: { [key in InstanceStatus]: LabelColor } = {
-  stopped: 'gray',
-  running: 'green',
-  starting: 'ochre',
-  stopping: 'ochre',
-  crashed: 'red',
-  error: 'red',
-  loading: 'gray',
-};
 
 // for the css style of the double border when focused
 const statusToBorderMap: { [key in InstanceStatus]: string } = {
@@ -88,7 +76,7 @@ export default function InstanceCard({
     })
   };
 
-  const statusColor = statusToColorMap[status];
+  const statusColor = statusToLabelColor[status];
   const playerCountColor = status == 'running' ? 'green' : 'gray-500';
   const borderClass = statusToBorderMap[status];
   const actionMessage = statusToActionMessageMap[status];
@@ -107,8 +95,9 @@ export default function InstanceCard({
             <Label
               size="small"
               color={statusColor}
-              label={capitalizeFirstLetter(status)}
-            />
+            >
+              {capitalizeFirstLetter(status)}
+            </Label>
           </div>
           <h1 className={`text-${playerCountColor} truncate`}>
             {playerCount}/{maxPlayerCount} Players

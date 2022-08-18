@@ -50,10 +50,11 @@ export default function DashboardLayout({
       minSize={[minWidth, 0]}
       maxSize={[maxWidth, Infinity]}
       snapOffset={0}
-      className="flex flex-row w-screen h-screen text-gray-300 font-body"
+      gutterSize={0}
+      className="flex flex-row w-full min-h-screen text-gray-300 bg-gray-800 font-body"
     >
       <LeftNav />
-      <div className="h-full">
+      <div className="flex flex-col">
         <TopNav />
         {children}
       </div>

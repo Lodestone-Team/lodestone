@@ -83,9 +83,10 @@ export default {
 } as ComponentMeta<typeof InstanceList>;
 
 const Template: ComponentStory<typeof InstanceList> = () => (
-    <Split
+  <Split
     sizes={[25, 75]}
-    snapOffset={0} 
+    snapOffset={0}
+    gutterSize={0}
     className="flex flex-row"
   >
     <div className="flex flex-col">

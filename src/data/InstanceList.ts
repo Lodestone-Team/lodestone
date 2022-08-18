@@ -16,7 +16,7 @@ export type InstanceType =
   | 'minecraft'
   | 'minecraft-fabric'
   | 'minecraft-paper'
-  | 'minecraft-forge';
+  | 'minecraft-forge'
 
 export interface InstanceState {
   id: string;
@@ -95,7 +95,7 @@ export const instanceListSlice = createSlice({
     },
     updateStatus(
       state,
-      action: PayloadAction<{ id: string, status: InstanceStatus }>
+      action: PayloadAction<{ id: string; status: InstanceStatus }>
     ) {
       state.instances[action.payload.id].status = action.payload.status;
     },

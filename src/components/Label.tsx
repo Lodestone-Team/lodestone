@@ -22,19 +22,21 @@ const labelSizeMap = {
 export default function Label({
   size = 'small',
   color = 'gray',
-  label,
+  className = '',
+  children,
   ...rest
 }: {
   size: LabelSize;
   color: LabelColor;
-  label: string;
+  className?: string;
+  children: React.ReactNode;
 }) {
   return (
     <span
-      className={`select-none font-bold tracking-tight rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]}`}
+      className={`select-none font-bold tracking-tight rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]} ${className}`}
       {...rest}
     >
-      {label}
+      {children}
     </span>
   );
 }

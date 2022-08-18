@@ -48,7 +48,12 @@ export default {
 
 const Template: ComponentStory<typeof InstanceCard> = (args) => (
   <Mockstore>
-    <Split sizes={[25, 75]} snapOffset={0} className="flex flex-row">
+    <Split
+      sizes={[25, 75]}
+      snapOffset={0}
+      gutterSize={0}
+      className="flex flex-row"
+    >
       <div className="flex flex-col child:w-full">
         <InstanceCard {...args} />
       </div>

@@ -16,8 +16,6 @@ export default function InstanceList() {
     dispatch(fetchInstanceList(clientInfo));
   }, [dispatch, clientInfo]);
 
-  console.log(instances);
-
   // TODO: nicer looking loading and error indicators
   if (loading) {
     return <div>Loading...</div>;
