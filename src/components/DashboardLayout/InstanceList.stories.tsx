@@ -87,12 +87,13 @@ const Template: ComponentStory<typeof InstanceList> = () => (
     sizes={[25, 75]}
     snapOffset={0}
     gutterSize={0}
+    minSize={0}
     className="flex flex-row"
   >
     <div className="flex flex-col">
       <InstanceList />
     </div>
-    <div>Other Stuff</div>
+    <div className="pl-4 text-gray-300">{'   <-Try drag here'}</div>
   </Split>
 );
 
