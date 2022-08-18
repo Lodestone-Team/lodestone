@@ -1,3 +1,5 @@
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const defaultTheme = require('tailwindcss/defaultTheme')
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
@@ -34,9 +36,9 @@ module.exports = {
       'white': '#FFFFFF',
     },
     fontFamily: {
-      'body': ['Satoshi', 'sans-serif'],
-      'heading': ['Chillax', 'sans-serif'],
-      'title': ['Chillax', 'sans-serif'],
+      'sans': ['Satoshi', ...defaultTheme.fontFamily.sans],
+      'heading': ['Chillax', ...defaultTheme.fontFamily.sans],
+      'title': ['Chillax', ...defaultTheme.fontFamily.sans],
     },
     fontSize: {
       'small': '0.7rem',

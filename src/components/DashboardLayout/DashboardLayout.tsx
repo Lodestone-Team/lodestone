@@ -51,7 +51,7 @@ export default function DashboardLayout({
       maxSize={[maxWidth, Infinity]}
       snapOffset={0}
       gutterSize={0}
-      className="flex flex-row w-full min-h-screen text-gray-300 bg-gray-800 font-body"
+      className="flex flex-row w-full min-h-screen text-gray-300 bg-gray-800"
     >
       <LeftNav />
       <div className="flex flex-col">
