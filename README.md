@@ -2,6 +2,8 @@
 
 Make sure you have [Node.js](https://nodejs.org/en/) and [Git](https://git-scm.com/downloads) installed.
 
+This project uses prettier and ESLint, make sure you have those installed as well.
+
 Install the dependencies:
 
 ```bash

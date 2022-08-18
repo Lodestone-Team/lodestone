@@ -16,9 +16,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { address, port, uuid } = router.query;
+  const { address, port } = router.query;
   const dispatch = useAppDispatch();
-  const { width: windowWidth, height: windowHeight } = useWindowSize();
+  const { width: windowWidth } = useWindowSize();
   const minWidth = (windowWidth / 12) * 1.5;
   const maxWidth = (windowWidth / 12) * 4;
 
@@ -42,7 +42,7 @@ export default function DashboardLayout({
     dispatch(setapiUrl(`http://${address}:${portNumber}`));
 
     dispatch(setLoading(!router.isReady));
-  }, [address, port, dispatch]);
+  }, [address, port, dispatch, router.isReady]);
 
   return (
     <Split
