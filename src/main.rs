@@ -13,12 +13,10 @@ use axum::{
     routing::{get, post},
     Extension, Router,
 };
-use crypto::{digest::Digest, sha3::Sha3};
 use db::user::User;
 use events::Event;
 use implementations::minecraft;
 use log::{debug, info};
-use rand::{distributions::Alphanumeric, Rng};
 use reqwest::{Method, header};
 use serde_json::Value;
 use stateful::Stateful;

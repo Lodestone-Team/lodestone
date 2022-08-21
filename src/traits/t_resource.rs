@@ -1,10 +1,10 @@
-use std::sync::{atomic::AtomicU64, Arc, RwLock};
+
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use serde_json;
 
-use crate::util::DownloadProgress;
+
 
 use super::MaybeUnsupported;
 
@@ -40,13 +40,6 @@ pub trait TResourceManagement {
         MaybeUnsupported::Unsupported
     }
 
-    async fn download_file(
-        &mut self,
-        override_name: Option<&str>,
-        resource_type: ResourceType,
-    ) -> MaybeUnsupported<Result<DownloadProgress, super::Error>> {
-        MaybeUnsupported::Unsupported
-    }
 
     fn delete(&mut self, resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
         MaybeUnsupported::Unsupported

@@ -1,7 +1,7 @@
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use lazy_static::lazy_static;
 use rand::{distributions::Alphanumeric, Rng};
-use serde::de::DeserializeOwned;
+
 
 use crate::db::{permission::Permission, user::User};
 

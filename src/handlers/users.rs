@@ -9,7 +9,7 @@ use crate::{
 use axum::{extract::Path, Extension, Json};
 use axum_auth::{AuthBasic, AuthBearer};
 use crypto::{digest::Digest, sha3::Sha3};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use log::debug;
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};

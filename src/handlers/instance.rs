@@ -3,12 +3,11 @@ use std::{env, sync::Arc, time::SystemTime};
 use axum::{extract::Path, Extension, Json};
 use axum_auth::AuthBearer;
 use futures::future::join_all;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 use super::util::is_authorized;
-use crate::db::permission::Permission::{CanStartInstance, self};
+use crate::db::permission::Permission::{self};
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
@@ -264,8 +263,6 @@ pub async fn start_instance(
         .start()?;
     Ok(Json(json!("ok")))
 }
-
-
 
 pub async fn stop_instance(
     Extension(state): Extension<AppState>,
