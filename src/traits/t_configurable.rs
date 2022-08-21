@@ -2,6 +2,7 @@ pub use std::path::PathBuf;
 
 pub use serde_json;
 pub use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::MaybeUnsupported;
 
@@ -26,21 +27,22 @@ pub trait TConfigurable {
     fn restart_on_crash(&self) -> MaybeUnsupported<bool> {
         MaybeUnsupported::Unsupported
     }
-    fn timeout_last_left(&self) -> MaybeUnsupported<Option<i32>> {
+    fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
         MaybeUnsupported::Unsupported
     }
-    fn timeout_no_activity(&self) -> MaybeUnsupported<Option<i32>> {
+    fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
         MaybeUnsupported::Unsupported
     }
     fn start_on_connection(&self) -> MaybeUnsupported<bool> {
         MaybeUnsupported::Unsupported
     }
-    fn backup_period(&self) -> MaybeUnsupported<Option<i32>> {
+    fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
         MaybeUnsupported::Unsupported
     }
     fn get_flavours(&self) -> Vec<String> {
         vec![]
     }
+    fn get_info(&self) -> Value;
 
     // setters
     fn set_name(&mut self, name: String) -> Result<(), crate::traits::Error>;
@@ -71,13 +73,13 @@ pub trait TConfigurable {
     }
     fn set_timeout_last_left(
         &mut self,
-        _timeout_last_left: Option<i32>,
+        _timeout_last_left: Option<u32>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
     fn set_timeout_no_activity(
         &mut self,
-        _timeout_no_activity: Option<i32>,
+        _timeout_no_activity: Option<u32>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }
@@ -89,7 +91,7 @@ pub trait TConfigurable {
     }
     fn set_backup_period(
         &mut self,
-        _backup_period: Option<i32>,
+        _backup_period: Option<u32>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         MaybeUnsupported::Unsupported
     }

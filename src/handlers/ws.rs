@@ -1,4 +1,3 @@
-
 use axum::{
     extract::{ws::WebSocket, WebSocketUpgrade},
     response::IntoResponse,
@@ -6,23 +5,28 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use log::error;
+use tokio::sync::broadcast::Receiver;
 
-use crate::AppState;
+use crate::{events::Event, AppState};
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| websocket(socket, state))
-
+    let event_receiver = state.event_broadcaster.subscribe();
+    ws.on_upgrade(|socket| websocket(socket, event_receiver))
 }
 
-async fn websocket(stream: WebSocket, state: AppState) {
+async fn websocket(stream: WebSocket, mut event_receiver: Receiver<Event>) {
     let (mut sender, mut _receiver) = stream.split();
-    let mut event_receiver = state.event_broadcaster.subscribe();
 
     while let Ok(event) = event_receiver.recv().await {
-        if let Err(e) = sender.send(axum::extract::ws::Message::Text(event)).await {
+        if let Err(e) = sender
+            .send(axum::extract::ws::Message::Text(
+                serde_json::to_string(&event).unwrap(),
+            ))
+            .await
+        {
             error!("Failed to send event: {}", e);
             break;
         }

@@ -1,23 +1,20 @@
 extern crate crypto;
 
-use std::cmp::min;
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, RwLock};
-use std::thread;
 
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
+use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio;
+use ts_rs::TS;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Authentication {
@@ -25,21 +22,38 @@ pub struct Authentication {
     password: String,
 }
 
-use crate::traits::t_resource::DownloadReport;
 use crate::traits::{Error, ErrorInner};
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 
+pub struct SetupProgress {
+    pub current_step: (u8, String),
+    pub total_steps: u8,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct DownloadProgress {
+    pub total: u64,
+    pub downloaded: u64,
+    pub download_name: String,
+}
+#[fix_hidden_lifetime_bug]
 pub async fn download_file(
     url: &str,
     path: &Path,
     name_override: Option<&str>,
-) -> Result<DownloadReport, Error> {
+    on_download : &(dyn Fn(DownloadProgress) + Send + Sync),
+) -> Result<PathBuf, Error> {
     let client = Client::new();
     let response = client.get(url).send().await.map_err(|_| Error {
         inner: ErrorInner::FailedToUpload,
         detail: format!("Failed to send GET request to {}", url),
     })?;
-    let mut file_name = String::new();
+    std::fs::create_dir_all(path).or(Err(Error {
+        inner: ErrorInner::FailedToUpload,
+        detail: format!("Failed to create directory {}", path.display()),
+    }))?;
+
+    let file_name;
     if let Some(name) = name_override {
         file_name = name.to_string();
     } else {
@@ -81,27 +95,22 @@ pub async fn download_file(
         inner: ErrorInner::FailedToWriteFileOrDir,
         detail: format!("Failed to create file {}", path.join(&file_name).display()),
     })?;
-    let downloaded = Arc::new(AtomicU64::new(0));
+    let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
-    let downloaded_clone = downloaded.clone();
-    let handle = tokio::spawn(async move {
-        while let Some(item) = stream.next().await {
-            let chunk = item.expect("Error while downloading file");
-            downloaded_file
-                .write(&chunk)
-                .expect("Error while writing to file");
-            downloaded_clone.fetch_add(chunk.len() as u64, core::sync::atomic::Ordering::Relaxed);
-            pb.set_position(downloaded_clone.load(core::sync::atomic::Ordering::Relaxed));
-        }
-    });
-    thread::spawn(move || {
-        futures::executor::block_on(handle);
-    });
-    Ok(DownloadReport {
-        total: Arc::new(AtomicU64::new(total_size)),
-        downloaded,
-        download_name: Arc::new(RwLock::new(file_name)),
-    })
+    while let Some(item) = stream.next().await {
+        let chunk = item.expect("Error while downloading file");
+        downloaded_file
+            .write(&chunk)
+            .expect("Error while writing to file");
+        downloaded = downloaded + chunk.len() as u64;
+            on_download(DownloadProgress {
+                total: total_size,
+                downloaded,
+                download_name: file_name.clone(),
+            });
+        pb.set_position(downloaded as u64);
+    }
+    Ok(path.join(&file_name))
 }
 
 /// List all files in a directory
@@ -137,19 +146,17 @@ pub fn unzip_file(
     } else {
         std::env::consts::ARCH
     };
-    let _7zip_path = path_to_runtimes.join(format!("7z_{}_{}", os, arch));
+    let _7zip_path = path_to_runtimes
+        .join("7zip")
+        .join(format!("7z_{}_{}", os, arch));
     if !_7zip_path.is_file() {
-        return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", format!("7z_{}_{}", os, arch))});
+        return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found at {}. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", format!("7z_{}_{}", os, arch), _7zip_path.display()) });
     }
-    std::fs::create_dir_all(dest);
-    let before: HashSet<PathBuf> = list_dir(dest, None)
-        .or(Err(Error {
-            inner: ErrorInner::FailedToReadFileOrDir,
-            detail: "".to_string(),
-        }))?
-        .iter()
-        .cloned()
-        .collect();
+    std::fs::create_dir_all(dest).or(Err(Error {
+        inner: ErrorInner::FailedToWriteFileOrDir,
+        detail: format!("Failed to create directory {}", dest.display()),
+    }))?;
+    let before: HashSet<PathBuf>;
 
     let tmp_dir = dest.join("tmp_1c92md");
     if file.extension().ok_or(Error {
@@ -168,23 +175,35 @@ pub fn unzip_file(
                 detail: "Failed to execute 7zip".to_string(),
             }))?;
 
+        before = list_dir(dest, None)
+            .or(Err(Error {
+                inner: ErrorInner::FailedToReadFileOrDir,
+                detail: "".to_string(),
+            }))?
+            .iter()
+            .cloned()
+            .collect();
+
         Command::new(&_7zip_path)
             .arg("x")
             .arg(&tmp_dir)
             .arg("-aoa")
             .arg("-ttar")
-            .arg(format!("-o{}", tmp_dir.display()))
+            .arg(format!("-o{}", dest.display()))
             .status()
             .or(Err(Error {
                 inner: ErrorInner::FailedToExecute,
                 detail: "Failed to execute 7zip".to_string(),
             }))?;
-
-        std::fs::remove_dir_all(&tmp_dir.join("tmp")).or(Err(Error {
-            inner: ErrorInner::FailedToRemoveFileOrDir,
-            detail: "Failed to remove tmp dir".to_string(),
-        }))?;
     } else {
+        before = list_dir(dest, None)
+            .or(Err(Error {
+                inner: ErrorInner::FailedToReadFileOrDir,
+                detail: "".to_string(),
+            }))?
+            .iter()
+            .cloned()
+            .collect();
         Command::new(&_7zip_path)
             .arg("x")
             .arg(file)

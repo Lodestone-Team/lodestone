@@ -1,3 +1,9 @@
+use axum::response::IntoResponse;
+
+use axum::http::StatusCode;
+use serde::Serialize;
+use serde_json::json;
+
 use self::{t_configurable::TConfigurable, t_events::TEventProcessing, t_macro::TMacro, t_player::TPlayerManagement, t_resource::TResourceManagement, t_server::TServer};
 
 pub mod t_server;
@@ -11,7 +17,7 @@ pub enum MaybeUnsupported<T> {
     Supported(T),
     Unsupported,
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum ErrorInner {
     // IO errors:
     FailedToReadFileOrDir,
@@ -37,6 +43,8 @@ pub enum ErrorInner {
     InstanceStopped,
     InstanceStarting,
     InstanceStopping,
+    InstanceErrored,
+    InstanceNotFound,
 
     // Config file errors:
     MalformedFile,
@@ -52,12 +60,40 @@ pub enum ErrorInner {
     FailedToRun,
 
     // Process errors:
-    FailedToExecute
+    FailedToExecute,
+    FailedToAquireStdin,
+    FailedToAquireStdout,
+
+    // API changed
+    APIChanged,
+
+    // Unsupported Op
+    UnsupportedOperation,
+
+    // Malformed request
+    MalformedRequest,
+
+    // User errors:
+    UserNotFound,
+    UserAlreadyExists,
+    InvalidPassword,
+    PermissionDenied,
+    
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Error {
     pub inner : ErrorInner,
     pub detail : String
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        let (status, error_message) = match self.inner {
+            ErrorInner::MalformedRequest => (StatusCode::BAD_REQUEST, json!(self).to_string()),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string())
+        };
+        (status, error_message).into_response()
+    }
 }
 
 pub trait TInstance : TConfigurable + TEventProcessing + TMacro + TPlayerManagement + TResourceManagement + TServer + Sync + Send {

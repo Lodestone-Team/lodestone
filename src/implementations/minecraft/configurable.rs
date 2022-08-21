@@ -6,6 +6,8 @@ use std::{
 
 
 
+use serde_json::json;
+
 use crate::traits::{
     self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, MaybeUnsupported::Supported,
 };
@@ -63,11 +65,11 @@ impl TConfigurable for Instance {
         Supported(self.config.restart_on_crash)
     }
 
-    fn timeout_last_left(&self) -> MaybeUnsupported<Option<i32>> {
+    fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
         Supported(self.config.timeout_last_left)
     }
 
-    fn timeout_no_activity(&self) -> MaybeUnsupported<Option<i32>> {
+    fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
         Supported(self.config.timeout_no_activity)
     }
 
@@ -75,7 +77,7 @@ impl TConfigurable for Instance {
         Supported(self.config.start_on_connection)
     }
 
-    fn backup_period(&self) -> MaybeUnsupported<Option<i32>> {
+    fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
         Supported(self.config.backup_period)
     }
 
@@ -85,6 +87,9 @@ impl TConfigurable for Instance {
             "fabric".to_string(),
             "paper".to_string(),
         ]
+    }
+    fn get_info(&self) -> serde_json::Value {
+        json!(self.config)
     }
 
     fn set_name(&mut self, name: String) -> Result<(), traits::Error> {
@@ -140,7 +145,7 @@ impl TConfigurable for Instance {
 
     fn set_timeout_last_left(
         &mut self,
-        timeout_last_left: Option<i32>,
+        timeout_last_left: Option<u32>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {
         match self.timeout_last_left.lock() {
             Ok(mut v) => *v = timeout_last_left,
@@ -158,7 +163,7 @@ impl TConfigurable for Instance {
 
     fn set_timeout_no_activity(
         &mut self,
-        timeout_no_activity: Option<i32>,
+        timeout_no_activity: Option<u32>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {
         match self.timeout_no_activity.lock() {
             Ok(mut v) => *v = timeout_no_activity,
@@ -187,7 +192,7 @@ impl TConfigurable for Instance {
 
     fn set_backup_period(
         &mut self,
-        backup_period: Option<i32>,
+        backup_period: Option<u32>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {
         match self.backup_period.lock() {
             Ok(mut v) => *v = backup_period,

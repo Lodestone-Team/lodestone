@@ -1,13 +1,8 @@
-use std::{path::Path, str::FromStr};
+use std::str::FromStr;
 
 use serde_json;
 
-use crate::{
-    traits::{t_resource::DownloadReport, Error, ErrorInner},
-    util::download_file,
-};
-
-use super::{Instance, Flavour};
+use super::Flavour;
 
 pub async fn get_vanilla_jar_url(version: &str) -> Option<String> {
     let client = reqwest::Client::new();
@@ -240,7 +235,7 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     ));
 }
 
-pub async fn get_list_of_versions(flavour : Flavour) -> Vec<String> {
+pub async fn get_list_of_versions(flavour: Flavour) -> Vec<String> {
     match flavour {
         Flavour::Vanilla => todo!(),
         Flavour::Fabric => todo!(),
@@ -249,65 +244,6 @@ pub async fn get_list_of_versions(flavour : Flavour) -> Vec<String> {
     }
 }
 
-pub async fn download_dependencies(
-    version: &str,
-    flavour: Flavour,
-    fabric_loader_version: Option<&str>,
-    fabric_installer_version: Option<&str>,
-    path_to_instance: &Path,
-    path_to_runtimes: &Path, // TODO: add paper support
-) -> Result<Vec<DownloadReport>, Error> {
-    if let Some((url, jre_version)) = get_jre_url(version).await {
-        let path_to_jre = path_to_runtimes.join(format!("jre_{}", jre_version));
-        if !path_to_jre.exists() {
-            std::fs::create_dir_all(&path_to_jre).unwrap();
-            download_file("jre", &path_to_jre, Some(url.as_str())).await?;
-        }
-        // unzip jre
-        if std::env::consts::OS == "windows" {
-            // handle the file as a .zip file
-            todo!()
-        }
-        if std::env::consts::OS == "linux" {
-            // handle the file as a .tar.gz file
-            todo!()
-        }
-    }
-
-    match flavour {
-        Flavour::Vanilla => {
-            download_file(
-                get_vanilla_jar_url(version)
-                    .await
-                    .ok_or(Error {
-                        inner: ErrorInner::VersionNotFound,
-                        detail: "".to_string(),
-                    })?
-                    .as_str(),
-                path_to_instance,
-                None,
-            )
-            .await?
-        }
-        Flavour::Fabric => {
-            download_file(
-                get_fabric_jar_url(version, fabric_loader_version, fabric_installer_version)
-                    .await
-                    .ok_or(Error {
-                        inner: ErrorInner::VersionNotFound,
-                        detail: "".to_string(),
-                    })?
-                    .as_str(),
-                path_to_instance,
-                None,
-            )
-            .await?
-        }
-        Flavour::Paper => todo!(),
-        Flavour::Spigot => unimplemented!(),
-    };
-    todo!()
-}
 mod tests {
     use tokio;
 
@@ -317,10 +253,7 @@ mod tests {
         assert_eq!(super::get_vanilla_jar_url("21w44a").await, Some("https://launcher.mojang.com/v1/objects/ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d/server.jar".to_string()));
         assert_eq!(super::get_vanilla_jar_url("1.8.4").await, Some("https://launcher.mojang.com/v1/objects/dd4b5eba1c79500390e0b0f45162fa70d38f8a3d/server.jar".to_string()));
 
-        assert_eq!(
-            super::get_vanilla_jar_url("1.8.4asdasd").await,
-            None
-        );
+        assert_eq!(super::get_vanilla_jar_url("1.8.4asdasd").await, None);
     }
     #[tokio::test]
     async fn test_get_jre_url() {
