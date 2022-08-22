@@ -1,6 +1,6 @@
 import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ReactReduxContextInstance } from 'react-redux/es/components/Context';
 
 type Props = {
@@ -22,7 +22,6 @@ export default function EditableTextfield({
   const [isEditing, setIsEditing] = useState(false);
 
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('triggered');
     const currentText = e.target.value;
     setEditText(currentText);
   };
@@ -38,6 +37,23 @@ export default function EditableTextfield({
     setIsEditing(false);
   };
 
+  useEffect(() => {
+    const handleKey = (e: any) => {
+      if (e.code === "Enter") {
+        onSave();
+      }
+      else if (e.code === "Escape") {
+        onCancel();
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+    };
+  });
+
   return (
     <div>
       {isEditing ? (
@@ -47,6 +63,7 @@ export default function EditableTextfield({
             placeholder={displayText}
             onChange={onEdit}
             onBlur={onCancel}
+            autoFocus={true}
           />
           <FontAwesomeIcon
             className={`${iconClassName} text-gray-500`}
