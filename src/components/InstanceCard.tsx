@@ -118,6 +118,7 @@ export default function InstanceCard({
         label={actionMessage}
         onClick={buttonOnClick}
         disabled={status == 'loading'}
+        className="truncate"
       />
     </div>
   );
