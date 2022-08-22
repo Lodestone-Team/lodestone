@@ -1,12 +1,12 @@
 import { ComponentStory, ComponentMeta } from '@storybook/react';
-import ClipboardTextField from './ClipboardTextField';
+import ClipboardTextfield from './ClipboardTextfield';
 
 export default {
-    title: 'library/ClipboardTextField',
+    title: 'library/ClickCopy',
     component: ClipboardTextField,
 } as ComponentMeta<typeof ClipboardTextField>;
 
-const Template: ComponentStory<typeof ClipboardTextField> = (args) => <ClipboardTextField {...args} />;
+const Template: ComponentStory<typeof ClipboardTextfield> = (args) => <ClipboardTextfield {...args} />;
 
 export const Default = Template.bind({});
 Default.args = {
