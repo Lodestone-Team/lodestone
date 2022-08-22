@@ -38,7 +38,7 @@ export default function EditableTextfield({
   };
 
   useEffect(() => {
-    const handleKey = (e: any) => {
+    const handleKey = (e: KeyboardEvent) => {
       if (e.code === "Enter") {
         onSave();
       }
