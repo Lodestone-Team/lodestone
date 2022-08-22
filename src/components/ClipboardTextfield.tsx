@@ -1,11 +1,3 @@
-import {
-  autoUpdate,
-  flip,
-  offset,
-  Placement,
-  shift,
-  useFloating,
-} from '@floating-ui/react-dom';
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useRef, useState } from 'react';
