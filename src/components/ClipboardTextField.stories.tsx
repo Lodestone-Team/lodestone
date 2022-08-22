@@ -2,7 +2,7 @@ import { ComponentStory, ComponentMeta } from '@storybook/react';
 import ClipboardTextField from './ClipboardTextField';
 
 export default {
-    title: 'library/ClickCopy',
+    title: 'library/ClipboardTextField',
     component: ClipboardTextField,
 } as ComponentMeta<typeof ClipboardTextField>;
 
@@ -12,4 +12,17 @@ export const Default = Template.bind({});
 Default.args = {
     text: 'Hello World',
     className: 'text-medium text-gray-300',
+};
+
+export const Small = Template.bind({});
+Small.args = {
+    text: 'Hello World',
+    className: 'text-regular text-gray-300',
+};
+
+export const OverwriteIconStyle = Template.bind({});
+OverwriteIconStyle.args = {
+    text: 'Hello World',
+    className: 'text-medium text-gray-300',
+    iconClassName: 'text-red',
 };

@@ -13,22 +13,20 @@ import ToolTip from './ToolTip';
 
 export default function ClipboardTextField({
   text,
-  copyText,
+  textToCopy,
   className,
   iconClassName,
-  placement = 'top',
 }: {
   text: string;
-  copyText?: string;
+  textToCopy?: string;
   className?: string;
   iconClassName?: string;
-  placement?: Placement;
 }) {
   const onClickCopy = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(copyText || text);
+    navigator.clipboard.writeText(textToCopy || text);
     //TODO: toast "copied" when we have notifications setup
-    alert(`Copied "${copyText || text}"`);
+    alert(`Copied "${textToCopy || text}"`);
   };
 
   return (
@@ -37,9 +35,8 @@ export default function ClipboardTextField({
       onClick={onClickCopy}
       title="Click to Copy"
     > {/* TODO develop custom tooltip component */}
-      {text}
-      {'  '}
-      <FontAwesomeIcon className={`${iconClassName}`} icon={faClone} />
+      {text}&nbsp;&nbsp;
+      <FontAwesomeIcon className={`${iconClassName} text-gray-500`} icon={faClone} />
     </div>
   );
 }

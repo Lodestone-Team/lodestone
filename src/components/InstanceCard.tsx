@@ -7,6 +7,7 @@ import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { useAppDispatch, useAppSelector } from 'utils/hooks';
 import { selectClientInfo } from 'data/ClientInfo';
 import { response } from 'msw';
+import ClipboardTextField from './ClipboardTextField';
 
 // for the css style of the double border when focused
 const statusToBorderMap: { [key in InstanceStatus]: string } = {
@@ -55,7 +56,7 @@ export default function InstanceCard({
   port,
   focus = false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  onClick : cardOnClick,
+  onClick: cardOnClick,
 }: InstanceCardProps) {
   const clientInfo = useAppSelector(selectClientInfo);
   const dispatch = useAppDispatch();
@@ -65,15 +66,17 @@ export default function InstanceCard({
     // We only set status to loading
     // Websocket will update the status to the actual status
     if (status === 'loading') return;
-    dispatch(updateStatus({id, status: 'loading'}));
-    fetch(`${clientInfo.apiUrl}${statusToApiEndpointMap[status]}/${id}`,{
+    dispatch(updateStatus({ id, status: 'loading' }));
+    fetch(`${clientInfo.apiUrl}${statusToApiEndpointMap[status]}/${id}`, {
       method: 'POST',
-    }).then((response) => {
-      // TODO: send notification
-    }).catch((error) => {
-      // dispatch(updateStatus({id, status: 'error'}));
-      // TODO: send notification
     })
+      .then((response) => {
+        // TODO: send notification
+      })
+      .catch((error) => {
+        // dispatch(updateStatus({id, status: 'error'}));
+        // TODO: send notification
+      });
   };
 
   const statusColor = statusToLabelColor[status];
@@ -92,22 +95,17 @@ export default function InstanceCard({
         <div className="flex flex-col min-w-0 grow">
           <div className="flex flex-row gap-x-2">
             <h1 className="text-gray-300 truncate">{name}</h1>
-            <Label
-              size="small"
-              color={statusColor}
-            >
+            <Label size="small" color={statusColor}>
               {capitalizeFirstLetter(status)}
             </Label>
           </div>
           <h1 className={`text-${playerCountColor} truncate`}>
             {playerCount}/{maxPlayerCount} Players
           </h1>
-          <div className="flex flex-row gap-x-2 text-small">
-            <h1 className="text-gray-300 truncate">
-              {ip}:{port}
-              <FontAwesomeIcon className="ml-1 text-gray-500" icon={faClone} />
-            </h1>
-          </div>
+          <ClipboardTextField
+            text={`${ip}:${port}`}
+            className="text-gray-300 truncate text-small"
+          />
         </div>
         <img
           src="/assets/minecraft-vanilla.png"
@@ -115,7 +113,11 @@ export default function InstanceCard({
           className="w-8 h-8"
         />
       </div>
-      <Button label={actionMessage} onClick={buttonOnClick} disabled={status=='loading'} />
+      <Button
+        label={actionMessage}
+        onClick={buttonOnClick}
+        disabled={status == 'loading'}
+      />
     </div>
   );
 }
