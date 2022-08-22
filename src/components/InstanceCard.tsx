@@ -94,7 +94,7 @@ export default function InstanceCard({
             <h1 className="text-gray-300 truncate">{name}</h1>
             <Label
               size="small"
-              clor={statusColor}
+              color={statusColor}
             >
               {capitalizeFirstLetter(status)}
             </Label>
