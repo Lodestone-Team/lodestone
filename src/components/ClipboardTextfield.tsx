@@ -11,7 +11,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useRef, useState } from 'react';
 import ToolTip from './ToolTip';
 
-export default function ClipboardTextField({
+export default function ClipboardTextfield({
   text,
   copyText,
   className,
