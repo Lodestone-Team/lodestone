@@ -7,7 +7,7 @@ import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { useAppDispatch, useAppSelector } from 'utils/hooks';
 import { selectClientInfo } from 'data/ClientInfo';
 import { response } from 'msw';
-import ClipboardTextField from './ClipboardTextField';
+import ClipboardTextfield from './ClipboardTextfield';
 
 // for the css style of the double border when focused
 const statusToBorderMap: { [key in InstanceStatus]: string } = {
@@ -102,7 +102,7 @@ export default function InstanceCard({
           <h1 className={`text-${playerCountColor} truncate`}>
             {playerCount}/{maxPlayerCount} Players
           </h1>
-          <ClipboardTextField
+          <ClipboardTextfield
             text={`${ip}:${port}`}
             className="text-gray-300 truncate text-small"
           />

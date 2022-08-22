@@ -2,7 +2,7 @@ import { ComponentStory, ComponentMeta } from '@storybook/react';
 import ClipboardTextfield from './ClipboardTextfield';
 
 export default {
-    title: 'library/ClipboardTextField',
+    title: 'library/ClipboardTextfield',
     component: ClipboardTextfield,
 } as ComponentMeta<typeof ClipboardTextfield>;
 

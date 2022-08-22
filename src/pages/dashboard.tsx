@@ -1,6 +1,6 @@
 import { faClone, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import ClipboardTextField from 'components/ClipboardTextField';
+import ClipboardTextfield from 'components/ClipboardTextfield';
 import Label from 'components/Label';
 import { InstanceState, selectInstanceList } from 'data/InstanceList';
 import type { NextPage } from 'next';
@@ -89,7 +89,7 @@ const Dashboard: NextPage = () => {
             color="gray"
             className="flex flex-row items-center gap-3"
           >
-            <ClipboardTextField
+            <ClipboardTextfield
               text={`${instance.ip}:${instance.port}`}
               textToCopy={instance.ip}
             />
