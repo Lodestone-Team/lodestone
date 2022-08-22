@@ -104,6 +104,7 @@ export default function InstanceCard({
           </h1>
           <ClipboardTextfield
             text={`${ip}:${port}`}
+            textToCopy={ip}
             className="text-gray-300 truncate text-small"
           />
         </div>
