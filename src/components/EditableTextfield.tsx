@@ -8,7 +8,7 @@ type Props = {
   containerClassName: string;
   textClassName?: string;
   iconClassName?: string;
-  onSubmit?: Function;
+  onSubmit?: (arg: string) => void;
 };
 
 export default function EditableTextfield({
@@ -16,7 +16,9 @@ export default function EditableTextfield({
   containerClassName,
   textClassName,
   iconClassName,
-  onSubmit = () => {},
+  onSubmit = () => {
+    //
+  },
 }: Props) {
   const [displayText, setDisplayText] = useState(initialText);
   const [editText, setEditText] = useState(initialText);
