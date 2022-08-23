@@ -41,10 +41,9 @@ export default function EditableTextfield({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.code === "Enter") {
+      if (e.code === 'Enter') {
         onSave();
-      }
-      else if (e.code === "Escape") {
+      } else if (e.code === 'Escape') {
         onCancel();
       }
     };
@@ -57,12 +56,14 @@ export default function EditableTextfield({
   });
 
   return (
-    <div className={`${containerClassName} flex flex-row justify-between items-center`}>
+    <div
+      className={`${containerClassName} flex flex-row justify-between items-center space-x-2`}
+    >
       {isEditing ? (
         <>
           <input
-            className={`${textClassName} flex-1`}
-            placeholder={displayText}
+            className={`${textClassName} bg-transparent text-gray-300 flex-1 border-b-2 focus:outline-none`}
+            value={editText}
             onChange={onEdit}
             onBlur={onCancel}
             autoFocus={true}
@@ -76,7 +77,9 @@ export default function EditableTextfield({
         </>
       ) : (
         <>
-          <span className={`${textClassName} flex-1 truncate`}>{displayText}</span>
+          <span className={`${textClassName} bg-transparent text-gray-300 flex-1 truncate`}>
+            {displayText}
+          </span>
           <FontAwesomeIcon
             className={`${iconClassName} text-gray-500`}
             icon={faPenToSquare}
