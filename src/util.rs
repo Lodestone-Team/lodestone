@@ -3,9 +3,9 @@ extern crate crypto;
 use std::collections::HashSet;
 use std::fs::File;
 
-use crypto::digest::Digest;
-use crypto::sha3::Sha3;
 use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -230,8 +230,6 @@ pub fn unzip_file(
     Ok((&after - &before).iter().cloned().collect())
 }
 
-pub fn hash_password(password: &String) -> String {
-    let mut hasher = Sha3::sha3_256();
-    hasher.input_str(format!("{}pepega", password).as_str());
-    hasher.result_str()
+pub fn rand_alphanumeric(len: usize) -> String {
+    thread_rng().sample_iter(&Alphanumeric).take(len).collect()
 }
