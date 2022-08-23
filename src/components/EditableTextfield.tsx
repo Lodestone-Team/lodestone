@@ -5,6 +5,7 @@ import { ReactReduxContextInstance } from 'react-redux/es/components/Context';
 
 type Props = {
   initialText: string;
+  containerClassName: string;
   textClassName?: string;
   iconClassName?: string;
   onSubmit?: Function;
@@ -12,6 +13,7 @@ type Props = {
 
 export default function EditableTextfield({
   initialText,
+  containerClassName,
   textClassName,
   iconClassName,
   onSubmit = () => {},
@@ -55,11 +57,11 @@ export default function EditableTextfield({
   });
 
   return (
-    <div>
+    <div className={`${containerClassName} flex flex-row justify-between items-center`}>
       {isEditing ? (
-        <div>
+        <>
           <input
-            className={`${textClassName}`}
+            className={`${textClassName} flex-1`}
             placeholder={displayText}
             onChange={onEdit}
             onBlur={onCancel}
@@ -71,10 +73,10 @@ export default function EditableTextfield({
             onMouseDown={(e) => [e.preventDefault()]}
             onClick={onSave}
           />
-        </div>
+        </>
       ) : (
-        <div>
-          <span className={`${textClassName}`}>{displayText}</span>
+        <>
+          <span className={`${textClassName} flex-1 truncate`}>{displayText}</span>
           <FontAwesomeIcon
             className={`${iconClassName} text-gray-500`}
             icon={faPenToSquare}
@@ -82,7 +84,7 @@ export default function EditableTextfield({
               setIsEditing(true);
             }}
           />
-        </div>
+        </>
       )}
     </div>
   );
