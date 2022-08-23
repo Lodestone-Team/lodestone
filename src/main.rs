@@ -5,19 +5,21 @@ use crate::{
             create_instance, get_instance_state, kill_instance, remove_instance, send_command,
             stop_instance,
         },
-        users::{login, new_user, delete_user, get_user_info, update_permissions},
+        users::{change_password, delete_user, get_user_info, login, new_user, update_permissions},
         ws::ws_handler,
     },
+    traits::Error, util::rand_alphanumeric,
 };
 use axum::{
     routing::{get, post},
     Extension, Router,
 };
+use crypto::{digest::Digest, sha3::Sha3};
 use db::user::User;
 use events::Event;
 use implementations::minecraft;
 use log::{debug, info};
-use reqwest::{Method, header};
+use reqwest::{header, Method};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
@@ -137,33 +139,68 @@ async fn main() {
 
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(128);
 
+    let mut stateful_users = Stateful::new(
+        restore_users(&dot_lodestone_path.join("users")),
+        {
+            let dot_lodestone_path = dot_lodestone_path.clone();
+            Box::new(move |users, _| {
+                serde_json::to_writer(
+                    std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
+                    users,
+                )
+                .unwrap();
+                Ok(())
+            })
+        },
+        {
+            let dot_lodestone_path = dot_lodestone_path.clone();
+            Box::new(move |users, _| {
+                serde_json::to_writer(
+                    std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
+                    users,
+                )
+                .unwrap();
+                Ok(())
+            })
+        },
+    );
+
+    if stateful_users
+        .get_ref()
+        .iter()
+        .find(|(_, user)| user.is_owner)
+        .is_none()
+    {
+        let owner_psw: String = rand_alphanumeric(8);
+        let salt: String = rand_alphanumeric(5);
+        let mut hasher = Sha3::sha3_256();
+        hasher.input_str(format!("{}{}", salt, owner_psw).as_str());
+        let hashed_psw = hasher.result_str();
+        let uid = uuid::Uuid::new_v4().to_string();
+        let owner = User {
+            username: "owner".to_string(),
+            is_owner: true,
+            permissions: HashMap::new(),
+            uid: uid.clone(),
+            hashed_psw,
+            salt,
+            is_admin: false,
+            secret: rand_alphanumeric(32),
+        };
+        stateful_users
+            .transform(Box::new(move |users| -> Result<(), Error> {
+                users.insert(uid.clone(), owner.clone());
+                Ok(())
+            }))
+            .unwrap();
+        info!("Created owner account since none was present");
+        info!("Username: owner");
+        info!("Password: {}", owner_psw);
+    }
+
     let shared_state = AppState {
         instances: Arc::new(Mutex::new(restore_instances(&lodestone_path, &tx))),
-        users: Arc::new(Mutex::new(Stateful::new(
-            restore_users(&dot_lodestone_path.join("users")),
-            {
-                let dot_lodestone_path = dot_lodestone_path.clone();
-                Box::new(move |users, _| {
-                    serde_json::to_writer(
-                        std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
-                        users,
-                    )
-                    .unwrap();
-                    Ok(())
-                })
-            },
-            {
-                let dot_lodestone_path = dot_lodestone_path.clone();
-                Box::new(move |users, _| {
-                    serde_json::to_writer(
-                        std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
-                        users,
-                    )
-                    .unwrap();
-                    Ok(())
-                })
-            },
-        ))),
+        users: Arc::new(Mutex::new(stateful_users)),
         event_broadcaster: tx.clone(),
     };
 
@@ -193,6 +230,7 @@ async fn main() {
         .route("/users/info/:uuid", get(get_user_info))
         .route("/users/update_perm", post(update_permissions))
         .route("/users/login", get(login))
+        .route("/users/passwd", post(change_password))
         .layer(Extension(shared_state))
         .layer(cors);
 
