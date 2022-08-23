@@ -1,11 +1,10 @@
 import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
-import { ReactReduxContextInstance } from 'react-redux/es/components/Context';
 
 type Props = {
   initialText: string;
-  containerClassName: string;
+  containerClassName?: string;
   textClassName?: string;
   iconClassName?: string;
   onSubmit?: (arg: string) => void;
