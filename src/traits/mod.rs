@@ -90,6 +90,7 @@ impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self.inner {
             ErrorInner::MalformedRequest => (StatusCode::BAD_REQUEST, json!(self).to_string()),
+            ErrorInner::PermissionDenied => (StatusCode::FORBIDDEN, json!(self).to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string())
         };
         (status, error_message).into_response()
