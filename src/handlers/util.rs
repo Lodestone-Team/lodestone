@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
-use crate::db::{permission::Permission, user::User};
+use crate::json_store::{permission::Permission, user::User};
 
 use super::users::Claim;
 

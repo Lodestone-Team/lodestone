@@ -15,7 +15,7 @@ use axum::{
     Extension, Router,
 };
 use crypto::{digest::Digest, sha3::Sha3};
-use db::user::User;
+use json_store::user::User;
 use events::Event;
 use implementations::minecraft;
 use log::{debug, info};
@@ -38,7 +38,7 @@ use tokio::{
 use tower_http::cors::{Any, CorsLayer};
 use traits::{t_configurable::TConfigurable, TInstance};
 use util::list_dir;
-mod db;
+mod json_store;
 mod events;
 mod handlers;
 mod implementations;

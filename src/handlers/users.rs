@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    db::{permission::Permission, user::User},
+    json_store::{permission::Permission, user::User},
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
     AppState,

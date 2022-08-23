@@ -6,8 +6,8 @@ use futures::future::join_all;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use super::util::is_authorized;
-use crate::db::permission::Permission::{self};
+use super::util::{is_authorized, try_auth};
+use crate::json_store::permission::Permission::{self};
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
@@ -243,7 +243,12 @@ pub async fn start_instance(
     Path(uuid): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    if !is_authorized(&token, &uuid, Permission::CanStartInstance) {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::PermissionDenied,
+        detail: "".to_string(),
+    })?;
+    if !is_authorized(&requester, &uuid, Permission::CanStartInstance) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to start instance".to_string(),
