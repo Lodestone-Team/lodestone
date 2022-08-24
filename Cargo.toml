@@ -27,7 +27,8 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-stream = "0.1"
 tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
 fancy-regex = "0.10.0"
-
+argon2 = "0.4.1"
+rand_core = { version = "0.6", features = ["std"] }
 serde_json = "1.0.82"
 serde = { version = "1.0", features = ["derive"] }
 
@@ -38,8 +39,6 @@ indicatif = "0.15.0"
 fs_extra = "1.2.0"
 
 sanitize-filename = "0.4.0"
-rust-crypto = "^0.2"
-
 sys-info = "0.9.1"
 systemstat = "0.1.10"
 rlua = "0.19.1"
