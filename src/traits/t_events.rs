@@ -1,5 +1,5 @@
 
-use rocket::tokio;
+use tokio;
 
 use super::MaybeUnsupported;
 

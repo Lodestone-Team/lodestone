@@ -1,7 +1,10 @@
-use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
-use rocket::serde::json::serde_json;
-use serde::Serialize;
+
+use async_trait::async_trait;
+use serde::{Serialize};
+use serde_json;
+
+
 
 use super::MaybeUnsupported;
 
@@ -23,11 +26,6 @@ where
     runtime: Vec<T>,
 }
 
-pub struct DownloadReport {
-    pub total: Arc<AtomicU64>,
-    pub downloaded: Arc<AtomicU64>,
-    pub download_name: Arc<RwLock<String>>,
-}
 #[async_trait]
 pub trait TResourceManagement {
     fn list(&self) -> Vec<serde_json::Value> {
@@ -42,13 +40,6 @@ pub trait TResourceManagement {
         MaybeUnsupported::Unsupported
     }
 
-    async fn download_resource(
-        &mut self,
-        override_name: Option<&str>,
-        resource_type: ResourceType,
-    ) -> MaybeUnsupported<Result<DownloadReport, super::Error>> {
-        MaybeUnsupported::Unsupported
-    }
 
     fn delete(&mut self, resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
         MaybeUnsupported::Unsupported

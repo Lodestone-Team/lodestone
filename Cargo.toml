@@ -19,11 +19,18 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-minreq = { version = "2.4.2", features = ["punycode","https-rustls-probe"] }
+axum = { version = "0.5.13", features = ["headers", "ws"] }
+axum-macros = "0.2.3"
+futures = "0.3.21"
+headers = "0.3"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
+fancy-regex = "0.10.0"
+argon2 = "0.4.1"
+rand_core = { version = "0.6", features = ["std"] }
+serde_json = "1.0.82"
 serde = { version = "1.0", features = ["derive"] }
-# erased-serde = "0.3"
-chashmap = "2.2.2"
-regex = "1.5.4"
 
 reqwest = { version = "0.11.10", features = ["stream", "blocking"] }
 futures-util = "0.3.14"
@@ -31,23 +38,26 @@ indicatif = "0.15.0"
 
 fs_extra = "1.2.0"
 
-uuid = "0.8.2"
-sanitize-filename = "0.3.0"
-rust-crypto = "^0.2"
-# rocket_cors = "0.5.1"
-
+sanitize-filename = "0.4.0"
 sys-info = "0.9.1"
 systemstat = "0.1.10"
-downloader = "0.2.6"
 rlua = "0.19.1"
-censor = "0.2.0"
 rand = "0.6.5"
-websocket = "0.26.4"
-crossbeam-channel = "0.5.4"
 log = "0.4.17"
 env_logger = "0.9.0"
 zip = "0.6.2"
 async-trait = "0.1.56"
-[dependencies.rocket]
-version = "0.5.0-rc.1"
-features = ["json", "tls"]
+ts-rs = "6.1"
+lazy_static = "1.4.0"
+fix-hidden-lifetime-bug = "0.2.5"
+axum-auth = "0.2"
+jsonwebtoken = "8.1.1"
+chrono = "0.4.22"
+[dependencies.uuid]
+version = "1.1.2"
+features = [
+    "serde",
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]

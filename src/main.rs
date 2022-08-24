@@ -1,341 +1,246 @@
-#![allow(unused_must_use)]
-
-#[macro_use]
-extern crate rocket;
-extern crate sanitize_filename;
-
-use chashmap::CHashMap;
-use crossbeam_channel::unbounded;
-use futures_util::lock::Mutex;
-use managers::types::{ResourceType};
-use regex::Regex;
-use std::env;
-use std::fs::create_dir_all;
-use std::io::{stdin, BufRead, BufReader};
-use std::sync::{Arc};
-use websocket::sync::Server;
-use websocket::OwnedMessage;
-mod event_processor;
+use crate::{
+    handlers::instance::{list_instance, start_instance},
+    handlers::{
+        instance::{
+            create_instance, get_instance_state, kill_instance, remove_instance, send_command,
+            stop_instance,
+        },
+        users::{change_password, delete_user, get_user_info, login, new_user, update_permissions},
+        ws::ws_handler,
+    },
+    traits::Error,
+    util::rand_alphanumeric,
+};
+use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+use axum::{
+    routing::{get, post},
+    Extension, Router,
+};
+use events::Event;
+use implementations::minecraft;
+use json_store::user::User;
+use log::{debug, info};
+use rand_core::OsRng;
+use reqwest::{header, Method};
+use serde_json::Value;
+use stateful::Stateful;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use tokio::{
+    fs::create_dir_all,
+    sync::{
+        broadcast::{self, Receiver, Sender},
+        Mutex,
+    },
+};
+use tower_http::cors::{Any, CorsLayer};
+use traits::{t_configurable::TConfigurable, TInstance};
+use util::list_dir;
+mod events;
 mod handlers;
-mod managers;
-mod util;
-mod services;
-mod traits;
 mod implementations;
-use handlers::*;
-use instance_manager::InstanceManager;
-use managers::*;
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::fs::FileServer;
-use rocket::http::{Header, Status};
-use rocket::{routes, Request, Response};
-use std::path::PathBuf;
-use std::{thread};
-use sys_info::{cpu_speed, disk_info, mem_info, os_release, os_type};
-use systemstat::{Duration, Platform, System};
-use log::{info, LevelFilter};
+mod json_store;
+mod stateful;
+mod traits;
+mod util;
 
-static mut WS_SENDER: Option<crossbeam_channel::Sender<String>> = None;
-
-pub struct MyManagedState {
-    instance_manager: Arc<Mutex<InstanceManager>>,
-    download_status: CHashMap<String, (u64, u64)>,
-    ws_sender: std::sync::Mutex<crossbeam_channel::Sender<String>>,
+#[derive(Clone)]
+pub struct AppState {
+    instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
+    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
+    event_broadcaster: Sender<Event>,
 }
 
-pub struct CORS;
+fn restore_instances(
+    lodestone_path: &Path,
+    event_broadcaster: &Sender<Event>,
+) -> HashMap<String, Arc<Mutex<dyn TInstance>>> {
+    let mut ret: HashMap<String, Arc<Mutex<dyn TInstance>>> = HashMap::new();
 
-#[rocket::async_trait]
-impl Fairing for CORS {
-    fn info(&self) -> Info {
-        Info {
-            name: "Add CORS headers to responses",
-            kind: Kind::Response,
-        }
-    }
-
-    async fn on_response<'r>(&self, req: &'r Request<'_>, res: &mut Response<'r>) {
-        res.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        res.set_header(Header::new(
-            "Access-Control-Allow-Methods",
-            "POST, GET, PATCH, OPTIONS, DELETE",
-        ));
-        res.set_header(Header::new(
-            "Access-Control-Allow-Headers",
-            "Origin, Content-Type, X-Auth-Token",
-        ));
-        res.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
-    }
-}
-
-#[options("/<path..>")]
-fn options_handler<'a>(path: PathBuf) -> Status {
-    Status::Ok
-}
-
-#[catch(500)]
-fn internal_server_error() -> &'static str {
-    "Unknown Internal Error"
-}
-
-#[rocket::main]
-async fn main() {
-    env_logger::builder().filter_level(LevelFilter::Info).format_module_path(false).format_timestamp(None).format_target(false).init();
-    let lodestone_path = match env::var("LODESTONE_PATH") {
-        Ok(val) => PathBuf::from(val),
-        Err(_) => env::current_dir().unwrap(),
-    };
-    env::set_current_dir(&lodestone_path).unwrap();
-
-    let static_path = lodestone_path.join("web");
-
-    //create the web direcotry if it doesn't exist
-    create_dir_all(&static_path).unwrap();
-
-    //print file locations to console
-    info!("Lodestone directory: {}", lodestone_path.display());
-
-    let instance_manager = Arc::new(Mutex::new(InstanceManager::new(lodestone_path).unwrap()));
-    let instance_manager_closure = instance_manager.clone();
-    rocket::tokio::spawn(async move {
-        let reader = BufReader::new(stdin());
-        for line_result in reader.lines() {
-            let mut instance_manager = instance_manager_closure.lock().await;
-            let line = line_result.unwrap_or("failed to read stdin command".to_string());
-            let line_vec: Vec<&str> = line.split_whitespace().collect();
-            if line_vec.len() < 2 {
-                eprint!("Invalid command: {}\n", line);
-                continue;
-            }
-            let identifier = instance_manager
-                .name_to_uuid(&line_vec[1].to_string())
-                .unwrap_or(line_vec[1].to_string());
-            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+send[[:space:]]+(.+)")
-                .unwrap();
-            if regex.is_match(&line) {
-                println!("sending command");
-                instance_manager
-                    .send_command(
-                        &identifier,
-                        regex
-                            .captures(&line)
-                            .unwrap()
-                            .get(2)
-                            .unwrap()
-                            .as_str()
-                            .to_string(),
-                    )
-                    .map_err(|err| println!("{}", err));
-            }
-            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+start").unwrap();
-            if regex.is_match(&line) {
-                instance_manager
-                    .start_instance(&identifier)
-                    .map_err(|err| println!("{}", err));
-            }
-            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+stop").unwrap();
-            if regex.is_match(&line) {
-                instance_manager
-                    .stop_instance(&identifier)
-                    .map_err(|err| println!("{}", err));
-            }
-
-            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+playercount").unwrap();
-            if regex.is_match(&line) {
-                match instance_manager.player_num(&identifier) {
-                    Ok(size) => println!("{}", size.to_string()),
-                    Err(reason) => println!("{}", reason),
-                }
-            }
-            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+playerlist").unwrap();
-            if regex.is_match(&line) {
-                match instance_manager.player_list(&identifier) {
-                    Ok(list) => println!("{:?}", list),
-                    Err(reason) => println!("{}", reason),
-                }
-            }
-            let regex = Regex::new(
-                r"instance[[:space:]]+([\w-]+)[[:space:]]+log[[:space:]]+(\d+)[[:space:]]+(\d+)",
+    list_dir(&lodestone_path.join("instances"), Some(true))
+        .unwrap()
+        .iter()
+        .filter(|path| {
+            debug!("{}", path.display());
+            path.join(".lodestone_config").is_file()
+        })
+        .map(|path| {
+            // read config as json
+            let config: Value = serde_json::from_reader(
+                std::fs::File::open(path.join(".lodestone_config")).unwrap(),
             )
             .unwrap();
-            // TODO implement mongodb get logs
-            // match regex.capture(&line) {
-            //     Some(cap) => match instance_manager.player_list(line_vec[1].to_string()) {
-            //         Ok(list) => println!("{:?}", list),
-            //         Err(reason) => println!("{}", reason),
-            //     }
-            //     None() => ()
-            // }
-            // TODO turn string into enum
-            let regex = Regex::new(r"instance[[:space:]]+([\w-]+)[[:space:]]+resources[[:space:]]+((?:Mod)|(?:World))[[:space:]]+list").unwrap();
-            match regex.captures(&line) {
-                Some(cap) => {
-                    match instance_manager.list_resource(
-                        &identifier,
-                        if cap.get(2).unwrap().as_str().eq("Mod") {
-                            ResourceType::Mod
-                        } else {
-                            ResourceType::World
-                        },
-                    ) {
-                        Ok(list) => {
-                            println!("loaded: {:?}", list.0);
-                            println!("unloaded: {:?}", list.1);
-                        }
-                        Err(reason) => println!("{}", reason),
-                    }
+            config
+        })
+        .map(|config| {
+            match config["type"]
+                .as_str()
+                .unwrap()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "minecraft" => {
+                    debug!(
+                        "Restoring Minecraft instance {}",
+                        config["name"].as_str().unwrap()
+                    );
+                    minecraft::Instance::restore(
+                        serde_json::from_value(config).unwrap(),
+                        event_broadcaster.clone(),
+                    )
                 }
-                _ => (), // Not a match, do nothing
+                _ => unimplemented!(),
             }
+        })
+        .for_each(|instance| {
+            ret.insert(instance.uuid(), Arc::new(Mutex::new(instance)));
+        });
+    ret
+}
 
-            if Regex::new(r"sys[[:space:]]+mem").unwrap().is_match(&line) {
-                match mem_info() {
-                    Ok(mem) => println!("{}/{}", mem.free, mem.total),
-                    Err(_) => println!("failed to get ram"),
-                }
-            }
-            if Regex::new(r"sys[[:space:]]+disk").unwrap().is_match(&line) {
-                match disk_info() {
-                    Ok(disk) => println!("{}/{}", disk.free, disk.total),
-                    Err(_) => println!("failed to get disk"),
-                }
-            }
-            if Regex::new(r"sys[[:space:]]+cpuspeed")
-                .unwrap()
-                .is_match(&line)
-            {
-                match cpu_speed() {
-                    Ok(cpuspeed) => println!("{}", cpuspeed.to_string()),
-                    Err(_) => println!("failed to get cpu speed"),
-                }
-            }
-            if Regex::new(r"sys[[:space:]]+cpuutil")
-                .unwrap()
-                .is_match(&line)
-            {
-                let sys = System::new();
-                match sys.cpu_load_aggregate() {
-                    Ok(load) => {
-                        thread::sleep(Duration::from_secs(1));
-                        println!("{}", load.done().unwrap().user.to_string())
-                    }
-                    Err(_) => println!("failed to get cpu info"),
-                }
-            }
-            if Regex::new(r"sys[[:space:]]+cpuutil")
-                .unwrap()
-                .is_match(&line)
-            {
-                match os_release() {
-                    Ok(release) => match os_type() {
-                        Ok(ostype) => println!("{} {}", ostype, release),
-                        Err(_) => println!("failed to get os info"),
-                    },
-                    Err(_) => println!("failed to get os info"),
-                }
-            }
-            // TODO #[get("/sys/osinfo")]
-            if Regex::new(r"sys[[:space:]]+uptime")
-                .unwrap()
-                .is_match(&line)
-            {
-                let sys = System::new();
-                match sys.uptime() {
-                    Ok(uptime) => println!("{}", uptime.as_secs_f64().to_string()),
-                    Err(_) => println!("failed to get cpu info"),
-                }
-            }
-        }
-    });
-    let (tx, rx) = unbounded();
+fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
+    if std::fs::File::open(path_to_user_json)
+        .unwrap()
+        .metadata()
+        .unwrap()
+        .len()
+        == 0
+    {
+        return HashMap::new();
+    }
+    let users: HashMap<String, User> =
+        serde_json::from_reader(std::fs::File::open(path_to_user_json).unwrap()).unwrap();
+    users
+}
 
-    unsafe {
-        WS_SENDER = Some(tx.clone());
+#[tokio::main]
+async fn main() {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .format_module_path(false)
+        // .format_timestamp(None)
+        .format_target(false)
+        .init();
+    let lodestone_path = PathBuf::from(
+        std::env::var("LODESTONE_PATH")
+            .unwrap_or_else(|_| std::env::current_dir().unwrap().display().to_string()),
+    );
+    std::env::set_current_dir(&lodestone_path).expect("Failed to set current dir");
+
+    let web_path = lodestone_path.join("web");
+    let dot_lodestone_path = lodestone_path.join(".lodestone");
+    let path_to_intances = lodestone_path.join("instances");
+    create_dir_all(&dot_lodestone_path).await.unwrap();
+    create_dir_all(&web_path).await.unwrap();
+    create_dir_all(&path_to_intances).await.unwrap();
+    info!("Lodestone path: {}", lodestone_path.display());
+
+    let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(128);
+
+    let mut stateful_users = Stateful::new(
+        restore_users(&dot_lodestone_path.join("users")),
+        {
+            let dot_lodestone_path = dot_lodestone_path.clone();
+            Box::new(move |users, _| {
+                serde_json::to_writer(
+                    std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
+                    users,
+                )
+                .unwrap();
+                Ok(())
+            })
+        },
+        {
+            let dot_lodestone_path = dot_lodestone_path.clone();
+            Box::new(move |users, _| {
+                serde_json::to_writer(
+                    std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
+                    users,
+                )
+                .unwrap();
+                Ok(())
+            })
+        },
+    );
+
+    if stateful_users
+        .get_ref()
+        .iter()
+        .find(|(_, user)| user.is_owner)
+        .is_none()
+    {
+        let owner_psw: String = rand_alphanumeric(8);
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let hashed_psw = argon2
+            .hash_password(owner_psw.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
+        let uid = uuid::Uuid::new_v4().to_string();
+        let owner = User {
+            username: "owner".to_string(),
+            is_owner: true,
+            permissions: HashMap::new(),
+            uid: uid.clone(),
+            hashed_psw,
+            is_admin: false,
+            secret: rand_alphanumeric(32),
+        };
+        stateful_users
+            .transform(Box::new(move |users| -> Result<(), Error> {
+                users.insert(uid.clone(), owner.clone());
+                Ok(())
+            }))
+            .unwrap();
+        info!("Created owner account since none was present");
+        info!("Username: owner");
+        info!("Password: {}", owner_psw);
     }
 
-    let server = Server::bind("0.0.0.0:8006").unwrap();
-    thread::spawn(move || {
-        for request in server.filter_map(Result::ok) {
-            let rx = rx.clone();
-            thread::spawn(move || {
-                if !request.protocols().contains(&"rust-websocket".to_string()) {
-                    println!("refused");
-                    request.reject().unwrap();
-                    return;
-                }
+    let shared_state = AppState {
+        instances: Arc::new(Mutex::new(restore_instances(&lodestone_path, &tx))),
+        users: Arc::new(Mutex::new(stateful_users)),
+        event_broadcaster: tx.clone(),
+    };
 
-                let client = request.use_protocol("rust-websocket").accept().unwrap();
-                client.set_nonblocking(true).unwrap();
-                let ip = client.peer_addr().unwrap();
+    let cors = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::OPTIONS,
+            Method::PATCH,
+            Method::DELETE,
+        ])
+        .allow_headers([header::ORIGIN, header::CONTENT_TYPE]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+        .allow_origin(Any);
 
-                println!("Connection from {}", ip);
+    let api_routes = Router::new()
+        .route("/ws", get(ws_handler))
+        .route("/list", get(list_instance))
+        .route("/new", post(create_instance))
+        .route("/start/:uuid", post(start_instance))
+        .route("/stop/:uuid", post(stop_instance))
+        .route("/remove/:uuid", post(remove_instance))
+        .route("/kill/:uuid", post(kill_instance))
+        .route("/send/:uuid/:cmd", post(send_command))
+        .route("/state/:uuid", get(get_instance_state))
+        .route("/users/create", post(new_user))
+        .route("/users/delete/:uuid", post(delete_user))
+        .route("/users/info/:uuid", get(get_user_info))
+        .route("/users/update_perm", post(update_permissions))
+        .route("/users/login", get(login))
+        .route("/users/passwd", post(change_password))
+        .layer(Extension(shared_state))
+        .layer(cors);
+    let app = Router::new().nest("/api/v1", api_routes);
 
-                let (mut receiver, mut sender) = client.split().unwrap();
-                // shutdown the connection if the client closes
-                loop {
-                    if let Ok(s) = rx.try_recv() {
-                        sender.send_message(&OwnedMessage::Text(s)).unwrap();
-                    }
-                    if let Ok(OwnedMessage::Close(_)) = receiver.recv_message() {
-                        println!("Client {} disconnected", ip);
-                        break;
-                    }
-                }
-            });
-        }
-    });
-    rocket::build()
-        .mount(
-            "/api/v1/",
-            routes![
-                // users::create,
-                // users::test,
-                instance::start,
-                instance::stop,
-                instance::send,
-                instance::setup,
-                instance::delete,
-                instance::download_status,
-                instance::status,
-                instance::get_list,
-                instance::player_count,
-                instance::player_list,
-                instance::list_resource,
-                instance::load_resource,
-                instance::unload_resource,
-                instance::upload,
-                instance::download_mod,
-                instance::download_world,
-                // instance::events,
-                jar::vanilla_versions,
-                jar::vanilla_jar,
-                jar::vanilla_filters,
-                jar::fabric_versions,
-                jar::fabric_jar,
-                jar::fabric_filters,
-                jar::paper_versions,
-                jar::paper_jar,
-                jar::paper_filters,
-                jar::flavours,
-                system::get_ram,
-                system::get_disk,
-                system::get_cpu_speed,
-                system::get_cpu_info,
-                system::get_os_info,
-                system::get_utilization,
-                system::get_uptime
-            ],
-        )
-        .mount("/", FileServer::from(static_path))
-        .mount("/", routes![options_handler])
-        .register("/", catchers![internal_server_error])
-        .manage(MyManagedState {
-            instance_manager,
-            download_status: CHashMap::new(),
-            ws_sender: std::sync::Mutex::new(tx),
-        })
-        .attach(CORS)
-        .launch()
-        .await;
-    println!("shutting down");
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
 }
