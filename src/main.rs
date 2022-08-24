@@ -176,7 +176,10 @@ async fn main() {
         let owner_psw: String = rand_alphanumeric(8);
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
-        let hashed_psw = argon2.hash_password(owner_psw.as_bytes(), &salt).unwrap().to_string();
+        let hashed_psw = argon2
+            .hash_password(owner_psw.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
         let uid = uuid::Uuid::new_v4().to_string();
         let owner = User {
             username: "owner".to_string(),
@@ -215,7 +218,7 @@ async fn main() {
         .allow_headers([header::ORIGIN, header::CONTENT_TYPE]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
         .allow_origin(Any);
 
-    let app = Router::new()
+    let api_routes = Router::new()
         .route("/ws", get(ws_handler))
         .route("/list", get(list_instance))
         .route("/new", post(create_instance))
@@ -233,6 +236,7 @@ async fn main() {
         .route("/users/passwd", post(change_password))
         .layer(Extension(shared_state))
         .layer(cors);
+    let app = Router::new().nest("/api/v1", api_routes);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     axum::Server::bind(&addr)
