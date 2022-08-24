@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
+use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use rand_core::OsRng;
 
 use crate::json_store::{permission::Permission, user::User};
 
 use super::users::Claim;
 
-fn decode_token(token: &str, jwt_secret : &str) -> Option<String> {
+fn decode_token(token: &str, jwt_secret: &str) -> Option<String> {
     match decode::<Claim>(
         token,
         &DecodingKey::from_secret(jwt_secret.as_bytes()),
@@ -30,7 +32,7 @@ fn decode_no_verify(token: &str) -> Option<String> {
     }
 }
 
-pub fn try_auth(token : &str, users : &HashMap<String, User>) -> Option<User> {
+pub fn try_auth(token: &str, users: &HashMap<String, User>) -> Option<User> {
     let claimed_uid = decode_no_verify(&token)?;
     let claimed_requester = users.get(&claimed_uid)?;
     let requester_uid = decode_token(token, &claimed_requester.secret)?;
@@ -57,4 +59,11 @@ pub fn is_authorized(user: &User, instance_uuid: &str, perm: Permission) -> bool
                     .unwrap_or(false)
         }
     }
+}
+
+pub fn hash_password(password: &str) -> String {
+    Argon2::default()
+        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string()
 }

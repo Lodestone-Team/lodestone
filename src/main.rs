@@ -8,17 +8,19 @@ use crate::{
         users::{change_password, delete_user, get_user_info, login, new_user, update_permissions},
         ws::ws_handler,
     },
-    traits::Error, util::rand_alphanumeric,
+    traits::Error,
+    util::rand_alphanumeric,
 };
+use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{
     routing::{get, post},
     Extension, Router,
 };
-use crypto::{digest::Digest, sha3::Sha3};
-use json_store::user::User;
 use events::Event;
 use implementations::minecraft;
+use json_store::user::User;
 use log::{debug, info};
+use rand_core::OsRng;
 use reqwest::{header, Method};
 use serde_json::Value;
 use stateful::Stateful;
@@ -38,10 +40,10 @@ use tokio::{
 use tower_http::cors::{Any, CorsLayer};
 use traits::{t_configurable::TConfigurable, TInstance};
 use util::list_dir;
-mod json_store;
 mod events;
 mod handlers;
 mod implementations;
+mod json_store;
 mod stateful;
 mod traits;
 mod util;
@@ -172,10 +174,9 @@ async fn main() {
         .is_none()
     {
         let owner_psw: String = rand_alphanumeric(8);
-        let salt: String = rand_alphanumeric(5);
-        let mut hasher = Sha3::sha3_256();
-        hasher.input_str(format!("{}{}", salt, owner_psw).as_str());
-        let hashed_psw = hasher.result_str();
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let hashed_psw = argon2.hash_password(owner_psw.as_bytes(), &salt).unwrap().to_string();
         let uid = uuid::Uuid::new_v4().to_string();
         let owner = User {
             username: "owner".to_string(),
@@ -183,7 +184,6 @@ async fn main() {
             permissions: HashMap::new(),
             uid: uid.clone(),
             hashed_psw,
-            salt,
             is_admin: false,
             secret: rand_alphanumeric(32),
         };

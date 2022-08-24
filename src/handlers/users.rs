@@ -6,16 +6,15 @@ use crate::{
     util::rand_alphanumeric,
     AppState,
 };
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{extract::Path, Extension, Json};
 use axum_auth::{AuthBasic, AuthBearer};
-use crypto::{digest::Digest, sha3::Sha3};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use systemstat::Utc;
 
-use super::util::{is_authorized, try_auth};
+use super::util::{hash_password, is_authorized, try_auth};
 #[derive(Deserialize, Serialize)]
 pub struct Claim {
     pub uid: String,
@@ -70,14 +69,7 @@ pub async fn new_user(
         inner: ErrorInner::MalformedRequest,
         detail: "Invalid request".to_string(),
     }))?;
-    let salt: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(5)
-        .map(char::from)
-        .collect();
-    let mut hasher = Sha3::sha3_256();
-    hasher.input_str(format!("{}{}", salt, login_request.password).as_str());
-    let hashed_psw = hasher.result_str();
+    let hashed_psw = hash_password(&login_request.password);
     let uid = uuid::Uuid::new_v4().to_string();
     let mut users = state.users.lock().await;
     if !users
@@ -101,7 +93,6 @@ pub async fn new_user(
                         uid: uid.clone(),
                         username: login_request.username.clone(),
                         hashed_psw: hashed_psw.clone(),
-                        salt: salt.clone(),
                         is_admin: false,
                         is_owner: false,
                         permissions: HashMap::new(),
@@ -202,7 +193,6 @@ pub async fn get_user_info(
             detail: "".to_string(),
         })?
         .to_owned();
-    user.salt = "".to_string();
     user.hashed_psw = "".to_string();
     user.secret = "".to_string();
     Ok(Json(json!(user)))
@@ -251,9 +241,7 @@ pub async fn change_password(
     users
         .transform(Box::new(move |users| {
             let user = users.get_mut(&uid).unwrap();
-            let mut hasher = Sha3::sha3_256();
-            hasher.input_str(format!("{}{}", user.salt, new_psw).as_str());
-            let hashed_psw = hasher.result_str();
+            let hashed_psw = hash_password(&new_psw);
             user.hashed_psw = hashed_psw;
             user.secret = rand_alphanumeric(32);
             Ok(())
@@ -266,6 +254,12 @@ pub async fn login(
     Extension(state): Extension<AppState>,
     AuthBasic((username, psw)): AuthBasic,
 ) -> Result<Json<Value>, Error> {
+    if psw.is_none() {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Invalid request, password must be present".to_string(),
+        });
+    }
     if let Some((_uuid, user)) = state
         .users
         .lock()
@@ -274,25 +268,13 @@ pub async fn login(
         .iter()
         .find(|(_, user)| user.username == username)
     {
-        let mut hasher = Sha3::sha3_256();
-        hasher.input_str(
-            format!(
-                "{}{}",
-                user.salt,
-                psw.ok_or(Error {
-                    inner: ErrorInner::MalformedRequest,
-                    detail: "".to_string()
-                })?
+        if Argon2::default()
+            .verify_password(
+                psw.unwrap().as_bytes(),
+                &PasswordHash::new(&user.hashed_psw).unwrap(),
             )
-            .as_str(),
-        );
-        let hashed_psw = hasher.result_str();
-        if user.hashed_psw != hashed_psw {
-            return Err(Error {
-                inner: ErrorInner::InvalidPassword,
-                detail: "".to_string(),
-            });
-        }
+            .is_err()
+        {}
         Ok(Json(json!(create_jwt(&user, &user.secret)?)))
     } else {
         Err(Error {

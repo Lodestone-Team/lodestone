@@ -1,4 +1,3 @@
-extern crate crypto;
 
 use std::collections::HashSet;
 use std::fs::File;
