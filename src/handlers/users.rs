@@ -57,7 +57,7 @@ pub async fn new_user(
 ) -> Result<Json<Value>, Error> {
     let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
         inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        detail: "Token error".to_string(),
     })?;
     if !is_authorized(&requester, "", Permission::CanManageUser) {
         return Err(Error {
@@ -114,7 +114,7 @@ pub async fn delete_user(
     let mut users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        detail: "Token error".to_string(),
     })?;
     if !is_authorized(&requester, "", Permission::CanManageUser) {
         return Err(Error {
@@ -161,11 +161,14 @@ pub async fn update_permissions(
         }))?;
     users
         .transform(Box::new(move |v| {
-            let user = v.get_mut(&uid).unwrap();
+            let user = v.get_mut(&uid).ok_or(Error {
+                inner: ErrorInner::UserNotFound,
+                detail: "".to_string(),
+            })?;
             user.permissions = permissions_update_request.permissions.clone();
             Ok(())
         }))
-        .unwrap();
+        ?;
     Ok(Json(json!("ok")))
 }
 
@@ -189,7 +192,7 @@ pub async fn get_user_info(
         .get_ref()
         .get(&uid)
         .ok_or(Error {
-            inner: ErrorInner::UserNotFound,
+            inner: ErrorInner::MalformedRequest,
             detail: "".to_string(),
         })?
         .to_owned();
