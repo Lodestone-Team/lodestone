@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
 
-use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::io::Write;
@@ -34,7 +33,6 @@ pub struct DownloadProgress {
     pub downloaded: u64,
     pub download_name: String,
 }
-#[fix_hidden_lifetime_bug]
 pub async fn download_file(
     url: &str,
     path: &Path,
