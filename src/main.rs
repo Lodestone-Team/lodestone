@@ -223,7 +223,7 @@ async fn main() {
     let api_routes = Router::new()
         .route("/ws", get(ws_handler))
         .route("/instances/list", get(list_instance))
-        .route("/instances/new", post(create_instance))
+        .route("/instances/new/:idempotency", post(create_instance))
         .route("/instances/start/:uuid", post(start_instance))
         .route("/instances/stop/:uuid", post(stop_instance))
         .route("/instances/remove/:uuid", post(remove_instance))
