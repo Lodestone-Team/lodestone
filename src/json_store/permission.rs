@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum Permission {
     // Instance specific permissions:
-    CanCreateInstance,
-    CanDeleteInstance,
+    CanViewInstance,
     CanStartInstance,
     CanStopInstance,
     CanAccessConsole,
@@ -13,6 +12,8 @@ pub enum Permission {
     CanAccessMacro,
 
     // Global permissions:
+    CanCreateInstance,
+    CanDeleteInstance,
     CanManageUser,
     CanManagePermission,
 }
