@@ -1,4 +1,4 @@
-use std::{env, sync::Arc, time::SystemTime};
+use std::{env, sync::Arc};
 
 use axum::{extract::Path, Extension, Json};
 use axum_auth::AuthBearer;
@@ -37,6 +37,7 @@ pub async fn list_instance(Extension(state): Extension<AppState>) -> Result<Json
 }
 pub async fn create_instance(
     Extension(state): Extension<AppState>,
+    Path(idempotency): Path<String>,
     Json(config): Json<Value>,
 ) -> Result<Json<Value>, Error> {
     let game_type = config
@@ -63,8 +64,7 @@ pub async fn create_instance(
             .ok_or(Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "Name must be string".to_string(),
-            })?
-            .to_string(),
+            })?,
     );
     if name.is_empty() {
         return Err(Error {
@@ -88,9 +88,15 @@ pub async fn create_instance(
             .await
             .get_info()
             .get("name")
-            .expect("Name does not exist for instance")
+            .ok_or(Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Name does not exist for instance".to_string(),
+            })?
             .as_str()
-            .expect("Name must be string")
+            .ok_or(Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Name is not a string".to_string(),
+            })?
             .to_string()
             == name
         {
@@ -103,9 +109,15 @@ pub async fn create_instance(
             .await
             .get_info()
             .get("port")
-            .expect("Port does not exist for instance")
+            .ok_or(Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Port does not exist for instance".to_string(),
+            })?
             .as_u64()
-            .expect("Port must be integer") as u32
+            .ok_or(Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Port is not a integer".to_string(),
+            })? as u32
             == port
         {
             return Err(Error {
@@ -169,7 +181,7 @@ pub async fn create_instance(
                     .get("max_ram")
                     .map(|v| v.as_u64().unwrap_or(2048) as u32)
                     .unwrap_or(2048),
-                creation_time: SystemTime::now().elapsed().unwrap().as_secs(),
+                creation_time: chrono::Utc::now().timestamp(),
                 auto_start: config
                     .get("auto_start")
                     .map(|v| v.as_bool().unwrap_or(false))
@@ -199,7 +211,12 @@ pub async fn create_instance(
             state.instances.lock().await.insert(
                 mc_config.uuid.clone(),
                 Arc::new(Mutex::new(
-                    minecraft::Instance::new(mc_config, state.event_broadcaster.clone()).await?,
+                    minecraft::Instance::new(
+                        mc_config,
+                        state.event_broadcaster.clone(),
+                        Some(idempotency),
+                    )
+                    .await?,
                 )),
             );
         }
