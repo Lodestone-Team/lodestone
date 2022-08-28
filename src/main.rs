@@ -94,7 +94,6 @@ fn restore_instances(
                     minecraft::Instance::restore(
                         serde_json::from_value(config).unwrap(),
                         event_broadcaster.clone(),
-                        None,
                     )
                 }
                 _ => unimplemented!(),

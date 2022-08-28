@@ -370,13 +370,12 @@ impl Instance {
             detail: format!("failed to write to config {}", &path_to_config.display()),
         })?;
 
-        Ok(Instance::restore(config, event_broadcaster, idempotency))
+        Ok(Instance::restore(config, event_broadcaster))
     }
 
     pub fn restore(
         config: Config,
         event_broadcaster: Sender<Event>,
-        idempotency: Option<String>,
     ) -> Instance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
@@ -394,7 +393,6 @@ impl Instance {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
             let name = config.name.clone();
-            let idempotency = idempotency.clone();
             move |old_state: &State, new_state: &State| -> Result<(), Error> {
                 debug!(
                     "[{}] Transitioning from {} to {}",
@@ -637,7 +635,7 @@ impl Instance {
                         uuid.clone(),
                         name.clone(),
                         details,
-                        idempotency.clone(),
+                        None,
                     ))
                     .map_err(|e| {
                         warn!(
@@ -662,7 +660,7 @@ impl Instance {
                         uuid.clone(),
                         name.clone(),
                         format!("Player left: {}", player_diff),
-                        idempotency.clone(),
+                        None,
                     ));
                 } else if old_players.len() < new_players.len() {
                     let player_diff = new_players.difference(old_players).last().unwrap();
@@ -672,7 +670,7 @@ impl Instance {
                         uuid.clone(),
                         name.clone(),
                         format!("Player left: {}", player_diff),
-                        idempotency.clone(),
+                        None,
                     ));
                 }
                 Ok(())
