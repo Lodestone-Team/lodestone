@@ -242,6 +242,7 @@ impl TServer for Instance {
                                             v.transform_cmp(Box::new(
                                                 move |this: &mut HashSet<String>| {
                                                     this.insert(player_name.clone());
+                                                    Ok(())
                                                 },
                                             ))
                                         });
@@ -268,6 +269,7 @@ impl TServer for Instance {
                                             v.transform_cmp(Box::new(
                                                 move |this: &mut HashSet<String>| {
                                                     this.remove(&player_name);
+                                                    Ok(())
                                                 },
                                             ))
                                         });

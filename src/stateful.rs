@@ -28,8 +28,7 @@ impl<T> Stateful<T> {
         mut update: Box<dyn FnMut(&mut T) -> Result<(), Error>>,
     ) -> Result<(), Error> {
         update(&mut self.inner)?;
-        (self.on_transform)(&self.inner, &self.inner)?;
-        Ok(())
+        (self.on_transform)(&self.inner, &self.inner)
     }
     pub fn get_ref(&self) -> &T {
         &self.inner
@@ -43,7 +42,7 @@ where
     pub fn get(&self) -> T {
         self.inner.clone()
     }
-    pub fn transform_cmp(&mut self, mut update: Box<dyn FnMut(&mut T)>) -> Result<(), Error> {
+    pub fn transform_cmp(&mut self, mut update: Box<dyn FnMut(&mut T) -> Result<(), Error>>) -> Result<(), Error> {
         let old = self.inner.clone();
         update(&mut self.inner);
         (self.on_transform)(&self.inner, &old)
