@@ -44,7 +44,7 @@ where
     }
     pub fn transform_cmp(&mut self, mut update: Box<dyn FnMut(&mut T) -> Result<(), Error>>) -> Result<(), Error> {
         let old = self.inner.clone();
-        update(&mut self.inner);
+        update(&mut self.inner)?;
         (self.on_transform)(&self.inner, &old)
     }
 }
