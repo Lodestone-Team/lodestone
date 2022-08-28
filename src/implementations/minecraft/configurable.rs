@@ -49,7 +49,7 @@ impl TConfigurable for Instance {
         Supported(self.config.max_ram)
     }
 
-    fn creation_time(&self) -> u64 {
+    fn creation_time(&self) -> i64 {
         self.config.creation_time
     }
 

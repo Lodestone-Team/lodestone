@@ -20,7 +20,7 @@ pub trait TConfigurable {
     fn port(&self) -> u32;
     fn min_ram(&self) -> MaybeUnsupported<u32>;
     fn max_ram(&self) -> MaybeUnsupported<u32>;
-    fn creation_time(&self) -> u64;
+    fn creation_time(&self) -> i64;
     fn path(&self) -> PathBuf;
     /// does start when lodestone starts
     fn auto_start(&self) -> bool;
