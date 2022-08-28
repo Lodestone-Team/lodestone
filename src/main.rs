@@ -1,3 +1,4 @@
+use crate::json_store::permission::Permission::{self, CanManageUser};
 use crate::{
     handlers::instance::{list_instance, start_instance},
     handlers::{
@@ -13,7 +14,7 @@ use crate::{
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Extension, Router,
 };
 use events::Event;
@@ -25,7 +26,7 @@ use reqwest::{header, Method};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -91,6 +92,7 @@ fn restore_instances(
                     minecraft::Instance::restore(
                         serde_json::from_value(config).unwrap(),
                         event_broadcaster.clone(),
+                        None,
                     )
                 }
                 _ => unimplemented!(),
@@ -220,17 +222,17 @@ async fn main() {
 
     let api_routes = Router::new()
         .route("/ws", get(ws_handler))
-        .route("/list", get(list_instance))
-        .route("/new", post(create_instance))
-        .route("/start/:uuid", post(start_instance))
-        .route("/stop/:uuid", post(stop_instance))
-        .route("/remove/:uuid", post(remove_instance))
-        .route("/kill/:uuid", post(kill_instance))
-        .route("/send/:uuid/:cmd", post(send_command))
-        .route("/state/:uuid", get(get_instance_state))
+        .route("/instances/list", get(list_instance))
+        .route("/instances/new", post(create_instance))
+        .route("/instances/start/:uuid", post(start_instance))
+        .route("/instances/stop/:uuid", post(stop_instance))
+        .route("/instances/remove/:uuid", post(remove_instance))
+        .route("/instances/kill/:uuid", post(kill_instance))
+        .route("/instances/send/:uuid/:cmd", post(send_command))
+        .route("/instances/state/:uuid", get(get_instance_state))
         .route("/users/create", post(new_user))
-        .route("/users/delete/:uuid", post(delete_user))
-        .route("/users/info/:uuid", get(get_user_info))
+        .route("/users/delete/:uid", delete(delete_user))
+        .route("/users/info/:uid", get(get_user_info))
         .route("/users/update_perm", post(update_permissions))
         .route("/users/login", get(login))
         .route("/users/passwd", post(change_password))

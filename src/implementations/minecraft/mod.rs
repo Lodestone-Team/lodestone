@@ -92,7 +92,7 @@ pub struct Config {
     pub port: u32,
     pub min_ram: u32,
     pub max_ram: u32,
-    pub creation_time: u64,
+    pub creation_time: i64,
     pub auto_start: bool,
     pub restart_on_crash: bool,
     pub timeout_last_left: Option<u32>,
@@ -132,6 +132,7 @@ impl Instance {
     pub async fn new(
         mut config: Config,
         event_broadcaster: Sender<Event>,
+        idempotency: Option<String>,
     ) -> Result<Instance, Error> {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_eula = config.path.join("eula.txt");
@@ -146,15 +147,16 @@ impl Instance {
             .join(".lodestone")
             .join("bin");
 
-        let _ = event_broadcaster.send(Event {
-            event_inner: EventInner::Setup(SetupProgress {
+        let _ = event_broadcaster.send(Event::new(
+            EventInner::Setup(SetupProgress {
                 current_step: (1, "Creating directories".to_string()),
                 total_steps: 4,
             }),
-            instance_uuid: config.uuid.clone(),
-            instance_name: config.name.clone(),
-            details: "".to_string(),
-        });
+            config.uuid.clone(),
+            config.name.clone(),
+            "".to_string(),
+            idempotency.clone(),
+        ));
         std::fs::create_dir_all(&config.path).map_err(|_| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!("failed to create directory {}", &config.path.display()),
@@ -194,15 +196,16 @@ impl Instance {
                 &path_to_resources.display()
             ),
         })?;
-        let _ = event_broadcaster.send(Event {
-            event_inner: EventInner::Setup(SetupProgress {
+        let _ = event_broadcaster.send(Event::new(
+            EventInner::Setup(SetupProgress {
                 current_step: (2, "Downloading JRE".to_string()),
                 total_steps: 4,
             }),
-            instance_uuid: config.uuid.clone(),
-            instance_name: config.name.clone(),
-            details: "".to_string(),
-        });
+            config.uuid.clone(),
+            config.name.clone(),
+            "".to_string(),
+            idempotency.clone(),
+        ));
         let (url, jre_major_version) = get_jre_url(config.version.as_str()).await.ok_or(Error {
             inner: ErrorInner::VersionNotFound,
             detail: format!("Cannot get the jre version for version {}", config.version),
@@ -219,25 +222,28 @@ impl Instance {
                 let event_broadcaster = event_broadcaster.clone();
                 let uuid = config.uuid.clone();
                 let name = config.name.clone();
+                let idempotency = idempotency.clone();
                 &move |dl| {
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::Downloading(dl),
-                        instance_uuid: uuid.clone(),
-                        instance_name: name.clone(),
-                        details: "".to_string(),
-                    });
+                    let _ = event_broadcaster.send(Event::new(
+                        EventInner::Downloading(dl),
+                        uuid.clone(),
+                        name.clone(),
+                        "".to_string(),
+                        idempotency.clone(),
+                    ));
                 }
             })
             .await?;
-            let _ = event_broadcaster.send(Event {
-                event_inner: EventInner::Setup(SetupProgress {
+            let _ = event_broadcaster.send(Event::new(
+                EventInner::Setup(SetupProgress {
                     current_step: (3, "Unzipping JRE".to_string()),
                     total_steps: 4,
                 }),
-                instance_uuid: config.uuid.clone(),
-                instance_name: config.name.clone(),
-                details: "".to_string(),
-            });
+                config.uuid.clone(),
+                config.name.clone(),
+                "".to_string(),
+                idempotency.clone(),
+            ));
             let unzipped_content = unzip_file(
                 &downloaded,
                 &path_to_runtimes.join("java"),
@@ -267,15 +273,16 @@ impl Instance {
             .unwrap();
         }
 
-        let _ = event_broadcaster.send(Event {
-            event_inner: EventInner::Setup(SetupProgress {
+        let _ = event_broadcaster.send(Event::new(
+            EventInner::Setup(SetupProgress {
                 current_step: (4, "Downloading server.jar".to_string()),
                 total_steps: 4,
             }),
-            instance_uuid: config.uuid.clone(),
-            instance_name: config.name.clone(),
-            details: "".to_string(),
-        });
+            config.uuid.clone(),
+            config.name.clone(),
+            "".to_string(),
+            idempotency.clone(),
+        ));
 
         match config.flavour {
             Flavour::Vanilla => {
@@ -296,13 +303,15 @@ impl Instance {
                         let event_broadcaster = event_broadcaster.clone();
                         let uuid = config.uuid.clone();
                         let name = config.name.clone();
+                        let idempotency = idempotency.clone();
                         &move |dl| {
-                            let _ = event_broadcaster.send(Event {
-                                event_inner: EventInner::Downloading(dl),
-                                instance_uuid: uuid.clone(),
-                                instance_name: name.clone(),
-                                details: "".to_string(),
-                            });
+                            let _ = event_broadcaster.send(Event::new(
+                                EventInner::Downloading(dl),
+                                uuid.clone(),
+                                name.clone(),
+                                "".to_string(),
+                                idempotency.clone(),
+                            ));
                         }
                     },
                 )
@@ -330,13 +339,15 @@ impl Instance {
                         let event_broadcaster = event_broadcaster.clone();
                         let uuid = config.uuid.clone();
                         let name = config.name.clone();
+                        let idempotency = idempotency.clone();
                         &move |dl| {
-                            let _ = event_broadcaster.send(Event {
-                                event_inner: EventInner::Downloading(dl),
-                                instance_uuid: uuid.clone(),
-                                instance_name: name.clone(),
-                                details: "".to_string(),
-                            });
+                            let _ = event_broadcaster.send(Event::new(
+                                EventInner::Downloading(dl),
+                                uuid.clone(),
+                                name.clone(),
+                                "".to_string(),
+                                idempotency.clone(),
+                            ));
                         }
                     },
                 )
@@ -359,10 +370,14 @@ impl Instance {
             detail: format!("failed to write to config {}", &path_to_config.display()),
         })?;
 
-        Ok(Instance::restore(config, event_broadcaster))
+        Ok(Instance::restore(config, event_broadcaster, idempotency))
     }
 
-    pub fn restore(config: Config, event_broadcaster: Sender<Event>) -> Instance {
+    pub fn restore(
+        config: Config,
+        event_broadcaster: Sender<Event>,
+        idempotency: Option<String>,
+    ) -> Instance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
@@ -379,7 +394,7 @@ impl Instance {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
             let name = config.name.clone();
-
+            let idempotency = idempotency.clone();
             move |old_state: &State, new_state: &State| -> Result<(), Error> {
                 debug!(
                     "[{}] Transitioning from {} to {}",
@@ -391,7 +406,7 @@ impl Instance {
                     Result<(), Error>,
                     EventInner,
                     String,
-                    Box<dyn Fn() -> ()>,
+                    Box<dyn Fn()>,
                 ) = match (old_state, new_state) {
                     (State::Starting, State::Starting) => {
                         let err_message = "Cannot start, instance is already starting";
@@ -503,7 +518,7 @@ impl Instance {
                             err_message.to_owned(),
                             Box::new({
                                 let name = name.clone();
-                                let err_message = err_message.clone();
+                                // let err_message = err_message.clone();
                                 move || warn!("[{}] {}", &name, &err_message)
                             }),
                         )
@@ -559,7 +574,7 @@ impl Instance {
                             err_message.to_owned(),
                             Box::new({
                                 let name = name.clone();
-                                let err_message = err_message.clone();
+                                // let err_message = err_message.clone();
                                 move || warn!("[{}] {}", &name, &err_message)
                             }),
                         )
@@ -577,9 +592,8 @@ impl Instance {
                         )
                     }
                     (_, State::Error) => {
-                        let err_message = format!(
-                            "Instance entering error state. To protect your server, it will not be able to start again until Lodestone is restarted. A manual inspection of the instance is highly recommended.",
-                        );
+                        let err_message = 
+                            "Instance entering error state. To protect your server, it will not be able to start again until Lodestone is restarted. A manual inspection of the instance is highly recommended.";
                         (
                             Err(Error {
                                 inner: ErrorInner::InstanceErrored,
@@ -589,7 +603,7 @@ impl Instance {
                             err_message.to_owned(),
                             Box::new({
                                 let name = name.clone();
-                                let err_message = err_message.clone();
+                                // let err_message = err_message.clone();
                                 move || error!("[{}] {}", &name, &err_message)
                             }),
                         )
@@ -608,7 +622,7 @@ impl Instance {
                             EventInner::InstanceError,
                             err_message.clone(),
                             Box::new({
-                                let err_message = err_message.clone();
+                                let err_message = err_message;
                                 let name = name.clone();
 
                                 move || error!("[{}] {}", &name, &err_message)
@@ -618,12 +632,13 @@ impl Instance {
                 };
                 log();
                 let _ = event_broadcaster
-                    .send(Event {
+                    .send(Event::new(
                         event_inner,
-                        instance_uuid: uuid.clone(),
-                        instance_name: name.clone(),
+                        uuid.clone(),
+                        name.clone(),
                         details,
-                    })
+                        idempotency.clone(),
+                    ))
                     .map_err(|e| {
                         warn!(
                             "Failed to send event to event broadcaster: {}",
@@ -639,24 +654,27 @@ impl Instance {
             let uuid = config.uuid.clone();
             let name = config.name.clone();
             move |old_players: &HashSet<String>, new_players: &HashSet<String>| {
+                #[allow(clippy::comparison_chain)]
                 if old_players.len() > new_players.len() {
-                    let player_diff = old_players.difference(&new_players).last().unwrap();
+                    let player_diff = old_players.difference(new_players).last().unwrap();
                     debug!("[{}] Detected player joined: {}", name, player_diff);
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::PlayerLeft(player_diff.to_owned()),
-                        instance_uuid: uuid.clone(),
-                        instance_name: name.clone(),
-                        details: format!("Player left: {}", player_diff),
-                    });
+                    let _ = event_broadcaster.send(Event::new(
+                        EventInner::PlayerLeft(player_diff.to_owned()),
+                        uuid.clone(),
+                        name.clone(),
+                        format!("Player left: {}", player_diff),
+                        idempotency.clone(),
+                    ));
                 } else if old_players.len() < new_players.len() {
-                    let player_diff = new_players.difference(&old_players).last().unwrap();
+                    let player_diff = new_players.difference(old_players).last().unwrap();
                     debug!("[{}] Detected player left: {}", name, player_diff);
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::PlayerJoined(player_diff.to_owned()),
-                        instance_uuid: uuid.clone(),
-                        instance_name: name.clone(),
-                        details: format!("Player left: {}", player_diff),
-                    });
+                    let _ = event_broadcaster.send(Event::new(
+                        EventInner::PlayerJoined(player_diff.to_owned()),
+                        uuid.clone(),
+                        name.clone(),
+                        format!("Player left: {}", player_diff),
+                        idempotency.clone(),
+                    ));
                 }
                 Ok(())
             }
