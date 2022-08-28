@@ -1,4 +1,6 @@
-use crate::json_store::permission::Permission::{self, CanManageUser};
+
+#![allow(clippy::comparison_chain, clippy::type_complexity)]
+
 use crate::{
     handlers::instance::{list_instance, start_instance},
     handlers::{
@@ -26,7 +28,7 @@ use reqwest::{header, Method};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -169,11 +171,9 @@ async fn main() {
         },
     );
 
-    if stateful_users
+    if !stateful_users
         .get_ref()
-        .iter()
-        .find(|(_, user)| user.is_owner)
-        .is_none()
+        .iter().any(|(_, user)| user.is_owner)
     {
         let owner_psw: String = rand_alphanumeric(8);
         let salt = SaltString::generate(&mut OsRng);

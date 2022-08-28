@@ -65,18 +65,16 @@ pub async fn new_user(
             detail: "You are not authorized to create users".to_string(),
         });
     }
-    let login_request: NewUserSchema = serde_json::from_value(config.clone()).or(Err(Error {
+    let login_request: NewUserSchema = serde_json::from_value(config.clone()).map_err(|_| Error {
         inner: ErrorInner::MalformedRequest,
         detail: "Invalid request".to_string(),
-    }))?;
+    })?;
     let hashed_psw = hash_password(&login_request.password);
     let uid = uuid::Uuid::new_v4().to_string();
     let mut users = state.users.lock().await;
-    if !users
+    if users
         .get_ref()
-        .iter()
-        .find(|(_, user)| user.username == login_request.username)
-        .is_none()
+        .iter().any(|(_, user)| user.username == login_request.username)
     {
         return Err(Error {
             inner: ErrorInner::UserAlreadyExists,
@@ -155,10 +153,10 @@ pub async fn update_permissions(
         });
     }
     let permissions_update_request: PermissionsUpdateSchema =
-        serde_json::from_value(config.clone()).or(Err(Error {
+        serde_json::from_value(config.clone()).map_err(|_| Error {
             inner: ErrorInner::MalformedRequest,
             detail: "Invalid request".to_string(),
-        }))?;
+        })?;
     users
         .transform(Box::new(move |v| {
             let user = v.get_mut(&uid).ok_or(Error {
@@ -278,7 +276,7 @@ pub async fn login(
             )
             .is_err()
         {}
-        Ok(Json(json!(create_jwt(&user, &user.secret)?)))
+        Ok(Json(json!(create_jwt(user, &user.secret)?)))
     } else {
         Err(Error {
             inner: ErrorInner::UserNotFound,

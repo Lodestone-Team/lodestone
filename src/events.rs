@@ -49,7 +49,7 @@ impl Event {
             instance_name,
             details,
             timestamp: chrono::Utc::now().timestamp(),
-            idempotency: idempotency.unwrap_or(rand_alphanumeric(10)),
+            idempotency: idempotency.unwrap_or_else(|| rand_alphanumeric(10)),
         }
     }
 }

@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 use std::fs::File;
 
@@ -40,17 +39,17 @@ pub async fn download_file(
     url: &str,
     path: &Path,
     name_override: Option<&str>,
-    on_download : &(dyn Fn(DownloadProgress) + Send + Sync),
+    on_download: &(dyn Fn(DownloadProgress) + Send + Sync),
 ) -> Result<PathBuf, Error> {
     let client = Client::new();
     let response = client.get(url).send().await.map_err(|_| Error {
         inner: ErrorInner::FailedToUpload,
         detail: format!("Failed to send GET request to {}", url),
     })?;
-    std::fs::create_dir_all(path).or(Err(Error {
+    std::fs::create_dir_all(path).map_err(|_| Error {
         inner: ErrorInner::FailedToUpload,
         detail: format!("Failed to create directory {}", path.display()),
-    }))?;
+    })?;
 
     let file_name;
     if let Some(name) = name_override {
@@ -68,14 +67,12 @@ pub async fn download_file(
             )
             // parse filename's value from the header, remove the ""
             .split(';')
-            .skip(1)
-            .next()
+            .nth(1)
             .unwrap_or("unknown")
             .split('=')
-            .skip(1)
-            .next()
+            .nth(1)
             .unwrap_or("unknown")
-            .replace("\"", "");
+            .replace('\"', "");
     }
     if path.join(&file_name).exists() {
         return Err(Error {
@@ -99,14 +96,14 @@ pub async fn download_file(
     while let Some(item) = stream.next().await {
         let chunk = item.expect("Error while downloading file");
         downloaded_file
-            .write(&chunk)
+            .write_all(&chunk)
             .expect("Error while writing to file");
-        downloaded = downloaded + chunk.len() as u64;
-            on_download(DownloadProgress {
-                total: total_size,
-                downloaded,
-                download_name: file_name.clone(),
-            });
+        downloaded += chunk.len() as u64;
+        on_download(DownloadProgress {
+            total: total_size,
+            downloaded,
+            download_name: file_name.clone(),
+        });
         pb.set_position(downloaded as u64);
     }
     Ok(path.join(&file_name))
@@ -116,10 +113,10 @@ pub async fn download_file(
 /// files_or_dir = 0 -> files, 1 -> directories
 pub fn list_dir(path: &Path, filter_file_or_dir: Option<bool>) -> Result<Vec<PathBuf>, Error> {
     let ret: Vec<PathBuf> = std::fs::read_dir(&path)
-        .or(Err(Error {
+        .map_err(|_| Error {
             inner: ErrorInner::FailedToReadFileOrDir,
             detail: "".to_string(),
-        }))?
+        })?
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_ok())
@@ -145,16 +142,15 @@ pub fn unzip_file(
     } else {
         std::env::consts::ARCH
     };
-    let _7zip_path = path_to_runtimes
-        .join("7zip")
-        .join(format!("7z_{}_{}", os, arch));
+    let _7zip_name = format!("7z_{}_{}", os, arch);
+    let _7zip_path = path_to_runtimes.join("7zip").join(&_7zip_name);
     if !_7zip_path.is_file() {
-        return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found at {}. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", format!("7z_{}_{}", os, arch), _7zip_path.display()) });
+        return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found at {}. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", _7zip_name, _7zip_path.display()) });
     }
-    std::fs::create_dir_all(dest).or(Err(Error {
+    std::fs::create_dir_all(dest).map_err(|_| Error {
         inner: ErrorInner::FailedToWriteFileOrDir,
         detail: format!("Failed to create directory {}", dest.display()),
-    }))?;
+    })?;
     let before: HashSet<PathBuf>;
 
     let tmp_dir = dest.join("tmp_1c92md");
@@ -169,16 +165,16 @@ pub fn unzip_file(
             .arg("-aoa")
             .arg(format!("-o{}", tmp_dir.display()))
             .status()
-            .or(Err(Error {
+            .map_err(|_| Error {
                 inner: ErrorInner::FailedToExecute,
                 detail: "Failed to execute 7zip".to_string(),
-            }))?;
+            })?;
 
         before = list_dir(dest, None)
-            .or(Err(Error {
+            .map_err(|_| Error {
                 inner: ErrorInner::FailedToReadFileOrDir,
                 detail: "".to_string(),
-            }))?
+            })?
             .iter()
             .cloned()
             .collect();
@@ -190,16 +186,16 @@ pub fn unzip_file(
             .arg("-ttar")
             .arg(format!("-o{}", dest.display()))
             .status()
-            .or(Err(Error {
+            .map_err(|_| Error {
                 inner: ErrorInner::FailedToExecute,
                 detail: "Failed to execute 7zip".to_string(),
-            }))?;
+            })?;
     } else {
         before = list_dir(dest, None)
-            .or(Err(Error {
+            .map_err(|_| Error {
                 inner: ErrorInner::FailedToReadFileOrDir,
                 detail: "".to_string(),
-            }))?
+            })?
             .iter()
             .cloned()
             .collect();
@@ -209,23 +205,23 @@ pub fn unzip_file(
             .arg(format!("-o{}", dest.display()))
             .arg("aoa")
             .status()
-            .or(Err(Error {
+            .map_err(|_| Error {
                 inner: ErrorInner::FailedToExecute,
                 detail: "Failed to execute 7zip".to_string(),
-            }))?;
+            })?;
     }
     let after: HashSet<PathBuf> = list_dir(dest, None)
-        .or(Err(Error {
+        .map_err(|_| Error {
             inner: ErrorInner::FailedToReadFileOrDir,
             detail: "".to_string(),
-        }))?
+        })?
         .iter()
         .cloned()
         .collect();
-    std::fs::remove_dir_all(tmp_dir).or(Err(Error {
+    std::fs::remove_dir_all(tmp_dir).map_err(|_| Error {
         inner: ErrorInner::FailedToRemoveFileOrDir,
         detail: "Failed to remove tmp dir".to_string(),
-    }))?;
+    })?;
     Ok((&after - &before).iter().cloned().collect())
 }
 

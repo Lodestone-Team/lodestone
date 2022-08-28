@@ -9,21 +9,21 @@ impl TResourceManagement for Instance {
 
     fn load(
         &mut self,
-        resource: &str,
+        _resource: &str,
     ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
         todo!()
     }
 
     fn unload(
         &mut self,
-        resource: &str,
+        _resource: &str,
     ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
         todo!()
     }
 
     fn delete(
         &mut self,
-        resource: &str,
+        _resource: &str,
     ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
         todo!()
     }

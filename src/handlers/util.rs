@@ -33,7 +33,7 @@ fn decode_no_verify(token: &str) -> Option<String> {
 }
 
 pub fn try_auth(token: &str, users: &HashMap<String, User>) -> Option<User> {
-    let claimed_uid = decode_no_verify(&token)?;
+    let claimed_uid = decode_no_verify(token)?;
     let claimed_requester = users.get(&claimed_uid)?;
     let requester_uid = decode_token(token, &claimed_requester.secret)?;
     if claimed_uid != requester_uid {

@@ -13,7 +13,7 @@ pub trait TPlayerManagement {
         MaybeUnsupported::Unsupported
     }
 
-    fn set_max_player_count(&mut self, max_player_count: u32) -> MaybeUnsupported<()> {
+    fn set_max_player_count(&mut self, _max_player_count: u32) -> MaybeUnsupported<()> {
         MaybeUnsupported::Unsupported
     }
 }

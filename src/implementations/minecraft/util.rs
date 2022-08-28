@@ -36,11 +36,11 @@ pub async fn get_vanilla_jar_url(version: &str) -> Option<String> {
         return None;
     }
 
-    return Some(
+    Some(
         response["downloads"]["server"]["url"]
             .to_string()
-            .replace("\"", ""),
-    );
+            .replace('\"', ""),
+    )
 }
 
 pub async fn get_fabric_jar_url(
@@ -119,7 +119,7 @@ pub async fn get_fabric_jar_url(
                     return std::cmp::Ordering::Less;
                 }
             }
-            return std::cmp::Ordering::Equal;
+            std::cmp::Ordering::Equal
         })?
         .get("loader")?
         .get("version")?
@@ -170,16 +170,16 @@ pub async fn get_fabric_jar_url(
                     return std::cmp::Ordering::Less;
                 }
             }
-            return std::cmp::Ordering::Equal;
+            std::cmp::Ordering::Equal
         })?
         .get("version")?
         .as_str()?
         .to_string();
     }
-    return Some(format!(
+    Some(format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
         version, loader_version, installer_version
-    ));
+    ))
 }
 
 pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
@@ -226,13 +226,13 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     .get("majorVersion")?
     .as_u64()?;
 
-    return Some((
+    Some((
         format!(
             "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jre/hotspot/normal/eclipse",
             major_java_version, os, arch
         ),
         major_java_version,
-    ));
+    ))
 }
 
 pub async fn get_list_of_versions(flavour: Flavour) -> Vec<String> {

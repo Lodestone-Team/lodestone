@@ -32,16 +32,16 @@ pub trait TResourceManagement {
         vec![]
     }
 
-    fn load(&mut self, resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
+    fn load(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
         MaybeUnsupported::Unsupported
     }
 
-    fn unload(&mut self, resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
+    fn unload(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
         MaybeUnsupported::Unsupported
     }
 
 
-    fn delete(&mut self, resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
+    fn delete(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
         MaybeUnsupported::Unsupported
     }
 }

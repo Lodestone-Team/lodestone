@@ -42,7 +42,7 @@ impl TServer for Instance {
                         EventInner::InstanceError,
                         self.uuid(),
                         self.name(),
-                        format!("Failed to run prelaunch script: {}", e.to_string()),
+                        format!("Failed to run prelaunch script: {}", e),
                         None,
                     ));
                 });
@@ -115,11 +115,7 @@ impl TServer for Instance {
                                 static ref RE: Regex = Regex::new(r"\[.+\]+: (?!<)(.+)").unwrap();
                             }
                             if RE.is_match(msg).ok()? {
-                                if let Some(caps) = RE.captures(msg).ok()? {
-                                    Some(caps.get(1).unwrap().as_str().to_string())
-                                } else {
-                                    None
-                                }
+                                RE.captures(msg).ok()?.map(|caps| caps.get(1).unwrap().as_str().to_string())
                             } else {
                                 None
                             }
@@ -195,28 +191,26 @@ impl TServer for Instance {
                             ));
 
                             if let Some(system_msg) = parse_system_msg(&line) {
-                                if parse_server_started(&system_msg) {
-                                    if !did_start {
-                                        did_start = true;
-                                        let _ = state.write().map_err(|e| {
-                                            let err_msg = "Failed to aquired lock while getting state mutex";
-                                            error!(
-                                                "[{}] : {} {}",
-                                                name, err_msg, e
-                                            );
-                                            let _ = event_broadcaster.send(Event::new (
-                                                EventInner::InstanceError,
-                                                uuid.clone(),
-                                                name.clone(),
-                                                err_msg.to_string(),
-                                                None,
-                                        ));
-                                            Error {
-                                                inner: ErrorInner::FailedToAquireLock,
-                                                detail: err_msg.to_string(),
-                                            }
-                                        }).map(|mut v| {v.update(State::Running).unwrap()});
-                                    }
+                                if parse_server_started(&system_msg) && !did_start {
+                                    did_start = true;
+                                    let _ = state.write().map_err(|e| {
+                                        let err_msg = "Failed to aquired lock while getting state mutex";
+                                        error!(
+                                            "[{}] : {} {}",
+                                            name, err_msg, e
+                                        );
+                                        let _ = event_broadcaster.send(Event::new (
+                                            EventInner::InstanceError,
+                                            uuid.clone(),
+                                            name.clone(),
+                                            err_msg.to_string(),
+                                            None,
+                                    ));
+                                        Error {
+                                            inner: ErrorInner::FailedToAquireLock,
+                                            detail: err_msg.to_string(),
+                                        }
+                                    }).map(|mut v| {v.update(State::Running).unwrap()});
                                 }
                                 let _ = event_broadcaster.send(Event::new(
                                     EventInner::SystemMessage(system_msg.to_owned()),
@@ -380,12 +374,12 @@ impl TServer for Instance {
                     EventInner::InstanceError,
                     self.uuid(),
                     self.name(),
-                    format!("Failed to write to stdin: {}", e.to_string()),
+                    format!("Failed to write to stdin: {}", e),
                     None,
                 ));
                 Error {
                     inner: ErrorInner::FailedToWriteStdin,
-                    detail: format!("Failed to write to stdin: {}", e.to_string()),
+                    detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
         Ok(())

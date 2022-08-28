@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{ws::WebSocket, WebSocketUpgrade},
-    response::{IntoResponse, Response},
+    response::{Response},
     Extension,
 };
 use futures::{SinkExt, StreamExt};
@@ -29,7 +29,7 @@ pub async fn ws_handler(
     let user = headers
         .get("Authorization")
         .and_then(|header| header.to_str().ok())
-        .and_then(|auth_content| parse_bearer_token(auth_content))
+        .and_then(parse_bearer_token)
         .and_then(|token| try_auth(&token, users.get_ref()));
     drop(users);
     if user.is_none() {
@@ -42,7 +42,7 @@ pub async fn ws_handler(
     let event_receiver = state.event_broadcaster.subscribe();
 
     Ok(ws.on_upgrade(move |socket| {
-        websocket(socket, event_receiver, user.unwrap().uid.clone(), users)
+        websocket(socket, event_receiver, user.unwrap().uid, users)
     }))
 }
 

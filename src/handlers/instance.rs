@@ -83,7 +83,7 @@ pub async fn create_instance(
             inner: ErrorInner::MalformedRequest,
             detail: "Port must be integer".to_string(),
         })? as u32;
-    for (_, v) in &*state.instances.lock().await {
+    for v in (*state.instances.lock().await).values() {
         if v.lock()
             .await
             .get_info()
@@ -97,7 +97,6 @@ pub async fn create_instance(
                 inner: ErrorInner::MalformedRequest,
                 detail: "Name is not a string".to_string(),
             })?
-            .to_string()
             == name
         {
             return Err(Error {
@@ -169,7 +168,7 @@ pub async fn create_instance(
                 description: config
                     .get("description")
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
-                    .unwrap_or("Pizza time".to_string()),
+                    .unwrap_or_else(|| "Pizza time".to_string()),
                 jvm_args: vec![],
                 path: env::current_dir().unwrap().join("instances").join(&name),
                 port,

@@ -17,7 +17,7 @@ impl TPlayerManagement for Instance {
 
     fn set_max_player_count(
         &mut self,
-        max_player_count: u32,
+        _max_player_count: u32,
     ) -> crate::traits::MaybeUnsupported<()> {
         todo!()
     }
