@@ -67,3 +67,11 @@ pub fn hash_password(password: &str) -> String {
         .unwrap()
         .to_string()
 }
+
+pub fn parse_bearer_token(token: &str) -> Option<String> {
+    let mut split = token.split_ascii_whitespace();
+    if split.next()? != "Bearer" {
+        return None;
+    }
+    split.next().map(|s| s.to_string())
+}
