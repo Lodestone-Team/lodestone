@@ -1,5 +1,4 @@
 pub mod configurable;
-pub mod event;
 pub mod r#macro;
 pub mod player;
 pub mod resource;

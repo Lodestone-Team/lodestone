@@ -4,14 +4,13 @@ use axum::http::StatusCode;
 use serde::Serialize;
 use serde_json::json;
 
-use self::{t_configurable::TConfigurable, t_events::TEventProcessing, t_macro::TMacro, t_player::TPlayerManagement, t_resource::TResourceManagement, t_server::TServer};
+use self::{t_configurable::TConfigurable, t_macro::TMacro, t_player::TPlayerManagement, t_resource::TResourceManagement, t_server::TServer};
 
 pub mod t_server;
 pub mod t_configurable;
 pub mod t_player;
 pub mod t_resource;
 pub mod t_macro;
-pub mod t_events;
 
 pub enum MaybeUnsupported<T> {
     Supported(T),
@@ -97,6 +96,6 @@ impl IntoResponse for Error {
     }
 }
 
-pub trait TInstance : TConfigurable + TEventProcessing + TMacro + TPlayerManagement + TResourceManagement + TServer + Sync + Send {
+pub trait TInstance : TConfigurable + TMacro + TPlayerManagement + TResourceManagement + TServer + Sync + Send {
 
 }
