@@ -1,4 +1,3 @@
-
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
 use crate::{
@@ -9,7 +8,7 @@ use crate::{
             stop_instance,
         },
         users::{change_password, delete_user, get_user_info, login, new_user, update_permissions},
-        ws::ws_handler,
+        events::{event_stream, get_event_buffer},
     },
     traits::Error,
     util::rand_alphanumeric,
@@ -25,16 +24,18 @@ use json_store::user::User;
 use log::{debug, info};
 use rand_core::OsRng;
 use reqwest::{header, Method};
+use ringbuffer::{AllocRingBuffer, RingBufferExt, RingBufferWrite};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
-    collections::{HashMap},
+    collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::{
     fs::create_dir_all,
+    select,
     sync::{
         broadcast::{self, Receiver, Sender},
         Mutex,
@@ -55,6 +56,7 @@ mod util;
 pub struct AppState {
     instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
     users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
+    events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
     event_broadcaster: Sender<Event>,
 }
 
@@ -170,9 +172,23 @@ async fn main() {
         },
     );
 
+    let stateful_event_buffer = Stateful::new(
+        AllocRingBuffer::with_capacity(512),
+        Box::new(|_, _| Ok(())),
+        Box::new(|_event_buffer, _| {
+            // serde_json::to_writer(
+            //     std::fs::File::create(&dot_lodestone_path.join("events")).unwrap(),
+            //     event_buffer,
+            // )
+            // .unwrap();
+            Ok(())
+        }),
+    );
+
     if !stateful_users
         .get_ref()
-        .iter().any(|(_, user)| user.is_owner)
+        .iter()
+        .any(|(_, user)| user.is_owner)
     {
         let owner_psw: String = rand_alphanumeric(8);
         let salt = SaltString::generate(&mut OsRng);
@@ -205,8 +221,26 @@ async fn main() {
     let shared_state = AppState {
         instances: Arc::new(Mutex::new(restore_instances(&lodestone_path, &tx))),
         users: Arc::new(Mutex::new(stateful_users)),
+        events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
         event_broadcaster: tx.clone(),
     };
+
+    let event_buffer_task = tokio::spawn({
+        let event_buffer = shared_state.events_buffer.clone();
+        let mut event_receiver = tx.subscribe();
+        async move {
+            while let Ok(event) = event_receiver.recv().await {
+                event_buffer
+                    .lock()
+                    .await
+                    .transform(Box::new(move |event_buffer| -> Result<(), Error> {
+                        event_buffer.push(event.clone());
+                        Ok(())
+                    }))
+                    .unwrap();
+            }
+        }
+    });
 
     let cors = CorsLayer::new()
         .allow_methods([
@@ -220,7 +254,8 @@ async fn main() {
         .allow_origin(Any);
 
     let api_routes = Router::new()
-        .route("/ws", get(ws_handler))
+        .route("/events/stream", get(event_stream))
+        .route("/events/buffer", get(get_event_buffer))
         .route("/instances/list", get(list_instance))
         .route("/instances/new/:idempotency", post(create_instance))
         .route("/instances/start/:uuid", post(start_instance))
@@ -240,8 +275,9 @@ async fn main() {
     let app = Router::new().nest("/api/v1", api_routes);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    select! {
+        _ = event_buffer_task => info!("Event buffer task exited"),
+        _ = axum::Server::bind(&addr)
+        .serve(app.into_make_service()) => info!("Server exited"),
+    }
 }

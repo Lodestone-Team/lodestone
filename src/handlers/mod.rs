@@ -2,7 +2,7 @@
 // pub mod instance;
 // pub mod users;
 // pub mod system;
-pub mod ws;
+pub mod events;
 pub mod instance;
 pub mod users;
 mod util;
