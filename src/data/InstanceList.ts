@@ -46,7 +46,7 @@ const initialState: InstanceListState = {
 export const fetchInstanceList = createAsyncThunk(
   'instanceList/fetch',
   async ({ apiUrl }: ClientInfoState, thunkAPI) => {
-    return fetch(`${apiUrl}/list`)
+    return fetch(`${apiUrl}/api/v1/instances/list`)
       .then((response) => {
         if (!response.ok) {
           throw new Error(response.statusText);

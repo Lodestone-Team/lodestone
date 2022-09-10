@@ -35,8 +35,8 @@ const statusToApiEndpointMap: { [key in InstanceStatus]: string } = {
   running: '/stop',
   starting: '/kill',
   stopping: '/kill',
-  crashed: '/restart',
-  error: '/restart',
+  crashed: '/start',
+  error: '/start',
   loading: '',
 };
 
@@ -67,7 +67,7 @@ export default function InstanceCard({
     // Websocket will update the status to the actual status
     if (status === 'loading') return;
     dispatch(updateStatus({ id, status: 'loading' }));
-    fetch(`${clientInfo.apiUrl}${statusToApiEndpointMap[status]}/${id}`, {
+    fetch(`${clientInfo.apiUrl}/api/v1/instances${statusToApiEndpointMap[status]}/${id}`, {
       method: 'POST',
     })
       .then((response) => {

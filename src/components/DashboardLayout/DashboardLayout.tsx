@@ -23,15 +23,14 @@ export default function DashboardLayout({
   const maxWidth = (windowWidth / 12) * 4;
 
   useEffect(() => {
-    if (!address || !port) return;
+    if (!router.isReady) return;
 
     // try to parse port as number
     let portNumber = 3000;
 
     try {
       portNumber = parseInt(port as string);
-      // quick error check for valid port number
-      if (portNumber < 1 || portNumber > 65535) {
+      if (portNumber < 1 || portNumber > 65535 || isNaN(portNumber)) {
         portNumber = 3000;
         // TODO: redirect to error page
       }
@@ -39,7 +38,7 @@ export default function DashboardLayout({
       console.log(`Invalid port number: ${port}`);
     }
 
-    dispatch(setapiUrl(`http://${address}:${portNumber}`));
+    dispatch(setapiUrl(`http://${address ? address : 'localhost'}:${portNumber}`));
 
     dispatch(setLoading(!router.isReady));
   }, [address, port, dispatch, router.isReady]);
