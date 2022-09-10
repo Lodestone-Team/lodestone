@@ -4,7 +4,7 @@
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
 import { useRouter } from 'next/router';
-import { setapiUrl, setLoading } from 'data/ClientInfo';
+import { setIp, setPort, setLoading } from 'data/ClientInfo';
 import { useEffect } from 'react';
 import { useAppDispatch } from 'utils/hooks';
 import Split from 'react-split';
@@ -25,6 +25,8 @@ export default function DashboardLayout({
   useEffect(() => {
     if (!router.isReady) return;
 
+    dispatch(setIp(address as string || 'localhost'));
+
     // try to parse port as number
     let portNumber = 3000;
 
@@ -38,7 +40,7 @@ export default function DashboardLayout({
       console.log(`Invalid port number: ${port}`);
     }
 
-    dispatch(setapiUrl(`http://${address ? address : 'localhost'}:${portNumber}`));
+    dispatch(setPort(portNumber));
 
     dispatch(setLoading(!router.isReady));
   }, [address, port, dispatch, router.isReady]);

@@ -25,7 +25,6 @@ export interface InstanceState {
   playerCount: number;
   maxPlayerCount: number;
   port: number;
-  ip: string;
   status: InstanceStatus;
 }
 
@@ -45,8 +44,8 @@ const initialState: InstanceListState = {
 // fetch instance using the client info
 export const fetchInstanceList = createAsyncThunk(
   'instanceList/fetch',
-  async ({ apiUrl }: ClientInfoState, thunkAPI) => {
-    return fetch(`${apiUrl}/api/v1/instances/list`)
+  async ({ protocol, ip, port }: ClientInfoState, thunkAPI) => {
+    return fetch(`${protocol}${ip}:${port}/api/v1/instances/list`)
       .then((response) => {
         if (!response.ok) {
           throw new Error(response.statusText);
@@ -63,7 +62,6 @@ export const fetchInstanceList = createAsyncThunk(
             playerCount: 0, //TODO: update backend to return this value
             maxPlayerCount: 0, //TODO: update backend to return this value
             port: data[i].port,
-            ip: 'idkman', //TODO: update backend to return this value
             status: 'stopped', //TODO: update backend to return this value
             type: data[i].type,
           };

@@ -52,7 +52,6 @@ export default function InstanceCard({
   status,
   playerCount,
   maxPlayerCount,
-  ip,
   port,
   focus = false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -67,7 +66,7 @@ export default function InstanceCard({
     // Websocket will update the status to the actual status
     if (status === 'loading') return;
     dispatch(updateStatus({ id, status: 'loading' }));
-    fetch(`${clientInfo.apiUrl}/api/v1/instances${statusToApiEndpointMap[status]}/${id}`, {
+    fetch(`${clientInfo.protocol}${clientInfo.ip}:${clientInfo.port}/api/v1/instances${statusToApiEndpointMap[status]}/${id}`, {
       method: 'POST',
     })
       .then((response) => {
@@ -103,8 +102,7 @@ export default function InstanceCard({
             {playerCount}/{maxPlayerCount} Players
           </h1>
           <ClipboardTextfield
-            text={`${ip}:${port}`}
-            textToCopy={ip}
+            text={`${clientInfo.ip}:${port}`}
             className="text-gray-300 truncate text-small"
           />
         </div>

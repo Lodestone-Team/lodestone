@@ -8,7 +8,8 @@ import InstanceCard from './InstanceCard';
 
 const mockedClientInfo = {
   loading: false,
-  apiUrl: 'https://mocked-address.com:3000',
+  ip: 'mocked-address.com',
+  port: 3000,
 } as ClientInfoState;
 
 const Mockstore = ({ children }: { children: React.ReactNode }) => {
