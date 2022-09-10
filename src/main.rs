@@ -106,6 +106,7 @@ fn restore_instances(
 }
 
 fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
+    // TODO: create user file if it doesn't exist
     if std::fs::File::open(path_to_user_json)
         .unwrap()
         .metadata()
