@@ -31,6 +31,7 @@ dependencies = [
  "rand 0.6.5",
  "rand_core 0.6.3",
  "reqwest",
+ "ringbuffer",
  "rlua",
  "sanitize-filename",
  "serde",
@@ -91,6 +92,12 @@ dependencies = [
  "blake2",
  "password-hash 0.4.2",
 ]
+
+[[package]]
+name = "array-init"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfb6d71005dc22a708c7496eee5c8dc0300ee47355de6256c3b35b12b5fef596"
 
 [[package]]
 name = "async-trait"
@@ -1502,6 +1509,15 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "ringbuffer"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aa778d993bd10cc64483ec8c75ce3755bd48f42886943e23d6588bc0943678d"
+dependencies = [
+ "array-init",
 ]
 
 [[package]]
