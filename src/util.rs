@@ -151,6 +151,7 @@ pub fn unzip_file(
     })?;
     let before: HashSet<PathBuf>;
 
+    // TODO: remove hardcoded temp dir
     let tmp_dir = dest.join("tmp_1c92md");
     if file.extension().ok_or(Error {
         inner: ErrorInner::MalformedFile,

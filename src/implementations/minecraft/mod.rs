@@ -212,6 +212,7 @@ impl Instance {
 
         config.jre_major_version = Some(jre_major_version);
 
+        // TODO: check if jre is already downloaded
         if !path_to_runtimes
             .join("java")
             .join(format!("jre{}", jre_major_version))
