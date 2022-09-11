@@ -1,29 +1,19 @@
-import { Key, useEffect, useState } from 'react';
 import InstanceCard from 'components/InstanceCard';
-import { useAppDispatch, useAppSelector } from 'utils/hooks';
-import { fetchInstanceList, selectInstanceList } from 'data/InstanceList';
-import { selectClientInfo } from 'data/ClientInfo';
 import { useRouter } from 'next/router';
+import { useInstanceList } from 'data/InstanceList';
 
 export default function InstanceList() {
-  const { instances, loading, error } = useAppSelector(selectInstanceList);
-  const dispatch = useAppDispatch();
-  const clientInfo = useAppSelector(selectClientInfo);
+  const { isLoading, isError, data: instances, error } = useInstanceList();
   const router = useRouter();
 
-  useEffect(() => {
-    if (clientInfo.loading) return;
-    dispatch(fetchInstanceList(clientInfo));
-  }, [dispatch, clientInfo]);
-
   // TODO: nicer looking loading and error indicators
-  if (loading) {
+  if (isLoading) {
     return <div>Loading...</div>;
   }
-  if (error) {
+  if (isError) {
     return <div>Error: {error}</div>;
   }
-  if (!instances) {
+  if (Object.keys(instances).length === 0) {
     return <div>No instances found</div>;
   }
 
@@ -32,8 +22,8 @@ export default function InstanceList() {
       {instances &&
         Object.values(instances).map((instance) => (
           <InstanceCard
-            key={instance.id}
-            focus={router.query.uuid === instance.id}
+            key={instance.uuid}
+            focus={router.query.uuid === instance.uuid}
             onClick={() => {
               // redirect to /dashboard and add the instance id to the query string
               router.push(
@@ -41,7 +31,7 @@ export default function InstanceList() {
                   pathname: '/dashboard',
                   query: {
                     ...router.query,
-                    uuid: instance.id,
+                    uuid: instance.uuid,
                   },
                 },
                 undefined,

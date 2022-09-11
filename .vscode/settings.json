@@ -1,5 +1,11 @@
 {
     "cSpell.words": [
         "reduxjs"
-    ]
+    ],
+
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": true
+    },
+    // lint only src folder
+    "eslint.lintTask.options": "./src",
 }
