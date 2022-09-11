@@ -33,7 +33,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/Lodestone-Team/dashboard">
-    <img src="readme/lodestone_logo.svg" alt="Logo" width="80" height="80">
+    <img src="public/lodestone_logo.svg" alt="Logo" width="80" height="80">
   </a>
 
 <h3 align="center">Lodestone</h3>
@@ -86,7 +86,7 @@ for the design!
 <!-- ABOUT THE PROJECT -->
 ## About Lodestone
 
-<!-- [![Product Name Screen Shot][product-screenshot]](https://example.com) -->
+[![Lodestone Screen Shot](https://user-images.githubusercontent.com/44907675/189515573-05c84b72-c6da-487e-a787-505efdc26ce4.png)](https://www.lodestone.cc/)
 
 Lodestone is a server wrapper tool (that means it wraps around your server program) that aims to simplfy the process of hosting a game server.
 
