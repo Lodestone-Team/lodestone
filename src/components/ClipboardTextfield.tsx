@@ -23,7 +23,7 @@ export default function ClipboardTextfield({
 
   return (
     <div
-      className={`${className} hover:cursor-pointer`}
+      className={`${className} hover:cursor-pointer w-fit`}
       onClick={onClickCopy}
       title="Click to Copy"
     > {/* TODO develop custom tooltip component */}
