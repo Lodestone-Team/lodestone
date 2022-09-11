@@ -42,8 +42,8 @@ const Dashboard: NextPage = () => {
     }
   }, [queryUuid, router.isReady, router]);
 
-  if (!uuid) return <></>;
   // TODO: add loading state, don't let it flash blank
+  if (!uuid) return <></>;
 
   if (!instance) {
     return (

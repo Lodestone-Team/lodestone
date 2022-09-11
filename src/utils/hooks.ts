@@ -2,8 +2,6 @@ import { useEffect, useRef } from 'react';
 
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 
-import type { RootState, AppDispatch } from 'data/store';
-
 export function useIntervalImmediate(
   callback: () => void,
   delay: number | null
