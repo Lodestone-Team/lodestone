@@ -25,8 +25,12 @@ impl TConfigurable for Instance {
         self.config.name.clone()
     }
 
-    fn flavour(&self) -> MaybeUnsupported<String> {
-        Supported(self.config.flavour.to_string())
+    fn game_type(&self) -> String {
+        self.config.r#type.clone()
+    }
+
+    fn flavour(&self) -> String {
+        self.config.flavour.to_string()
     }
 
     fn jvm_args(&self) -> MaybeUnsupported<Vec<String>> {

@@ -10,9 +10,8 @@ pub trait TConfigurable {
     // getters
     fn uuid(&self) -> String;
     fn name(&self) -> String;
-    fn flavour(&self) -> MaybeUnsupported<String> {
-        MaybeUnsupported::Unsupported
-    }
+    fn flavour(&self) -> String;
+    fn game_type(&self) -> String;
     fn jvm_args(&self) -> MaybeUnsupported<Vec<String>> {
         MaybeUnsupported::Unsupported
     }

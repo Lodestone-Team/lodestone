@@ -24,4 +24,6 @@ db/
 web
 lodestone-path/
 
+bindings/
+
 run.sh

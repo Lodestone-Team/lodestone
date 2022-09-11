@@ -3,8 +3,12 @@ use std::{env, sync::Arc};
 use axum::{extract::Path, Extension, Json};
 use axum_auth::AuthBearer;
 use futures::future::join_all;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+use ts_rs::TS;
+
+use crate::traits::MaybeUnsupported::{Supported, Unsupported};
 
 use super::util::{is_authorized, try_auth};
 use crate::json_store::permission::Permission::{self};
@@ -14,26 +18,61 @@ use crate::{
     AppState,
 };
 
-pub async fn list_instance(Extension(state): Extension<AppState>) -> Result<Json<Value>, Error> {
-    let mut list_of_configs = join_all(
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct InstanceListInfo {
+    pub uuid: String,
+    pub name: String,
+    pub port: u32,
+    pub description: String,
+    pub game_type: String,
+    pub flavour: String,
+    pub state: State,
+    pub player_count: u32,
+    pub max_player_count: u32,
+    pub creation_time: i64,
+}
+
+pub async fn list_instance(
+    Extension(state): Extension<AppState>,
+) -> Result<Json<Vec<InstanceListInfo>>, Error> {
+    let mut list_of_configs: Vec<InstanceListInfo> = join_all(
         state
             .instances
             .lock()
             .await
             .iter()
-            .map(|(_, instance)| async move { instance.lock().await.get_info() }),
+            .map(|(_, instance)| async move {
+                // want id, name, playercount, maxplayer count, port, state and type
+                let instance = instance.lock().await;
+
+                InstanceListInfo {
+                    uuid: instance.uuid(),
+                    name: instance.name(),
+                    port: instance.port(),
+                    description: instance.description(),
+                    game_type: instance.game_type(),
+                    flavour: instance.flavour(),
+                    state: instance.state(),
+                    player_count: match instance.get_player_count() {
+                        Supported(x) => x,
+                        Unsupported => 0,
+                    },
+                    max_player_count: match instance.get_max_player_count() {
+                        Supported(x) => x,
+                        Unsupported => 0,
+                    },
+                    creation_time: instance.creation_time(),
+                }
+            }),
     )
     .await
     .into_iter()
-    .collect::<Vec<Value>>();
-
-    list_of_configs.sort_by(|a, b| {
-        a["creation_time"]
-            .as_u64()
-            .unwrap()
-            .cmp(&b["creation_time"].as_u64().unwrap())
-    });
-    Ok(Json(json!(list_of_configs)))
+    .collect();
+    
+    list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
+    
+    Ok(Json(list_of_configs))
 }
 pub async fn create_instance(
     Extension(state): Extension<AppState>,
