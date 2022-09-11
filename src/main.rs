@@ -251,7 +251,7 @@ async fn main() {
             Method::PATCH,
             Method::DELETE,
         ])
-        .allow_headers([header::ORIGIN, header::CONTENT_TYPE]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+        .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
         .allow_origin(Any);
 
     let api_routes = Router::new()
