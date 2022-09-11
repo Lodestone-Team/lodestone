@@ -4,11 +4,11 @@
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
 import { useRouter } from 'next/router';
-import { setIp, setPort, setLoading } from 'data/ClientInfo';
-import { useEffect } from 'react';
-import { useAppDispatch } from 'utils/hooks';
+import { useLayoutEffect } from 'react';
 import Split from 'react-split';
 import { useWindowSize } from 'usehooks-ts';
+import { LodestoneContext } from 'data/LodestoneContext';
+import axios from 'axios';
 
 export default function DashboardLayout({
   children,
@@ -17,48 +17,43 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const { address, port } = router.query;
-  const dispatch = useAppDispatch();
   const { width: windowWidth } = useWindowSize();
   const minWidth = (windowWidth / 12) * 1.5;
   const maxWidth = (windowWidth / 12) * 4;
 
-  useEffect(() => {
+  const protocol = 'http';
+  const apiVersion = 'v1';
+
+  // set axios defaults
+  useLayoutEffect(() => {
     if (!router.isReady) return;
-
-    dispatch(setIp(address as string || 'localhost'));
-
-    // try to parse port as number
-    let portNumber = 3000;
-
-    try {
-      portNumber = parseInt(port as string);
-      if (portNumber < 1 || portNumber > 65535 || isNaN(portNumber)) {
-        portNumber = 3000;
-        // TODO: redirect to error page
-      }
-    } catch (e) {
-      console.log(`Invalid port number: ${port}`);
-    }
-
-    dispatch(setPort(portNumber));
-
-    dispatch(setLoading(!router.isReady));
-  }, [address, port, dispatch, router.isReady]);
+    axios.defaults.baseURL = `${protocol}://${address}:${port ?? 3000}/api/${apiVersion}`;
+  }, [address, port, router.isReady]);
 
   return (
-    <Split
-      sizes={[16, 84]}
-      minSize={[minWidth, 0]}
-      maxSize={[maxWidth, Infinity]}
-      snapOffset={0}
-      gutterSize={0}
-      className="flex flex-row w-full min-h-screen text-gray-300 bg-gray-800"
+    <LodestoneContext.Provider
+      value={{
+        address: address as string,
+        port: port as string,
+        protocol,
+        apiVersion,
+        isReady: router.isReady,
+      }}
     >
-      <LeftNav />
-      <div className="flex flex-col">
-        <TopNav />
-        {children}
-      </div>
-    </Split>
+      <Split
+        sizes={[16, 84]}
+        minSize={[minWidth, 0]}
+        maxSize={[maxWidth, Infinity]}
+        snapOffset={0}
+        gutterSize={0}
+        className="flex flex-row w-full min-h-screen text-gray-300 bg-gray-800"
+      >
+        <LeftNav />
+        <div className="flex flex-col">
+          <TopNav />
+          {children}
+        </div>
+      </Split>
+    </LodestoneContext.Provider>
   );
 }

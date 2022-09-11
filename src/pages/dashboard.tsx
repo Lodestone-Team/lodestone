@@ -1,23 +1,23 @@
-import { faClone, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
+import { faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import ClipboardTextfield from 'components/ClipboardTextfield';
 import Label from 'components/Label';
-import { InstanceState, selectInstanceList } from 'data/InstanceList';
+import { useInstanceList } from 'data/InstanceList';
+import { LodestoneContext } from 'data/LodestoneContext';
 import type { NextPage } from 'next';
-import Head from 'next/head';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
-import { useAppDispatch, useAppSelector } from 'utils/hooks';
-import { statusToLabelColor } from 'utils/util';
+import { useContext, useEffect, useMemo, useState } from 'react';
+import { stateToLabelColor } from 'utils/util';
 
 const Dashboard: NextPage = () => {
   const router = useRouter();
+  const lodestoneContex = useContext(LodestoneContext);
   const { uuid: queryUuid } = router.query;
   const [uuid, setUuid] = useState('');
-  const dispatch = useAppDispatch();
-  const instanceListState = useAppSelector(selectInstanceList);
-  const instance = instanceListState.instances[uuid];
+  const { data: instances } = useInstanceList();
+  const instance = useMemo(() => {
+    if (uuid) return instances?.[uuid];
+  }, [uuid, instances]);
 
   // if no uuid, redirect to /
   useEffect(() => {
@@ -40,7 +40,10 @@ const Dashboard: NextPage = () => {
         setUuid(queryUuid);
       }
     }
-  }, [queryUuid, router]);
+  }, [queryUuid, router.isReady, router]);
+
+  if (!uuid) return <></>;
+  // TODO: add loading state, don't let it flash blank
 
   if (!instance) {
     return (
@@ -52,7 +55,7 @@ const Dashboard: NextPage = () => {
     );
   }
 
-  const labelColor = statusToLabelColor[instance.status];
+  const labelColor = stateToLabelColor[instance.state];
 
   return (
     <div className="px-12 py-10 bg-gray-800">
@@ -72,17 +75,17 @@ const Dashboard: NextPage = () => {
             {/* TODO: create a universal game flavour image component */}
             <img
               src="/assets/minecraft-vanilla.png"
-              alt={`${instance.type} logo`}
+              alt={`${instance.game_type} logo`}
               className="w-8 h-8"
             />
             <Label size="large" color={labelColor}>
-              {instance.status}
+              {instance.state}
             </Label>
           </div>
         </div>
         <div className="flex flex-row items-center gap-4">
           <Label size="large" color={labelColor}>
-            Player Count {instance.playerCount}/{instance.maxPlayerCount}
+            Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
           <Label
             size="large"
@@ -90,8 +93,8 @@ const Dashboard: NextPage = () => {
             className="flex flex-row items-center gap-3"
           >
             <ClipboardTextfield
-              text={`${instance.ip}:${instance.port}`}
-              textToCopy={instance.ip}
+              text={`${lodestoneContex.address}:${instance.port}`}
+              textToCopy={lodestoneContex.address}
             />
           </Label>
         </div>

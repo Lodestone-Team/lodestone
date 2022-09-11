@@ -1,5 +1,5 @@
+import { InstanceState } from 'data/InstanceList';
 import { LabelColor } from "components/Label";
-import { InstanceStatus } from "data/InstanceList";
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -7,12 +7,11 @@ export const capitalizeFirstLetter = (string: string) => {
 
 // a map from InstanceStatus to string names
 // instancestatus is a union type
-export const statusToLabelColor: { [key in InstanceStatus]: LabelColor } = {
-  stopped: 'gray',
-  running: 'green',
-  starting: 'ochre',
-  stopping: 'ochre',
-  crashed: 'red',
-  error: 'red',
-  loading: 'gray',
+export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
+  Running: 'green',
+  Starting: 'ochre',
+  Stopping: 'ochre',
+  Stopped: 'gray',
+  Error: 'red',
+  // Loading: 'gray',
 };
