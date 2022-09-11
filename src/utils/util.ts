@@ -1,5 +1,6 @@
 import { InstanceState } from 'data/InstanceList';
 import { LabelColor } from "components/Label";
+import { NextRouter } from 'next/router';
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -14,4 +15,13 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   Stopped: 'gray',
   Error: 'red',
   // Loading: 'gray',
+};
+
+export const pushKeepQuery = (router: NextRouter, pathname: string) => {
+  router.push({
+    pathname,
+    query: router.query,
+  },
+  undefined,
+  { shallow: true });
 };

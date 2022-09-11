@@ -1,46 +1,31 @@
 import { faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import ClipboardTextfield from 'components/ClipboardTextfield';
+import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Label';
 import { useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import type { NextPage } from 'next';
 import { useRouter } from 'next/router';
-import { useContext, useEffect, useMemo, useState } from 'react';
-import { stateToLabelColor } from 'utils/util';
+import {
+  ReactElement,
+  ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { useRouterQuery } from 'utils/hooks';
+import { pushKeepQuery, stateToLabelColor } from 'utils/util';
+import { NextPageWithLayout } from './_app';
 
-const Dashboard: NextPage = () => {
-  const router = useRouter();
+const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
-  const { uuid: queryUuid } = router.query;
-  const [uuid, setUuid] = useState('');
+  const { query: uuid } = useRouterQuery('uuid');
   const { data: instances } = useInstanceList();
+
   const instance = useMemo(() => {
     if (uuid) return instances?.[uuid];
   }, [uuid, instances]);
-
-  // if no uuid, redirect to /
-  useEffect(() => {
-    if (!router.isReady) return;
-    if (!queryUuid) {
-      router.push(
-        {
-          pathname: '/',
-          query: router.query,
-        },
-        undefined,
-        { shallow: true }
-      );
-    } else {
-      // set uuid to queryuuid
-      // query uuid could be a string[] for some reason, just take the first one
-      if (Array.isArray(queryUuid)) {
-        setUuid(queryUuid[0]);
-      } else {
-        setUuid(queryUuid);
-      }
-    }
-  }, [queryUuid, router.isReady, router]);
 
   // TODO: add loading state, don't let it flash blank
   if (!uuid) return <></>;
@@ -99,18 +84,19 @@ const Dashboard: NextPage = () => {
           </Label>
         </div>
         <div className="flex flex-row items-center gap-2">
-            {/* TODO: create a universal "text with edit button" component */}
-            <h1 className="italic font-medium tracking-tight text-gray-500 font-heading">
-              {instance.description}
-            </h1>
-            <FontAwesomeIcon
-              className="text-gray-500"
-              icon={faPenToSquare}
-            />
-          </div>
+          {/* TODO: create a universal "text with edit button" component */}
+          <h1 className="italic font-medium tracking-tight text-gray-500 font-heading">
+            {instance.description}
+          </h1>
+          <FontAwesomeIcon className="text-gray-500" icon={faPenToSquare} />
+        </div>
       </div>
     </div>
   );
 };
+
+Dashboard.getLayout = (page: ReactElement): ReactNode => (
+  <DashboardLayout>{page}</DashboardLayout>
+);
 
 export default Dashboard;

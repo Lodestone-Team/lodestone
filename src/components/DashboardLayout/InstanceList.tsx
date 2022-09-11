@@ -1,10 +1,11 @@
 import InstanceCard from 'components/InstanceCard';
-import { useRouter } from 'next/router';
 import { useInstanceList } from 'data/InstanceList';
+import router from 'next/router';
+import { useRouterQuery } from 'utils/hooks';
 
 export default function InstanceList() {
   const { isLoading, isError, data: instances, error } = useInstanceList();
-  const router = useRouter();
+  const {query: uuid} = useRouterQuery('uuid');
 
   // TODO: nicer looking loading and error indicators
   if (isLoading) {
@@ -23,7 +24,7 @@ export default function InstanceList() {
         Object.values(instances).map((instance) => (
           <InstanceCard
             key={instance.uuid}
-            focus={router.query.uuid === instance.uuid}
+            focus={uuid === instance.uuid}
             onClick={() => {
               // redirect to /dashboard and add the instance id to the query string
               router.push(
