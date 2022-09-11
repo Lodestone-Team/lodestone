@@ -23,12 +23,12 @@ export default function ClipboardTextfield({
 
   return (
     <div
-      className={`${className} hover:cursor-pointer w-fit`}
+      className={`${className} hover:cursor-pointer w-fit select-none group`}
       onClick={onClickCopy}
       title="Click to Copy"
     > {/* TODO develop custom tooltip component */}
       {text}&nbsp;&nbsp;
-      <FontAwesomeIcon className={`${iconClassName} text-gray-500`} icon={faClone} />
+      <FontAwesomeIcon className={`${iconClassName} text-gray-faded/30 group-hover:text-gray-500`} icon={faClone} />
     </div>
   );
 }

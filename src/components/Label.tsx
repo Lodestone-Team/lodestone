@@ -11,7 +11,7 @@ const labelColorMap = {
   green: 'bg-green-faded/25 text-green',
   ochre: 'bg-ochre-faded/25 text-ochre',
   red: 'bg-red-faded/25 text-red',
-  gray: 'bg-gray-700 text-gray-300', //TODO: make the gray color also semi-transparent
+  gray: 'bg-gray-faded/30 text-gray-300', //TODO: make the gray color also semi-transparent
 };
 
 const labelSizeMap = {

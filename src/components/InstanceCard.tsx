@@ -83,8 +83,8 @@ export default function InstanceCard({
 
   return (
     <div
-      className={`flex flex-col p-3 font-bold tracking-tight bg-gray-800 rounded-xl gap-y-3 w-fit ${
-        focus ? `outline outline-2 ring-4 ${borderClass}` : ''
+      className={`select-none hover:cursor-pointer hover:bg-gray-900 flex flex-col p-3 font-bold tracking-tight bg-gray-800 rounded-xl gap-y-3 w-fit ${
+        focus ? `outline bg-gray-900 outline-2 ring-[6px] ${borderClass}` : ''
       }`}
       onClick={cardOnClick}
     >

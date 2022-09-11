@@ -64,7 +64,7 @@ const Dashboard: NextPage = () => {
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal "text with edit button" component */}
             <h1 className="-ml-4 font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
-              {instance?.name}
+              {instance.name}
             </h1>
             <FontAwesomeIcon
               className="text-gray-500 text-medium"
@@ -98,6 +98,16 @@ const Dashboard: NextPage = () => {
             />
           </Label>
         </div>
+        <div className="flex flex-row items-center gap-2">
+            {/* TODO: create a universal "text with edit button" component */}
+            <h1 className="italic font-medium tracking-tight text-gray-500 font-heading">
+              {instance.description}
+            </h1>
+            <FontAwesomeIcon
+              className="text-gray-500"
+              icon={faPenToSquare}
+            />
+          </div>
       </div>
     </div>
   );
