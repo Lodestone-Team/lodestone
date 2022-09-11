@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 
@@ -24,7 +24,7 @@ export interface InstanceInfo {
 }
 
 export const useInstanceList = () =>
-  useQuery<{ [uuid: string]: InstanceInfo }, string>(
+  useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(
     ['instances', 'list'],
     () => {
       return axios

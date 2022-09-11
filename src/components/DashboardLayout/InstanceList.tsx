@@ -11,7 +11,7 @@ export default function InstanceList() {
     return <div>Loading...</div>;
   }
   if (isError) {
-    return <div>Error: {error}</div>;
+    return <div>Error: {error.message}</div>;
   }
   if (Object.keys(instances).length === 0) {
     return <div>No instances found</div>;
