@@ -22,7 +22,7 @@ impl TPlayerManagement for Instance {
                 .unwrap()
                 .get_ref()
                 .iter()
-                .map(|(name)| json!({ "name": name }))
+                .map(|name| json!({ "name": name }))
                 .collect(),
         )
     }
