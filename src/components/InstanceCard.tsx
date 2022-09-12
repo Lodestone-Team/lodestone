@@ -8,10 +8,7 @@ import ClipboardTextfield from './ClipboardTextfield';
 import { useContext, useState } from 'react';
 import { LodestoneContext } from 'data/LodestoneContext';
 import axios from 'axios';
-import {
-  InstanceInfo,
-  InstanceState,
-} from 'data/InstanceList';
+import { InstanceInfo, InstanceState } from 'data/InstanceList';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string } = {
@@ -64,8 +61,6 @@ export default function InstanceCard({
   const buttonOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
 
-    // We only set state to loading
-    // Websocket will update the state to the actual state
     if (loading) return;
     setLoading(true);
 
@@ -73,6 +68,12 @@ export default function InstanceCard({
       .post(`/instances${stateToApiEndpointMap[state]}/${uuid}`)
       .then((response) => {
         response.data;
+      })
+      .catch((error) => {
+        alert(error);
+      })
+      .finally(() => {
+        setLoading(false);
       });
   };
 
@@ -111,7 +112,7 @@ export default function InstanceCard({
         />
       </div>
       <Button
-        label={actionMessage}
+        label={loading ? '...' : actionMessage}
         onClick={buttonOnClick}
         disabled={loading}
         className="truncate"

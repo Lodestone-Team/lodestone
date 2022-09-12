@@ -8,6 +8,7 @@ import { NextPage } from 'next';
 import { LodestoneContext } from 'data/LodestoneContext';
 import axios from 'axios';
 import { useRouterQuery } from 'utils/hooks';
+import { useCookies } from 'react-cookie';
 
 config.autoAddCss = false;
 
@@ -20,11 +21,19 @@ type AppPropsWithLayout = AppProps & {
   Component: NextPageWithLayout;
 };
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: Infinity,
+    },
+  },
+});
+
 function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
   const { query: address, isReady } = useRouterQuery('address');
   const { query: port } = useRouterQuery('port');
+  const [cookies] = useCookies(['token']);
 
   const protocol = 'http';
   const apiVersion = 'v1';
@@ -37,12 +46,16 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
     }/api/${apiVersion}`;
   }, [address, port, isReady]);
 
+  useLayoutEffect(() => {
+    if(cookies.token) axios.defaults.headers.common['Authorization'] = `Bearer ${cookies.token}`;
+  }, [cookies.token]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider
         value={{
           address: address as string,
-          port: port as string,
+          port: port ?? '3000',
           protocol,
           apiVersion,
           isReady: isReady,
