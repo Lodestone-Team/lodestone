@@ -656,17 +656,17 @@ impl Instance {
                     let player_diff = old_players.difference(new_players).last().unwrap();
                     debug!("[{}] Detected player joined: {}", name, player_diff);
                     let _ = event_broadcaster.send(Event::new(
-                        EventInner::PlayerLeft(player_diff.to_owned()),
+                        EventInner::PlayerJoined(player_diff.to_owned()),
                         uuid.clone(),
                         name.clone(),
-                        format!("Player left: {}", player_diff),
+                        format!("Player joined: {}", player_diff),
                         None,
                     ));
                 } else if old_players.len() < new_players.len() {
                     let player_diff = new_players.difference(old_players).last().unwrap();
                     debug!("[{}] Detected player left: {}", name, player_diff);
                     let _ = event_broadcaster.send(Event::new(
-                        EventInner::PlayerJoined(player_diff.to_owned()),
+                        EventInner::PlayerLeft(player_diff.to_owned()),
                         uuid.clone(),
                         name.clone(),
                         format!("Player left: {}", player_diff),

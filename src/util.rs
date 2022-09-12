@@ -21,13 +21,14 @@ pub struct Authentication {
 
 use crate::traits::{Error, ErrorInner};
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-
+#[ts(export)]
 pub struct SetupProgress {
     pub current_step: (u8, String),
     pub total_steps: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DownloadProgress {
     pub total: u64,
     pub downloaded: u64,
