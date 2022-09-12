@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use axum::{
-    extract::{ws::WebSocket, WebSocketUpgrade},
+    extract::{ws::WebSocket, Query, WebSocketUpgrade},
     response::Response,
     Extension, Json,
 };
@@ -12,6 +12,7 @@ use headers::HeaderMap;
 use log::error;
 use ringbuffer::RingBufferExt;
 
+use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
 
 use crate::{
@@ -41,16 +42,19 @@ pub async fn get_event_buffer(
     Ok(Json(ret))
 }
 
+#[derive(Deserialize)]
+pub struct WebsocketQuery {
+    token: String,
+}
+
 pub async fn event_stream(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
-    headers: HeaderMap,
+    query: Query<WebsocketQuery>,
 ) -> Result<Response, Error> {
     let users = state.users.lock().await;
-    let user = headers
-        .get("Authorization")
-        .and_then(|header| header.to_str().ok())
-        .and_then(parse_bearer_token)
+
+    let user = parse_bearer_token(query.token.as_str())
         .and_then(|token| try_auth(&token, users.get_ref()))
         .ok_or_else(|| Error {
             inner: ErrorInner::PermissionDenied,
