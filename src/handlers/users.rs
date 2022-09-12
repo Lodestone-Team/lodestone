@@ -275,8 +275,14 @@ pub async fn login(
                 &PasswordHash::new(&user.hashed_psw).unwrap(),
             )
             .is_err()
-        {}
-        Ok(Json(json!(create_jwt(user, &user.secret)?)))
+        {
+            Err(Error {
+                inner: ErrorInner::PermissionDenied,
+                detail: "Invalid username or password".to_string(),
+            })
+        } else {
+            Ok(Json(json!(create_jwt(user, &user.secret)?)))
+        }
     } else {
         Err(Error {
             inner: ErrorInner::UserNotFound,
