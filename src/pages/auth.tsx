@@ -55,12 +55,12 @@ const Auth: NextPageWithLayout = () => {
   };
 
   return (
-    <div className="px-8 py-10 bg-gray-800 grow">
+    <div className="flex flex-col items-center justify-center h-screen px-8 py-10 bg-gray-800 grow">
       <h1 className="font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
         Login
       </h1>
       <form noValidate autoComplete="off" onSubmit={onSubmit}>
-        <div className="flex flex-col gap-y-2 w-52">
+        <div className="flex flex-col pb-40 gap-y-2 w-52">
           <label htmlFor="username">Username:</label>
           <input
             type="text"
@@ -68,6 +68,7 @@ const Auth: NextPageWithLayout = () => {
             name="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            className="p-1"
           />
           <label htmlFor="password">Password:</label>
           <input
@@ -76,8 +77,9 @@ const Auth: NextPageWithLayout = () => {
             name="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            className="p-1"
           />
-          <Button label="Login" type="submit" disabled={buttonLoading} />
+          <Button label="Login" type="submit" disabled={buttonLoading} className="mt-5 font-bold text-large" />
         </div>
       </form>
     </div>
