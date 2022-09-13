@@ -1,20 +1,69 @@
 import 'globals.css';
 import type { AppProps } from 'next/app';
-import DashboardLayout from 'components/DashboardLayout';
-import { config } from '@fortawesome/fontawesome-svg-core'
-import '@fortawesome/fontawesome-svg-core/styles.css'
-config.autoAddCss = false
+import { config } from '@fortawesome/fontawesome-svg-core';
+import '@fortawesome/fontawesome-svg-core/styles.css';
+import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+import { ReactElement, ReactNode, useLayoutEffect } from 'react';
+import { NextPage } from 'next';
+import { LodestoneContext } from 'data/LodestoneContext';
+import axios from 'axios';
+import { useRouterQuery } from 'utils/hooks';
+import { useCookies } from 'react-cookie';
 
-import { store } from 'data/store';
-import { Provider } from 'react-redux';
+config.autoAddCss = false;
 
-function MyApp({ Component, pageProps }: AppProps) {
+// eslint-disable-next-line @typescript-eslint/ban-types
+export type NextPageWithLayout<P = {}, IP = P> = NextPage<P, IP> & {
+  getLayout?: (page: ReactElement) => ReactNode;
+};
+
+type AppPropsWithLayout = AppProps & {
+  Component: NextPageWithLayout;
+};
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: Infinity,
+    },
+  },
+});
+
+function MyApp({ Component, pageProps }: AppPropsWithLayout) {
+  const getLayout = Component.getLayout ?? ((page) => page);
+  const { query: address, isReady } = useRouterQuery('address');
+  const { query: port } = useRouterQuery('port');
+  const [cookies] = useCookies(['token']);
+
+  const protocol = 'http';
+  const apiVersion = 'v1';
+
+  // set axios defaults
+  useLayoutEffect(() => {
+    if (!isReady) return;
+    axios.defaults.baseURL = `${protocol}://${address}:${
+      port ?? 3000
+    }/api/${apiVersion}`;
+  }, [address, port, isReady]);
+
+  useLayoutEffect(() => {
+    if(cookies.token) axios.defaults.headers.common['Authorization'] = `Bearer ${cookies.token}`;
+  }, [cookies.token]);
+
   return (
-    <Provider store={store}>
-      <DashboardLayout>
-        <Component {...pageProps} />
-      </DashboardLayout>
-    </Provider>
+    <QueryClientProvider client={queryClient}>
+      <LodestoneContext.Provider
+        value={{
+          address: address as string,
+          port: port ?? '3000',
+          protocol,
+          apiVersion,
+          isReady: isReady,
+        }}
+      >
+        {getLayout(<Component {...pageProps} />)}
+      </LodestoneContext.Provider>
+    </QueryClientProvider>
   );
 }
 

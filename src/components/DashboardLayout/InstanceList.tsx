@@ -1,39 +1,30 @@
-import { Key, useEffect, useState } from 'react';
 import InstanceCard from 'components/InstanceCard';
-import { useAppDispatch, useAppSelector } from 'utils/hooks';
-import { fetchInstanceList, selectInstanceList } from 'data/InstanceList';
-import { selectClientInfo } from 'data/ClientInfo';
-import { useRouter } from 'next/router';
+import { useInstanceList } from 'data/InstanceList';
+import router from 'next/router';
+import { useRouterQuery } from 'utils/hooks';
 
 export default function InstanceList() {
-  const { instances, loading, error } = useAppSelector(selectInstanceList);
-  const dispatch = useAppDispatch();
-  const clientInfo = useAppSelector(selectClientInfo);
-  const router = useRouter();
-
-  useEffect(() => {
-    if (clientInfo.loading) return;
-    dispatch(fetchInstanceList(clientInfo));
-  }, [dispatch, clientInfo]);
+  const { isLoading, isError, data: instances, error } = useInstanceList();
+  const {query: uuid} = useRouterQuery('uuid');
 
   // TODO: nicer looking loading and error indicators
-  if (loading) {
+  if (isLoading) {
     return <div>Loading...</div>;
   }
-  if (error) {
-    return <div>Error: {error}</div>;
+  if (isError) {
+    return <div>Error: {error.message}</div>;
   }
-  if (!instances) {
+  if (Object.keys(instances).length === 0) {
     return <div>No instances found</div>;
   }
 
   return (
-    <div className="flex flex-col px-1 pt-1 -mx-1 overflow-y-auto h-fit gap-y-4 gap grow child:w-full">
+    <div className="flex flex-col px-1.5 pt-1.5 -mx-1.5 overflow-y-auto h-fit gap-y-4 gap grow child:w-full">
       {instances &&
         Object.values(instances).map((instance) => (
           <InstanceCard
-            key={instance.id}
-            focus={router.query.uuid === instance.id}
+            key={instance.uuid}
+            focus={uuid === instance.uuid}
             onClick={() => {
               // redirect to /dashboard and add the instance id to the query string
               router.push(
@@ -41,7 +32,7 @@ export default function InstanceList() {
                   pathname: '/dashboard',
                   query: {
                     ...router.query,
-                    uuid: instance.id,
+                    uuid: instance.uuid,
                   },
                 },
                 undefined,

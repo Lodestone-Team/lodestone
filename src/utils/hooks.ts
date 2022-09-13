@@ -1,9 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
+import { useEffect, useRef, useState } from 'react';
 
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
-
-import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
-import type { RootState, AppDispatch } from 'data/store';
 
 export function useIntervalImmediate(
   callback: () => void,
@@ -36,6 +34,41 @@ export function useIntervalImmediate(
   }, []);
 }
 
-// Use throughout your app instead of plain `useDispatch` and `useSelector`
-export const useAppDispatch: () => AppDispatch = useDispatch
-export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector
+export function useRouterQuery(queryString: string) {
+  const router = useRouter();
+  const [state, setState] = useState<string | undefined>(undefined);
+  const [ready, setReady] = useState(false);
+
+  const setQuery = (value: string) => {
+    router.replace(
+      {
+        pathname: router.pathname,
+        query: { ...router.query, [queryString]: value },
+      },
+      undefined,
+      { shallow: true }
+    );
+  };
+
+  useEffect(() => {
+    // check if it's an array
+    const val = router.query[queryString];
+    if (!val) {
+      setState(undefined);
+    } else if (Array.isArray(val)) {
+      setState(val[0]);
+    } else {
+      setState(val);
+    }
+  }, [router.query, queryString]);
+
+  useEffect(() => {
+    setReady(router.isReady);
+  }, [router.isReady]);
+  
+  return {
+    isReady: ready,
+    query: state,
+    setQuery,
+  }
+}
