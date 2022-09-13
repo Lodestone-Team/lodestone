@@ -92,10 +92,10 @@ export default function InstanceCard({
       <div className="flex flex-row items-center">
         <div className="flex flex-col min-w-0 grow">
           <div className="flex flex-row gap-x-2">
-            <h1 className="text-gray-300 truncate">{name}</h1>
             <Label size="small" color={stateColor}>
               {capitalizeFirstLetter(state)}
             </Label>
+            <h1 className="text-gray-300 truncate">{name}</h1>
           </div>
           <h1 className={`text-${playerCountColor} truncate`}>
             {player_count}/{max_player_count} Players
