@@ -112,6 +112,8 @@ To learn more about lodestone, check the main repo [here](https://github.com/Lod
 
 Visit the dashboard [here](https://www.lodestone.cc/) to get started! (When it's finished)
 
+Note: since the dashboard is encrypted using https but Lodestone clients are not (for now), please follow [this guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to allow mixed-content on the dashboard.
+
 <!-- GETTING STARTED -->
 ## Getting Started (development)
 
