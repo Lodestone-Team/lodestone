@@ -12,13 +12,3 @@ export const Default = Template.bind({});
 Default.args = {
     initialText: 'Hello World'
 };
-
-export const Small = Template.bind({});
-Small.args = {
-    initialText: 'Hello World',
-};
-
-export const OverwriteIconStyle = Template.bind({});
-OverwriteIconStyle.args = {
-    initialText: 'Hello World',
-};

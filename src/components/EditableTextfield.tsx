@@ -1,9 +1,13 @@
 import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
+import FadeLoader from "react-spinners/FadeLoader"
+
+export type TextfieldType = 'heading' | 'description';
 
 type Props = {
   initialText: string;
+  type?: TextfieldType;
   containerClassName?: string;
   textClassName?: string;
   iconClassName?: string;
@@ -12,6 +16,7 @@ type Props = {
 
 export default function EditableTextfield({
   initialText,
+  type = "heading",
   containerClassName,
   textClassName,
   iconClassName,
@@ -24,14 +29,21 @@ export default function EditableTextfield({
 
   const [isEditing, setIsEditing] = useState(false);
 
+  const [isLoading, setIsLoading] = useState(false);
+
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
     setEditText(currentText);
   };
 
-  const onSave = () => {
+  const onSave = async () => {
+    setIsLoading(true);
+    try {
+      await onSubmit(editText);
+    } finally {
+      setIsLoading(false);
+    }
     setDisplayText(editText);
-    onSubmit(editText);
     setIsEditing(false);
   };
 
@@ -58,36 +70,38 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`${containerClassName} flex flex-row justify-between items-center space-x-2`}
+      className={`flex flex-row justify-between items-center space-x-2 tracking-tight ${type === "heading" ? "font-semibold font-heading text-xlarge" : "italic"} ${containerClassName}`}
     >
       {isEditing ? (
         <>
+          <FontAwesomeIcon
+            className={`${iconClassName} text-gray-500 ${type === "heading" ? "h-8" : "h-4"}`}
+            icon={faFloppyDisk}
+            onMouseDown={(e) => {e.preventDefault()}}
+            onClick={onSave}
+          />
           <input
-            className={`${textClassName} bg-transparent text-gray-300 flex-1 border-b-2 focus:outline-none`}
+            className={`bg-transparent text-gray-300 flex-1 tracking-tight focus:outline-none ${textClassName}`}
             value={editText}
             onChange={onEdit}
             onBlur={onCancel}
             autoFocus={true}
           />
-          <FontAwesomeIcon
-            className={`${iconClassName} text-gray-500`}
-            icon={faFloppyDisk}
-            onMouseDown={(e) => [e.preventDefault()]}
-            onClick={onSave}
-          />
         </>
       ) : (
         <>
-          <span className={`${textClassName} bg-transparent text-gray-300 flex-1 truncate`}>
-            {displayText}
-          </span>
           <FontAwesomeIcon
-            className={`${iconClassName} text-gray-500`}
+            className={`text-gray-500 ${type === "heading" ? "h-8" : "h-4"} ${iconClassName}`}
             icon={faPenToSquare}
             onClick={() => {
               setIsEditing(true);
             }}
           />
+          <span
+            className={`bg-transparent text-gray-300 flex-1 truncate hover:underline ${textClassName}`}
+          >
+            {displayText}
+          </span>
         </>
       )}
     </div>
