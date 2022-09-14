@@ -37,12 +37,8 @@
   </a>
 
 <h3 align="center">Lodestone</h3>
-<p> Thanks to
-<a href="https://github.com/Arcslogger" >Wilbur Zhang (Arcslogger)  </a>
-for the logo!
-</p>
   <p align="center">
-    Simple, powerful, modular game server hosting tool
+    Client for the Lodestone project
     <br />
     <a href="https://beta.lodestone.cc/"><strong>Website(Beta WIP) »</strong></a>
     <br />
@@ -57,64 +53,11 @@ for the logo!
 
 
 
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#contributing">Contributing</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
-  </ol>
-</details>
-
 
 
 <!-- ABOUT THE PROJECT -->
-## About Lodestone
 
-**LODESTONE IS STILL IN ITS EARLY PHASE OF DEVELOPMENT, FEATURES ARE SUBJECT TO CHANGE AND NO STABLITY GUARANTEE CAN BE MADE AT THIS TIME**
 
-**USE FOR DEVELOPMENT PURPOSE ONLY!**
-
-<!-- [![Product Name Screen Shot][product-screenshot]](https://example.com) -->
-
-Lodestone is a server wrapper tool (that means it wraps around your server program) that aims to simplfy the process of hosting a game server.
-
-It handles the complicated parts of setting up a server, such as getting dependencies, configuration and port forward. While exposing a simple yet powerful interface to the end user, giving you a truly one-click experience.
-
-### Simple
-
-Lodestone is simple to use if you just want a server to play with your friends. You just need to download the exectuable and run it.
-
-### Powerful
-
-Lodestone allows you to configure your server to your liking.
-
-It also provides powerful management features to manage your server, such as task scheduling, listening in on events, multi user permissions and authentication, and more.
-
-For the most advanced user, Lodestone allows you to programmatically control your server with Lua.
-
-### Modular
-
-Lodestone is designed from the ground up to be modular. To add support for a new game, simply implements the set of interfaces that Lodestone provides.
-
-<p align="right">(<a href="#top">back to top</a>)</p>
 
 
 
@@ -122,8 +65,6 @@ Lodestone is designed from the ground up to be modular. To add support for a new
 
 
 * [![Rust][Rust]][Rust-url]
-* [![React][React.js]][React-url]
-* [![TypeScript][TypeScript]][TypeScript-url]
 <!-- * [![Node.js][Node.js]][Node.js-url] -->
 <!-- * [![Express][Express]][Express-url] -->
 
@@ -144,7 +85,7 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
   ```sh
   sudo apt-get install build-essential
   ```
-* `pkg-config` and `libssl-dev` are required to compile rocket
+* `pkg-config` and `libssl-dev` are required to compile Axum
   ```sh
   sudo apt-get install pkg-config libssl-dev
   ```
@@ -154,23 +95,6 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
   ```
 
 ### Installation
-
-#### Building the dashboard
-
-1. Clone the dashboard repo
-   ```sh
-   git clone https://github.com/Lodestone-Team/dashboard
-   ```
-2. Install dependencies
-   ```sh
-   npm i
-   ```
-3. Build
-   ```sh
-   npm run build
-   ```
-   You should now see the `build` folder, you will need this for the client to host the webpage
-
 #### Running the client
 
 1. Clone the repo
@@ -181,8 +105,7 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
    ```sh
    export LODESTONE_PATH={}
    ```
-3. Copy the content under dashboard's `build` folder to `${LODESTONE_PATH}/web`
-4. Running
+3. Running
    ```sh
    cargo run --bin main
    ```
@@ -250,12 +173,11 @@ Project Link: [https://github.com/github_username/repo_name](https://github.com/
 <!-- ACKNOWLEDGMENTS -->
 ## Credits
 
-Active members of the Lodestone team:
+Active members of the Lodestone client team:
 
 * [Peter Jiang (CheatCod)](https://github.com/CheatCod) - Lead Developer
-* [Kevin Huang (Ynng)](https://github.com/Ynng) - Frontend Lead
+* [Kevin Huang (Ynng)](https://github.com/Ynng) - Developer
 * [Mark Sun (Lemonsity)](https://github.com/Lemonsity) - Developer
-* [Wilbur Zhang (Arclogger)](https://github.com/Arcslogger) - UI Designer, Logo Designer
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
