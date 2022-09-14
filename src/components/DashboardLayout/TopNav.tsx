@@ -1,25 +1,49 @@
 import axios from 'axios';
 import Button from 'components/Button';
+import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
 import { useEffect, useState } from 'react';
 import { useCookies } from 'react-cookie';
 import { pushKeepQuery } from 'utils/util';
 
+export type UserState = 'loading' | 'logged-in' | 'logged-out';
+
 export default function TopNav() {
   const [cookies, setCookie] = useCookies(['token']);
-  const [loggedIn, setLoggedIn] = useState(false);
+  const { isLoading, isError, data: user } = useUserInfo();
+  const [userState, setUserState] = useState<UserState>('logged-out');
 
   useEffect(() => {
-    if (cookies.token) {
-      setLoggedIn(true);
+    if(!cookies.token) {
+      setUserState('logged-out');
     }
-  }, [cookies.token]);
+    else if(isLoading) {
+      setUserState('loading');
+      return;
+    }
+    else if(isError) {
+      setUserState('logged-out');
+      return;
+    }
+    else {
+      setUserState('logged-in');
+    }
+  }, [cookies.token, isLoading, isError, user]);
   
   return (
-    <div className="flex flex-row items-center justify-end w-full h-16 p-2 bg-gray-700 border-b border-gray-500">
+    <div className="flex flex-row items-center justify-end w-full h-16 gap-2 p-2 bg-gray-700 border-b border-gray-500">
+      <p className="font-medium text-gray-300">
+        {userState === 'logged-in' && user ? (
+          `Hi, ${user.username}`
+        ) : userState === 'loading' ? (
+          'Loading...'
+        ) : (
+          'Not logged in'
+        )}
+      </p>
       <Button
-        label={loggedIn ? 'Logout' : 'Login'}
-        className="h-fit"
+        label={userState === 'logged-in' ? 'Logout' : 'Login'}
+        loading={userState === 'loading'}
         onClick={() => {
           // remove token cookie
           setCookie('token', '');

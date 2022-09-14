@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import Button from 'components/Button';
 import DashboardLayout from 'components/DashboardLayout';
 import Head from 'next/head';
@@ -10,6 +10,12 @@ import { NextPageWithLayout } from './_app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCookies } from 'react-cookie';
 import Link from 'next/link';
+import { PublicUser } from 'data/UserInfo';
+
+export interface LoginReply {
+  token: string;
+  user: PublicUser;
+}
 
 const Auth: NextPageWithLayout = () => {
   const router = useRouter();
@@ -36,7 +42,7 @@ const Auth: NextPageWithLayout = () => {
 
     // login using basic auth
     axios
-      .get<string>('/users/login', {
+      .get<LoginReply>('/users/login', {
         auth: {
           username,
           password,
@@ -44,14 +50,19 @@ const Auth: NextPageWithLayout = () => {
       })
       .then((response) => {
         // set the token cookie
-        setCookie('token', response.data, {
+        setCookie('token', response.data.token, {
           maxAge: 60 * 60 * 24 * 7, // 1 week
           path: '/',
         });
       })
-      .catch((error) => {
-        if (error.response.status === 403 || error.response.status === 401) {
-          alert('Invalid username or password');
+      .catch((error: Error | AxiosError) => {
+        if (axios.isAxiosError(error)) {
+          if (
+            error.response?.status === 401 ||
+            error.response?.status === 403
+          ) {
+            alert('Invalid username or password');
+          }
         } else {
           alert(`Login failed: ${error.message}`);
         }
