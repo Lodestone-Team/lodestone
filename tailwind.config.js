@@ -46,6 +46,7 @@ module.exports = {
       'base': '1rem',
       'medium': '1.5rem',
       'large': '2rem',
+      'larger': '2.5rem',
       'xlarge': '3rem',
       '2xlarge': '4rem',
     },

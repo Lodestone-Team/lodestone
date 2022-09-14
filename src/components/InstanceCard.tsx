@@ -112,9 +112,9 @@ export default function InstanceCard({
         />
       </div>
       <Button
-        label={loading ? '...' : actionMessage}
+        label={actionMessage}
         onClick={buttonOnClick}
-        disabled={loading}
+        loading={loading}
         className="truncate"
       />
     </div>

@@ -29,6 +29,8 @@ const queryClient = new QueryClient({
   },
 });
 
+axios.defaults.timeout = 1000;
+
 function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
   const { query: address, isReady } = useRouterQuery('address');
