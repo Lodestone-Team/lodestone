@@ -7,7 +7,7 @@ use crate::{
             create_instance, get_instance_state, kill_instance, remove_instance, send_command,
             stop_instance,
         },
-        users::{change_password, delete_user, get_user_info, login, new_user, update_permissions},
+        users::{change_password, delete_user, get_user_info, login, new_user, update_permissions, get_self_info},
         events::{event_stream, get_event_buffer},
     },
     traits::Error,
@@ -267,6 +267,7 @@ async fn main() {
         .route("/instances/state/:uuid", get(get_instance_state))
         .route("/users/create", post(new_user))
         .route("/users/delete/:uid", delete(delete_user))
+        .route("/users/info", get(get_self_info))
         .route("/users/info/:uid", get(get_user_info))
         .route("/users/update_perm", post(update_permissions))
         .route("/users/login", get(login))

@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    json_store::{permission::Permission, user::User},
+    json_store::{
+        permission::Permission,
+        user::{PublicUser, User},
+    },
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
     AppState,
@@ -13,6 +16,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use systemstat::Utc;
+use ts_rs::TS;
 
 use super::util::{hash_password, is_authorized, try_auth};
 #[derive(Deserialize, Serialize)]
@@ -65,16 +69,18 @@ pub async fn new_user(
             detail: "You are not authorized to create users".to_string(),
         });
     }
-    let login_request: NewUserSchema = serde_json::from_value(config.clone()).map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Invalid request".to_string(),
-    })?;
+    let login_request: NewUserSchema =
+        serde_json::from_value(config.clone()).map_err(|_| Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Invalid request".to_string(),
+        })?;
     let hashed_psw = hash_password(&login_request.password);
     let uid = uuid::Uuid::new_v4().to_string();
     let mut users = state.users.lock().await;
     if users
         .get_ref()
-        .iter().any(|(_, user)| user.username == login_request.username)
+        .iter()
+        .any(|(_, user)| user.username == login_request.username)
     {
         return Err(Error {
             inner: ErrorInner::UserAlreadyExists,
@@ -157,24 +163,34 @@ pub async fn update_permissions(
             inner: ErrorInner::MalformedRequest,
             detail: "Invalid request".to_string(),
         })?;
-    users
-        .transform(Box::new(move |v| {
-            let user = v.get_mut(&uid).ok_or(Error {
-                inner: ErrorInner::UserNotFound,
-                detail: "".to_string(),
-            })?;
-            user.permissions = permissions_update_request.permissions.clone();
-            Ok(())
-        }))
-        ?;
+    users.transform(Box::new(move |v| {
+        let user = v.get_mut(&uid).ok_or(Error {
+            inner: ErrorInner::UserNotFound,
+            detail: "".to_string(),
+        })?;
+        user.permissions = permissions_update_request.permissions.clone();
+        Ok(())
+    }))?;
     Ok(Json(json!("ok")))
+}
+
+pub async fn get_self_info(
+    Extension(state): Extension<AppState>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<PublicUser>, Error> {
+    let users = state.users.lock().await;
+    let user = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::PermissionDenied,
+        detail: "".to_string(),
+    })?;
+    Ok(Json(PublicUser::from(user)))
 }
 
 pub async fn get_user_info(
     Extension(state): Extension<AppState>,
     Path(uid): Path<String>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<PublicUser>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::PermissionDenied,
@@ -186,7 +202,7 @@ pub async fn get_user_info(
             detail: "You are not authorized to get this user's info".to_string(),
         });
     }
-    let mut user = users
+    let user = users
         .get_ref()
         .get(&uid)
         .ok_or(Error {
@@ -194,9 +210,7 @@ pub async fn get_user_info(
             detail: "".to_string(),
         })?
         .to_owned();
-    user.hashed_psw = "".to_string();
-    user.secret = "".to_string();
-    Ok(Json(json!(user)))
+    Ok(Json(PublicUser::from(user)))
 }
 
 pub async fn change_password(
@@ -251,10 +265,17 @@ pub async fn change_password(
     Ok(Json(json!("ok")))
 }
 
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct LoginReply {
+    token: String,
+    user: PublicUser,
+}
+
 pub async fn login(
     Extension(state): Extension<AppState>,
     AuthBasic((username, psw)): AuthBasic,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<LoginReply>, Error> {
     if psw.is_none() {
         return Err(Error {
             inner: ErrorInner::MalformedRequest,
@@ -281,7 +302,10 @@ pub async fn login(
                 detail: "Invalid username or password".to_string(),
             })
         } else {
-            Ok(Json(json!(create_jwt(user, &user.secret)?)))
+            Ok(Json(LoginReply {
+                token: create_jwt(user, &user.secret)?,
+                user: PublicUser::from(user.to_owned()),
+            }))
         }
     } else {
         Err(Error {
