@@ -30,5 +30,7 @@ export const useUserInfo = () => {
     return axios
       .get<PublicUser>(`/users/info`)
       .then((response) => response.data);
+  }, {
+    enabled: useContext(LodestoneContext).isReady,
   });
 };

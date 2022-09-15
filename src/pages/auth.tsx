@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCookies } from 'react-cookie';
 import Link from 'next/link';
 import { PublicUser } from 'data/UserInfo';
+import { useToken } from 'utils/hooks';
 
 export interface LoginReply {
   token: string;
@@ -23,18 +24,14 @@ const Auth: NextPageWithLayout = () => {
   const [password, setPassword] = useState('');
   const [buttonLoading, setButtonLoading] = useState(false);
   const queryClient = useQueryClient();
-  const [cookies, setCookie] = useCookies(['token']);
+  const {token, setToken} = useToken();
 
   useEffect(() => {
-    if (cookies.token) {
-      axios.defaults.headers.common[
-        'Authorization'
-      ] = `Bearer ${cookies.token}`;
-      queryClient.invalidateQueries();
+    if (token) {
       alert('Logged in!');
       pushKeepQuery(router, '/');
     }
-  }, [cookies.token]);
+  }, [token]);
 
   const onSubmit = (event: React.SyntheticEvent) => {
     event.preventDefault();
@@ -50,10 +47,7 @@ const Auth: NextPageWithLayout = () => {
       })
       .then((response) => {
         // set the token cookie
-        setCookie('token', response.data.token, {
-          maxAge: 60 * 60 * 24 * 7, // 1 week
-          path: '/',
-        });
+        setToken(response.data.token);
       })
       .catch((error: Error | AxiosError) => {
         if (axios.isAxiosError(error)) {

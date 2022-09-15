@@ -1,3 +1,4 @@
+import { useToken } from 'utils/hooks';
 import { InstanceState } from 'data/InstanceList';
 import { useCookies } from 'react-cookie';
 import { LodestoneContext } from 'data/LodestoneContext';
@@ -45,7 +46,7 @@ export interface Event {
 export const useReactQuerySubscription = () => {
   const queryClient = useQueryClient();
   const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
-  const [cookies] = useCookies(['token']);
+  const { token } = useToken();
 
   useEffect(() => {
     const updateInstance = (
@@ -75,12 +76,12 @@ export const useReactQuerySubscription = () => {
     };
 
     if (!isReady) return;
-    if (!cookies.token) return;
+    if (!token) return;
 
     const websocket = new WebSocket(
       `ws://${address}:${
         port ?? 3000
-      }/api/${apiVersion}/events/stream?token=Bearer ${cookies.token}`
+      }/api/${apiVersion}/events/stream?token=Bearer ${token}`
     );
     websocket.onopen = () => {
       console.log('connected');
@@ -154,5 +155,5 @@ export const useReactQuerySubscription = () => {
     return () => {
       websocket.close();
     };
-  }, [queryClient, address, port, apiVersion, isReady, cookies.token]);
+  }, [queryClient, address, port, apiVersion, isReady, token]);
 };

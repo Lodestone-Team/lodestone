@@ -4,53 +4,48 @@ import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
 import { useEffect, useState } from 'react';
 import { useCookies } from 'react-cookie';
+import { useToken } from 'utils/hooks';
 import { pushKeepQuery } from 'utils/util';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
 export default function TopNav() {
-  const [cookies, setCookie] = useCookies(['token']);
+  const { token, setToken, removeToken } = useToken();
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
 
   useEffect(() => {
-    if(!cookies.token) {
+    if (!token) {
       setUserState('logged-out');
-    }
-    else if(isLoading) {
+    } else if (isLoading) {
       setUserState('loading');
       return;
-    }
-    else if(isError) {
+    } else if (isError) {
       setUserState('logged-out');
       return;
-    }
-    else {
+    } else {
       setUserState('logged-in');
     }
-  }, [cookies.token, isLoading, isError, user]);
-  
+  }, [token, isLoading, isError, user]);
+
   return (
     <div className="flex flex-row items-center justify-end w-full h-16 gap-2 p-2 bg-gray-700 border-b border-gray-500">
       <p className="font-medium text-gray-300">
-        {userState === 'logged-in' && user ? (
-          `Hi, ${user.username}`
-        ) : userState === 'loading' ? (
-          'Loading...'
-        ) : (
-          'Not logged in'
-        )}
+        {userState === 'logged-in' && user
+          ? `Hi, ${user.username}`
+          : userState === 'loading'
+          ? 'Loading...'
+          : 'Not logged in'}
       </p>
       <Button
         label={userState === 'logged-in' ? 'Logout' : 'Login'}
         loading={userState === 'loading'}
         onClick={() => {
           // remove token cookie
-          setCookie('token', '');
-          // remove default auth header
-          delete axios.defaults.headers.common['Authorization'];
-          // redirect to login page
-          pushKeepQuery(router, '/auth');
+          removeToken();
+          if (userState !== 'logged-in')
+            // redirect to login page
+            pushKeepQuery(router, '/auth');
         }}
       />
     </div>

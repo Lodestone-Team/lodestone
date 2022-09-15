@@ -25,6 +25,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: Infinity,
+      refetchOnWindowFocus: false,
     },
   },
 });
@@ -50,6 +51,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
 
   useLayoutEffect(() => {
     if(cookies.token) axios.defaults.headers.common['Authorization'] = `Bearer ${cookies.token}`;
+    // Can't use the useToken hook here since it requires QueryClientProvider
   }, [cookies.token]);
 
   return (
