@@ -1,7 +1,8 @@
 import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
-import FadeLoader from "react-spinners/FadeLoader"
+import { BeatLoader } from 'react-spinners';
+import CircleLoader from 'react-spinners/CircleLoader';
 
 export type TextfieldType = 'heading' | 'description';
 
@@ -16,7 +17,7 @@ type Props = {
 
 export default function EditableTextfield({
   initialText,
-  type = "heading",
+  type = 'heading',
   containerClassName,
   textClassName,
   iconClassName,
@@ -31,7 +32,7 @@ export default function EditableTextfield({
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [error, setError] = useState<string>("")
+  const [error, setError] = useState<string>('');
 
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
@@ -40,6 +41,9 @@ export default function EditableTextfield({
 
   const onSave = async () => {
     setIsLoading(true);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1000);
+    });
     try {
       await onSubmit(editText);
     } finally {
@@ -72,39 +76,50 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`flex flex-row justify-between items-center space-x-2 tracking-tight ${type === "heading" ? "font-semibold font-heading text-xlarge" : "italic"} ${containerClassName}`}
+      className={`flex flex-row justify-between items-center space-x-2 tracking-tight ${
+        type === 'heading' ? 'font-semibold font-heading text-xlarge' : 'italic'
+      } ${containerClassName}`}
     >
-      {isEditing ? (
-        <>
-          <FontAwesomeIcon
-            className={`${iconClassName} text-gray-500 ${type === "heading" ? "h-8" : "h-4"}`}
-            icon={faFloppyDisk}
-            onMouseDown={(e) => {e.preventDefault()}}
-            onClick={onSave}
-          />
-          <input
-            className={`bg-transparent text-gray-300 flex-1 tracking-tight focus:outline-none ${textClassName}`}
-            value={editText}
-            onChange={onEdit}
-            onBlur={onCancel}
-            autoFocus={true}
-          />
-        </>
+      {isLoading ? (
+        // <div className={`${type === 'heading' ? 'h-8' : 'h-4'}`}>
+          <BeatLoader size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`} color="#6b7280" />
+        // </div>
+      ) : isEditing ? (
+        <FontAwesomeIcon
+          className={`${iconClassName} text-gray-500 ${
+            type === 'heading' ? 'h-8' : 'h-4'
+          }`}
+          icon={faFloppyDisk}
+          onMouseDown={(e) => {
+            e.preventDefault();
+          }}
+          onClick={onSave}
+        />
       ) : (
-        <>
-          <FontAwesomeIcon
-            className={`text-gray-500 ${type === "heading" ? "h-8" : "h-4"} ${iconClassName}`}
-            icon={faPenToSquare}
-            onClick={() => {
-              setIsEditing(true);
-            }}
-          />
-          <span
-            className={`bg-transparent text-gray-300 flex-1 truncate hover:underline ${textClassName}`}
-          >
-            {displayText}
-          </span>
-        </>
+        <FontAwesomeIcon
+          className={`text-gray-500 ${
+            type === 'heading' ? 'h-8' : 'h-4'
+          } ${iconClassName}`}
+          icon={faPenToSquare}
+          onClick={() => {
+            setIsEditing(true);
+          }}
+        />
+      )}
+      {isEditing ? (
+        <input
+          className={`bg-transparent text-gray-300 flex-1 tracking-tight focus:outline-none ${textClassName}`}
+          value={editText}
+          onChange={onEdit}
+          onBlur={onCancel}
+          autoFocus={true}
+        />
+      ) : (
+        <span
+          className={`bg-transparent text-gray-300 flex-1 truncate hover:underline ${textClassName}`}
+        >
+          {displayText}
+        </span>
       )}
     </div>
   );
