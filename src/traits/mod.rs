@@ -31,7 +31,7 @@ pub enum ErrorInner {
     FailedToReadStdout,
     StdinNotOpen,
     StdoutNotOpen,
-    FailedToAquireLock,
+    FailedToAcquireLock,
 
     // Network errors:
     FailedToUpload,
@@ -60,8 +60,8 @@ pub enum ErrorInner {
 
     // Process errors:
     FailedToExecute,
-    FailedToAquireStdin,
-    FailedToAquireStdout,
+    FailedToAcquireStdin,
+    FailedToAcquireStdout,
 
     // API changed
     APIChanged,

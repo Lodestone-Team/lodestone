@@ -3,12 +3,16 @@
 use crate::{
     handlers::instance::{list_instance, start_instance},
     handlers::{
+        events::{event_stream, get_event_buffer},
         instance::{
             create_instance, get_instance_state, kill_instance, remove_instance, send_command,
             stop_instance,
         },
+        system::{
+            get_cpu, get_disk, get_os_info, get_ram,
+            get_uptime,
+        },
         users::{change_password, delete_user, get_user_info, login, new_user, update_permissions, get_self_info},
-        events::{event_stream, get_event_buffer},
     },
     traits::Error,
     util::rand_alphanumeric,
@@ -272,6 +276,11 @@ async fn main() {
         .route("/users/update_perm", post(update_permissions))
         .route("/users/login", get(login))
         .route("/users/passwd", post(change_password))
+        .route("/system/memory", get(get_ram))
+        .route("/system/disk", get(get_disk))
+        .route("/system/cpu", get(get_cpu))
+        .route("/system/os", get(get_os_info))
+        .route("/system/uptime", get(get_uptime))
         .layer(Extension(shared_state))
         .layer(cors);
     let app = Router::new().nest("/api/v1", api_routes);

@@ -22,7 +22,7 @@ impl TServer for Instance {
                     e
                 );
                 Error {
-                    inner: ErrorInner::FailedToAquireLock,
+                    inner: ErrorInner::FailedToAcquireLock,
                     detail: "Failed to aquired lock while getting state mutex".to_string(),
                 }
             })?
@@ -81,7 +81,7 @@ impl TServer for Instance {
                         None,
                     ));
                     Error {
-                        inner: ErrorInner::FailedToAquireStdin,
+                        inner: ErrorInner::FailedToAcquireStdin,
                         detail: "Failed to take stdin during startup".to_string(),
                     }
                 })?;
@@ -95,7 +95,7 @@ impl TServer for Instance {
                         None,
                     ));
                     Error {
-                        inner: ErrorInner::FailedToAquireStdout,
+                        inner: ErrorInner::FailedToAcquireStdout,
                         detail: "Failed to take stdout during startup".to_string(),
                     }
                 })?;
@@ -207,7 +207,7 @@ impl TServer for Instance {
                                             None,
                                     ));
                                         Error {
-                                            inner: ErrorInner::FailedToAquireLock,
+                                            inner: ErrorInner::FailedToAcquireLock,
                                             detail: err_msg.to_string(),
                                         }
                                     }).map(|mut v| {v.update(State::Running).unwrap()});
@@ -234,7 +234,7 @@ impl TServer for Instance {
                                                 None,
                                             ));
                                             Error {
-                                                inner: ErrorInner::FailedToAquireLock,
+                                                inner: ErrorInner::FailedToAcquireLock,
                                                 detail: err_msg.to_string(),
                                             }
                                         })
@@ -261,7 +261,7 @@ impl TServer for Instance {
                                                 None,
                                             ));
                                             Error {
-                                                inner: ErrorInner::FailedToAquireLock,
+                                                inner: ErrorInner::FailedToAcquireLock,
                                                 detail: err_msg.to_string(),
                                             }
                                         })
@@ -300,7 +300,7 @@ impl TServer for Instance {
                                     None,
                                 ));
                                 Error {
-                                    inner: ErrorInner::FailedToAquireLock,
+                                    inner: ErrorInner::FailedToAcquireLock,
                                     detail: "Failed to aquired lock while getting state mutex"
                                         .to_string(),
                                 }
@@ -326,7 +326,7 @@ impl TServer for Instance {
                     e
                 );
                 Error {
-                    inner: ErrorInner::FailedToAquireLock,
+                    inner: ErrorInner::FailedToAcquireLock,
                     detail: "Failed to aquired lock while getting state mutex".to_string(),
                 }
             })?
@@ -345,7 +345,7 @@ impl TServer for Instance {
                     None,
                 ));
                 Error {
-                    inner: ErrorInner::FailedToAquireStdin,
+                    inner: ErrorInner::FailedToAcquireStdin,
                     detail: "Failed to stop instance: process not available".to_string(),
                 }
             })?
@@ -361,7 +361,7 @@ impl TServer for Instance {
                     None,
                 ));
                 Error {
-                    inner: ErrorInner::FailedToAquireStdin,
+                    inner: ErrorInner::FailedToAcquireStdin,
                     detail: "Failed to stop instance: stdin not available".to_string(),
                 }
             })?

@@ -155,7 +155,7 @@ impl TConfigurable for Instance {
             Ok(mut v) => *v = timeout_last_left,
             Err(_) => {
                 return Supported(Err(Error {
-                    inner: ErrorInner::FailedToAquireLock,
+                    inner: ErrorInner::FailedToAcquireLock,
                     detail: "Uh oh! Thread poisoned! This is not good.".to_string(),
                 }));
             }
@@ -173,7 +173,7 @@ impl TConfigurable for Instance {
             Ok(mut v) => *v = timeout_no_activity,
             Err(_) => {
                 return Supported(Err(Error {
-                    inner: ErrorInner::FailedToAquireLock,
+                    inner: ErrorInner::FailedToAcquireLock,
                     detail: "Uh oh! Thread poisoned! This is not good.".to_string(),
                 }));
             }
@@ -202,7 +202,7 @@ impl TConfigurable for Instance {
             Ok(mut v) => *v = backup_period,
             Err(_) => {
                 return Supported(Err(Error {
-                    inner: ErrorInner::FailedToAquireLock,
+                    inner: ErrorInner::FailedToAcquireLock,
                     detail: "Uh oh! Thread poisoned! This is not good.".to_string(),
                 }));
             }
