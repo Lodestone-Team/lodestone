@@ -24,12 +24,14 @@ export default function EditableTextfield({
     //
   },
 }: Props) {
-  const [displayText, setDisplayText] = useState(initialText);
-  const [editText, setEditText] = useState(initialText);
+  const [displayText, setDisplayText] = useState<string>(initialText);
+  const [editText, setEditText] = useState<string>(initialText);
 
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const [error, setError] = useState<string>("")
 
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
