@@ -3,7 +3,7 @@
 use crate::{
     handlers::instance::{list_instance, start_instance},
     handlers::{
-        events::{event_stream, get_event_buffer},
+        events::{event_stream, get_event_buffer, console_stream, get_console_out_buffer},
         instance::{
             create_instance, get_instance_state, kill_instance, remove_instance, send_command,
             stop_instance,
@@ -61,6 +61,7 @@ pub struct AppState {
     instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
     users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
     events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
+    console_out_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
     event_broadcaster: Sender<Event>,
 }
 
@@ -181,11 +182,16 @@ async fn main() {
         AllocRingBuffer::with_capacity(512),
         Box::new(|_, _| Ok(())),
         Box::new(|_event_buffer, _| {
-            // serde_json::to_writer(
-            //     std::fs::File::create(&dot_lodestone_path.join("events")).unwrap(),
-            //     event_buffer,
-            // )
-            // .unwrap();
+            // todo: write to persistent storage
+            Ok(())
+        }),
+    );
+
+    let stateful_console_out_buffer = Stateful::new(
+        AllocRingBuffer::with_capacity(512),
+        Box::new(|_, _| Ok(())),
+        Box::new(|_event_buffer, _| {
+            // todo: write to persistent storage
             Ok(())
         }),
     );
@@ -227,22 +233,38 @@ async fn main() {
         instances: Arc::new(Mutex::new(restore_instances(&lodestone_path, &tx))),
         users: Arc::new(Mutex::new(stateful_users)),
         events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
+        console_out_buffer: Arc::new(Mutex::new(stateful_console_out_buffer)),
         event_broadcaster: tx.clone(),
     };
 
     let event_buffer_task = tokio::spawn({
         let event_buffer = shared_state.events_buffer.clone();
+        let console_out_buffer = shared_state.console_out_buffer.clone();
         let mut event_receiver = tx.subscribe();
         async move {
             while let Ok(event) = event_receiver.recv().await {
-                event_buffer
-                    .lock()
-                    .await
-                    .transform(Box::new(move |event_buffer| -> Result<(), Error> {
-                        event_buffer.push(event.clone());
-                        Ok(())
-                    }))
-                    .unwrap();
+                match event.event_inner {
+                    events::EventInner::InstanceOutput(_) => {
+                        console_out_buffer
+                            .lock()
+                            .await
+                            .transform(Box::new(move |event_buffer| {
+                                event_buffer.push(event.clone());
+                                Ok(())
+                            }))
+                            .unwrap();
+                    }
+                    _ => {
+                        event_buffer
+                            .lock()
+                            .await
+                            .transform(Box::new(move |event_buffer| -> Result<(), Error> {
+                                event_buffer.push(event.clone());
+                                Ok(())
+                            }))
+                            .unwrap();
+                    }
+                }
             }
         }
     });
@@ -260,7 +282,9 @@ async fn main() {
 
     let api_routes = Router::new()
         .route("/events/stream", get(event_stream))
-        .route("/events/buffer", get(get_event_buffer))
+        .route("/events/buffer/:uuid", get(get_event_buffer))
+        .route("/console/stream/", get(console_stream))
+        .route("/console/buffer/:uuid", get(get_console_out_buffer))
         .route("/instances/list", get(list_instance))
         .route("/instances/new/:idempotency", post(create_instance))
         .route("/instances/start/:uuid", post(start_instance))
