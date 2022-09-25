@@ -1,5 +1,6 @@
 use std::{env, sync::Arc};
 
+use axum::extract::Query;
 use axum::{extract::Path, Extension, Json};
 use axum_auth::AuthBearer;
 use futures::future::join_all;
@@ -69,15 +70,21 @@ pub async fn list_instance(
     .await
     .into_iter()
     .collect();
-    
+
     list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
-    
+
     Ok(Json(list_of_configs))
 }
+
+#[derive(Deserialize)]
+pub struct InstanceCreateQuery {
+    pub key: String,
+}
+
 pub async fn create_instance(
     Extension(state): Extension<AppState>,
-    Path(idempotency): Path<String>,
     Json(config): Json<Value>,
+    Query(query): Query<InstanceCreateQuery>,
 ) -> Result<Json<Value>, Error> {
     let game_type = config
         .get("type")
@@ -252,7 +259,7 @@ pub async fn create_instance(
                     minecraft::Instance::new(
                         mc_config,
                         state.event_broadcaster.clone(),
-                        Some(idempotency),
+                        Some(query.key),
                     )
                     .await?,
                 )),
@@ -362,9 +369,15 @@ pub async fn kill_instance(
     Ok(Json(json!("ok")))
 }
 
+#[derive(Deserialize)]
+pub struct SendCommandQuery {
+    command: String,
+}
+
 pub async fn send_command(
     Extension(state): Extension<AppState>,
-    Path((uuid, cmd)): Path<(String, String)>,
+    Path(uuid): Path<String>,
+    Query(query): Query<SendCommandQuery>,
 ) -> Result<Json<Value>, Error> {
     match state
         .instances
@@ -377,7 +390,7 @@ pub async fn send_command(
         })?
         .lock()
         .await
-        .send_command(&cmd)
+        .send_command(&query.command)
     {
         crate::traits::MaybeUnsupported::Supported(v) => v.map(|_| Json(json!("ok"))),
         crate::traits::MaybeUnsupported::Unsupported => Err(Error {
@@ -404,3 +417,80 @@ pub async fn get_instance_state(
         .await
         .state())))
 }
+
+pub async fn get_player_count(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+) -> Result<Json<u32>, Error> {
+    match state
+        .instances
+        .lock()
+        .await
+        .get(&uuid)
+        .ok_or(Error {
+            inner: ErrorInner::InstanceNotFound,
+            detail: "".to_string(),
+        })?
+        .lock()
+        .await
+        .get_player_count()
+    {
+        crate::traits::MaybeUnsupported::Supported(v) => Ok(Json(v)),
+        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
+            inner: ErrorInner::UnsupportedOperation,
+            detail: "".to_string(),
+        }),
+    }
+}
+
+pub async fn get_max_player_count(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+) -> Result<Json<u32>, Error> {
+    match state
+        .instances
+        .lock()
+        .await
+        .get(&uuid)
+        .ok_or(Error {
+            inner: ErrorInner::InstanceNotFound,
+            detail: "".to_string(),
+        })?
+        .lock()
+        .await
+        .get_max_player_count()
+    {
+        crate::traits::MaybeUnsupported::Supported(v) => Ok(Json(v)),
+        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
+            inner: ErrorInner::UnsupportedOperation,
+            detail: "".to_string(),
+        }),
+    }
+}
+
+pub async fn get_player_list(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+) -> Result<Json<Vec<Value>>, Error> {
+    match state
+        .instances
+        .lock()
+        .await
+        .get(&uuid)
+        .ok_or(Error {
+            inner: ErrorInner::InstanceNotFound,
+            detail: "".to_string(),
+        })?
+        .lock()
+        .await
+        .get_player_list()
+    {
+        crate::traits::MaybeUnsupported::Supported(v) => Ok(Json(v)),
+        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
+            inner: ErrorInner::UnsupportedOperation,
+            detail: "".to_string(),
+        }),
+    }
+}
+
+
