@@ -2,6 +2,7 @@ import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
+import AutoGrowInput from './AutoGrowInput';
 
 export type TextfieldType = 'heading' | 'description';
 
@@ -17,9 +18,9 @@ type Props = {
 export default function EditableTextfield({
   initialText,
   type = 'heading',
-  containerClassName,
-  textClassName,
-  iconClassName,
+  containerClassName = '',
+  textClassName = '',
+  iconClassName = '',
   onSubmit,
 }: Props) {
   const [displayText, setDisplayText] = useState<string>(initialText);
@@ -78,7 +79,7 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`flex flex-row justify-between items-center space-x-2 tracking-tight ${
+      className={`flex flex-row justify-start items-center gap-2 tracking-tight ${
         type === 'heading' ? 'font-semibold font-heading text-xlarge' : 'italic'
       } ${containerClassName}`}
     >
@@ -86,13 +87,18 @@ export default function EditableTextfield({
         // <div className={`${type === 'heading' ? 'h-8' : 'h-4'}`}>
         <BeatLoader
           size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`}
+          cssOverride={{
+            width: `${type === 'heading' ? '3rem' : '2rem'}`,
+            // negative padding to give it extra space
+            margin: `0 -0.5rem`,
+          }}
           color="#6b7280"
         />
       ) : // </div>
       isEditing ? (
         <FontAwesomeIcon
           className={`${iconClassName} text-gray-500 ${
-            type === 'heading' ? 'h-8' : 'h-4'
+            type === 'heading' ? 'w-8' : 'w-4'
           }`}
           icon={faFloppyDisk}
           onMouseDown={(e) => {
@@ -103,7 +109,7 @@ export default function EditableTextfield({
       ) : (
         <FontAwesomeIcon
           className={`text-gray-500 ${
-            type === 'heading' ? 'h-8' : 'h-4'
+            type === 'heading' ? 'w-8' : 'w-4'
           } ${iconClassName}`}
           icon={faPenToSquare}
           onClick={() => {
@@ -112,49 +118,49 @@ export default function EditableTextfield({
         />
       )}
 
-        {isEditing ? (
-          <input
-            className={`flex-1 bg-transparent text-gray-300 tracking-tight focus:outline-none ${textClassName} ${
-              errorStatus
-                ? `border-2 ${
-                    type === 'heading' ? 'rounded-xl pr-2' : 'rounded pr-1'
-                  }  border-red`
-                : ''
-            }`}
-            value={editText}
-            onChange={onEdit}
-            onBlur={onCancel}
-            autoFocus={true}
-          />
-        ) : (
-          <span
-            className={`flex-1 bg-transparent text-gray-300 truncate hover:underline ${textClassName} ${
-              errorStatus
-                ? `border-2 ${
-                    type === 'heading' ? 'rounded-xl pr-2' : 'rounded pr-1'
-                  }  border-red`
-                : ''
-            }`}
-            onClick={() => {
+      {isEditing ? (
+        <AutoGrowInput
+          className={`bg-transparent text-gray-300 tracking-tight focus:outline-none ${textClassName} ${
+            errorStatus
+              ? `border-2 ${
+                  type === 'heading' ? 'rounded-xl' : 'rounded'
+                }  border-red`
+              : ''
+          }`}
+          value={editText}
+          onChange={onEdit}
+          onBlur={onCancel}
+          autoFocus={true}
+        />
+      ) : (
+        <span
+          className={`bg-transparent text-gray-300 truncate hover:underline ${textClassName} ${
+            errorStatus
+              ? `border-2 ${
+                  type === 'heading' ? 'rounded-xl' : 'rounded'
+                }  border-red`
+              : ''
+          }`}
+          onClick={() => {
             setIsEditing(true);
           }}
-          >
-            {displayText}
-          </span>
-        )}
-        {errorStatus ? (
-          <div
-            className={`absolute font-sans not-italic	text-red ${
-              type === 'heading'
-                ? 'text-base font-normal tracking-normal top-24 left-12'
-                : 'text-small top-12 left-8'
-            }`}
-          >
-            {errorMessage}
-          </div>
-        ) : (
-          <></>
-        )}
+        >
+          {displayText}
+        </span>
+      )}
+      {errorStatus ? (
+        <div
+          className={`absolute font-sans not-italic	text-red ${
+            type === 'heading'
+              ? 'text-base font-normal tracking-normal top-24 left-12'
+              : 'text-small top-12 left-8'
+          }`}
+        >
+          {errorMessage}
+        </div>
+      ) : (
+        <></>
+      )}
     </div>
   );
 }

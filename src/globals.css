@@ -42,3 +42,15 @@ body {
   margin-top: -5px !important;
   z-index: 10000;
 }
+
+input.inherit-font-styling {
+  /* just inherit all font-style, stop user agent stylesheet from setting it */
+  font: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  text-transform: inherit;
+  text-indent: inherit;
+  text-shadow: inherit;
+  text-align: inherit;
+  text-decoration: inherit;
+}
