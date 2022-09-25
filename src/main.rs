@@ -78,7 +78,7 @@ pub struct AppState {
     is_setup: Arc<AtomicBool>,
     uuid: String,
     client_name: Arc<Mutex<String>>,
-    up_since : i64,
+    up_since: i64,
 }
 
 fn restore_instances(
@@ -129,8 +129,11 @@ fn restore_instances(
 }
 
 fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
-    // TODO: create user file if it doesn't exist
-    if std::fs::File::open(path_to_user_json)
+    // create user file if it doesn't exist
+    if std::fs::OpenOptions::new()
+        .read(true)
+        .create(true)
+        .open("foo.txt")
         .unwrap()
         .metadata()
         .unwrap()
@@ -257,7 +260,7 @@ async fn main() {
             "{}'s Lodestone client",
             whoami::realname()
         ))),
-        up_since : chrono::Utc::now().timestamp(),
+        up_since: chrono::Utc::now().timestamp(),
     };
 
     let event_buffer_task = tokio::spawn({
