@@ -48,7 +48,7 @@ const Dashboard: NextPageWithLayout = () => {
   const tabList = ['Console', 'Placeholder'];
 
   return (
-    <div className="px-12 py-10 bg-gray-800">
+    <div className="h-0 px-12 py-10 overflow-y-auto bg-gray-800 grow">
       <div className="flex flex-col items-start gap-4">
         <div className="flex flex-row items-center gap-10">
           <div className="flex flex-row items-center gap-4">

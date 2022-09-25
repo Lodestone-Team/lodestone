@@ -19,7 +19,7 @@ export default function InstanceList() {
   }
 
   return (
-    <div className="flex flex-col px-1.5 pt-1.5 -mx-1.5 overflow-y-auto h-fit gap-y-4 gap grow child:w-full">
+    <div className="flex flex-col px-1.5 pt-1.5 -mx-1.5 overflow-y-auto gap-y-4 gap grow child:w-full h-0 pb-3">
       {instances &&
         Object.values(instances).map((instance) => (
           <InstanceCard
