@@ -12,7 +12,7 @@ type Props = {
   containerClassName?: string;
   textClassName?: string;
   iconClassName?: string;
-  onSubmit?: (arg: string) => void;
+  onSubmit: (arg: string) => { status: number; message: string };
 };
 
 export default function EditableTextfield({
@@ -21,9 +21,7 @@ export default function EditableTextfield({
   containerClassName,
   textClassName,
   iconClassName,
-  onSubmit = () => {
-    //
-  },
+  onSubmit,
 }: Props) {
   const [displayText, setDisplayText] = useState<string>(initialText);
   const [editText, setEditText] = useState<string>(initialText);
@@ -32,7 +30,8 @@ export default function EditableTextfield({
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [error, setError] = useState<string>('');
+  const [errorStatus, setErrorStatus] = useState<number>(0);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
@@ -45,12 +44,16 @@ export default function EditableTextfield({
       setTimeout(resolve, 1000);
     });
     try {
-      await onSubmit(editText);
+      const { status, message } = await onSubmit(editText);
+      setErrorStatus(status);
+      if (status) {
+        setErrorMessage(message);
+      }
     } finally {
       setIsLoading(false);
+      setDisplayText(editText);
+      setIsEditing(false);
     }
-    setDisplayText(editText);
-    setIsEditing(false);
   };
 
   const onCancel = () => {
@@ -82,9 +85,12 @@ export default function EditableTextfield({
     >
       {isLoading ? (
         // <div className={`${type === 'heading' ? 'h-8' : 'h-4'}`}>
-          <BeatLoader size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`} color="#6b7280" />
-        // </div>
-      ) : isEditing ? (
+        <BeatLoader
+          size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`}
+          color="#6b7280"
+        />
+      ) : // </div>
+      isEditing ? (
         <FontAwesomeIcon
           className={`${iconClassName} text-gray-500 ${
             type === 'heading' ? 'h-8' : 'h-4'
@@ -106,21 +112,49 @@ export default function EditableTextfield({
           }}
         />
       )}
-      {isEditing ? (
-        <input
-          className={`bg-transparent text-gray-300 flex-1 tracking-tight focus:outline-none ${textClassName}`}
-          value={editText}
-          onChange={onEdit}
-          onBlur={onCancel}
-          autoFocus={true}
-        />
-      ) : (
-        <span
-          className={`bg-transparent text-gray-300 flex-1 truncate hover:underline ${textClassName}`}
-        >
-          {displayText}
-        </span>
-      )}
+
+      <div className={`flex-1`}>
+        {isEditing ? (
+          <input
+            className={`bg-transparent text-gray-300 tracking-tight focus:outline-none ${textClassName} ${
+              errorStatus
+                ? `border-2 ${
+                    type === 'heading' ? 'rounded-xl pr-2' : 'rounded pr-1'
+                  }  border-red`
+                : ''
+            }`}
+            value={editText}
+            onChange={onEdit}
+            onBlur={onCancel}
+            autoFocus={true}
+          />
+        ) : (
+          <span
+            className={`bg-transparent text-gray-300 truncate hover:underline ${textClassName} ${
+              errorStatus
+                ? `border-2 ${
+                    type === 'heading' ? 'rounded-xl pr-2' : 'rounded pr-1'
+                  }  border-red`
+                : ''
+            }`}
+          >
+            {displayText}
+          </span>
+        )}
+        {errorStatus ? (
+          <div
+            className={`absolute font-sans not-italic	text-red ${
+              type === 'heading'
+                ? 'text-base font-normal tracking-normal top-22'
+                : 'text-small top-10'
+            }`}
+          >
+            {errorMessage}
+          </div>
+        ) : (
+          <></>
+        )}
+      </div>
     </div>
   );
 }
