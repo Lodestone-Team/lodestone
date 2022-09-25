@@ -2,7 +2,6 @@ import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
-import CircleLoader from 'react-spinners/CircleLoader';
 
 export type TextfieldType = 'heading' | 'description';
 
@@ -113,10 +112,9 @@ export default function EditableTextfield({
         />
       )}
 
-      <div className={`flex-1`}>
         {isEditing ? (
           <input
-            className={`bg-transparent text-gray-300 tracking-tight focus:outline-none ${textClassName} ${
+            className={`flex-1 bg-transparent text-gray-300 tracking-tight focus:outline-none ${textClassName} ${
               errorStatus
                 ? `border-2 ${
                     type === 'heading' ? 'rounded-xl pr-2' : 'rounded pr-1'
@@ -130,13 +128,16 @@ export default function EditableTextfield({
           />
         ) : (
           <span
-            className={`bg-transparent text-gray-300 truncate hover:underline ${textClassName} ${
+            className={`flex-1 bg-transparent text-gray-300 truncate hover:underline ${textClassName} ${
               errorStatus
                 ? `border-2 ${
                     type === 'heading' ? 'rounded-xl pr-2' : 'rounded pr-1'
                   }  border-red`
                 : ''
             }`}
+            onClick={() => {
+            setIsEditing(true);
+          }}
           >
             {displayText}
           </span>
@@ -145,8 +146,8 @@ export default function EditableTextfield({
           <div
             className={`absolute font-sans not-italic	text-red ${
               type === 'heading'
-                ? 'text-base font-normal tracking-normal top-22'
-                : 'text-small top-10'
+                ? 'text-base font-normal tracking-normal top-24 left-12'
+                : 'text-small top-12 left-8'
             }`}
           >
             {errorMessage}
@@ -154,7 +155,6 @@ export default function EditableTextfield({
         ) : (
           <></>
         )}
-      </div>
     </div>
   );
 }

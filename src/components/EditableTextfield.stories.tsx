@@ -27,8 +27,18 @@ Description.args = {
   },
 };
 
-export const ErrorTest = Template.bind({});
-ErrorTest.args = {
+export const ErrorHeading = Template.bind({});
+ErrorHeading.args = {
+  initialText: 'Placeholder',
+  type: 'heading',
+  onSubmit: () => {
+    return { status: 1, message: 'Mock Error' };
+  },
+};
+
+
+export const ErrorDescription = Template.bind({});
+ErrorDescription.args = {
   initialText: 'Placeholder',
   type: 'description',
   onSubmit: () => {
