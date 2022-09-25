@@ -6,7 +6,7 @@ export default function SystemStat({
   value?: string
 }) {
   return (
-    <div className="flex flex-row justify-between w-full font-bold tracking-tight text-small text-gray-500">
+    <div className="flex flex-row justify-between w-full gap-1 font-bold tracking-tight text-gray-500 text-small">
       <p>{name.toUpperCase()}:</p>
       <p className="truncate">{value.toUpperCase()}</p>
     </div>

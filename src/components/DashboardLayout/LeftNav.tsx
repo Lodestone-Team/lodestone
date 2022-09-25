@@ -38,7 +38,7 @@ export default function LeftNav() {
       <div className="w-full max-w-xs px-6 mb-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="logo" className="w-full" />
-        <SystemStat name="client name" value={clientInfoLoading ? '...' : systemName} />
+        <SystemStat name="client&nbsp;name" value={clientInfoLoading ? '...' : systemName} />
         <SystemStat name="cpu" value={clientInfoLoading ? "..." : cpu} />
         <SystemStat name="os" value={clientInfoLoading ? "..." : os} />
         <SystemStat name="uptime" value={clientInfoLoading ? "..." : formatDuration(uptime)} />
