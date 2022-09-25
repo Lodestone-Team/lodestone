@@ -1,9 +1,7 @@
-import axios from 'axios';
 import Button from 'components/Button';
 import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
 import { useEffect, useState } from 'react';
-import { useCookies } from 'react-cookie';
 import { useToken } from 'utils/hooks';
 import { pushKeepQuery } from 'utils/util';
 

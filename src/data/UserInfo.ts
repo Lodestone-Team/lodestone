@@ -28,7 +28,7 @@ export interface PublicUser {
 export const useUserInfo = () => {
   return useQuery<PublicUser, AxiosError>(['user', 'info'], () => {
     return axios
-      .get<PublicUser>(`/users/info`)
+      .get<PublicUser>(`/user/info`)
       .then((response) => response.data);
   }, {
     enabled: useContext(LodestoneContext).isReady,

@@ -81,7 +81,7 @@ export const useReactQuerySubscription = () => {
     const websocket = new WebSocket(
       `ws://${address}:${
         port ?? 3000
-      }/api/${apiVersion}/events/stream?token=Bearer ${token}`
+      }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
     websocket.onopen = () => {
       console.log('connected');

@@ -2,7 +2,7 @@ import SystemStat from './SystemStat';
 import InstanceList from './InstanceList';
 import { useState } from 'react';
 import { useIntervalImmediate } from 'utils/hooks';
-import { useCPUInfo, useOsInfo, useUptime } from 'data/SystemInfo';
+import { useClientInfo } from 'data/SystemInfo';
 
 // format duration in seconds to DD:HH:MM:SS
 const formatDuration = (duration: number) => {
@@ -19,29 +19,29 @@ const formatDuration = (duration: number) => {
 
 export default function LeftNav() {
   const {
-    data: osInfo,
-    isLoading: osInfoLoading,
-  } = useOsInfo();
+    data: clientInfo,
+    isLoading: clientInfoLoading
+  } = useClientInfo();
 
-  const {
-    data: upTime,
-    isLoading: upTimeLoading,
-  } = useUptime();
+  const systemName = clientInfoLoading ? '...' : clientInfo?.client_name;
+  const cpu = clientInfoLoading ? '...' : clientInfo?.cpu;
+  const os = clientInfoLoading ? '...' : clientInfo?.os;
+  const up_since = clientInfoLoading ? 0 : clientInfo?.up_since;
 
-  const {
-    data: cpuInfo,
-    isLoading: cpuInfoLoading,
-  } = useCPUInfo();
+  const [uptime, setUptime] = useState(0);
+  useIntervalImmediate(() => {
+    setUptime(up_since ? Date.now() / 1000 - up_since : 0);
+  }, 1000);
 
   return (
     <div className="flex flex-col items-center px-8 pt-10 overflow-x-visible bg-gray-700 border-r border-gray-500">
       <div className="w-full max-w-xs px-6 mb-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="logo" className="w-full" />
-        <SystemStat name="system name" value={"SYSTEM NAME TODO"} />
-        <SystemStat name="cpu" value={cpuInfoLoading ? "..." : cpuInfo?.cpu_vendor} />
-        <SystemStat name="os" value={osInfoLoading ? "..." : osInfo?.os_type} />
-        <SystemStat name="uptime" value={upTimeLoading ? "..." : formatDuration(upTime ?? 0)} />
+        <SystemStat name="client name" value={clientInfoLoading ? '...' : systemName} />
+        <SystemStat name="cpu" value={clientInfoLoading ? "..." : cpu} />
+        <SystemStat name="os" value={clientInfoLoading ? "..." : os} />
+        <SystemStat name="uptime" value={clientInfoLoading ? "..." : formatDuration(uptime)} />
       </div>
       <div className="flex flex-col w-full overflow-x-visible grow">
         <h1 className="mb-4 font-bold text-center truncate text-medium">Server&nbsp;Instances</h1>

@@ -28,7 +28,7 @@ export const useInstanceList = () =>
     ['instances', 'list'],
     () => {
       return axios
-        .get<InstanceInfo[]>('/instances/list')
+        .get<InstanceInfo[]>('/instance/list')
         .then((response) => {
           return response.data.reduce(
             (acc, instance) => ({

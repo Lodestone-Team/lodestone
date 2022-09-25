@@ -65,7 +65,7 @@ export default function InstanceCard({
     setLoading(true);
 
     axios
-      .post(`/instances${stateToApiEndpointMap[state]}/${uuid}`)
+      .put(`/instance/${uuid}${stateToApiEndpointMap[state]}`)
       .then((response) => {
         response.data;
       })

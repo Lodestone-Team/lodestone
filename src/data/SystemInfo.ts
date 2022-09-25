@@ -56,32 +56,27 @@ export const useCPUInfo = () => {
   );
 };
 
-export interface OsInfo {
-  os_release: string;
-  os_type: string;
+export interface ClientInfo{
+  version: string;
+  is_setup: boolean;
+  os: string;
+  arch: string;
+  cpu: string;
+  cpu_count: number;
+  total_ram: number;
+  total_disk: number;
+  host_name: string;
+  uuid: string;
+  client_name: string;
+  up_since: number;
 }
 
-export const useOsInfo = () => {
-  return useQuery<OsInfo, AxiosError>(
-    ['systeminfo', 'osinfo'],
-    () => axios.get<OsInfo>(`/system/os`).then((res) => res.data),
+export const useClientInfo = () => {
+  return useQuery<ClientInfo, AxiosError>(
+    ['systeminfo', 'clientinfo'],
+    () => axios.get<ClientInfo>(`/info`).then((res) => res.data),
     {
       enabled: useContext(LodestoneContext).isReady,
-    }
-  );
-};
-
-export interface Uptime {
-  uptime: number;
-}
-
-export const useUptime = () => {
-  return useQuery<number, AxiosError>(
-    ['systeminfo', 'uptime'],
-    () => axios.get<Uptime>(`/system/uptime`).then((res) => res.data.uptime),
-    {
-      enabled: useContext(LodestoneContext).isReady,
-      refetchInterval: 1000,
     }
   );
 };
