@@ -3,17 +3,16 @@
 use crate::{
     handlers::instance::{list_instance, start_instance},
     handlers::{
-        client_info::get_client_info,
-        events::{console_stream, event_stream, get_console_out_buffer, get_event_buffer},
+        events::{event_stream, get_event_buffer, console_stream, get_console_out_buffer},
         instance::{
             create_instance, get_instance_state, kill_instance, remove_instance, send_command,
             stop_instance,
         },
-        system::{get_cpu_info, get_disk, get_ram},
-        users::{
-            change_password, delete_user, get_self_info, get_user_info, login, new_user,
-            update_permissions,
+        system::{
+            get_cpu, get_disk, get_os_info, get_ram,
+            get_uptime,
         },
+        users::{change_password, delete_user, get_user_info, login, new_user, update_permissions, get_self_info},
     },
     traits::Error,
     util::rand_alphanumeric,
@@ -29,15 +28,14 @@ use json_store::user::User;
 use log::{debug, info};
 use rand_core::OsRng;
 use reqwest::{header, Method};
-use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use semver::{BuildMetadata, Prerelease};
+use ringbuffer::{AllocRingBuffer, RingBufferExt, RingBufferWrite};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
     collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
 };
 use tokio::{
     fs::create_dir_all,
@@ -50,7 +48,6 @@ use tokio::{
 use tower_http::cors::{Any, CorsLayer};
 use traits::{t_configurable::TConfigurable, TInstance};
 use util::list_dir;
-use uuid::Uuid;
 mod events;
 mod handlers;
 mod implementations;
@@ -58,15 +55,6 @@ mod json_store;
 mod stateful;
 mod traits;
 mod util;
-thread_local! {
-    pub static VERSION: semver::Version = semver::Version {
-        major: 0,
-        minor: 0,
-        patch: 1,
-        pre: Prerelease::new("alpha.1").unwrap(),
-        build: BuildMetadata::EMPTY,
-    };
-}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -75,10 +63,6 @@ pub struct AppState {
     events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
     console_out_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
     event_broadcaster: Sender<Event>,
-    is_setup: Arc<AtomicBool>,
-    uuid: String,
-    client_name: Arc<Mutex<String>>,
-    up_since : i64,
 }
 
 fn restore_instances(
@@ -251,13 +235,6 @@ async fn main() {
         events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
         console_out_buffer: Arc::new(Mutex::new(stateful_console_out_buffer)),
         event_broadcaster: tx.clone(),
-        is_setup: Arc::new(AtomicBool::new(false)),
-        uuid: Uuid::new_v4().to_string(),
-        client_name: Arc::new(Mutex::new(format!(
-            "{}'s Lodestone client",
-            whoami::realname()
-        ))),
-        up_since : chrono::Utc::now().timestamp(),
     };
 
     let event_buffer_task = tokio::spawn({
@@ -325,8 +302,9 @@ async fn main() {
         .route("/users/passwd", post(change_password))
         .route("/system/memory", get(get_ram))
         .route("/system/disk", get(get_disk))
-        .route("/system/cpu", get(get_cpu_info))
-        .route("/manifest", get(get_client_info))
+        .route("/system/cpu", get(get_cpu))
+        .route("/system/os", get(get_os_info))
+        .route("/system/uptime", get(get_uptime))
         .layer(Extension(shared_state))
         .layer(cors);
     let app = Router::new().nest("/api/v1", api_routes);

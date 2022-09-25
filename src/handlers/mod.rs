@@ -6,4 +6,3 @@ pub mod events;
 pub mod instance;
 pub mod users;
 mod util;
-pub mod client_info;
