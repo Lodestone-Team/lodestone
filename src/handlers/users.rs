@@ -15,7 +15,6 @@ use axum_auth::{AuthBasic, AuthBearer};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use systemstat::Utc;
 use ts_rs::TS;
 
 use super::util::{hash_password, is_authorized, try_auth};
@@ -37,7 +36,7 @@ struct PermissionsUpdateSchema {
 }
 
 fn create_jwt(user: &User, jwt_secret: &str) -> Result<String, Error> {
-    let exp = Utc::now()
+    let exp = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::days(1))
         .expect("valid timestamp")
         .timestamp();
