@@ -203,7 +203,7 @@ pub fn unzip_file(
             .arg("x")
             .arg(file)
             .arg(format!("-o{}", dest.display()))
-            .arg("aoa")
+            .arg("-aoa")
             .status()
             .map_err(|_| Error {
                 inner: ErrorInner::FailedToExecute,
