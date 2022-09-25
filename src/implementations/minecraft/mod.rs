@@ -232,7 +232,7 @@ impl Instance {
                         idempotency.clone(),
                     ));
                 }
-            })
+            }, true)
             .await?;
             let _ = event_broadcaster.send(Event::new(
                 EventInner::Setup(SetupProgress {
@@ -314,6 +314,8 @@ impl Instance {
                             ));
                         }
                     },
+                    true,
+
                 )
                 .await?
             }
@@ -350,6 +352,7 @@ impl Instance {
                             ));
                         }
                     },
+                    true,
                 )
                 .await?
             }

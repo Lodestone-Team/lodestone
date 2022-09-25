@@ -6,6 +6,7 @@ use rand::{thread_rng, Rng};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tokio::fs::remove_file;
 
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -39,6 +40,7 @@ pub async fn download_file(
     path: &Path,
     name_override: Option<&str>,
     on_download: &(dyn Fn(DownloadProgress) + Send + Sync),
+    overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
     let client = Client::new();
     let response = client.get(url).send().await.map_err(|_| Error {
@@ -73,12 +75,13 @@ pub async fn download_file(
             .unwrap_or("unknown")
             .replace('\"', "");
     }
-    if path.join(&file_name).exists() {
+    if overwrite_old && path.join(&file_name).exists() {
         return Err(Error {
             inner: ErrorInner::FiledOrDirAlreadyExists,
             detail: format!("{} already exists", path.join(&file_name).display()),
         });
     }
+    remove_file(path.join(&file_name)).await.ok();
     let total_size = response.content_length().unwrap_or(0);
     let pb = ProgressBar::new(total_size);
     pb.set_style(ProgressStyle::default_bar()
