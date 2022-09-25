@@ -7,7 +7,7 @@ use crate::{
         events::{console_stream, event_stream, get_console_out_buffer, get_event_buffer},
         instance::{
             create_instance, get_instance_state, kill_instance, remove_instance, send_command,
-            stop_instance,
+            stop_instance, get_player_count, get_max_player_count, get_player_list,
         },
         system::{get_cpu_info, get_disk, get_ram},
         users::{
@@ -20,7 +20,7 @@ use crate::{
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Extension, Router,
 };
 use events::Event;
@@ -299,6 +299,7 @@ async fn main() {
         .allow_methods([
             Method::GET,
             Method::POST,
+            Method::PUT,
             Method::OPTIONS,
             Method::PATCH,
             Method::DELETE,
@@ -307,25 +308,28 @@ async fn main() {
         .allow_origin(Any);
 
     let api_routes = Router::new()
-        .route("/events/stream", get(event_stream))
-        .route("/events/buffer/:uuid", get(get_event_buffer))
-        .route("/console/stream/", get(console_stream))
-        .route("/console/buffer/:uuid", get(get_console_out_buffer))
-        .route("/instances/list", get(list_instance))
-        .route("/instances/new/:idempotency", post(create_instance))
-        .route("/instances/start/:uuid", post(start_instance))
-        .route("/instances/stop/:uuid", post(stop_instance))
-        .route("/instances/remove/:uuid", post(remove_instance))
-        .route("/instances/kill/:uuid", post(kill_instance))
-        .route("/instances/send/:uuid/:cmd", post(send_command))
-        .route("/instances/state/:uuid", get(get_instance_state))
-        .route("/users/create", post(new_user))
-        .route("/users/delete/:uid", delete(delete_user))
-        .route("/users/info", get(get_self_info))
-        .route("/users/info/:uid", get(get_user_info))
-        .route("/users/update_perm", post(update_permissions))
-        .route("/users/login", get(login))
-        .route("/users/passwd", post(change_password))
+        .route("/events/:uuid/stream", get(event_stream))
+        .route("/events/:uuid/buffer", get(get_event_buffer))
+        .route("/instance/:uuid/console/stream", get(console_stream))
+        .route("/instance/:uuid/console/buffer", get(get_console_out_buffer))
+        .route("/instance/:uuid/console", post(send_command))
+        .route("/instance/list", get(list_instance))
+        .route("/instance/create", post(create_instance))
+        .route("/instance/:uuid/start", put(start_instance))
+        .route("/instance/:uuid/stop", put(stop_instance))
+        .route("/instance/:uuid/delete", put(remove_instance))
+        .route("/instance/:uuid/kill", put(kill_instance))
+        .route("/instance/:uuid/state", get(get_instance_state))
+        .route("/instance/:uuid/player_count", get(get_player_count))
+        .route("/instance/:uuid/max_player_count", get(get_max_player_count))
+        .route("/instance/:uuid/player_list", get(get_player_list))
+        .route("/user/create", post(new_user))
+        .route("/user/:user_id/delete", put(delete_user))
+        .route("/user/info", get(get_self_info))
+        .route("/user/:user_id/info", get(get_user_info))
+        .route("/user/update_perm", put(update_permissions))
+        .route("/user/login", get(login))
+        .route("/user/passwd", put(change_password))
         .route("/system/memory", get(get_ram))
         .route("/system/disk", get(get_disk))
         .route("/system/cpu", get(get_cpu_info))

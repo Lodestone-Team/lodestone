@@ -79,13 +79,13 @@ pub async fn get_console_out_buffer(
 #[derive(Deserialize)]
 pub struct WebsocketQuery {
     token: String,
-    uuid: String,
 }
 
 pub async fn event_stream(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
     query: Query<WebsocketQuery>,
+    Path(uuid): Path<String>,
 ) -> Result<Response, Error> {
     let users = state.users.lock().await;
 
@@ -100,7 +100,7 @@ pub async fn event_stream(
     let event_receiver = state.event_broadcaster.subscribe();
 
     Ok(ws.on_upgrade(move |socket| {
-        event_stream_ws(socket, event_receiver, query.uuid.clone(), user.uid, users)
+        event_stream_ws(socket, event_receiver, uuid.clone(), user.uid, users)
     }))
 }
 
@@ -141,8 +141,9 @@ pub async fn console_stream(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
     query: Query<WebsocketQuery>,
+    Path(uuid): Path<String>,
 ) -> Result<Response, Error> {
-    let uuid = query.uuid.as_str().to_owned();
+    let uuid = uuid.as_str().to_owned();
     let users = state.users.lock().await;
 
     let user = parse_bearer_token(query.token.as_str())
