@@ -2,9 +2,8 @@ use std::{env, sync::atomic::Ordering};
 
 use crate::{AppState, VERSION};
 use axum::{Extension, Json};
-use raw_cpuid::CpuId;
 use serde::{Deserialize, Serialize};
-use sysinfo::{DiskExt, System, SystemExt};
+use sysinfo::{DiskExt, System, SystemExt, CpuExt};
 
 #[derive(Serialize, Deserialize)]
 pub struct ClientInfo {
@@ -23,21 +22,14 @@ pub struct ClientInfo {
 }
 
 pub async fn get_client_info(Extension(state): Extension<AppState>) -> Json<ClientInfo> {
-    let cpu = CpuId::new();
     let sys = System::new_all();
     Json(ClientInfo {
         version: VERSION.with(|v| v.clone()),
         is_setup: state.is_setup.load(Ordering::Relaxed),
         os: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
-        cpu: cpu
-            .get_processor_brand_string()
-            .map_or_else(|| "Unknown".to_string(), |v| v.as_str().to_string()),
-        cpu_count: cpu
-            .get_feature_info()
-            .map(|v| v.max_logical_processor_ids())
-            .unwrap_or(0)
-            .into(),
+        cpu: sys.cpus().first().unwrap().brand().to_string(),
+        cpu_count: sys.cpus().len() as u32,
         host_name: sys
             .host_name()
             .unwrap_or_else(|| "Unknown Hostname".to_string()),

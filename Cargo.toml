@@ -53,7 +53,6 @@ jsonwebtoken = "8.1.1"
 chrono = "0.4.22"
 ringbuffer = "0.8.5"
 semver = {version="1.0", features = ["serde"]}
-raw-cpuid = "10.6.0"
 whoami = "1.2.3"
 [dependencies.uuid]
 version = "1.1.2"

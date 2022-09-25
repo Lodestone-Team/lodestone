@@ -30,7 +30,6 @@ dependencies = [
  "log",
  "rand 0.6.5",
  "rand_core 0.6.3",
- "raw-cpuid",
  "reqwest",
  "ringbuffer",
  "rlua",
@@ -1453,15 +1452,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
 dependencies = [
  "rand_core 0.3.1",
-]
-
-[[package]]
-name = "raw-cpuid"
-version = "10.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6823ea29436221176fe662da99998ad3b4db2c7f31e7b6f5fe43adccd6320bb"
-dependencies = [
- "bitflags",
 ]
 
 [[package]]
