@@ -153,7 +153,11 @@ pub fn unzip_file(
     let before: HashSet<PathBuf>;
 
     // TODO: remove hardcoded temp dir
-    let tmp_dir = dest.join("tmp_1c92md");
+    let tmp_dir = dest.join(format!("tmp_{}", rand_alphanumeric(5)));
+    std::fs::create_dir_all(&tmp_dir).map_err(|_| Error {
+        inner: ErrorInner::FailedToWriteFileOrDir,
+        detail: format!("Failed to create directory {}", tmp_dir.display()),
+    })?;
     if file.extension().ok_or(Error {
         inner: ErrorInner::MalformedFile,
         detail: "Not a zip file".to_string(),
