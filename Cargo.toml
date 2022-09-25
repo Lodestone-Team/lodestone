@@ -39,8 +39,7 @@ indicatif = "0.15.0"
 fs_extra = "1.2.0"
 
 sanitize-filename = "0.4.0"
-sys-info = "0.9.1"
-systemstat = "0.1.10"
+sysinfo = "0.26.2"
 rlua = "0.19.1"
 rand = "0.6.5"
 log = "0.4.17"
@@ -53,6 +52,9 @@ axum-auth = "0.2"
 jsonwebtoken = "8.1.1"
 chrono = "0.4.22"
 ringbuffer = "0.8.5"
+semver = {version="1.0", features = ["serde"]}
+raw-cpuid = "10.6.0"
+whoami = "1.2.3"
 [dependencies.uuid]
 version = "1.1.2"
 features = [
