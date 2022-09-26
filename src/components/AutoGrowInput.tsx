@@ -1,3 +1,5 @@
+
+// Note: children should only be used for absolute positioned elements
 export default function AutoGrowInput({
   value,
   onChange,
@@ -5,6 +7,7 @@ export default function AutoGrowInput({
   className = '',
   textClassName = '',
   autoFocus = false,
+  children,
 }: {
   value: string;
   onChange: (arg: React.ChangeEvent<HTMLInputElement>) => void;
@@ -12,6 +15,7 @@ export default function AutoGrowInput({
   className?: string;
   textClassName?: string;
   autoFocus?: boolean;
+  children?: React.ReactNode;
 }) {
   return (
     <div className={`inline-grid items-center justify-start ${className}`}>
@@ -34,6 +38,7 @@ export default function AutoGrowInput({
       >
         {value}
       </span>
+      {children}
     </div>
   );
 }

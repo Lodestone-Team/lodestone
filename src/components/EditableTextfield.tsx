@@ -79,14 +79,27 @@ export default function EditableTextfield({
     };
   });
 
+  const errorNode = errorStatus ? (
+    <div
+      className={`absolute text-right font-sans not-italic text-red ${
+        type === 'heading'
+          ? 'text-base font-normal tracking-normal -bottom-[1.3em] left-10'
+          : 'text-small -bottom-[1.3em] left-6'
+      }`}
+    >
+      {errorMessage}
+    </div>
+  ) : null;
+
+  const iconSize = type === 'heading' ? 'w-8' : 'w-4';
+
   return (
     <div
-      className={`flex flex-row justify-start items-center gap-2 tracking-tight ${
+      className={`relative flex flex-row justify-start items-center gap-2 tracking-tight group ${
         type === 'heading' ? 'font-semibold font-heading text-xlarge' : 'italic'
       } ${containerClassName}`}
     >
       {isLoading ? (
-        // <div className={`${type === 'heading' ? 'h-8' : 'h-4'}`}>
         <BeatLoader
           size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`}
           cssOverride={{
@@ -96,46 +109,40 @@ export default function EditableTextfield({
           }}
           color="#6b7280"
         />
-      ) : // </div>
-      isEditing ? (
-        <FontAwesomeIcon
-          className={`${iconClassName} text-gray-500 ${
-            type === 'heading' ? 'w-8' : 'w-4'
-          }`}
-          icon={faFloppyDisk}
-          onMouseDown={(e) => {
-            e.preventDefault();
-          }}
-          onClick={onSave}
-        />
       ) : (
         <FontAwesomeIcon
-          className={`text-gray-500 ${
-            type === 'heading' ? 'w-8' : 'w-4'
-          } ${iconClassName}`}
-          icon={faPenToSquare}
+          className={`text-gray-faded/30 group-hover:text-gray-500 hover:cursor-pointer ${iconSize} ${iconClassName}`}
+          icon={isEditing ? faFloppyDisk : faPenToSquare}
+          onMouseDown={(e) => {
+            if (isEditing) e.preventDefault();
+          }}
           onClick={() => {
-            setIsEditing(true);
+            if (isEditing) {
+              onSave();
+            } else {
+              setIsEditing(true);
+            }
           }}
         />
       )}
 
-      {true ? (
+      {isEditing ? (
         <AutoGrowInput
-          className={`${type === 'heading' ? 'rounded-xl' : 'rounded'} ${
-            errorStatus ? `border-2 border-red` : ''
-          }`}
+          className={`
+          ${type === 'heading' ? 'rounded-xl' : 'rounded'} 
+          ${errorStatus ? `border-2 border-red` : ''}`}
           textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
           value={editText}
           onChange={onEdit}
           onBlur={onCancel}
           autoFocus={true}
-        />
+        ></AutoGrowInput>
       ) : (
         <span
-          className={`${type === 'heading' ? 'rounded-xl' : 'rounded'} ${
-            errorStatus ? `border-2 border-red` : ''
-          } bg-transparent text-gray-300 truncate hover:underline ${textClassName}`}
+          className={`
+          ${type === 'heading' ? 'rounded-xl' : 'rounded'} 
+          ${errorStatus ? `border-2 border-red` : ''}
+          bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}
@@ -143,19 +150,7 @@ export default function EditableTextfield({
           {displayText}
         </span>
       )}
-      {errorStatus ? (
-        <div
-          className={`absolute font-sans not-italic	text-red ${
-            type === 'heading'
-              ? 'text-base font-normal tracking-normal top-24 left-12'
-              : 'text-small top-12 left-8'
-          }`}
-        >
-          {errorMessage}
-        </div>
-      ) : (
-        <></>
-      )}
+      {errorNode}
     </div>
   );
 }
