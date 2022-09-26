@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use ts_rs::TS;
 
-use crate::traits::MaybeUnsupported::{Supported, Unsupported};
+use crate::traits::{Supported, Unsupported};
 
 use super::util::{is_authorized, try_auth};
 use crate::json_store::permission::Permission::{self};
@@ -55,14 +55,8 @@ pub async fn list_instance(
                     game_type: instance.game_type(),
                     flavour: instance.flavour(),
                     state: instance.state(),
-                    player_count: match instance.get_player_count() {
-                        Supported(x) => x,
-                        Unsupported => 0,
-                    },
-                    max_player_count: match instance.get_max_player_count() {
-                        Supported(x) => x,
-                        Unsupported => 0,
-                    },
+                    player_count: instance.get_player_count().unwrap_or(0),
+                    max_player_count: instance.get_max_player_count().unwrap_or(0),
                     creation_time: instance.creation_time(),
                 }
             }),
@@ -392,9 +386,9 @@ pub async fn send_command(
         .await
         .send_command(&query.command)
     {
-        crate::traits::MaybeUnsupported::Supported(v) => v.map(|_| Json(json!("ok"))),
-        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
-            inner: ErrorInner::InstanceNotFound,
+        Supported(v) => v.map(|_| Json(json!("ok"))),
+        Unsupported => Err(Error {
+            inner: ErrorInner::UnsupportedOperation,
             detail: "".to_string(),
         }),
     }
@@ -435,8 +429,8 @@ pub async fn get_player_count(
         .await
         .get_player_count()
     {
-        crate::traits::MaybeUnsupported::Supported(v) => Ok(Json(v)),
-        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
+        Supported(v) => Ok(Json(v)),
+        Unsupported => Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "".to_string(),
         }),
@@ -460,8 +454,8 @@ pub async fn get_max_player_count(
         .await
         .get_max_player_count()
     {
-        crate::traits::MaybeUnsupported::Supported(v) => Ok(Json(v)),
-        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
+        Supported(v) => Ok(Json(v)),
+        Unsupported => Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "".to_string(),
         }),
@@ -485,8 +479,8 @@ pub async fn get_player_list(
         .await
         .get_player_list()
     {
-        crate::traits::MaybeUnsupported::Supported(v) => Ok(Json(v)),
-        crate::traits::MaybeUnsupported::Unsupported => Err(Error {
+        Supported(v) => Ok(Json(v)),
+        Unsupported => Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "".to_string(),
         }),

@@ -4,7 +4,7 @@ pub use serde_json;
 pub use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::MaybeUnsupported;
+use crate::traits::{MaybeUnsupported, Unsupported};
 
 pub trait TConfigurable {
     // getters
@@ -13,7 +13,7 @@ pub trait TConfigurable {
     fn flavour(&self) -> String;
     fn game_type(&self) -> String;
     fn jvm_args(&self) -> MaybeUnsupported<Vec<String>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn description(&self) -> String;
     fn port(&self) -> u32;
@@ -24,19 +24,19 @@ pub trait TConfigurable {
     /// does start when lodestone starts
     fn auto_start(&self) -> bool;
     fn restart_on_crash(&self) -> MaybeUnsupported<bool> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn start_on_connection(&self) -> MaybeUnsupported<bool> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn get_flavours(&self) -> Vec<String> {
         vec![]
@@ -50,49 +50,49 @@ pub trait TConfigurable {
         &mut self,
         _jvm_args: Vec<String>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_min_ram(&mut self, _min_ram: u32) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_max_ram(&mut self, _max_ram: u32) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_auto_start(
         &mut self,
         _auto_start: bool,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_restart_on_crash(
         &mut self,
         _restart_on_crash: bool,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_timeout_last_left(
         &mut self,
         _timeout_last_left: Option<u32>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_timeout_no_activity(
         &mut self,
         _timeout_no_activity: Option<u32>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_start_on_connection(
         &mut self,
         _start_on_connection: bool,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
     fn set_backup_period(
         &mut self,
         _backup_period: Option<u32>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
 
     // server config files (server.properties)

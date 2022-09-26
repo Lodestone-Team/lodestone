@@ -6,7 +6,7 @@ use serde_json;
 
 
 
-use super::MaybeUnsupported;
+use super::{MaybeUnsupported, Unsupported};
 
 pub enum ResourceType {
     Unknown,
@@ -33,15 +33,15 @@ pub trait TResourceManagement {
     }
 
     fn load(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
 
     fn unload(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
 
 
     fn delete(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
-        MaybeUnsupported::Unsupported
+        Unsupported
     }
 }

@@ -9,7 +9,7 @@ use std::{
 use serde_json::json;
 
 use crate::traits::{
-    self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, MaybeUnsupported::Supported,
+    self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, Supported,
 };
 
 use crate::traits::Error;

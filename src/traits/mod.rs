@@ -12,10 +12,11 @@ pub mod t_player;
 pub mod t_resource;
 pub mod t_macro;
 
-pub enum MaybeUnsupported<T> {
-    Supported(T),
-    Unsupported,
-}
+pub type MaybeUnsupported<T> = Option<T>;
+pub use core::option::Option::None as Unsupported;
+pub use core::option::Option::Some as Supported;
+
+
 #[derive(Debug, Serialize)]
 pub enum ErrorInner {
     // IO errors:

@@ -6,7 +6,7 @@ use crate::events::{Event, EventInner};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{State, TServer};
 
-use crate::traits::{Error, ErrorInner, MaybeUnsupported};
+use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
 
 use super::Instance;
 use log::{error, info, warn};
@@ -431,7 +431,7 @@ impl TServer for Instance {
     }
 
     fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), Error>> {
-        MaybeUnsupported::Supported(if self.state() == State::Stopped {
+        Supported(if self.state() == State::Stopped {
             Err(Error {
                 inner: ErrorInner::InstanceStopped,
                 detail: "Instance not running".to_string(),
