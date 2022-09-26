@@ -48,11 +48,13 @@ export default function EditableTextfield({
       setErrorStatus(status);
       if (status) {
         setErrorMessage(message);
+        setIsEditing(true);
+      } else {
+        setIsEditing(false);
       }
     } finally {
       setIsLoading(false);
       setDisplayText(editText);
-      setIsEditing(false);
     }
   };
 
@@ -118,15 +120,12 @@ export default function EditableTextfield({
         />
       )}
 
-      {isEditing ? (
+      {true ? (
         <AutoGrowInput
-          className={`bg-transparent text-gray-300 tracking-tight focus:outline-none ${textClassName} ${
-            errorStatus
-              ? `border-2 ${
-                  type === 'heading' ? 'rounded-xl' : 'rounded'
-                }  border-red`
-              : ''
+          className={`${type === 'heading' ? 'rounded-xl' : 'rounded'} ${
+            errorStatus ? `border-2 border-red` : ''
           }`}
+          textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
           value={editText}
           onChange={onEdit}
           onBlur={onCancel}
@@ -134,13 +133,9 @@ export default function EditableTextfield({
         />
       ) : (
         <span
-          className={`bg-transparent text-gray-300 truncate hover:underline ${textClassName} ${
-            errorStatus
-              ? `border-2 ${
-                  type === 'heading' ? 'rounded-xl' : 'rounded'
-                }  border-red`
-              : ''
-          }`}
+          className={`${type === 'heading' ? 'rounded-xl' : 'rounded'} ${
+            errorStatus ? `border-2 border-red` : ''
+          } bg-transparent text-gray-300 truncate hover:underline ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}

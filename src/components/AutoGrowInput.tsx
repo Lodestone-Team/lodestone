@@ -3,12 +3,14 @@ export default function AutoGrowInput({
   onChange,
   onBlur,
   className = '',
+  textClassName = '',
   autoFocus = false,
 }: {
   value: string;
   onChange: (arg: React.ChangeEvent<HTMLInputElement>) => void;
   onBlur: (arg: React.FocusEvent<HTMLInputElement>) => void;
   className?: string;
+  textClassName?: string;
   autoFocus?: boolean;
 }) {
   return (
@@ -20,7 +22,7 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className="w-full p-0 border-none inherit-font-styling pr-[0.5ch]"
+        className={`w-full p-0 border-none ${textClassName}`}
         autoFocus={autoFocus}
         size={1}
       />
@@ -28,7 +30,7 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className="invisible not-italic whitespace-pre pr-[0.5ch]"
+        className={`invisible whitespace-pre  ${textClassName}`}
       >
         {value}
       </span>

@@ -43,7 +43,7 @@ body {
   z-index: 10000;
 }
 
-input.inherit-font-styling {
+input {
   /* just inherit all font-style, stop user agent stylesheet from setting it */
   font: inherit;
   letter-spacing: inherit;
