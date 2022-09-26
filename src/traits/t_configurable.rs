@@ -12,9 +12,7 @@ pub trait TConfigurable {
     fn name(&self) -> String;
     fn flavour(&self) -> String;
     fn game_type(&self) -> String;
-    fn jvm_args(&self) -> MaybeUnsupported<Vec<String>> {
-        Unsupported
-    }
+    fn cmd_args(&self) -> Vec<String>;
     fn description(&self) -> String;
     fn port(&self) -> u32;
     fn min_ram(&self) -> MaybeUnsupported<u32>;

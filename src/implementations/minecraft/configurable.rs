@@ -33,8 +33,8 @@ impl TConfigurable for Instance {
         self.config.flavour.to_string()
     }
 
-    fn jvm_args(&self) -> MaybeUnsupported<Vec<String>> {
-        Supported(self.config.jvm_args.clone())
+    fn cmd_args(&self) -> Vec<String> {
+        self.config.jvm_args.clone()
     }
 
     fn description(&self) -> String {
