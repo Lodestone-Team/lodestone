@@ -40,7 +40,7 @@ export default function EditableTextfield({
 
   const onSave = async () => {
     setIsLoading(true);
-    const trimmedText = editText.trim()
+    const trimmedText = editText.trim();
     await new Promise((resolve) => {
       setTimeout(resolve, 1000);
     });
@@ -52,11 +52,11 @@ export default function EditableTextfield({
         setIsEditing(true);
       } else {
         setIsEditing(false);
+        setDisplayText(trimmedText);
+        setEditText(trimmedText);
       }
     } finally {
       setIsLoading(false);
-      setDisplayText(trimmedText);
-      setEditText(trimmedText);
     }
   };
 
@@ -146,7 +146,7 @@ export default function EditableTextfield({
           ml-[-0.25rem] pl-1 pr-[0.50ch]
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}
-          bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
+          bg-transparent text-gray-300 truncate group-hover:underline whitespace-pre ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}
