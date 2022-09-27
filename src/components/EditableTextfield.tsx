@@ -143,7 +143,7 @@ export default function EditableTextfield({
       ) : (
         <span
           className={`
-          ml-[-0.25rem] pl-1
+          ml-[-0.25rem] pl-1 pr-[0.50ch]
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}
           bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
