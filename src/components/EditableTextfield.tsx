@@ -40,11 +40,12 @@ export default function EditableTextfield({
 
   const onSave = async () => {
     setIsLoading(true);
+    const trimmedText = editText.trim()
     await new Promise((resolve) => {
       setTimeout(resolve, 1000);
     });
     try {
-      const { status, message } = await onSubmit(editText);
+      const { status, message } = await onSubmit(trimmedText);
       setErrorStatus(status);
       if (status) {
         setErrorMessage(message);
@@ -54,7 +55,8 @@ export default function EditableTextfield({
       }
     } finally {
       setIsLoading(false);
-      setDisplayText(editText);
+      setDisplayText(trimmedText);
+      setEditText(trimmedText);
     }
   };
 
@@ -129,7 +131,8 @@ export default function EditableTextfield({
       {isEditing ? (
         <AutoGrowInput
           className={`
-          ${type === 'heading' ? 'rounded-xl' : 'rounded'} 
+          ml-[-0.25rem] pl-1 pr-2
+          ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}`}
           textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
           value={editText}
@@ -140,7 +143,8 @@ export default function EditableTextfield({
       ) : (
         <span
           className={`
-          ${type === 'heading' ? 'rounded-xl' : 'rounded'} 
+          ml-[-0.25rem] pl-1 pr-2
+          ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}
           bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
           onClick={() => {
