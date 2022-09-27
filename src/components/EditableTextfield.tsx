@@ -131,7 +131,7 @@ export default function EditableTextfield({
       {isEditing ? (
         <AutoGrowInput
           className={`
-          ml-[-0.25rem] pl-1 pr-2
+          ml-[-0.25rem] pl-1 pr-1 mr-2 
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}`}
           textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
@@ -143,7 +143,7 @@ export default function EditableTextfield({
       ) : (
         <span
           className={`
-          ml-[-0.25rem] pl-1 pr-2
+          ml-[-0.25rem] pl-1 pr-1 mr-2
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}
           bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
