@@ -78,45 +78,41 @@ export default function InstanceCard({
   };
 
   const stateColor = stateToLabelColor[state];
-  const playerCountColor = state == 'Running' ? 'green' : 'gray-500';
   const borderClass = stateToBorderMap[state];
   const actionMessage = stateToActionMessageMap[state];
 
   return (
     <div
-      className={`select-none hover:cursor-pointer hover:bg-gray-900 flex flex-col p-3 font-bold tracking-tight bg-gray-800 rounded-xl gap-y-3 w-fit ${
+      className={`select-none hover:cursor-pointer hover:bg-gray-900 flex flex-col py-4 px-6 font-semibold tracking-tight bg-gray-800 rounded-xl gap-y-4 w-fit items-stretc group ${
         focus ? `outline bg-gray-900 outline-2 ring-[6px] ${borderClass}` : ''
       }`}
       onClick={cardOnClick}
     >
-      <div className="flex flex-row items-center">
-        <div className="flex flex-col min-w-0 grow">
-          <div className="flex flex-row gap-x-2">
-            <Label size="small" color={stateColor}>
-              {capitalizeFirstLetter(state)}
-            </Label>
-            <h1 className="text-gray-300 truncate">{name}</h1>
-          </div>
-          <h1 className={`text-${playerCountColor} truncate`}>
-            {player_count}/{max_player_count} Players
+      <div className="flex flex-col min-w-0 grow">
+        <h1 className="text-gray-300 truncate">{name}</h1>
+        <div className="flex flex-row items-center gap-x-2">
+          <h1 className={`text-${stateColor} truncate px-1 -mx-1`}>
+            {player_count}/{max_player_count}
           </h1>
-          <ClipboardTextfield
-            text={`${lodestoneContex.address}:${port}`}
-            className="text-gray-300 truncate text-small"
-          />
+          <Label size="small" color={stateColor}>
+            {capitalizeFirstLetter(state)}
+          </Label>
         </div>
+      </div>
+
+      <div className="flex flex-row items-center justify-between">
+        <Button
+          label={actionMessage}
+          onClick={buttonOnClick}
+          loading={loading}
+          className="w-20 truncate"
+        />
         <img
           src="/assets/minecraft-vanilla.png"
           alt={`${game_type} logo`}
           className="w-8 h-8"
         />
       </div>
-      <Button
-        label={actionMessage}
-        onClick={buttonOnClick}
-        loading={loading}
-        className="truncate"
-      />
     </div>
   );
 }

@@ -42,7 +42,7 @@ module.exports = {
       'title': ['Chillax', ...defaultTheme.fontFamily.sans],
     },
     fontSize: {
-      'small': '0.7rem',
+      'small': '0.6rem',
       'base': '1rem',
       'medium': '1.5rem',
       'large': '2rem',
