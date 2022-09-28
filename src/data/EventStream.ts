@@ -43,7 +43,7 @@ export interface Event {
   idempotency: string;
 }
 
-export const useReactQuerySubscription = () => {
+export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
   const { token } = useToken();
