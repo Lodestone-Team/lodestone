@@ -7,12 +7,10 @@ export default function ClipboardTextfield({
   text,
   textToCopy,
   className,
-  iconClassName,
 }: {
   text: string;
   textToCopy?: string;
   className?: string;
-  iconClassName?: string;
 }) {
   const onClickCopy = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -23,12 +21,12 @@ export default function ClipboardTextfield({
 
   return (
     <div
-      className={`${className} hover:cursor-pointer w-fit select-none group`}
+      className={`hover:cursor-pointer select-none group ${className}`}
       onClick={onClickCopy}
       title="Click to Copy"
     > {/* TODO develop custom tooltip component */}
       {text}&nbsp;&nbsp;
-      <FontAwesomeIcon className={`${iconClassName} text-gray-faded/30 group-hover:text-gray-500`} icon={faClone} />
+      <FontAwesomeIcon className={`text-gray-faded/30 group-hover:text-gray-500`} icon={faClone} />
     </div>
   );
 }
