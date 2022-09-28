@@ -9,6 +9,7 @@ body {
   scroll-behavior: smooth;
   min-width: 100%;
   min-height: 100%;
+  --scroll-bar-width: 8px;
 }
 
 * {
@@ -41,4 +42,24 @@ body {
   padding-top: 5px !important;
   margin-top: -5px !important;
   z-index: 10000;
+}
+
+/* custom scrollbar */
+::-webkit-scrollbar {
+  width: var(--scroll-bar-width);
+  height: var(--scroll-bar-width);
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(40 40 40);
+  border-radius: var(--scroll-bar-width);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(247 247 247 / 22%);
+  border-radius: var(--scroll-bar-width);
+}
+
+::-webkit-scrollbar-corner{
+  background: inherit;
 }

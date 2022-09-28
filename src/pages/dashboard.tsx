@@ -2,7 +2,7 @@ import { faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Tab } from '@headlessui/react';
 import ClipboardTextfield from 'components/ClipboardTextfield';
-import ConsoleCard from 'components/ConsoleCard';
+import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Label';
@@ -48,7 +48,10 @@ const Dashboard: NextPageWithLayout = () => {
   const tabList = ['Console', 'Placeholder'];
 
   return (
-    <div className="h-0 px-12 py-10 overflow-y-auto bg-gray-800 grow">
+    <div
+      className="h-0 px-12 py-10 overflow-y-auto bg-gray-800 grow"
+      key={uuid}
+    >
       <div className="flex flex-col items-start gap-4">
         <div className="flex flex-row items-center gap-10">
           <div className="flex flex-row items-center gap-4">
@@ -114,11 +117,17 @@ const Dashboard: NextPageWithLayout = () => {
           </Tab.List>
           <Tab.Panels className="w-full">
             <Tab.Panel>
-              <ConsoleCard />
+              <DashboardCard>
+                <h1 className="font-bold text-medium"> Console </h1>
+                <GameConsole
+                  uuid={uuid}
+                  enableInput={instance.state === 'Running'}
+                />
+              </DashboardCard>
             </Tab.Panel>
             <Tab.Panel>
               <DashboardCard>
-              <h1 className="font-bold text-medium"> Placeholder </h1>
+                <h1 className="font-bold text-medium"> Placeholder </h1>
               </DashboardCard>
             </Tab.Panel>
           </Tab.Panels>

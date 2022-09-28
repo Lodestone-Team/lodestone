@@ -40,9 +40,11 @@ module.exports = {
       'sans': ['Satoshi', ...defaultTheme.fontFamily.sans],
       'heading': ['Chillax', ...defaultTheme.fontFamily.sans],
       'title': ['Chillax', ...defaultTheme.fontFamily.sans],
+      'mono': ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
-      'small': '0.6rem',
+      'smaller': '0.6rem',
+      'small': '0.9rem',
       'base': '1rem',
       'medium': '1.5rem',
       'large': '2rem',

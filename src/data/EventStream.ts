@@ -43,6 +43,10 @@ export interface Event {
   idempotency: string;
 }
 
+/**
+ * does not return anything, call this for the side effect of subscribing to the event stream
+ * information will be available in the query cache of the respective query cache
+ */
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
@@ -83,9 +87,6 @@ export const useEventStream = () => {
         port ?? 3000
       }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
-    websocket.onopen = () => {
-      console.log('connected');
-    };
     websocket.onmessage = (messageEvent) => {
       const {
         event_inner: details,
