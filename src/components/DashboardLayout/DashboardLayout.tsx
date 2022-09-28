@@ -5,14 +5,14 @@ import LeftNav from './LeftNav';
 import TopNav from './TopNav';
 import Split from 'react-split';
 import { useWindowSize } from 'usehooks-ts';
-import { useReactQuerySubscription } from 'data/LodestoneStream';
+import { useEventStream } from 'data/EventStream';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  useReactQuerySubscription();
+  useEventStream();
   
   const { width: windowWidth } = useWindowSize();
   const minWidth = (windowWidth / 12) * 1.5;

@@ -15,7 +15,7 @@ const labelColorMap = {
 };
 
 const labelSizeMap = {
-  small: 'text-small py-[0.25em] px-1.5',
+  small: 'text-smaller py-[0.25em] px-1.5',
   large: 'text-base py-1.5 px-3',
 };
 
