@@ -40,7 +40,6 @@ pub async fn get_event_buffer(
             .await
             .get_ref()
             .iter()
-            .rev()
             .filter(|event| {
                 (event.instance_uuid == uuid || uuid == "all")
                     && can_user_view_event(event, &requester)
@@ -66,7 +65,6 @@ pub async fn get_console_out_buffer(
             .await
             .get_ref()
             .iter()
-            .rev()
             .filter(|event| {
                 (event.instance_uuid == uuid || uuid == "all")
                     && can_user_view_event(event, &requester)
