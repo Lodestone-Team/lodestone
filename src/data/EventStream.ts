@@ -1,6 +1,4 @@
-import { useToken } from 'utils/hooks';
 import { InstanceState } from 'data/InstanceList';
-import { useCookies } from 'react-cookie';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContext, useEffect } from 'react';
@@ -49,8 +47,7 @@ export interface Event {
  */
 export const useEventStream = () => {
   const queryClient = useQueryClient();
-  const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
-  const { token } = useToken();
+  const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
 
   useEffect(() => {
     const updateInstance = (

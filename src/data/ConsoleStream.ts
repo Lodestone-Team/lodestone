@@ -3,7 +3,6 @@ import { useUserInfo } from 'data/UserInfo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
-import { useToken } from 'utils/hooks';
 import { LodestoneContext } from './LodestoneContext';
 
 export type EventInner = { InstanceOutput: string };
@@ -38,8 +37,7 @@ export type ConsoleStreamStatus =
  * @return whatever useQuery returns
  */
 export const useConsoleStream = (uuid: string) => {
-  const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
-  const { token } = useToken();
+  const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
   const [consoleLog, setConsoleLog] = useState<Event[]>([]);
   const [status, setStatus] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
@@ -68,11 +66,13 @@ export const useConsoleStream = (uuid: string) => {
       return;
     }
     if (!canAccessConsole) {
-      // TODO: proper permission handling
       setStatus('no-permission');
       return;
     }
     setStatus('loading');
+    console.log(status, statusRef.current);
+    console.log(token);
+    console.log(userInfo);
 
     const websocket = new WebSocket(
       `ws://${address}:${
@@ -98,7 +98,7 @@ export const useConsoleStream = (uuid: string) => {
       websocket.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, address, port, apiVersion, uuid, token]);
+  }, [isReady, address, port, apiVersion, uuid, canAccessConsole]);
 
   useEffect(() => {
     if (!isReady) return;

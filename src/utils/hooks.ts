@@ -1,8 +1,5 @@
-import { useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { useRouter } from 'next/router';
-import { useEffect, useRef, useState, useLayoutEffect } from 'react';
-import { useCookies } from 'react-cookie';
+import { useEffect, useRef, useState } from 'react';
 
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 
@@ -73,35 +70,6 @@ export function useRouterQuery(queryString: string) {
     isReady: ready,
     query: state,
     setQuery,
-  };
-}
-
-/**
- * setToken is a function that sets the token in the cookie and in the axios header, and then refetches the queryClient
- * removeToken is a function that removes the token from the cookie and from the axios header, and then refetches the queryClient
- */
-export function useToken() {
-  const [cookies, setCookie, removeCookie] = useCookies(['token']);
-  const [token, setToken] = useState<string>("");
-  const queryClient = useQueryClient();
-
-  // We use a useLayoutEffect here instead of cookies directly to avoid this "first render" difference between server and client
-  useLayoutEffect(() => {
-    setToken(cookies.token);
-  }, [cookies.token]);
-
-  return {
-    token,
-    setToken: (token: string) => {
-      setCookie('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      queryClient.invalidateQueries();
-    },
-    removeToken: () => {
-      removeCookie('token');
-      delete axios.defaults.headers.common['Authorization'];
-      queryClient.invalidateQueries();
-    },
   };
 }
 

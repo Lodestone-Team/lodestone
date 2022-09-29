@@ -73,6 +73,7 @@ const Template: ComponentStory<typeof InstanceList> = () => (
       protocol: 'http',
       apiVersion: 'v1',
       isReady: true,
+      token: 'example-token',
     }}
   >
     <QueryClientProvider client={queryClient}>

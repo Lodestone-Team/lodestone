@@ -4,15 +4,15 @@ import DashboardLayout from 'components/DashboardLayout';
 import Head from 'next/head';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { ReactElement, ReactNode, useEffect, useState } from 'react';
+import { ReactElement, ReactNode, useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCookies } from 'react-cookie';
 import Link from 'next/link';
 import { PublicUser } from 'data/UserInfo';
-import { useToken } from 'utils/hooks';
 import { ClientError } from 'data/ClientError';
+import { LodestoneContext } from 'data/LodestoneContext';
 
 export interface LoginReply {
   token: string;
@@ -25,14 +25,15 @@ const Auth: NextPageWithLayout = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [buttonLoading, setButtonLoading] = useState(false);
-  const queryClient = useQueryClient();
-  const {token, setToken} = useToken();
+  const [cookies, setCookie, removeCookie] = useCookies(['token']);
+  const {token} = useContext(LodestoneContext);
 
   useEffect(() => {
     if (token) {
       alert('Logged in!');
       pushKeepQuery(router, '/');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const onSubmit = (event: React.SyntheticEvent) => {
@@ -49,7 +50,7 @@ const Auth: NextPageWithLayout = () => {
       })
       .then((response) => {
         // set the token cookie
-        setToken(response.data.token);
+        setCookie('token', response.data.token);
       })
       .catch((error: AxiosError<ClientError>) => {
         if (axios.isAxiosError(error) && error.response) {

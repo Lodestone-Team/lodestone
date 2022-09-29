@@ -1,16 +1,18 @@
 import Button from 'components/Button';
+import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
-import { useEffect, useState } from 'react';
-import { useToken } from 'utils/hooks';
+import { useContext, useEffect, useState } from 'react';
+import { useCookies } from 'react-cookie';
 import { pushKeepQuery } from 'utils/util';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
 export default function TopNav() {
-  const { token, setToken, removeToken } = useToken();
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
+  const [cookies, setCookie, removeCookie] = useCookies(['token']);
+  const {token} = useContext(LodestoneContext);
 
   useEffect(() => {
     if (!token) {
@@ -40,7 +42,7 @@ export default function TopNav() {
         loading={userState === 'loading'}
         onClick={() => {
           // remove token cookie
-          removeToken();
+          removeCookie('token');
           if (userState !== 'logged-in')
             // redirect to login page
             pushKeepQuery(router, '/auth');

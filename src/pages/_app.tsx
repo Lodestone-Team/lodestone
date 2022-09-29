@@ -51,7 +51,8 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
 
   useLayoutEffect(() => {
     if(cookies.token) axios.defaults.headers.common['Authorization'] = `Bearer ${cookies.token}`;
-    // Can't use the useToken hook here since it requires QueryClientProvider
+    else delete axios.defaults.headers.common['Authorization'];
+    queryClient.invalidateQueries();
   }, [cookies.token]);
 
   return (
@@ -63,6 +64,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           protocol,
           apiVersion,
           isReady: isReady,
+          token: cookies.token,
         }}
       >
         {getLayout(<Component {...pageProps} />)}
