@@ -82,7 +82,7 @@ export function useRouterQuery(queryString: string) {
  */
 export function useToken() {
   const [cookies, setCookie, removeCookie] = useCookies(['token']);
-  const [token, setToken] = useState<string | undefined>(undefined);
+  const [token, setToken] = useState<string>("");
   const queryClient = useQueryClient();
 
   // We use a useLayoutEffect here instead of cookies directly to avoid this "first render" difference between server and client
@@ -103,4 +103,12 @@ export function useToken() {
       queryClient.invalidateQueries();
     },
   };
+}
+
+export function usePrevious(value: any) {
+  const ref = useRef();
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
 }

@@ -1,3 +1,5 @@
+import { isUserAuthorized } from './UserInfo';
+import { useUserInfo } from 'data/UserInfo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
@@ -20,6 +22,7 @@ export type ConsoleStreamStatus =
   | 'loading'
   | 'buffered'
   | 'live'
+  | 'live-no-buffer'
   | 'closed'
   | 'error';
 
@@ -42,8 +45,10 @@ export const useConsoleStream = (uuid: string) => {
   const statusRef = useRef<ConsoleStreamStatus>('loading');
   statusRef.current = status;
 
+  const { data: userInfo } = useUserInfo();
+  const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
+
   const mergeConsoleLog = (newLog: Event[]) => {
-    console.log('merged console log', newLog);
     setConsoleLog((oldLog) => {
       const mergedLog = [...oldLog, ...newLog];
       // TODO: implement snowflake ids and use those instead of idempotency
@@ -62,7 +67,7 @@ export const useConsoleStream = (uuid: string) => {
       setStatus('loading');
       return;
     }
-    if (!token) {
+    if (!canAccessConsole) {
       // TODO: proper permission handling
       setStatus('no-permission');
       return;
@@ -76,7 +81,8 @@ export const useConsoleStream = (uuid: string) => {
     );
 
     websocket.onopen = () => {
-      setStatus('live');
+      if (statusRef.current === 'loading') setStatus('live-no-buffer');
+      if (statusRef.current === 'buffered') setStatus('live');
     };
 
     websocket.onmessage = (messageEvent) => {
@@ -85,26 +91,8 @@ export const useConsoleStream = (uuid: string) => {
     };
 
     websocket.onclose = (event) => {
-      if (event.code === 1000) {
-        setStatus('closed');
-      } else {
-        setStatus('error');
-      }
+      setStatus(event.code === 1000 ? 'closed' : 'error');
     };
-
-    try {
-      axios
-        .get(`/instance/${uuid}/console/buffer`)
-        .then((response) => {
-          mergeConsoleLog(response.data);
-        })
-        .finally(() => {
-          if (statusRef.current === 'loading') setStatus('buffered');
-        });
-    } catch (e) {
-      console.error(e);
-      setStatus('error');
-    }
 
     return () => {
       websocket.close();
@@ -112,6 +100,20 @@ export const useConsoleStream = (uuid: string) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, address, port, apiVersion, uuid, token]);
 
+  useEffect(() => {
+    if (!isReady) return;
+    if (!canAccessConsole) return;
+    axios
+      .get(`/instance/${uuid}/console/buffer`)
+      .then((response) => {
+        mergeConsoleLog(response.data);
+        if (statusRef.current === 'loading') setStatus('buffered');
+        if (statusRef.current === 'live-no-buffer') setStatus('live');
+      })
+      .catch((e) => {
+        console.error(e);
+      });
+  }, [canAccessConsole, isReady, uuid]);
   return {
     consoleLog,
     consoleStatus: status,

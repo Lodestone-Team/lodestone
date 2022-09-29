@@ -43,8 +43,8 @@ module.exports = {
       'mono': ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
-      'smaller': '0.6rem',
-      'small': '0.9rem',
+      'smaller': '0.625rem',
+      'small': '0.875rem',
       'base': '1rem',
       'medium': '1.5rem',
       'large': '2rem',

@@ -63,3 +63,8 @@ body {
 ::-webkit-scrollbar-corner{
   background: inherit;
 }
+
+/* set the user selection color */
+::selection {
+  background: hwb(148 7% 33% / 0.3);
+}
