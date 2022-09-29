@@ -84,7 +84,7 @@ export default function GameConsole({
         {consoleLog.map((line) => (
           <li
             key={line.idempotency}
-            className="hover:bg-gray-800 py-[0.125rem] px-4 even:bg-[#101010] odd:bg-[#161616]"
+            className="hover:bg-gray-800 py-[0.125rem] px-4"
           >
             {line.event_inner.InstanceOutput}
           </li>
