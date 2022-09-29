@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useToken } from 'utils/hooks';
 import { LodestoneContext } from './LodestoneContext';
 
@@ -14,6 +14,14 @@ export interface Event {
   timestamp: number;
   idempotency: string;
 }
+
+export type ConsoleStreamStatus =
+  | 'no-permission'
+  | 'loading'
+  | 'buffered'
+  | 'live'
+  | 'closed'
+  | 'error';
 
 /**
  * Does two things:
@@ -30,8 +38,12 @@ export const useConsoleStream = (uuid: string) => {
   const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
   const { token } = useToken();
   const [consoleLog, setConsoleLog] = useState<Event[]>([]);
+  const [status, setStatus] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
+  const statusRef = useRef<ConsoleStreamStatus>('loading');
+  statusRef.current = status;
 
   const mergeConsoleLog = (newLog: Event[]) => {
+    console.log('merged console log', newLog);
     setConsoleLog((oldLog) => {
       const mergedLog = [...oldLog, ...newLog];
       // TODO: implement snowflake ids and use those instead of idempotency
@@ -46,8 +58,16 @@ export const useConsoleStream = (uuid: string) => {
   };
 
   useEffect(() => {
-    if (!isReady) return;
-    if (!token) return;
+    if (!isReady) {
+      setStatus('loading');
+      return;
+    }
+    if (!token) {
+      // TODO: proper permission handling
+      setStatus('no-permission');
+      return;
+    }
+    setStatus('loading');
 
     const websocket = new WebSocket(
       `ws://${address}:${
@@ -55,28 +75,45 @@ export const useConsoleStream = (uuid: string) => {
       }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
     );
 
+    websocket.onopen = () => {
+      setStatus('live');
+    };
+
     websocket.onmessage = (messageEvent) => {
       const event: Event = JSON.parse(messageEvent.data);
       mergeConsoleLog([event]);
     };
 
+    websocket.onclose = (event) => {
+      if (event.code === 1000) {
+        setStatus('closed');
+      } else {
+        setStatus('error');
+      }
+    };
+
+    try {
+      axios
+        .get(`/instance/${uuid}/console/buffer`)
+        .then((response) => {
+          mergeConsoleLog(response.data);
+        })
+        .finally(() => {
+          if (statusRef.current === 'loading') setStatus('buffered');
+        });
+    } catch (e) {
+      console.error(e);
+      setStatus('error');
+    }
+
     return () => {
       websocket.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, address, port, apiVersion, uuid, token]);
 
-  useEffect(() => {
-    if (!isReady) return;
-    if (!token) return;
-
-    try {
-      axios.get(`/instance/${uuid}/console/buffer`).then((response) => {
-        mergeConsoleLog(response.data);
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  }, [isReady, address, port, apiVersion, uuid, token]);
-
-  return consoleLog;
+  return {
+    consoleLog,
+    consoleStatus: status,
+  };
 };
