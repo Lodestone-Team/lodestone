@@ -1,7 +1,7 @@
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useRef, useState } from 'react';
-import ToolTip from './ToolTip';
+import Tooltip from 'rc-tooltip';
 
 export default function ClipboardTextfield({
   text,
@@ -20,11 +20,15 @@ export default function ClipboardTextfield({
   };
 
   return (
-    <ToolTip text="Copy to clipboard" distance={8}>
+    <Tooltip
+      overlay={<span>Copy to clipboard</span>}
+      placement="top"
+      trigger={['hover']}
+      mouseEnterDelay={0.2}
+    >
       <div
         className={`hover:cursor-pointer select-none group ${className}`}
         onClick={onClickCopy}
-        title="Click to Copy"
       >
         {' '}
         {/* TODO develop custom tooltip component */}
@@ -34,6 +38,6 @@ export default function ClipboardTextfield({
           icon={faClone}
         />
       </div>
-    </ToolTip>
+    </Tooltip>
   );
 }

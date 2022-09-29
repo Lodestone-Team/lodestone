@@ -1,3 +1,4 @@
+import 'rc-tooltip/assets/bootstrap.css';
 import 'globals.css';
 import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
@@ -50,7 +51,10 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   }, [address, port, isReady]);
 
   useLayoutEffect(() => {
-    if(cookies.token) axios.defaults.headers.common['Authorization'] = `Bearer ${cookies.token}`;
+    if (cookies.token)
+      axios.defaults.headers.common[
+        'Authorization'
+      ] = `Bearer ${cookies.token}`;
     else delete axios.defaults.headers.common['Authorization'];
     queryClient.invalidateQueries();
   }, [cookies.token]);

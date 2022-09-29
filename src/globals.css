@@ -34,7 +34,7 @@ body {
   z-index: 10000;
 }
 
-.gutter-vertical{
+.gutter-vertical {
   @apply bg-transparent hover:cursor-row-resize;
   height: 0px !important;
   padding-bottom: 5px !important;
@@ -60,11 +60,20 @@ body {
   border-radius: var(--scroll-bar-width);
 }
 
-::-webkit-scrollbar-corner{
+::-webkit-scrollbar-corner {
   background: inherit;
 }
 
 /* set the user selection color */
 ::selection {
   background: hwb(148 7% 33% / 0.3);
+}
+
+/* rc-tooltip */
+.rc-tooltip-inner {
+  @apply min-h-0 px-2 py-1 tracking-tight text-gray-300 rounded shadow-none text-small;
+}
+
+.rc-tooltip {
+  @apply opacity-100;
 }
