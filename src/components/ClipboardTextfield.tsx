@@ -20,13 +20,20 @@ export default function ClipboardTextfield({
   };
 
   return (
-    <div
-      className={`hover:cursor-pointer select-none group ${className}`}
-      onClick={onClickCopy}
-      title="Click to Copy"
-    > {/* TODO develop custom tooltip component */}
-      {text}&nbsp;&nbsp;
-      <FontAwesomeIcon className={`text-gray-faded/30 group-hover:text-gray-500`} icon={faClone} />
-    </div>
+    <ToolTip text="Copy to clipboard" distance={8}>
+      <div
+        className={`hover:cursor-pointer select-none group ${className}`}
+        onClick={onClickCopy}
+        title="Click to Copy"
+      >
+        {' '}
+        {/* TODO develop custom tooltip component */}
+        {text}&nbsp;&nbsp;
+        <FontAwesomeIcon
+          className={`text-gray-faded/30 group-hover:text-gray-500`}
+          icon={faClone}
+        />
+      </div>
+    </ToolTip>
   );
 }
