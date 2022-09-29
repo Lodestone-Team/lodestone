@@ -39,9 +39,13 @@ export type ConsoleStreamStatus =
 export const useConsoleStream = (uuid: string) => {
   const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
   const [consoleLog, setConsoleLog] = useState<Event[]>([]);
-  const [status, setStatus] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
+  const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
   statusRef.current = status;
+  const setStatus = (newStatus: ConsoleStreamStatus) => {
+    statusRef.current = newStatus;
+    setStatusInner(newStatus);
+  };
 
   const { data: userInfo } = useUserInfo();
   const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
@@ -70,9 +74,6 @@ export const useConsoleStream = (uuid: string) => {
       return;
     }
     setStatus('loading');
-    console.log(status, statusRef.current);
-    console.log(token);
-    console.log(userInfo);
 
     const websocket = new WebSocket(
       `ws://${address}:${
