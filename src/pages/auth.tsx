@@ -12,10 +12,12 @@ import { useCookies } from 'react-cookie';
 import Link from 'next/link';
 import { PublicUser } from 'data/UserInfo';
 import { useToken } from 'utils/hooks';
+import { ClientError } from 'data/ClientError';
 
 export interface LoginReply {
   token: string;
   user: PublicUser;
+  doesntExist: string;
 }
 
 const Auth: NextPageWithLayout = () => {
@@ -49,13 +51,14 @@ const Auth: NextPageWithLayout = () => {
         // set the token cookie
         setToken(response.data.token);
       })
-      .catch((error: Error | AxiosError) => {
-        if (axios.isAxiosError(error)) {
+      .catch((error: AxiosError<ClientError>) => {
+        if (axios.isAxiosError(error) && error.response) {
           if (
-            error.response?.status === 401 ||
-            error.response?.status === 403
+            error.response.status === 401 ||
+            error.response.status === 403 ||
+            error.response.status === 500
           ) {
-            alert('Invalid username or password');
+            alert(`Error: ${error.response.data.inner}: ${error.response.data.detail}`);
           }
         } else {
           alert(`Login failed: ${error.message}`);
