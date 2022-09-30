@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { useConsoleStream } from 'data/ConsoleStream';
 import { LodestoneContext } from 'data/LodestoneContext';
+import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { useEffect, useLayoutEffect } from 'react';
 import { useContext, useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
@@ -17,6 +18,8 @@ export default function GameConsole({
   const lodestoneContex = useContext(LodestoneContext);
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
+  const { data: userInfo } = useUserInfo();
+  const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -
@@ -25,6 +28,8 @@ export default function GameConsole({
       autoScrollThreshold
     : true;
   const oldIsAtBottom = usePrevious(isAtBottom);
+
+  enableInput = enableInput && canAccessConsole;
 
   const scrollToBottom = () => {
     if (listRef.current) {
@@ -103,7 +108,7 @@ export default function GameConsole({
           <input
             className="w-full bg-[#101010] placeholder:text-gray-500 text-gray-300 p-3 outline-gray-300 focus-visible:outline-2 focus-visible:outline rounded-b-lg disabled:placeholder:text-gray-600"
             placeholder={
-              enableInput ? 'Enter command...' : 'Instance is not running'
+              enableInput ? 'Enter command...' : 'Server is not running or insufficient permissions'
             }
             value={command}
             onChange={(e) => setCommand(e.target.value)}

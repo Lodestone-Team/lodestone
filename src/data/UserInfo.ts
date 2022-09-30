@@ -45,5 +45,7 @@ export const isUserAuthorized = (
 ) => {
   if (!user) return false;
   if (user.is_owner) return true;
+  // check if permission in user.permissions, if not return false
+  if (!user.permissions[permission]) return false;
   return user.permissions[permission].includes(instanceId);
 };
