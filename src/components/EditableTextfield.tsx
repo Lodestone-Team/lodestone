@@ -86,7 +86,7 @@ export default function EditableTextfield({
       className={`absolute text-right font-sans not-italic text-red ${
         type === 'heading'
           ? 'text-base font-normal tracking-normal -bottom-[1.3em] left-10'
-          : 'text-small -bottom-[1.3em] left-6'
+          : 'text-smaller -bottom-[1.3em] left-6'
       }`}
     >
       {errorMessage}
@@ -98,7 +98,7 @@ export default function EditableTextfield({
   return (
     <div
       className={`relative flex flex-row justify-start items-center gap-2 tracking-tight group ${
-        type === 'heading' ? 'font-semibold font-heading text-xlarge' : 'italic'
+        type === 'heading' ? 'font-semibold font-heading text-2xlarge' : 'italic text-small font-medium'
       } ${containerClassName}`}
     >
       {isLoading ? (
@@ -144,9 +144,9 @@ export default function EditableTextfield({
         <div
           className={`
           ml-[-0.25rem]
-          ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
+          ${type === 'heading' ? 'rounded-lg text-gray-300' : 'rounded text-gray-500'} 
           ${errorStatus ? `border-2 border-red` : ''}
-          bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
+          bg-transparent hover:text-gray-300 truncate group-hover:underline ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}

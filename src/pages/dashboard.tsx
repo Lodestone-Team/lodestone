@@ -56,13 +56,13 @@ const Dashboard: NextPageWithLayout = () => {
         <div className="flex flex-row items-center gap-10">
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal "text with edit button" component */}
-            <h1 className="font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
-              {instance.name}
-            </h1>
             <FontAwesomeIcon
               className="text-gray-500 text-medium"
               icon={faPenToSquare}
             />
+            <h1 className="font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
+              {instance.name}
+            </h1>
           </div>
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal game flavour image component */}
@@ -93,10 +93,10 @@ const Dashboard: NextPageWithLayout = () => {
         </div>
         <div className="flex flex-row items-center gap-2">
           {/* TODO: create a universal "text with edit button" component */}
-          <h1 className="italic tracking-tight text-gray-500 font-small font-heading">
-            {instance.description}
-          </h1>
           <FontAwesomeIcon className="text-gray-500" icon={faPenToSquare} />
+          <h1 className="italic font-medium tracking-tight text-gray-500 text-small">
+            Bruh moment #1 Dream SMP
+          </h1>
         </div>
         <Tab.Group>
           <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
@@ -117,11 +117,11 @@ const Dashboard: NextPageWithLayout = () => {
           </Tab.List>
           <Tab.Panels className="w-full grow">
             <Tab.Panel className="w-full h-full">
-                {/* <h1 className="font-bold text-medium"> Console </h1> */}
-                <GameConsole
-                  uuid={uuid}
-                  enableInput={instance.state === 'Running'}
-                />
+              {/* <h1 className="font-bold text-medium"> Console </h1> */}
+              <GameConsole
+                uuid={uuid}
+                enableInput={instance.state === 'Running'}
+              />
             </Tab.Panel>
             <Tab.Panel>
               <DashboardCard>
