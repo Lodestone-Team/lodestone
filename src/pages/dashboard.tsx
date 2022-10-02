@@ -2,7 +2,7 @@ import { faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Tab } from '@headlessui/react';
 import ClipboardTextfield from 'components/ClipboardTextfield';
-import ConsoleCard from 'components/ConsoleCard';
+import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Label';
@@ -48,12 +48,15 @@ const Dashboard: NextPageWithLayout = () => {
   const tabList = ['Console', 'Placeholder'];
 
   return (
-    <div className="px-12 py-10 bg-gray-800">
-      <div className="flex flex-col items-start gap-4">
+    <div
+      className="h-0 px-12 pt-6 pb-10 overflow-y-auto bg-gray-800 grow"
+      key={uuid}
+    >
+      <div className="flex flex-col items-start h-full gap-2">
         <div className="flex flex-row items-center gap-10">
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal "text with edit button" component */}
-            <h1 className="-ml-4 font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
+            <h1 className="font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
               {instance.name}
             </h1>
             <FontAwesomeIcon
@@ -90,13 +93,13 @@ const Dashboard: NextPageWithLayout = () => {
         </div>
         <div className="flex flex-row items-center gap-2">
           {/* TODO: create a universal "text with edit button" component */}
-          <h1 className="italic font-medium tracking-tight text-gray-500 font-heading">
+          <h1 className="italic tracking-tight text-gray-500 font-small font-heading">
             {instance.description}
           </h1>
           <FontAwesomeIcon className="text-gray-500" icon={faPenToSquare} />
         </div>
         <Tab.Group>
-          <Tab.List className="flex flex-row items-center w-full gap-4 border-b-2 border-gray-700">
+          <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
             {tabList.map((tab) => (
               <Tab
                 key={tab}
@@ -104,7 +107,7 @@ const Dashboard: NextPageWithLayout = () => {
                   `tracking-tight text-medium font-semibold focus-visible:outline-none ${
                     selected
                       ? 'text-blue border-b-2 border-blue'
-                      : 'text-gray-500'
+                      : 'text-gray-500 mb-0.5'
                   }`
                 }
               >
@@ -112,13 +115,17 @@ const Dashboard: NextPageWithLayout = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="w-full">
-            <Tab.Panel>
-              <ConsoleCard />
+          <Tab.Panels className="w-full grow">
+            <Tab.Panel className="w-full h-full">
+                {/* <h1 className="font-bold text-medium"> Console </h1> */}
+                <GameConsole
+                  uuid={uuid}
+                  enableInput={instance.state === 'Running'}
+                />
             </Tab.Panel>
             <Tab.Panel>
               <DashboardCard>
-              <h1 className="font-bold text-medium"> Placeholder </h1>
+                <h1 className="font-bold text-medium"> Placeholder </h1>
               </DashboardCard>
             </Tab.Panel>
           </Tab.Panels>

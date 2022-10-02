@@ -1,3 +1,4 @@
+import 'rc-tooltip/assets/bootstrap.css';
 import 'globals.css';
 import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
@@ -25,9 +26,12 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: Infinity,
+      refetchOnWindowFocus: false,
     },
   },
 });
+
+axios.defaults.timeout = 2000;
 
 function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
@@ -47,7 +51,12 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   }, [address, port, isReady]);
 
   useLayoutEffect(() => {
-    if(cookies.token) axios.defaults.headers.common['Authorization'] = `Bearer ${cookies.token}`;
+    if (cookies.token)
+      axios.defaults.headers.common[
+        'Authorization'
+      ] = `Bearer ${cookies.token}`;
+    else delete axios.defaults.headers.common['Authorization'];
+    queryClient.invalidateQueries();
   }, [cookies.token]);
 
   return (
@@ -59,6 +68,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           protocol,
           apiVersion,
           isReady: isReady,
+          token: cookies.token,
         }}
       >
         {getLayout(<Component {...pageProps} />)}

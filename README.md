@@ -203,6 +203,7 @@ Project Link: [https://github.com/github_username/repo_name](https://github.com/
 Active members of the Lodestone team (in alphabetical order):
 
 * [Kevin Huang (Ynng)](https://github.com/Ynng) - Developer
+* [LuDa Yu (BotBot)](https://github.com/ludayu560) - Developer
 * [Mark Sun (Lemonsity)](https://github.com/Lemonsity) - Developer
 * [Peter Jiang (CheatCod)](https://github.com/CheatCod) - Developer
 * [Wilbur Zhang (Arclogger)](https://github.com/Arcslogger) - Designer

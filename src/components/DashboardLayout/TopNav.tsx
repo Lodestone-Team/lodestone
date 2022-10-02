@@ -1,32 +1,51 @@
-import axios from 'axios';
 import Button from 'components/Button';
+import { LodestoneContext } from 'data/LodestoneContext';
+import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useCookies } from 'react-cookie';
 import { pushKeepQuery } from 'utils/util';
 
+export type UserState = 'loading' | 'logged-in' | 'logged-out';
+
 export default function TopNav() {
-  const [cookies, setCookie] = useCookies(['token']);
-  const [loggedIn, setLoggedIn] = useState(false);
+  const { isLoading, isError, data: user } = useUserInfo();
+  const [userState, setUserState] = useState<UserState>('logged-out');
+  const [cookies, setCookie, removeCookie] = useCookies(['token']);
+  const {token} = useContext(LodestoneContext);
 
   useEffect(() => {
-    if (cookies.token) {
-      setLoggedIn(true);
+    if (!token) {
+      setUserState('logged-out');
+    } else if (isLoading) {
+      setUserState('loading');
+      return;
+    } else if (isError) {
+      setUserState('logged-out');
+      return;
+    } else {
+      setUserState('logged-in');
     }
-  }, [cookies.token]);
-  
+  }, [token, isLoading, isError, user]);
+
   return (
-    <div className="flex flex-row items-center justify-end w-full h-16 p-2 bg-gray-700 border-b border-gray-500">
+    <div className="flex flex-row items-center justify-end w-full h-16 gap-2 p-2 bg-gray-700 border-b border-gray-faded/30">
+      <p className="font-medium text-gray-300">
+        {userState === 'logged-in' && user
+          ? `Hi, ${user.username}`
+          : userState === 'loading'
+          ? 'Loading...'
+          : 'Not logged in'}
+      </p>
       <Button
-        label={loggedIn ? 'Logout' : 'Login'}
-        className="h-fit"
+        label={userState === 'logged-in' ? 'Logout' : 'Login'}
+        loading={userState === 'loading'}
         onClick={() => {
           // remove token cookie
-          setCookie('token', '');
-          // remove default auth header
-          delete axios.defaults.headers.common['Authorization'];
-          // redirect to login page
-          pushKeepQuery(router, '/auth');
+          removeCookie('token');
+          if (userState !== 'logged-in')
+            // redirect to login page
+            pushKeepQuery(router, '/auth');
         }}
       />
     </div>

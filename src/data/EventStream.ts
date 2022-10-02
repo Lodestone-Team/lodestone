@@ -1,5 +1,4 @@
 import { InstanceState } from 'data/InstanceList';
-import { useCookies } from 'react-cookie';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContext, useEffect } from 'react';
@@ -42,10 +41,13 @@ export interface Event {
   idempotency: string;
 }
 
-export const useReactQuerySubscription = () => {
+/**
+ * does not return anything, call this for the side effect of subscribing to the event stream
+ * information will be available in the query cache of the respective query cache
+ */
+export const useEventStream = () => {
   const queryClient = useQueryClient();
-  const { address, port, apiVersion, isReady } = useContext(LodestoneContext);
-  const [cookies] = useCookies(['token']);
+  const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
 
   useEffect(() => {
     const updateInstance = (
@@ -75,16 +77,13 @@ export const useReactQuerySubscription = () => {
     };
 
     if (!isReady) return;
-    if (!cookies.token) return;
+    if (!token) return;
 
     const websocket = new WebSocket(
       `ws://${address}:${
         port ?? 3000
-      }/api/${apiVersion}/events/stream?token=Bearer ${cookies.token}`
+      }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
-    websocket.onopen = () => {
-      console.log('connected');
-    };
     websocket.onmessage = (messageEvent) => {
       const {
         event_inner: details,
@@ -154,5 +153,5 @@ export const useReactQuerySubscription = () => {
     return () => {
       websocket.close();
     };
-  }, [queryClient, address, port, apiVersion, isReady, cookies.token]);
+  }, [queryClient, address, port, apiVersion, isReady, token]);
 };

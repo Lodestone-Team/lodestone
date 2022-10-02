@@ -46,7 +46,7 @@ const mockedInstanceInfo: InstanceInfo[] = [
 ];
 
 const worker = setupWorker(
-  rest.get('/instances/list', (req, res, ctx) => {
+  rest.get('/instance/list', (req, res, ctx) => {
     return res(ctx.json(mockedInstanceInfo));
   })
 );
@@ -73,20 +73,31 @@ const Template: ComponentStory<typeof InstanceList> = () => (
       protocol: 'http',
       apiVersion: 'v1',
       isReady: true,
+      token: 'example-token',
     }}
   >
     <QueryClientProvider client={queryClient}>
       <Split
-        sizes={[25, 75]}
+        sizes={[80, 20]}
         snapOffset={0}
         gutterSize={0}
         minSize={0}
         className="flex flex-row"
       >
-        <div className="flex flex-col">
+        <Split
+          sizes={[80, 20]}
+          snapOffset={0}
+          gutterSize={0}
+          minSize={0}
+          direction="vertical"
+          className="flex flex-col"
+        >
           <InstanceList />
-        </div>
-        <div className="pl-4 text-gray-300">{'   <-Try drag here'}</div>
+          <div>
+            <div className="text-gray-300">{'⬆Try drag here'}</div>
+          </div>
+        </Split>
+        <div className="pl-4 text-gray-300">{'⬅Try drag here'}</div>
       </Split>
     </QueryClientProvider>
   </LodestoneContext.Provider>

@@ -6,6 +6,7 @@ interface LodestoneContext {
   protocol: string;
   apiVersion: string;
   isReady: boolean;
+  token: string;
 }
 
 export const LodestoneContext = createContext<LodestoneContext>({
@@ -14,4 +15,5 @@ export const LodestoneContext = createContext<LodestoneContext>({
     protocol: 'http',
     apiVersion: 'v1',
     isReady: false,
+    token: '',
 });

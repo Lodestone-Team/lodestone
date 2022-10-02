@@ -1,18 +1,16 @@
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useRef, useState } from 'react';
-import ToolTip from './ToolTip';
+import Tooltip from 'rc-tooltip';
 
 export default function ClipboardTextfield({
   text,
   textToCopy,
   className,
-  iconClassName,
 }: {
   text: string;
   textToCopy?: string;
   className?: string;
-  iconClassName?: string;
 }) {
   const onClickCopy = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -22,13 +20,24 @@ export default function ClipboardTextfield({
   };
 
   return (
-    <div
-      className={`${className} hover:cursor-pointer w-fit select-none group`}
-      onClick={onClickCopy}
-      title="Click to Copy"
-    > {/* TODO develop custom tooltip component */}
-      {text}&nbsp;&nbsp;
-      <FontAwesomeIcon className={`${iconClassName} text-gray-faded/30 group-hover:text-gray-500`} icon={faClone} />
-    </div>
+    <Tooltip
+      overlay={<span>Copy to clipboard</span>}
+      placement="top"
+      trigger={['hover']}
+      mouseEnterDelay={0.2}
+    >
+      <div
+        className={`hover:cursor-pointer select-none group ${className}`}
+        onClick={onClickCopy}
+      >
+        {' '}
+        {/* TODO develop custom tooltip component */}
+        {text}&nbsp;&nbsp;
+        <FontAwesomeIcon
+          className={`text-gray-faded/30 group-hover:text-gray-500`}
+          icon={faClone}
+        />
+      </div>
+    </Tooltip>
   );
 }

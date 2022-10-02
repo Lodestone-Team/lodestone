@@ -9,14 +9,14 @@ export default {
 
 const Template: ComponentStory<typeof SystemStat> = (args) => (
   <Split
-    sizes={[10, 90]}
+    sizes={[80, 20]}
     snapOffset={0}
     gutterSize={0}
     minSize={0}
     className="flex flex-row"
   >
     <SystemStat {...args} />
-    <div className="pl-4 text-gray-300 border-l">{'   <-Try drag here'}</div>
+    <div className="pl-4 text-gray-300 border-l">{'⬅Try drag here'}</div>
   </Split>
 );
 
