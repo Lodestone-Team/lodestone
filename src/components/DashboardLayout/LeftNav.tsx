@@ -34,8 +34,8 @@ export default function LeftNav() {
   }, 1000);
 
   return (
-    <div className="flex flex-col items-center h-screen px-8 pt-10 overflow-x-visible bg-gray-700 border-r border-gray-500">
-      <div className="w-full max-w-xs px-6 mb-5">
+    <div className="flex flex-col items-center h-screen px-4 pt-10 overflow-x-visible bg-gray-700 border-r border-gray-faded/30">
+      <div className="w-full max-w-xs px-6 pb-6 mb-5 border-b border-gray-faded/30">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="logo" className="w-full" />
         <SystemStat name="client&nbsp;name" value={clientInfoLoading ? '...' : systemName} />

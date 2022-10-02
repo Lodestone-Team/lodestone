@@ -76,14 +76,14 @@ export default function GameConsole({
   }
 
   return (
-    <div className="relative flex flex-col w-full">
+    <div className="relative flex flex-col w-full h-full border border-gray-faded/30 rounded-2xl">
       {consoleStatusMessage && (
-        <div className="absolute top-0 right-0 p-4 py-1 font-mono font-light tracking-tight text-gray-500 rounded select-none hover:text-gray-400 text-small">
+        <div className="absolute top-0 right-0 p-4 py-1 font-mono font-light tracking-tight text-gray-500 select-none hover:text-gray-400 text-small">
           {consoleStatusMessage}
         </div>
       )}
       <ol
-        className="flex flex-col overflow-y-auto overflow-x-auto whitespace-pre-wrap break-words rounded-t-lg font-mono text-small font-light tracking-tight text-gray-300 bg-[#101010] py-3 h-[40vh] border-gray-faded/30 border-b-2"
+        className="flex flex-col overflow-y-auto overflow-x-auto whitespace-pre-wrap break-words rounded-t-2xl font-mono text-small font-light tracking-tight text-gray-300 bg-[#101010] py-3 h-0 grow border-gray-faded/30 border-b"
         ref={listRef}
       >
         {consoleLog.map((line) => (
@@ -106,7 +106,7 @@ export default function GameConsole({
           }}
         >
           <input
-            className="w-full bg-[#101010] placeholder:text-gray-500 text-gray-300 p-3 outline-gray-300 focus-visible:outline-2 focus-visible:outline rounded-b-lg disabled:placeholder:text-gray-600"
+            className="w-full bg-[#101010] placeholder:text-gray-500 text-gray-300 py-3 px-4 outline-gray-300 focus-visible:outline-2 focus-visible:outline rounded-b-2xl disabled:placeholder:text-gray-600"
             placeholder={
               enableInput ? 'Enter command...' : 'Server is not running or insufficient permissions'
             }

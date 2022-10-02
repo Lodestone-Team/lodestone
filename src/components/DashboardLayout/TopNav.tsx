@@ -29,7 +29,7 @@ export default function TopNav() {
   }, [token, isLoading, isError, user]);
 
   return (
-    <div className="flex flex-row items-center justify-end w-full h-16 gap-2 p-2 bg-gray-700 border-b border-gray-500">
+    <div className="flex flex-row items-center justify-end w-full h-16 gap-2 p-2 bg-gray-700 border-b border-gray-faded/30">
       <p className="font-medium text-gray-300">
         {userState === 'logged-in' && user
           ? `Hi, ${user.username}`

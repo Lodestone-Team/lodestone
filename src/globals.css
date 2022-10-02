@@ -9,7 +9,6 @@ body {
   scroll-behavior: smooth;
   min-width: 100%;
   min-height: 100%;
-  --scroll-bar-width: 8px;
 }
 
 * {
@@ -46,18 +45,19 @@ body {
 
 /* custom scrollbar */
 ::-webkit-scrollbar {
-  width: var(--scroll-bar-width);
-  height: var(--scroll-bar-width);
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(40 40 40);
-  border-radius: var(--scroll-bar-width);
+  background: rgb(40 40 40, 0);
+  /* background: rgb(40 40 40); */
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(247 247 247 / 22%);
-  border-radius: var(--scroll-bar-width);
+  background: rgb(247 247 247 / 22%); 
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-corner {

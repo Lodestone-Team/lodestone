@@ -21,7 +21,7 @@ export default function DashboardLayout({
 
   return (
     <Split
-      sizes={[16, 84]}
+      sizes={[10, 90]}
       minSize={[minWidth, 0]}
       maxSize={[maxWidth, Infinity]}
       snapOffset={0}
