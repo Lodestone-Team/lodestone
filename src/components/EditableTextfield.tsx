@@ -131,7 +131,7 @@ export default function EditableTextfield({
       {isEditing ? (
         <AutoGrowInput
           className={`
-          ml-[-0.25rem] pl-1
+          ml-[-0.25rem] 
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}`}
           textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
@@ -141,18 +141,18 @@ export default function EditableTextfield({
           autoFocus={true}
         ></AutoGrowInput>
       ) : (
-        <span
+        <div
           className={`
-          ml-[-0.25rem] pl-1 pr-[0.50ch]
+          ml-[-0.25rem]
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
           ${errorStatus ? `border-2 border-red` : ''}
-          bg-transparent text-gray-300 truncate group-hover:underline whitespace-pre ${textClassName}`}
+          bg-transparent text-gray-300 truncate group-hover:underline ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}
         >
-          {displayText}
-        </span>
+          <span className={`px-[0.25ch] whitespace-pre tracking-tight bg-transparent`}>{displayText}</span>
+        </div>
       )}
       {errorNode}
     </div>
