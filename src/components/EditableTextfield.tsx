@@ -91,8 +91,8 @@ export default function EditableTextfield({
     <div
       className={`absolute whitespace-nowrap text-right font-sans not-italic text-red ${
         type === 'heading'
-          ? 'text-base font-normal tracking-normal -top-[1.5em] left-10'
-          : 'text-smaller -bottom-[1.3em] left-6'
+          ? 'text-base font-normal tracking-normal -top-[1.5em]'
+          : 'text-smaller -bottom-[1.3em]'
       }`}
     >
       {errorMessage}
@@ -103,37 +103,10 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`relative flex flex-row justify-start items-center gap-2 tracking-tight group ${
-        type === 'heading' ? 'font-semibold font-heading text-2xlarge' : 'italic text-small font-medium'
+      className={`relative flex flex-row justify-start items-center tracking-tight group ml-[-0.25ch] ${
+        type === 'heading' ? 'font-semibold font-heading text-2xlarge gap-4' : 'italic text-small font-medium gap-2'
       } ${containerClassName}`}
     >
-      {isLoading ? (
-        <BeatLoader
-          size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`}
-          cssOverride={{
-            width: `${type === 'heading' ? '3rem' : '2rem'}`,
-            // negative padding to give it extra space
-            margin: `0 -0.5rem`,
-          }}
-          color="#6b7280"
-        />
-      ) : (
-        <FontAwesomeIcon
-          className={`text-gray-faded/30 group-hover:text-gray-500 hover:cursor-pointer ${iconSize} ${iconClassName}`}
-          icon={isEditing ? faFloppyDisk : faPenToSquare}
-          onMouseDown={(e) => {
-            if (isEditing) e.preventDefault();
-          }}
-          onClick={() => {
-            if (isEditing) {
-              onSave();
-            } else {
-              setIsEditing(true);
-            }
-          }}
-        />
-      )}
-
       {isEditing ? (
         <AutoGrowInput
           className={`
@@ -160,6 +133,34 @@ export default function EditableTextfield({
         </div>
       )}
       {errorNode}
+      {isLoading ? (
+        <BeatLoader
+          size={`${type === 'heading' ? '0.5rem' : '0.25rem'}`}
+          cssOverride={{
+            width: `${type === 'heading' ? '3rem' : '2rem'}`,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            margin: `0 -0.5rem`,
+          }}
+          color="#6b7280"
+        />
+      ) : (
+        <FontAwesomeIcon
+          className={`text-gray-faded/30 group-hover:text-gray-500 hover:cursor-pointer ${iconSize} ${iconClassName}`}
+          icon={isEditing ? faFloppyDisk : faPenToSquare}
+          onMouseDown={(e) => {
+            if (isEditing) e.preventDefault();
+          }}
+          onClick={() => {
+            if (isEditing) {
+              onSave();
+            } else {
+              setIsEditing(true);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

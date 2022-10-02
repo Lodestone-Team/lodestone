@@ -54,7 +54,7 @@ const Dashboard: NextPageWithLayout = () => {
       key={uuid}
     >
       <div className="flex flex-col items-start h-full gap-2">
-        <div className="flex flex-row items-center gap-10">
+        <div className="flex flex-row items-center gap-12">
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal "text with edit button" component */}
             <EditableTextfield
