@@ -14,7 +14,7 @@ export const Heading = Template.bind({});
 Heading.args = {
   initialText: 'Hello World',
   onSubmit: () => {
-    return { status: 0, message: 'Success' };
+    return { error: false, message: 'Success' };
   },
 };
 
@@ -23,7 +23,7 @@ Description.args = {
   initialText: 'Hello World',
   type: 'description',
   onSubmit: () => {
-    return { status: 0, message: 'Success' };
+    return { error: false, message: 'Success' };
   },
 };
 
@@ -32,7 +32,7 @@ ErrorHeading.args = {
   initialText: 'Placeholder',
   type: 'heading',
   onSubmit: () => {
-    return { status: 1, message: 'Mock Error' };
+    return { error: true, message: 'Mock Error' };
   },
 };
 
@@ -42,6 +42,6 @@ ErrorDescription.args = {
   initialText: 'Placeholder',
   type: 'description',
   onSubmit: () => {
-    return { status: 1, message: 'Mock Error' };
+    return { error: true, message: 'Mock Error' };
   },
 };

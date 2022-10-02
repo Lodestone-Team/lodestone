@@ -12,7 +12,8 @@ type Props = {
   containerClassName?: string;
   textClassName?: string;
   iconClassName?: string;
-  onSubmit: (arg: string) => { status: number; message: string };
+  placeholder?: string;
+  onSubmit: (arg: string) => { error: boolean; message: string };
 };
 
 export default function EditableTextfield({
@@ -21,6 +22,7 @@ export default function EditableTextfield({
   containerClassName = '',
   textClassName = '',
   iconClassName = '',
+  placeholder = '',
   onSubmit,
 }: Props) {
   const [displayText, setDisplayText] = useState<string>(initialText);
@@ -30,7 +32,7 @@ export default function EditableTextfield({
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [errorStatus, setErrorStatus] = useState<number>(0);
+  const [errorStatus, setErrorStatus] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,9 +47,9 @@ export default function EditableTextfield({
       setTimeout(resolve, 1000);
     });
     try {
-      const { status, message } = await onSubmit(trimmedText);
-      setErrorStatus(status);
-      if (status) {
+      const { error, message } = await onSubmit(trimmedText);
+      setErrorStatus(error);
+      if (error) {
         setErrorMessage(message);
         setIsEditing(true);
       } else {
@@ -61,12 +63,16 @@ export default function EditableTextfield({
   };
 
   const onCancel = () => {
+    if(isLoading) return;
     setEditText(displayText);
     setIsEditing(false);
+    setErrorStatus(false);
+    setErrorMessage('');
   };
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if(!isEditing) return;
       if (e.code === 'Enter') {
         onSave();
       } else if (e.code === 'Escape') {
@@ -83,9 +89,9 @@ export default function EditableTextfield({
 
   const errorNode = errorStatus ? (
     <div
-      className={`absolute text-right font-sans not-italic text-red ${
+      className={`absolute whitespace-nowrap text-right font-sans not-italic text-red ${
         type === 'heading'
-          ? 'text-base font-normal tracking-normal -bottom-[1.3em] left-10'
+          ? 'text-base font-normal tracking-normal -top-[1.5em] left-10'
           : 'text-smaller -bottom-[1.3em] left-6'
       }`}
     >
@@ -131,27 +137,26 @@ export default function EditableTextfield({
       {isEditing ? (
         <AutoGrowInput
           className={`
-          ml-[-0.25rem] 
           ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
-          ${errorStatus ? `border-2 border-red` : ''}`}
+          ${errorStatus ? `border-2 border-red -my-0.5 -ml-1 -mr-0.5` : '-ml-0.5'}`}
           textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
           value={editText}
           onChange={onEdit}
           onBlur={onCancel}
           autoFocus={true}
+          placeholder={placeholder}
         ></AutoGrowInput>
       ) : (
         <div
           className={`
-          ml-[-0.25rem]
           ${type === 'heading' ? 'rounded-lg text-gray-300' : 'rounded text-gray-500'} 
-          ${errorStatus ? `border-2 border-red` : ''}
+          ${errorStatus ? `border-2 border-red -my-0.5 -ml-1 -mr-0.5` : '-ml-0.5'}
           bg-transparent hover:text-gray-300 truncate group-hover:underline ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}
         >
-          <span className={`px-[0.25ch] whitespace-pre tracking-tight bg-transparent`}>{displayText}</span>
+          <span className={`px-[0.25ch] whitespace-pre tracking-tight bg-transparent`}>{displayText ? displayText : placeholder}</span>
         </div>
       )}
       {errorNode}

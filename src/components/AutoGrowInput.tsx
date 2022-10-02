@@ -7,6 +7,7 @@ export default function AutoGrowInput({
   className = '',
   textClassName = '',
   autoFocus = false,
+  placeholder = '',
   children,
 }: {
   value: string;
@@ -15,6 +16,7 @@ export default function AutoGrowInput({
   className?: string;
   textClassName?: string;
   autoFocus?: boolean;
+  placeholder?: string;
   children?: React.ReactNode;
 }) {
   return (
@@ -26,9 +28,10 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className={`w-full pl-[0.25ch] border-none ${textClassName}`}
+        className={`w-full pl-[0.25ch] border-none placeholder:text-gray-500 ${textClassName}`}
         autoFocus={autoFocus}
         size={1}
+        placeholder={placeholder}
       />
       <span
         style={{
@@ -36,7 +39,7 @@ export default function AutoGrowInput({
         }}
         className={`invisible px-[0.25ch] whitespace-pre ${textClassName}`}
       >
-        {value}
+        {value ? value : placeholder}
       </span>
       {children}
     </div>

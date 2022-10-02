@@ -20,6 +20,7 @@ import {
 import { useRouterQuery } from 'utils/hooks';
 import { pushKeepQuery, stateToLabelColor } from 'utils/util';
 import { NextPageWithLayout } from './_app';
+import EditableTextfield from 'components/EditableTextfield';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
@@ -56,13 +57,14 @@ const Dashboard: NextPageWithLayout = () => {
         <div className="flex flex-row items-center gap-10">
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal "text with edit button" component */}
-            <FontAwesomeIcon
-              className="text-gray-500 text-medium"
-              icon={faPenToSquare}
+            <EditableTextfield
+              initialText={instance.name}
+              type={'heading'}
+              onSubmit={(text) => {
+                return { error: true, message: 'Not implemented yet' };
+              }}
+              placeholder="No name"
             />
-            <h1 className="font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
-              {instance.name}
-            </h1>
           </div>
           <div className="flex flex-row items-center gap-4">
             {/* TODO: create a universal game flavour image component */}
@@ -93,10 +95,14 @@ const Dashboard: NextPageWithLayout = () => {
         </div>
         <div className="flex flex-row items-center gap-2">
           {/* TODO: create a universal "text with edit button" component */}
-          <FontAwesomeIcon className="text-gray-500" icon={faPenToSquare} />
-          <h1 className="italic font-medium tracking-tight text-gray-500 text-small">
-            Bruh moment #1 Dream SMP
-          </h1>
+          <EditableTextfield
+            initialText={instance.description}
+            type={'description'}
+            onSubmit={(text) => {
+              return { error: true, message: 'Not implemented yet' };
+            }}
+            placeholder="No description"
+          />
         </div>
         <Tab.Group>
           <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
