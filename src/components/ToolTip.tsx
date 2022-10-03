@@ -11,18 +11,15 @@ import {
   useHover,
   useInteractions,
 } from '@floating-ui/react-dom-interactions';
-import { isAbsolute } from 'path';
 import { useRef, useState } from 'react';
 
 export default function ToolTip({
   text,
-  className,
   position = 'bottom',
   distance = 4,
   children,
 }: {
   text: string;
-  className?: string;
   position?: Placement;
   distance?: number;
   children: React.ReactNode;
@@ -35,6 +32,7 @@ export default function ToolTip({
     y,
     reference,
     floating,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     placement,
     middlewareData: { arrow: { x: arrowX, y: arrowY } = {} },
   } = useFloating({

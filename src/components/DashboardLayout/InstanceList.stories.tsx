@@ -18,6 +18,7 @@ const mockedInstanceInfo: InstanceInfo[] = [
     player_count: 0,
     max_player_count: 20,
     creation_time: 1662770937,
+    path: "/home/runner/work/lodestone/lodestone/instances/64417721-930f-4009-8e02-377bfd477355",
   },
   {
     uuid: '1f2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
@@ -30,6 +31,7 @@ const mockedInstanceInfo: InstanceInfo[] = [
     player_count: 0,
     max_player_count: 20,
     creation_time: 1662770937,
+    path: "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\lodestone\\instances\\1f2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
   },
   {
     uuid: '1f2asdasd-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
@@ -42,6 +44,7 @@ const mockedInstanceInfo: InstanceInfo[] = [
     player_count: 12,
     max_player_count: 20,
     creation_time: 1662770937,
+    path: "usr/ubuntu/client/.lodestone/instances/1f2asdasd-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
   },
 ];
 

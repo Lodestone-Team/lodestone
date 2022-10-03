@@ -1,6 +1,4 @@
 import DashboardLayout from 'components/DashboardLayout';
-import Head from 'next/head';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { ReactElement, ReactNode, useEffect } from 'react';
 import { NextPageWithLayout } from './_app';
@@ -19,6 +17,7 @@ const Home: NextPageWithLayout = () => {
         },
       });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uuid]);
 
   return (

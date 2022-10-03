@@ -73,8 +73,8 @@ export function useRouterQuery(queryString: string) {
   };
 }
 
-export function usePrevious(value: any) {
-  const ref = useRef();
+export function usePrevious(value: unknown) {
+  const ref = useRef(value);
   useEffect(() => {
     ref.current = value;
   });

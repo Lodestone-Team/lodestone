@@ -1,4 +1,4 @@
-import { useContext, useState, useEffect } from 'react';
+import { useContext } from 'react';
 // React Query hooks for systeminfo
 
 import { useQuery } from '@tanstack/react-query';

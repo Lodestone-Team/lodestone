@@ -1,12 +1,7 @@
 import { capitalizeFirstLetter, stateToLabelColor } from 'utils/util';
 import Button from './Button';
-import Label, { LabelColor } from './Label';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faClone } from '@fortawesome/free-solid-svg-icons';
-import { response } from 'msw';
-import ClipboardTextfield from './ClipboardTextfield';
-import { useContext, useState } from 'react';
-import { LodestoneContext } from 'data/LodestoneContext';
+import Label from './Label';
+import {  useState } from 'react';
 import axios from 'axios';
 import { InstanceInfo, InstanceState } from 'data/InstanceList';
 
@@ -50,12 +45,12 @@ export default function InstanceCard({
   state,
   player_count,
   max_player_count,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   port,
   focus = false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
 }: InstanceCardProps) {
-  const lodestoneContex = useContext(LodestoneContext);
   const [loading, setLoading] = useState(false);
 
   const buttonOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {

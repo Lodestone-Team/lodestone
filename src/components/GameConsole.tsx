@@ -1,9 +1,8 @@
 import axios from 'axios';
 import { useConsoleStream } from 'data/ConsoleStream';
-import { LodestoneContext } from 'data/LodestoneContext';
 import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
-import { useEffect, useLayoutEffect } from 'react';
-import { useContext, useRef, useState } from 'react';
+import { useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 
 const autoScrollThreshold = 100;
@@ -15,7 +14,6 @@ export default function GameConsole({
   uuid: string;
   enableInput?: boolean;
 }) {
-  const lodestoneContex = useContext(LodestoneContext);
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
   const { data: userInfo } = useUserInfo();

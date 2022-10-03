@@ -1,13 +1,9 @@
 import axios, { AxiosError } from 'axios';
 import Button from 'components/Button';
-import DashboardLayout from 'components/DashboardLayout';
-import Head from 'next/head';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { ReactElement, ReactNode, useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
 import { NextPageWithLayout } from './_app';
-import { useQueryClient } from '@tanstack/react-query';
 import { useCookies } from 'react-cookie';
 import Link from 'next/link';
 import { PublicUser } from 'data/UserInfo';
@@ -25,7 +21,7 @@ const Auth: NextPageWithLayout = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [buttonLoading, setButtonLoading] = useState(false);
-  const [cookies, setCookie, removeCookie] = useCookies(['token']);
+  const [, setCookie, ] = useCookies(['token']);
   const {token} = useContext(LodestoneContext);
 
   useEffect(() => {

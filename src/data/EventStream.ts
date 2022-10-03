@@ -2,7 +2,6 @@ import { InstanceState, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContext, useEffect } from 'react';
-import { InstanceInfo } from './InstanceList';
 
 export interface DownloadProgress {
   total: number;

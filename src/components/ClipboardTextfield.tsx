@@ -1,6 +1,5 @@
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { useRef, useState } from 'react';
 import Tooltip from 'rc-tooltip';
 
 export default function ClipboardTextfield({

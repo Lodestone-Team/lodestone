@@ -1,5 +1,3 @@
-import { faPenToSquare } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Tab } from '@headlessui/react';
 import ClipboardTextfield from 'components/ClipboardTextfield';
 import GameConsole from 'components/GameConsole';
@@ -7,25 +5,21 @@ import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Label';
 import {
-  InstanceInfo,
   updateInstance,
   useInstanceList,
 } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useRouter } from 'next/router';
 import {
   ReactElement,
   ReactNode,
   useContext,
-  useEffect,
   useMemo,
-  useState,
 } from 'react';
 import { useRouterQuery } from 'utils/hooks';
-import { isAxiosError, pushKeepQuery, stateToLabelColor } from 'utils/util';
+import { isAxiosError, stateToLabelColor } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientError } from 'data/ClientError';
 

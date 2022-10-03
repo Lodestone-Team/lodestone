@@ -11,7 +11,7 @@ export type UserState = 'loading' | 'logged-in' | 'logged-out';
 export default function TopNav() {
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const [cookies, setCookie, removeCookie] = useCookies(['token']);
+  const [,, removeCookie] = useCookies(['token']);
   const {token} = useContext(LodestoneContext);
 
   useEffect(() => {
