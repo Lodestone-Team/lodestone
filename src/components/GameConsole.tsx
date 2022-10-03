@@ -43,7 +43,14 @@ export default function GameConsole({
   }, [consoleLog]);
 
   const sendCommand = (command: string) => {
-    axios.post(`/instance/${uuid}/console?command=${command}`);
+    axios({
+      method: 'post',
+      url: `/instance/${uuid}/console`,
+      data: JSON.stringify(command),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
     scrollToBottom();
   };
 

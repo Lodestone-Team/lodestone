@@ -38,7 +38,7 @@ const Auth: NextPageWithLayout = () => {
 
     // login using basic auth
     axios
-      .get<LoginReply>('/user/login', {
+      .post<LoginReply>('/user/login', {}, {
         auth: {
           username,
           password,
