@@ -1,6 +1,7 @@
 import { InstanceState } from 'data/InstanceList';
 import { LabelColor } from "components/Label";
 import { NextRouter } from 'next/router';
+import axios, { AxiosError } from 'axios';
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -25,3 +26,7 @@ export const pushKeepQuery = (router: NextRouter, pathname: string) => {
   undefined,
   { shallow: true });
 };
+
+export function isAxiosError<ResponseType>(error: unknown): error is AxiosError<ResponseType> {
+  return axios.isAxiosError(error);
+}

@@ -1,4 +1,4 @@
-import { InstanceState } from 'data/InstanceList';
+import { InstanceState, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContext, useEffect } from 'react';
@@ -50,28 +50,13 @@ export const useEventStream = () => {
   const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
 
   useEffect(() => {
-    const updateInstance = (
-      uuid: string,
-      updater: (oldInfo: InstanceInfo) => InstanceInfo
-    ) => {
-      queryClient.setQueriesData(
-        ['instances', 'list'],
-        (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
-          if (!oldData) return oldData;
-          return {
-            ...oldData,
-            [uuid]: updater(oldData[uuid]),
-          };
-        }
-      );
-    };
     const updateInstanceState = (uuid: string, state: InstanceState) => {
-      updateInstance(uuid, (oldInfo) => {
+      updateInstance(uuid, queryClient, (oldInfo) => {
         return { ...oldInfo, state };
       });
     };
     const updateInstancePlayerCount = (uuid: string, increment: number) => {
-      updateInstance(uuid, (oldInfo) => {
+      updateInstance(uuid, queryClient, (oldInfo) => {
         return { ...oldInfo, player_count: oldInfo.player_count + increment };
       });
     };

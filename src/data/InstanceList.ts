@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, QueryClient } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
@@ -21,7 +21,25 @@ export interface InstanceInfo {
   player_count: number;
   max_player_count: number;
   creation_time: number;
+  path: string;
 }
+
+export const updateInstance = (
+  uuid: string,
+  queryClient: QueryClient,
+  updater: (oldInfo: InstanceInfo) => InstanceInfo
+) => {
+  queryClient.setQueriesData(
+    ['instances', 'list'],
+    (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
+      if (!oldData) return oldData;
+      return {
+        ...oldData,
+        [uuid]: updater(oldData[uuid]),
+      };
+    }
+  );
+};
 
 export const useInstanceList = () =>
   useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(

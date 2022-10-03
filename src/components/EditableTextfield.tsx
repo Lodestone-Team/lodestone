@@ -13,7 +13,7 @@ type Props = {
   textClassName?: string;
   iconClassName?: string;
   placeholder?: string;
-  onSubmit: (arg: string) => { error: boolean; message: string };
+  onSubmit: (arg: string) => Promise<{ error: boolean; message: string }>;
 };
 
 export default function EditableTextfield({
@@ -43,9 +43,6 @@ export default function EditableTextfield({
   const onSave = async () => {
     setIsLoading(true);
     const trimmedText = editText.trim();
-    await new Promise((resolve) => {
-      setTimeout(resolve, 1000);
-    });
     try {
       const { error, message } = await onSubmit(trimmedText);
       setErrorStatus(error);
@@ -103,7 +100,7 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`relative flex flex-row justify-start items-center tracking-tight group ml-[-0.25ch] ${
+      className={`relative flex flex-row justify-start items-center tracking-tight group ml-[-1ch] ${
         type === 'heading' ? 'font-semibold font-heading text-2xlarge gap-4' : 'italic text-small font-medium gap-2'
       } ${containerClassName}`}
     >
@@ -122,14 +119,14 @@ export default function EditableTextfield({
       ) : (
         <div
           className={`
-          ${type === 'heading' ? 'rounded-lg text-gray-300' : 'rounded text-gray-500'} 
+          ${type === 'heading' ? 'rounded-lg text-gray-300 decoration-2 underline-offset-[6px]' : 'rounded text-gray-500'} 
           ${errorStatus ? `border-2 border-red -my-0.5 -ml-1 -mr-0.5` : '-ml-0.5'}
           bg-transparent hover:text-gray-300 truncate group-hover:underline ${textClassName}`}
           onClick={() => {
             setIsEditing(true);
           }}
         >
-          <span className={`px-[0.25ch] whitespace-pre tracking-tight bg-transparent`}>{displayText ? displayText : placeholder}</span>
+          <span className={`px-[1ch] whitespace-pre tracking-tight bg-transparent`}>{displayText ? displayText : placeholder}</span>
         </div>
       )}
       {errorNode}

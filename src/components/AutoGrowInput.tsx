@@ -28,7 +28,7 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className={`w-full pl-[0.25ch] border-none placeholder:text-gray-500 ${textClassName}`}
+        className={`w-full px-[1ch] border-none placeholder:text-gray-500 truncate ${textClassName}`}
         autoFocus={autoFocus}
         size={1}
         placeholder={placeholder}
@@ -37,7 +37,7 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className={`invisible px-[0.25ch] whitespace-pre ${textClassName}`}
+        className={`invisible px-[1ch] whitespace-pre truncate ${textClassName}`}
       >
         {value ? value : placeholder}
       </span>

@@ -6,7 +6,11 @@ import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Label';
-import { useInstanceList } from 'data/InstanceList';
+import {
+  InstanceInfo,
+  updateInstance,
+  useInstanceList,
+} from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useRouter } from 'next/router';
 import {
@@ -18,14 +22,18 @@ import {
   useState,
 } from 'react';
 import { useRouterQuery } from 'utils/hooks';
-import { pushKeepQuery, stateToLabelColor } from 'utils/util';
+import { isAxiosError, pushKeepQuery, stateToLabelColor } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
+import axios, { AxiosError } from 'axios';
+import { useQueryClient } from '@tanstack/react-query';
+import { ClientError } from 'data/ClientError';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
   const { query: uuid } = useRouterQuery('uuid');
   const { data: instances } = useInstanceList();
+  const queryClient = useQueryClient();
 
   const instance = useMemo(() => {
     if (uuid) return instances?.[uuid];
@@ -48,22 +56,71 @@ const Dashboard: NextPageWithLayout = () => {
 
   const tabList = ['Console', 'Placeholder'];
 
+  const setInstanceName = async (name: string) => {
+    try {
+      await axios({
+        method: 'put',
+        url: `/instance/${uuid}/name`,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        data: JSON.stringify(name),
+      });
+      updateInstance(uuid, queryClient, (oldData) => ({
+        ...oldData,
+        name,
+      }));
+      return { error: false, message: '' };
+    } catch (error) {
+      console.error(error);
+      if (isAxiosError<ClientError>(error))
+        if (error.response?.data)
+          return { error: true, message: error.response.data.detail };
+        else return { error: true, message: error.message };
+      return { error: true, message: 'Unknown error' };
+    }
+  };
+
+  const setInstanceDescription = async (description: string) => {
+    try {
+      await axios({
+        method: 'put',
+        url: `/instance/${uuid}/description`,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        data: JSON.stringify(description),
+      });
+      updateInstance(uuid, queryClient, (oldData) => ({
+        ...oldData,
+        description,
+      }));
+      return { error: false, message: '' };
+    } catch (error) {
+      console.error(error);
+      if (isAxiosError<ClientError>(error))
+        if (error.response?.data)
+          return { error: true, message: error.response.data.detail };
+        else return { error: true, message: error.message };
+      return { error: true, message: 'Unknown error' };
+    }
+  };
+
   return (
     <div
       className="h-0 px-12 pt-6 pb-10 overflow-y-auto bg-gray-800 grow"
       key={uuid}
     >
       <div className="flex flex-col items-start h-full gap-2">
-        <div className="flex flex-row items-center gap-12">
-          <div className="flex flex-row items-center gap-4">
+        <div className="flex flex-row items-center w-full gap-12">
+          <div className="flex flex-row items-center min-w-0 gap-4">
             {/* TODO: create a universal "text with edit button" component */}
             <EditableTextfield
               initialText={instance.name}
               type={'heading'}
-              onSubmit={(text) => {
-                return { error: true, message: 'Not implemented yet' };
-              }}
+              onSubmit={setInstanceName}
               placeholder="No name"
+              containerClassName="min-w-0"
             />
           </div>
           <div className="flex flex-row items-center gap-4">
@@ -93,15 +150,14 @@ const Dashboard: NextPageWithLayout = () => {
             />
           </Label>
         </div>
-        <div className="flex flex-row items-center gap-2">
+        <div className="flex flex-row items-center w-full gap-2">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
             initialText={instance.description}
             type={'description'}
-            onSubmit={(text) => {
-              return { error: true, message: 'Not implemented yet' };
-            }}
+            onSubmit={setInstanceDescription}
             placeholder="No description"
+            containerClassName="min-w-0"
           />
         </div>
         <Tab.Group>
