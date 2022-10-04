@@ -25,6 +25,18 @@ pub struct PublicUser {
     pub permissions: HashMap<Permission, HashSet<String>>,
 }
 
+impl From<&User> for PublicUser {
+    fn from(user: &User) -> Self {
+        PublicUser {
+            uid: user.uid.clone(),
+            username: user.username.clone(),
+            is_owner: user.is_owner,
+            is_admin: user.is_admin,
+            permissions: user.permissions.clone(),
+        }
+    }
+}
+
 impl From<User> for PublicUser {
     fn from(user: User) -> Self {
         PublicUser {
@@ -36,3 +48,4 @@ impl From<User> for PublicUser {
         }
     }
 }
+

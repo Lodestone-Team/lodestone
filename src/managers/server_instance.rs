@@ -5,11 +5,11 @@ use rocket::fs::{TempFile, NamedFile};
 use rocket::serde::json::serde_json;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::fs::{File};
+use tokio::fs::{File};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use tokio::process::{Child, ChildStdin, Command, Stdio};
 use systemstat::Duration;
 // use std::sync::mpsc::{self, Receiver, Sender};
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -167,7 +167,7 @@ pub struct ServerInstance {
     timeout_no_activity: Arc<Mutex<i32>>,
     start_on_connection: Arc<Mutex<bool>>,
     backup_period: Arc<Mutex<i32>>,
-    jvm_args: Vec<String>,
+    cmd_argss: Vec<String>,
     path: PathBuf,
     pub stdin: Arc<Mutex<Option<ChildStdin>>>,
     status: Arc<Mutex<Status>>,
@@ -186,15 +186,15 @@ pub struct ServerInstance {
 
 impl ServerInstance {
     pub fn new(config: &InstanceConfig, path: PathBuf) -> ServerInstance {
-        let mut jvm_args: Vec<String> = vec![];
+        let mut cmd_argss: Vec<String> = vec![];
         let config_override = config.fill_default();
         // this unwrap is safe because we just filled it in
-        jvm_args.push(format!("-Xms{}M", config_override.min_ram.unwrap()));
-        jvm_args.push(format!("-Xmx{}M", config_override.max_ram.unwrap()));
-        jvm_args.push("-jar".to_string());
-        jvm_args.push("server.jar".to_string());
-        jvm_args.push("nogui".to_string());
-        info!("jvm_args: {:?}", jvm_args);
+        cmd_argss.push(format!("-Xms{}M", config_override.min_ram.unwrap()));
+        cmd_argss.push(format!("-Xmx{}M", config_override.max_ram.unwrap()));
+        cmd_argss.push("-jar".to_string());
+        cmd_argss.push("server.jar".to_string());
+        cmd_argss.push("nogui".to_string());
+        info!("cmd_argss: {:?}", cmd_argss);
 
         let properties_manager = PropertiesManager::new(path.join("server.properties")).unwrap();
         let resource_manager = ResourceManager::new(path.clone());
@@ -256,7 +256,7 @@ impl ServerInstance {
             flavour: config.flavour,
             name: config.name.clone(),
             stdin,
-            jvm_args,
+            cmd_argss,
             process: None,
             path: path.clone(),
             port: config.port.expect("no port provided"),
@@ -530,7 +530,7 @@ impl ServerInstance {
         *self.status.lock().unwrap() = Status::Starting;
         let mut command = Command::new("java");
         command
-            .args(&self.jvm_args)
+            .args(&self.cmd_argss)
             .stdout(Stdio::piped())
             .stdin(Stdio::piped());
         match command.spawn() {

@@ -1,10 +1,13 @@
+use async_trait::async_trait;
+
 use super::MaybeUnsupported;
 
+#[async_trait]
 pub trait TMacro {
-    fn get_macro_list(&self) -> Vec<String>;
-    fn delete_macro(&mut self, name: &str) -> Result<(), super::Error>;
-    fn create_macro(&mut self, name: &str, content: &str) -> Result<(), super::Error>;
-    fn run_macro(
+    async fn get_macro_list(&self) -> Vec<String>;
+    async fn delete_macro(&mut self, name: &str) -> Result<(), super::Error>;
+    async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), super::Error>;
+    async fn run_macro(
         &mut self,
         name: &str,
         args: Vec<String>,

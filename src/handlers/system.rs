@@ -1,4 +1,4 @@
-use axum::Json;
+use axum::{Json, Router, routing::get};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, CpuRefreshKind, DiskExt, System, SystemExt};
 
@@ -53,4 +53,11 @@ pub async fn get_cpu_info() -> Json<CPUInfo> {
         cpu_load: sys.cpus().iter().fold(0.0, |acc, v| acc + v.cpu_usage())
             / sys.cpus().len() as f32,
     })
+}
+
+pub fn get_system_routes() -> Router {
+    Router::new()
+        .route("/system/ram", get(get_ram))
+        .route("/system/disk", get(get_disk))
+        .route("/system/cpu", get(get_cpu_info))
 }

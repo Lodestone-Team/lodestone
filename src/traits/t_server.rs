@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -24,10 +25,11 @@ impl ToString for State {
     }
 }
 
+#[async_trait]
 pub trait TServer {
-    fn start(&mut self) -> Result<(), super::Error>;
-    fn stop(&mut self) -> Result<(), super::Error>;
-    fn kill(&mut self) -> Result<(), super::Error>;
-    fn state(&self) -> State;
-    fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), super::Error>>;
+    async fn start(&mut self) -> Result<(), super::Error>;
+    async fn stop(&mut self) -> Result<(), super::Error>;
+    async fn kill(&mut self) -> Result<(), super::Error>;
+    async fn state(&self) -> State;
+    async fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), super::Error>>;
 }

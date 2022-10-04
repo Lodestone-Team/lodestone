@@ -27,3 +27,5 @@ lodestone-path/
 bindings/
 test_ground/
 run.sh
+bin/
+stores/

@@ -1,46 +1,41 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
 use crate::{
-    handlers::instance::{list_instance, start_instance},
     handlers::{
-        client_info::get_client_info,
-        events::{console_stream, event_stream, get_console_out_buffer, get_event_buffer},
-        instance::{
-            create_instance, get_instance_state, kill_instance, remove_instance, send_command,
-            stop_instance, get_player_count, get_max_player_count, get_player_list,
-        },
-        system::{get_cpu_info, get_disk, get_ram},
-        users::{
-            change_password, delete_user, get_self_info, get_user_info, login, new_user,
-            update_permissions,
-        },
+        checks::get_checks_routes, events::get_events_routes, instance::*,
+        instance_manifest::get_instance_manifest_routes,
+        instance_setup_configs::get_instance_setup_config_routes, system::get_system_routes,
+        users::get_user_routes, client_info::get_client_info_routes, instance_server::get_instance_server_routes, instance_config::get_instance_config_routes, instance_players::get_instance_players_routes,
     },
+    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES},
     traits::Error,
-    util::rand_alphanumeric,
+    util::{download_file, rand_alphanumeric},
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{
-    routing::{delete, get, post, put},
+    routing::get,
     Extension, Router,
 };
 use events::Event;
 use implementations::minecraft;
 use json_store::user::User;
 use log::{debug, info};
+use port_allocator::PortAllocator;
 use rand_core::OsRng;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use semver::{BuildMetadata, Prerelease};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{atomic::AtomicBool, Arc},
+    time::Duration,
 };
 use tokio::{
     fs::create_dir_all,
+    process::Command,
     select,
     sync::{
         broadcast::{self, Receiver, Sender},
@@ -55,18 +50,11 @@ mod events;
 mod handlers;
 mod implementations;
 mod json_store;
+mod port_allocator;
+pub mod prelude;
 mod stateful;
 mod traits;
 mod util;
-thread_local! {
-    pub static VERSION: semver::Version = semver::Version {
-        major: 0,
-        minor: 0,
-        patch: 1,
-        pre: Prerelease::new("alpha.1").unwrap(),
-        build: BuildMetadata::EMPTY,
-    };
-}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -79,15 +67,17 @@ pub struct AppState {
     uuid: String,
     client_name: Arc<Mutex<String>>,
     up_since: i64,
+    port_allocator: Arc<Mutex<PortAllocator>>,
 }
 
-fn restore_instances(
+async fn restore_instances(
     lodestone_path: &Path,
     event_broadcaster: &Sender<Event>,
 ) -> HashMap<String, Arc<Mutex<dyn TInstance>>> {
     let mut ret: HashMap<String, Arc<Mutex<dyn TInstance>>> = HashMap::new();
 
-    list_dir(&lodestone_path.join("instances"), Some(true))
+    for instance in list_dir(&lodestone_path.join("instances"), Some(true))
+        .await
         .unwrap()
         .iter()
         .filter(|path| {
@@ -103,7 +93,7 @@ fn restore_instances(
             config
         })
         .map(|config| {
-            match config["type"]
+            match config["game_type"]
                 .as_str()
                 .unwrap()
                 .to_ascii_lowercase()
@@ -122,30 +112,80 @@ fn restore_instances(
                 _ => unimplemented!(),
             }
         })
-        .for_each(|instance| {
-            ret.insert(instance.uuid(), Arc::new(Mutex::new(instance)));
-        });
+    {
+        ret.insert(
+            instance.uuid().await.to_string(),
+            Arc::new(Mutex::new(instance)),
+        );
+    }
     ret
 }
 
-fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
+async fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
     // create user file if it doesn't exist
-    if std::fs::OpenOptions::new()
+    if tokio::fs::OpenOptions::new()
         .read(true)
         .create(true)
         .write(true)
         .open(path_to_user_json)
+        .await
         .unwrap()
         .metadata()
+        .await
         .unwrap()
         .len()
         == 0
     {
         return HashMap::new();
     }
-    let users: HashMap<String, User> =
-        serde_json::from_reader(std::fs::File::open(path_to_user_json).unwrap()).unwrap();
+    let users: HashMap<String, User> = serde_json::from_reader(
+        tokio::fs::File::open(path_to_user_json)
+            .await
+            .unwrap()
+            .into_std()
+            .await,
+    )
+    .unwrap();
     users
+}
+
+async fn download_dependencies() -> Result<(), Error> {
+    let arch = if std::env::consts::ARCH == "x86_64" {
+        "x64"
+    } else {
+        std::env::consts::ARCH
+    };
+
+    let os = std::env::consts::OS;
+    let _7zip_name = format!("7z_{}_{}", os, arch);
+    let path_to_7z = PATH_TO_BINARIES.with(|v| v.join("7zip"));
+    // check if 7z is already downloaded
+    if !path_to_7z.join(&_7zip_name).exists() {
+        info!("Downloading 7z");
+        let _7z = download_file(
+            format!(
+                "https://github.com/Lodestone-Team/dependencies/raw/main/7z_{}_{}",
+                os, arch
+            )
+            .as_str(),
+            path_to_7z.as_ref(),
+            Some(_7zip_name.as_str()),
+            &|_| {},
+            false,
+        )
+        .await?;
+    } else {
+        info!("7z already downloaded");
+    }
+    if os != "windows" {
+        Command::new("chmod")
+            .arg("+x")
+            .arg(path_to_7z.join(&_7zip_name))
+            .output()
+            .await
+            .unwrap();
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -156,29 +196,34 @@ async fn main() {
         // .format_timestamp(None)
         .format_target(false)
         .init();
-    let lodestone_path = PathBuf::from(
-        std::env::var("LODESTONE_PATH")
-            .unwrap_or_else(|_| std::env::current_dir().unwrap().display().to_string()),
-    );
+    let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
+    create_dir_all(&lodestone_path).await.unwrap();
     std::env::set_current_dir(&lodestone_path).expect("Failed to set current dir");
 
+    create_dir_all(PATH_TO_BINARIES.with(|path| path.clone()))
+        .await
+        .unwrap();
+
+    create_dir_all(PATH_TO_STORES.with(|path| path.clone()))
+        .await
+        .unwrap();
+
     let web_path = lodestone_path.join("web");
-    let dot_lodestone_path = lodestone_path.join(".lodestone");
     let path_to_intances = lodestone_path.join("instances");
-    create_dir_all(&dot_lodestone_path).await.unwrap();
     create_dir_all(&web_path).await.unwrap();
     create_dir_all(&path_to_intances).await.unwrap();
     info!("Lodestone path: {}", lodestone_path.display());
 
+    download_dependencies().await.unwrap();
+
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(128);
 
     let mut stateful_users = Stateful::new(
-        restore_users(&dot_lodestone_path.join("users")),
+        restore_users(&PATH_TO_STORES.with(|v| v.join("users"))).await,
         {
-            let dot_lodestone_path = dot_lodestone_path.clone();
             Box::new(move |users, _| {
                 serde_json::to_writer(
-                    std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
+                    std::fs::File::create(&PATH_TO_STORES.with(|v| v.join("users"))).unwrap(),
                     users,
                 )
                 .unwrap();
@@ -186,10 +231,9 @@ async fn main() {
             })
         },
         {
-            let dot_lodestone_path = dot_lodestone_path.clone();
             Box::new(move |users, _| {
                 serde_json::to_writer(
-                    std::fs::File::create(&dot_lodestone_path.join("users")).unwrap(),
+                    std::fs::File::create(&PATH_TO_STORES.with(|v| v.join("users"))).unwrap(),
                     users,
                 )
                 .unwrap();
@@ -248,9 +292,14 @@ async fn main() {
         info!("Username: owner");
         info!("Password: {}", owner_psw);
     }
-
+    let instances = restore_instances(&lodestone_path, &tx).await;
+    let mut allocated_ports = HashSet::new();
+    for (_, instance) in instances.iter() {
+        let instance = instance.lock().await;
+        allocated_ports.insert(instance.port().await);
+    }
     let shared_state = AppState {
-        instances: Arc::new(Mutex::new(restore_instances(&lodestone_path, &tx))),
+        instances: Arc::new(Mutex::new(instances)),
         users: Arc::new(Mutex::new(stateful_users)),
         events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
         console_out_buffer: Arc::new(Mutex::new(stateful_console_out_buffer)),
@@ -262,6 +311,7 @@ async fn main() {
             whoami::realname()
         ))),
         up_since: chrono::Utc::now().timestamp(),
+        port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
     };
 
     let event_buffer_task = tokio::spawn({
@@ -309,40 +359,35 @@ async fn main() {
         .allow_origin(Any);
 
     let api_routes = Router::new()
-        .route("/events/:uuid/stream", get(event_stream))
-        .route("/events/:uuid/buffer", get(get_event_buffer))
-        .route("/instance/:uuid/console/stream", get(console_stream))
-        .route("/instance/:uuid/console/buffer", get(get_console_out_buffer))
-        .route("/instance/:uuid/console", post(send_command))
-        .route("/instance/list", get(list_instance))
-        .route("/instance/create", post(create_instance))
-        .route("/instance/:uuid/start", put(start_instance))
-        .route("/instance/:uuid/stop", put(stop_instance))
-        .route("/instance/:uuid/delete", put(remove_instance))
-        .route("/instance/:uuid/kill", put(kill_instance))
-        .route("/instance/:uuid/state", get(get_instance_state))
-        .route("/instance/:uuid/player_count", get(get_player_count))
-        .route("/instance/:uuid/max_player_count", get(get_max_player_count))
-        .route("/instance/:uuid/player_list", get(get_player_list))
-        .route("/user/create", post(new_user))
-        .route("/user/:user_id/delete", put(delete_user))
-        .route("/user/info", get(get_self_info))
-        .route("/user/:user_id/info", get(get_user_info))
-        .route("/user/update_perm", put(update_permissions))
-        .route("/user/login", get(login))
-        .route("/user/passwd", put(change_password))
-        .route("/system/memory", get(get_ram))
-        .route("/system/disk", get(get_disk))
-        .route("/system/cpu", get(get_cpu_info))
-        .route("/info", get(get_client_info))
+        .merge(get_events_routes())
+        .merge(get_instance_setup_config_routes())
+        .merge(get_instance_manifest_routes())
+        .merge(get_instance_server_routes())
+        .merge(get_instance_config_routes())
+        .merge(get_instance_players_routes())
+        .merge(get_instance_routes())
+        .merge(get_system_routes())
+        .merge(get_checks_routes())
+        .merge(get_user_routes())
+        .merge(get_client_info_routes())
+        .route("/test", get(test))
         .layer(Extension(shared_state))
         .layer(cors);
     let app = Router::new().nest("/api/v1", api_routes);
-
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     select! {
         _ = event_buffer_task => info!("Event buffer task exited"),
         _ = axum::Server::bind(&addr)
         .serve(app.into_make_service()) => info!("Server exited"),
     }
+}
+
+async fn test() -> String {
+    tokio::task::spawn(async {
+        loop {
+            tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(1))).await;
+            println!("test");
+        }
+    });
+    "test".to_string()
 }

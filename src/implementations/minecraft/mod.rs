@@ -4,27 +4,35 @@ pub mod player;
 pub mod resource;
 pub mod server;
 mod util;
+pub mod manifest;
+pub mod versions;
 
-use std::collections::HashSet;
-use std::process::Child;
+use std::collections::{HashSet, HashMap};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Child;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
+
 
 use ::serde::{Deserialize, Serialize};
 use log::{debug, error, info, warn};
-use serde_json::to_string_pretty;
-use tokio;
+use serde_json::{to_string_pretty};
+use tokio::{self};
 use tokio::sync::broadcast::Sender;
 
 use crate::events::{Event, EventInner};
+use crate::prelude::PATH_TO_BINARIES;
 use crate::stateful::Stateful;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_server::State;
 use crate::traits::{Error, ErrorInner, TInstance};
-use crate::util::{download_file, unzip_file, SetupProgress};
+use crate::util::{download_file, unzip_file, SetupProgress, rand_alphanumeric};
 
-use self::util::{get_fabric_jar_url, get_jre_url, get_vanilla_jar_url};
+use self::util::{get_fabric_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Flavour {
@@ -76,8 +84,30 @@ impl ToString for Flavour {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Config {
-    pub r#type: String,
+pub struct SetupConfig {
+    pub game_type: String,
+    pub uuid : String,
+    pub name : String,
+    pub version : String,
+    pub flavour : Flavour,
+    pub port : u32,
+    pub path : PathBuf,
+    pub cmd_args: Option<Vec<String>>,
+    pub description: Option<String>,
+    pub fabric_loader_version: Option<String>,
+    pub fabric_installer_version: Option<String>,
+    pub min_ram: Option<u32>,
+    pub max_ram: Option<u32>,
+    pub auto_start: Option<bool>,
+    pub restart_on_crash: Option<bool>,
+    pub timeout_last_left: Option<u32>,
+    pub timeout_no_activity: Option<u32>,
+    pub start_on_connection: Option<bool>,
+    pub backup_period: Option<u32>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RestoreConfig {
+    pub game_type: String,
     pub uuid: String,
     pub name: String,
     pub version: String,
@@ -86,7 +116,7 @@ pub struct Config {
     // TODO: add paper support
     pub flavour: Flavour,
     pub description: String,
-    pub jvm_args: Vec<String>,
+    pub cmd_args: Vec<String>,
     pub path: PathBuf,
     pub port: u32,
     pub min_ram: u32,
@@ -98,14 +128,13 @@ pub struct Config {
     pub timeout_no_activity: Option<u32>,
     pub start_on_connection: bool,
     pub backup_period: Option<u32>,
-
-    // nullable values which are ignored during first time setup
-    // but must be present in subsequent restorations
-    pub jre_major_version: Option<u64>,
+    pub jre_major_version: u64,
+    pub has_started : bool,
 }
+
 pub struct Instance {
-    config: Config,
-    state: Arc<RwLock<Stateful<State>>>,
+    config: RestoreConfig,
+    state: Arc<Mutex<Stateful<State>>>,
     event_broadcaster: Sender<Event>,
     // file paths
     path_to_config: PathBuf,
@@ -124,27 +153,21 @@ pub struct Instance {
     start_on_connection: Arc<AtomicBool>,
     backup_period: Arc<Mutex<Option<u32>>>,
     process: Option<Child>,
-    players: Arc<RwLock<Stateful<HashSet<String>>>>,
+    players: Arc<Mutex<Stateful<HashSet<String>>>>,
+    settings: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Instance {
     pub async fn new(
-        mut config: Config,
+         config: SetupConfig,
         event_broadcaster: Sender<Event>,
-        idempotency: Option<String>,
     ) -> Result<Instance, Error> {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_eula = config.path.join("eula.txt");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
-        let path_to_runtimes = config
-            .path
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(".lodestone")
-            .join("bin");
+        let path_to_properties = config.path.join("server.properties");
+        let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
 
         let _ = event_broadcaster.send(Event::new(
             EventInner::Setup(SetupProgress {
@@ -154,41 +177,46 @@ impl Instance {
             config.uuid.clone(),
             config.name.clone(),
             "".to_string(),
-            idempotency.clone(),
+            Some(rand_alphanumeric(5)),
         ));
-        std::fs::create_dir_all(&config.path).map_err(|_| Error {
+        tokio::fs::create_dir_all(&config.path).await.map_err(|_| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!("failed to create directory {}", &config.path.display()),
         })?;
 
         // create eula file
-        std::fs::write(&path_to_eula, "#generated by Lodestone\neula=true").map_err(|_| Error {
+        tokio::fs::write(&path_to_eula, "#generated by Lodestone\neula=true").await.map_err(|_| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!("failed to write to eula file {}", &config.path.display()),
         })?;
 
+        tokio::fs::write(&path_to_properties, format!("server-port={}", config.port)).await.map_err(|_| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: format!("failed to write to server.properties file {}", &config.path.display()),
+        })?;
+
         // create macros directory
-        std::fs::create_dir_all(&path_to_macros).map_err(|_| Error {
+        tokio::fs::create_dir_all(&path_to_macros).await.map_err(|_| Error {
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: format!("failed to create {}", &path_to_macros.display()),
         })?;
 
         // create resources directory
-        std::fs::create_dir_all(path_to_resources.join("mods")).map_err(|_| Error {
+        tokio::fs::create_dir_all(path_to_resources.join("mods")).await.map_err(|_| Error {
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: format!(
                 "failed to create mods directory {}",
                 &path_to_resources.display()
             ),
         })?;
-        std::fs::create_dir_all(path_to_resources.join("worlds")).map_err(|_| Error {
+        tokio::fs::create_dir_all(path_to_resources.join("worlds")).await.map_err(|_| Error {
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: format!(
                 "failed to create worlds directory {}",
                 &path_to_resources.display()
             ),
         })?;
-        std::fs::create_dir_all(path_to_resources.join("defaults")).map_err(|_| Error {
+        tokio::fs::create_dir_all(path_to_resources.join("defaults")).await.map_err(|_| Error {
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: format!(
                 "failed to create defaults directory {}",
@@ -203,14 +231,13 @@ impl Instance {
             config.uuid.clone(),
             config.name.clone(),
             "".to_string(),
-            idempotency.clone(),
+            Some(rand_alphanumeric(5)),
         ));
         let (url, jre_major_version) = get_jre_url(config.version.as_str()).await.ok_or(Error {
             inner: ErrorInner::VersionNotFound,
             detail: format!("Cannot get the jre version for version {}", config.version),
         })?;
 
-        config.jre_major_version = Some(jre_major_version);
 
         // TODO: check if jre is already downloaded
         if !path_to_runtimes
@@ -222,14 +249,13 @@ impl Instance {
                 let event_broadcaster = event_broadcaster.clone();
                 let uuid = config.uuid.clone();
                 let name = config.name.clone();
-                let idempotency = idempotency.clone();
                 &move |dl| {
                     let _ = event_broadcaster.send(Event::new(
                         EventInner::Downloading(dl),
                         uuid.clone(),
                         name.clone(),
                         "".to_string(),
-                        idempotency.clone(),
+                        Some(rand_alphanumeric(5)),
                     ));
                 }
             }, true)
@@ -242,13 +268,12 @@ impl Instance {
                 config.uuid.clone(),
                 config.name.clone(),
                 "".to_string(),
-                idempotency.clone(),
+                Some(rand_alphanumeric(5)),
             ));
             let unzipped_content = unzip_file(
                 &downloaded,
                 &path_to_runtimes.join("java"),
-                &path_to_runtimes,
-            )?;
+            ).await?;
             if unzipped_content.len() != 1 {
                 return Err(Error {
                     inner: ErrorInner::APIChanged,
@@ -259,18 +284,18 @@ impl Instance {
                 });
             }
 
-            std::fs::remove_file(&downloaded).map_err(|_| Error {
+            tokio::fs::remove_file(&downloaded).await.map_err(|_| Error {
                 inner: ErrorInner::FailedToRemoveFileOrDir,
                 detail: format!("failed to delete {}", &downloaded.display()),
             })?;
 
-            std::fs::rename(
+            tokio::fs::rename(
                 unzipped_content.iter().last().unwrap(),
                 path_to_runtimes
                     .join("java")
                     .join(format!("jre{}", jre_major_version)),
             )
-            .unwrap();
+            .await.unwrap();
         }
 
         let _ = event_broadcaster.send(Event::new(
@@ -281,7 +306,7 @@ impl Instance {
             config.uuid.clone(),
             config.name.clone(),
             "".to_string(),
-            idempotency.clone(),
+            Some(rand_alphanumeric(5)),
         ));
 
         match config.flavour {
@@ -303,14 +328,13 @@ impl Instance {
                         let event_broadcaster = event_broadcaster.clone();
                         let uuid = config.uuid.clone();
                         let name = config.name.clone();
-                        let idempotency = idempotency.clone();
                         &move |dl| {
                             let _ = event_broadcaster.send(Event::new(
                                 EventInner::Downloading(dl),
                                 uuid.clone(),
                                 name.clone(),
                                 "".to_string(),
-                                idempotency.clone(),
+                                Some(rand_alphanumeric(5)),
                             ));
                         }
                     },
@@ -330,7 +354,7 @@ impl Instance {
                     .ok_or(Error {
                         inner: ErrorInner::VersionNotFound,
                         detail: format!(
-                            "Cannot get the vanilla jar version for version {}",
+                            "Cannot get the fabric jar version for version {}",
                             config.version
                         ),
                     })?
@@ -341,14 +365,13 @@ impl Instance {
                         let event_broadcaster = event_broadcaster.clone();
                         let uuid = config.uuid.clone();
                         let name = config.name.clone();
-                        let idempotency = idempotency.clone();
                         &move |dl| {
                             let _ = event_broadcaster.send(Event::new(
                                 EventInner::Downloading(dl),
                                 uuid.clone(),
                                 name.clone(),
                                 "".to_string(),
-                                idempotency.clone(),
+                                Some(rand_alphanumeric(5)),
                             ));
                         }
                     },
@@ -360,38 +383,55 @@ impl Instance {
             Flavour::Spigot => todo!(),
         };
 
-        // create config file
-        std::fs::write(
-            &path_to_config,
-            to_string_pretty(&config).map_err(|_| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: "config json malformed".to_string(),
-            })?,
-        )
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("failed to write to config {}", &path_to_config.display()),
-        })?;
 
-        Ok(Instance::restore(config, event_broadcaster))
+        let restore_config = RestoreConfig {
+            game_type: config.game_type,
+            uuid: config.uuid,
+            name: config.name,
+            version: config.version,
+            fabric_loader_version: config.fabric_loader_version,
+            fabric_installer_version: config.fabric_installer_version,
+            flavour: config.flavour,
+            description: config.description.unwrap_or_else(|| "".to_string()),
+            cmd_args: config.cmd_args.unwrap_or_default(),
+            path: config.path,
+            port: config.port,
+            min_ram: config.min_ram.unwrap_or(2048),
+            max_ram: config.max_ram.unwrap_or(4096),
+            creation_time: chrono::Utc::now().timestamp(),
+            auto_start: config.auto_start.unwrap_or(false),
+            restart_on_crash: config.restart_on_crash.unwrap_or(false),
+            timeout_last_left: config.timeout_last_left,
+            timeout_no_activity: config.timeout_no_activity,
+            start_on_connection: config.start_on_connection.unwrap_or(false),
+            backup_period: config.backup_period,
+            jre_major_version,
+            has_started: false,
+        };
+                // create config file
+                tokio::fs::write(
+                    &path_to_config,
+                    to_string_pretty(&restore_config).map_err(|_| Error {
+                        inner: ErrorInner::MalformedFile,
+                        detail: "config json malformed".to_string(),
+                    })?,
+                )
+                .await.map_err(|_| Error {
+                    inner: ErrorInner::FailedToWriteFileOrDir,
+                    detail: format!("failed to write to config {}", &path_to_config.display()),
+                })?;
+        Ok(Instance::restore(restore_config, event_broadcaster))
     }
 
     pub fn restore(
-        config: Config,
+        config: RestoreConfig,
         event_broadcaster: Sender<Event>,
     ) -> Instance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
         let path_to_properties = config.path.join("server.properties");
-        let path_to_runtimes = config
-            .path
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(".lodestone")
-            .join("bin");
+        let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
         let state_callback = {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
@@ -679,8 +719,9 @@ impl Instance {
                 Ok(())
             }
         };
-        Instance {
-            state: Arc::new(RwLock::new(Stateful::new(
+        
+        let mut instance = Instance {
+            state: Arc::new(Mutex::new(Stateful::new(
                 State::Stopped,
                 Box::new(state_callback),
                 Box::new(|_, _| Ok(())),
@@ -699,23 +740,26 @@ impl Instance {
             event_broadcaster,
             path_to_runtimes,
             process: None,
-            players: Arc::new(RwLock::new(Stateful::new(
+            players: Arc::new(Mutex::new(Stateful::new(
                 HashSet::new(),
                 Box::new(players_callback.clone()),
                 Box::new(players_callback),
             ))),
-        }
+            settings: Arc::new(Mutex::new(HashMap::new())),
+        };
+        let _ = instance.read_properties();
+        instance
     }
 
-    fn write_config_to_file(&self) -> Result<(), Error> {
-        std::fs::write(
+    async fn write_config_to_file(&self) -> Result<(), Error> {
+        tokio::fs::write(
             &self.path_to_config,
             to_string_pretty(&self.config).map_err(|_| Error {
                 inner: ErrorInner::MalformedFile,
                 detail: "config json malformed".to_string(),
             })?,
         )
-        .map_err(|_| Error {
+        .await.map_err(|_| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!(
                 "failed to write to config {}",
@@ -723,6 +767,32 @@ impl Instance {
             ),
         })
     }
+
+    async fn read_properties(&mut self) -> Result<(), Error> {
+            *self.settings.lock().await = read_properties_from_path(&self.path_to_properties).map_err(|_| Error { inner: ErrorInner::FailedToReadFileOrDir, detail: "".to_string() })?;
+            Ok(())
+    }
+
+    async fn write_properties_to_file(&self) -> Result<(), Error> {
+        let file = File::open(&self.path_to_properties).await.map_err(|_| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: String::new(),
+        })?;
+        let mut file_writer = tokio::io::BufWriter::new(file);
+        
+        for (key, value) in self.settings
+        .lock().await.iter() {
+            file_writer
+                .write_all(format!("{}={}", key, value).as_bytes()).await
+                .map_err(|_| Error {
+                    inner: ErrorInner::FailedToWriteFileOrDir,
+                    detail: String::new(),
+                })?;
+        }
+        Ok(())
+    }
+
 }
 
 impl TInstance for Instance {}
+

@@ -1,8 +1,52 @@
-use std::str::FromStr;
+use std::{collections::HashMap, fs::File, io::BufRead, path::Path, str::FromStr};
 
 use serde_json;
 
-use super::Flavour;
+use crate::traits::{Error, ErrorInner};
+
+pub fn read_properties_from_path(
+    path_to_properties: &Path,
+) -> Result<HashMap<String, String>, Error> {
+    let properties_file = File::open(path_to_properties).map_err(|_| Error {
+        inner: ErrorInner::FailedToWriteFileOrDir,
+        detail: "Failed to open properties file. Has the instance been started at least once?"
+            .to_string(),
+    })?;
+    let buf_reader = std::io::BufReader::new(properties_file);
+    let stream = buf_reader
+        .lines()
+        .filter(Result::is_ok)
+        // this unwrap is safe because we filtered all the ok values
+        .map(Result::unwrap);
+
+    let mut ret = HashMap::new();
+
+    for line in stream {
+        // if a line starts with '#', it is a comment, skip it
+        if line.starts_with('#') {
+            continue;
+        }
+        // split the line into key and value
+        let mut split = line.split('=');
+        let key = split
+            .next()
+            .ok_or(Error {
+                inner: ErrorInner::MalformedFile,
+                detail: String::new(),
+            })?
+            .trim();
+        let value = split
+            .next()
+            .ok_or(Error {
+                inner: ErrorInner::MalformedFile,
+                detail: String::new(),
+            })?
+            .trim();
+
+        ret.insert(key.to_string(), value.to_string());
+    }
+    Ok(ret)
+}
 
 pub async fn get_vanilla_jar_url(version: &str) -> Option<String> {
     let client = reqwest::Client::new();
@@ -191,40 +235,49 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
         std::env::consts::ARCH
     };
 
-    let major_java_version = serde_json::Value::from_str(
-        client
-            .get(
-                serde_json::Value::from_str(
-                    client
-                        .get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
-                        .send()
-                        .await
-                        .ok()?
-                        .text()
-                        .await
-                        .ok()?
-                        .as_str(),
+    let major_java_version = {
+        let val = serde_json::Value::from_str(
+            client
+                .get(
+                    serde_json::Value::from_str(
+                        client
+                            .get("https://launchermeta.mojang.com/mc/game/version_manifest.json")
+                            .send()
+                            .await
+                            .ok()?
+                            .text()
+                            .await
+                            .ok()?
+                            .as_str(),
+                    )
+                    .ok()?
+                    .get("versions")?
+                    .as_array()?
+                    .iter()
+                    .find(|v| v.get("id").unwrap().as_str().unwrap().eq(version))?
+                    .get("url")?
+                    .as_str()?,
                 )
+                .send()
+                .await
                 .ok()?
-                .get("versions")?
-                .as_array()?
-                .iter()
-                .find(|v| v.get("id").unwrap().as_str().unwrap().eq(version))?
-                .get("url")?
-                .as_str()?,
-            )
-            .send()
-            .await
-            .ok()?
-            .text()
-            .await
-            .ok()?
-            .as_str(),
-    )
-    .ok()?
-    .get("javaVersion")?
-    .get("majorVersion")?
-    .as_u64()?;
+                .text()
+                .await
+                .ok()?
+                .as_str(),
+        )
+        .ok()?
+        .get("javaVersion")?
+        .get("majorVersion")?
+        .as_u64()?;
+        // Ddoptium won't provide java 16 for some reason
+        // updateing to 17 should be safe, and 17 is preferred since its LTS
+        if val == 16 {
+            17
+        } else {
+            val
+        }
+    };
 
     Some((
         format!(
@@ -233,15 +286,6 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
         ),
         major_java_version,
     ))
-}
-
-pub async fn get_list_of_versions(flavour: Flavour) -> Vec<String> {
-    match flavour {
-        Flavour::Vanilla => todo!(),
-        Flavour::Fabric => todo!(),
-        Flavour::Paper => todo!(),
-        Flavour::Spigot => unimplemented!(),
-    }
 }
 
 mod tests {

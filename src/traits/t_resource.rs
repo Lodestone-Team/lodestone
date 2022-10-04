@@ -28,20 +28,20 @@ where
 
 #[async_trait]
 pub trait TResourceManagement {
-    fn list(&self) -> Vec<serde_json::Value> {
+    async fn list(&self) -> Vec<serde_json::Value> where Self: Sized {
         vec![]
     }
 
-    fn load(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
+    async fn load(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> where Self: Sized {
         Unsupported
     }
 
-    fn unload(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
+    async fn unload(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> where Self: Sized {
         Unsupported
     }
 
 
-    fn delete(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> {
+    async fn delete(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> where Self: Sized {
         Unsupported
     }
 }

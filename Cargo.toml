@@ -1,6 +1,6 @@
 [package]
 name = "Lodestone"
-version = "0.1.0"
+version = "0.2.1-alpha.1"
 edition = "2021"
 
 exclude = [
@@ -23,7 +23,7 @@ axum = { version = "0.5.13", features = ["headers", "ws"] }
 axum-macros = "0.2.3"
 futures = "0.3.21"
 headers = "0.3"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.21.2", features = ["full"] }
 tokio-stream = "0.1"
 tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
 fancy-regex = "0.10.0"
@@ -32,7 +32,7 @@ rand_core = { version = "0.6", features = ["std"] }
 serde_json = "1.0.82"
 serde = { version = "1.0", features = ["derive"] }
 
-reqwest = { version = "0.11.10", features = ["stream", "blocking"] }
+reqwest = { version = "0.11.10", features = ["stream"] }
 futures-util = "0.3.14"
 indicatif = "0.15.0"
 
@@ -54,6 +54,8 @@ chrono = "0.4.22"
 ringbuffer = "0.8.5"
 semver = {version="1.0", features = ["serde"]}
 whoami = "1.2.3"
+home = "0.5.3"
+port_scanner = "0.1.5"
 [dependencies.uuid]
 version = "1.1.2"
 features = [
