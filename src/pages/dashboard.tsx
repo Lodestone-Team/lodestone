@@ -4,24 +4,22 @@ import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Label';
-import {
-  updateInstance,
-  useInstanceList,
-} from 'data/InstanceList';
+import { updateInstance, useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import {
-  ReactElement,
-  ReactNode,
-  useContext,
-  useMemo,
-} from 'react';
+import { ReactElement, ReactNode, useContext, useMemo } from 'react';
 import { useRouterQuery } from 'utils/hooks';
-import { isAxiosError, stateToLabelColor } from 'utils/util';
+import {
+  axiosPutSingleValue,
+  axiosWrapper,
+  isAxiosError,
+  stateToLabelColor,
+} from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
 import axios from 'axios';
 import { useQueryClient } from '@tanstack/react-query';
-import { ClientError } from 'data/ClientError';
+import { ClientError, isClientError } from 'data/ClientError';
+import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
@@ -48,56 +46,70 @@ const Dashboard: NextPageWithLayout = () => {
 
   const labelColor = stateToLabelColor[instance.state];
 
-  const tabList = ['Console', 'Placeholder'];
+  // tablist is map from GameType to tabs
+  const tabList = {
+    minecraft: [
+      {
+        title: 'General',
+        content: <MinecraftGeneralCard instance={instance} />,
+      },
+      {
+        title: 'Console',
+        content: (
+          <GameConsole uuid={uuid} enableInput={instance.state === 'Running'} />
+        ),
+      },
+      {
+        title: 'Settings',
+        content: (
+          <DashboardCard>
+            <h1 className="font-bold text-medium"> Placeholder </h1>
+          </DashboardCard>
+        ),
+      },
+      {
+        title: 'Resources',
+        content: (
+          <DashboardCard>
+            <h1 className="font-bold text-medium"> Placeholder </h1>
+          </DashboardCard>
+        ),
+      },
+      {
+        title: 'Macro',
+        content: (
+          <DashboardCard>
+            <h1 className="font-bold text-medium"> Placeholder </h1>
+          </DashboardCard>
+        ),
+      },
+      {
+        title: 'Monitor',
+        content: (
+          <DashboardCard>
+            <h1 className="font-bold text-medium"> Placeholder </h1>
+          </DashboardCard>
+        ),
+      },
+    ],
+  };
 
   const setInstanceName = async (name: string) => {
-    try {
-      await axios({
-        method: 'put',
-        url: `/instance/${uuid}/name`,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        data: JSON.stringify(name),
-      });
-      updateInstance(uuid, queryClient, (oldData) => ({
-        ...oldData,
-        name,
-      }));
-      return { error: false, message: '' };
-    } catch (error) {
-      console.error(error);
-      if (isAxiosError<ClientError>(error))
-        if (error.response?.data)
-          return { error: true, message: error.response.data.detail };
-        else return { error: true, message: error.message };
-      return { error: true, message: 'Unknown error' };
-    }
+    const result = await axiosPutSingleValue<void>(`/instance/${uuid}/name`, name);
+    updateInstance(uuid, queryClient, (oldData) => ({
+      ...oldData,
+      name,
+    }));
+    return result;
   };
 
   const setInstanceDescription = async (description: string) => {
-    try {
-      await axios({
-        method: 'put',
-        url: `/instance/${uuid}/description`,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        data: JSON.stringify(description),
-      });
-      updateInstance(uuid, queryClient, (oldData) => ({
-        ...oldData,
-        description,
-      }));
-      return { error: false, message: '' };
-    } catch (error) {
-      console.error(error);
-      if (isAxiosError<ClientError>(error))
-        if (error.response?.data)
-          return { error: true, message: error.response.data.detail };
-        else return { error: true, message: error.message };
-      return { error: true, message: 'Unknown error' };
-    }
+    const result = await axiosPutSingleValue<void>(`/instance/${uuid}/description`, description);
+    updateInstance(uuid, queryClient, (oldData) => ({
+      ...oldData,
+      description,
+    }));
+    return result;
   };
 
   return (
@@ -156,9 +168,9 @@ const Dashboard: NextPageWithLayout = () => {
         </div>
         <Tab.Group>
           <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
-            {tabList.map((tab) => (
+            {tabList[instance.game_type].map((tab) => (
               <Tab
-                key={tab}
+                key={tab.title}
                 className={({ selected }) =>
                   `tracking-tight text-medium font-semibold focus-visible:outline-none ${
                     selected
@@ -167,23 +179,16 @@ const Dashboard: NextPageWithLayout = () => {
                   }`
                 }
               >
-                {tab}
+                {tab.title}
               </Tab>
             ))}
           </Tab.List>
           <Tab.Panels className="w-full grow">
-            <Tab.Panel className="w-full h-full">
-              {/* <h1 className="font-bold text-medium"> Console </h1> */}
-              <GameConsole
-                uuid={uuid}
-                enableInput={instance.state === 'Running'}
-              />
-            </Tab.Panel>
-            <Tab.Panel>
-              <DashboardCard>
-                <h1 className="font-bold text-medium"> Placeholder </h1>
-              </DashboardCard>
-            </Tab.Panel>
+            {tabList[instance.game_type].map((tab) => (
+              <Tab.Panel className="w-full h-full" key={tab.title}>
+                {tab.content}
+              </Tab.Panel>
+            ))}
           </Tab.Panels>
         </Tab.Group>
       </div>

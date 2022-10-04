@@ -3,6 +3,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
 import AutoGrowInput from './AutoGrowInput';
+import { Result } from '@badrap/result';
+import { ClientError } from 'data/ClientError';
 
 export type TextfieldType = 'heading' | 'description';
 
@@ -13,7 +15,7 @@ type Props = {
   textClassName?: string;
   iconClassName?: string;
   placeholder?: string;
-  onSubmit: (arg: string) => Promise<{ error: boolean; message: string }>;
+  onSubmit: (arg: string) => Promise<Result<void, ClientError>>;
 };
 
 export default function EditableTextfield({
@@ -43,20 +45,22 @@ export default function EditableTextfield({
   const onSave = async () => {
     setIsLoading(true);
     const trimmedText = editText.trim();
-    try {
-      const { error, message } = await onSubmit(trimmedText);
-      setErrorStatus(error);
-      if (error) {
-        setErrorMessage(message);
-        setIsEditing(true);
-      } else {
+    const result = await onSubmit(trimmedText);
+    result.unwrap(
+      () => {
+        setIsLoading(false);
         setIsEditing(false);
         setDisplayText(trimmedText);
         setEditText(trimmedText);
+        setErrorStatus(false);
+        setErrorMessage('');
+      },
+      (error) => {
+        setIsLoading(false);
+        setErrorStatus(true);
+        setErrorMessage(error.detail);
       }
-    } finally {
-      setIsLoading(false);
-    }
+    );
   };
 
   const onCancel = () => {
@@ -107,9 +111,9 @@ export default function EditableTextfield({
       } ${containerClassName}`}
     >
       <div
-        className={`min-w-0 mr-[0.5ch] ${errorStatus && `border-2 border-red -ml-0.5 -my-0.5`} ${
-          type === 'heading' ? 'rounded-lg' : 'rounded'
-        }`}
+        className={`min-w-0 mr-[0.5ch] ${
+          errorStatus && `border-2 border-red -ml-0.5 -my-0.5`
+        } ${type === 'heading' ? 'rounded-lg' : 'rounded'}`}
       >
         {isEditing ? (
           <AutoGrowInput

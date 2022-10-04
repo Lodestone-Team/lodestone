@@ -10,12 +10,14 @@ export type InstanceState =
   | 'Stopped'
   | 'Error';
 
+export type GameType = 'minecraft';
+
 export interface InstanceInfo {
   uuid: string;
   name: string;
   port: number;
   description: string;
-  game_type: string;
+  game_type: GameType;
   flavour: string;
   state: InstanceState;
   player_count: number;
