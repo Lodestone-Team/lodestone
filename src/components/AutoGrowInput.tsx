@@ -20,7 +20,7 @@ export default function AutoGrowInput({
   children?: React.ReactNode;
 }) {
   return (
-    <div className={`inline-grid items-center justify-start ${className}`}>
+    <div className={`inline-grid items-center justify-start ml-[-1ch] mr-[-0.5ch] ${className}`}>
       <input
         value={value}
         onChange={onChange}
@@ -28,7 +28,7 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className={`w-full px-[1ch] border-none placeholder:text-gray-500 truncate ${textClassName}`}
+        className={`w-full pl-[1ch] pr-[0.5ch] border-none placeholder:text-gray-500 truncate ${textClassName}`}
         autoFocus={autoFocus}
         size={1}
         placeholder={placeholder}
@@ -37,7 +37,7 @@ export default function AutoGrowInput({
         style={{
           gridArea: '1 / 1 / 2 / 2',
         }}
-        className={`invisible px-[1ch] whitespace-pre truncate ${textClassName}`}
+        className={`invisible pl-[1ch] pr-[0.5ch] whitespace-pre truncate ${textClassName}`}
       >
         {value ? value : placeholder}
       </span>

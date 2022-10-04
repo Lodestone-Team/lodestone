@@ -60,7 +60,7 @@ export default function EditableTextfield({
   };
 
   const onCancel = () => {
-    if(isLoading) return;
+    if (isLoading) return;
     setEditText(displayText);
     setIsEditing(false);
     setErrorStatus(false);
@@ -69,7 +69,7 @@ export default function EditableTextfield({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if(!isEditing) return;
+      if (!isEditing) return;
       if (e.code === 'Enter') {
         onSave();
       } else if (e.code === 'Escape') {
@@ -100,35 +100,47 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`relative flex flex-row justify-start items-center tracking-tight group ml-[-1ch] ${
-        type === 'heading' ? 'font-semibold font-heading text-2xlarge gap-4' : 'italic text-small font-medium gap-2'
+      className={`relative flex flex-row justify-start items-center tracking-tight group ${
+        type === 'heading'
+          ? 'font-semibold font-heading text-2xlarge'
+          : 'italic text-small font-medium'
       } ${containerClassName}`}
     >
-      {isEditing ? (
-        <AutoGrowInput
-          className={`
-          ${type === 'heading' ? 'rounded-lg' : 'rounded'} 
-          ${errorStatus ? `border-2 border-red -my-0.5 -ml-1 -mr-0.5` : '-ml-0.5'}`}
-          textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
-          value={editText}
-          onChange={onEdit}
-          onBlur={onCancel}
-          autoFocus={true}
-          placeholder={placeholder}
-        ></AutoGrowInput>
-      ) : (
-        <div
-          className={`
-          ${type === 'heading' ? 'rounded-lg text-gray-300 decoration-2 underline-offset-[6px]' : 'rounded text-gray-500'} 
-          ${errorStatus ? `border-2 border-red -my-0.5 -ml-1 -mr-0.5` : '-ml-0.5'}
-          bg-transparent hover:text-gray-300 truncate group-hover:underline ${textClassName}`}
-          onClick={() => {
-            setIsEditing(true);
-          }}
-        >
-          <span className={`px-[1ch] whitespace-pre tracking-tight bg-transparent`}>{displayText ? displayText : placeholder}</span>
-        </div>
-      )}
+      <div
+        className={`w-full mr-[0.5ch] ${errorStatus && `border-2 border-red -ml-0.5`} ${
+          type === 'heading' ? 'rounded-lg' : 'rounded'
+        }`}
+      >
+        {isEditing ? (
+          <AutoGrowInput
+            textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
+            value={editText}
+            onChange={onEdit}
+            onBlur={onCancel}
+            autoFocus={true}
+            placeholder={placeholder}
+          ></AutoGrowInput>
+        ) : (
+          <div
+            className={`
+          ${
+            type === 'heading'
+              ? 'text-gray-300 decoration-2 underline-offset-[6px]'
+              : 'text-gray-500'
+          } 
+          ml-[-1ch] mr-[-0.5ch] bg-transparent group-hover:text-gray-300 truncate group-hover:underline ${textClassName}`}
+            onClick={() => {
+              setIsEditing(true);
+            }}
+          >
+            <span
+              className={`pl-[1ch] pr-[0.5ch] whitespace-pre tracking-tight bg-transparent`}
+            >
+              {displayText ? displayText : placeholder}
+            </span>
+          </div>
+        )}
+      </div>
       {errorNode}
       {isLoading ? (
         <BeatLoader
