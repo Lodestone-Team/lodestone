@@ -1,5 +1,5 @@
 use crate::AppState;
-use axum::{extract::Path, Extension, Json, Router, routing::get};
+use axum::{extract::Path, routing::get, Extension, Json, Router};
 
 /// Check whether a port is in use
 /// Note: this function is not cheap

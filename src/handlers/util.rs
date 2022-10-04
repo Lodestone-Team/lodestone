@@ -4,7 +4,10 @@ use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use rand_core::OsRng;
 
-use crate::{json_store::{permission::Permission, user::User}, events::{Event, EventInner}};
+use crate::{
+    events::{Event, EventInner},
+    json_store::{permission::Permission, user::User},
+};
 
 use super::users::Claim;
 
@@ -62,9 +65,13 @@ pub fn is_authorized(user: &User, instance_uuid: &str, perm: Permission) -> bool
 }
 
 pub fn can_user_view_event(event: &Event, user: &User) -> bool {
-    match event.event_inner {
-        EventInner::Downloading(_) | EventInner::Setup(_) => true,
-        _ => is_authorized(user, &event.instance_uuid, Permission::CanViewInstance),
+    match &event.event_inner {
+        EventInner::InstanceEvent(event) => {
+            is_authorized(user, &event.instance_uuid, Permission::CanViewInstance)
+        }
+        EventInner::UserEvent(event) => {
+            is_authorized(user, &event.user_id, Permission::CanManageUser)
+        }
     }
 }
 

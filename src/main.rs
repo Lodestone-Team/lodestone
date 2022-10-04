@@ -2,20 +2,19 @@
 
 use crate::{
     handlers::{
-        checks::get_checks_routes, events::get_events_routes, instance::*,
+        checks::get_checks_routes, client_info::get_client_info_routes, events::get_events_routes,
+        instance::*, instance_config::get_instance_config_routes,
         instance_manifest::get_instance_manifest_routes,
+        instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, system::get_system_routes,
-        users::get_user_routes, client_info::get_client_info_routes, instance_server::get_instance_server_routes, instance_config::get_instance_config_routes, instance_players::get_instance_players_routes,
+        users::get_user_routes,
     },
     prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES},
     traits::Error,
     util::{download_file, rand_alphanumeric},
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
-use axum::{
-    routing::get,
-    Extension, Router,
-};
+use axum::{routing::get, Extension, Router};
 use events::Event;
 use implementations::minecraft;
 use json_store::user::User;
@@ -320,27 +319,32 @@ async fn main() {
         let mut event_receiver = tx.subscribe();
         async move {
             while let Ok(event) = event_receiver.recv().await {
-                match event.event_inner {
-                    events::EventInner::InstanceOutput(_) => {
-                        console_out_buffer
-                            .lock()
-                            .await
-                            .transform(Box::new(move |event_buffer| {
-                                event_buffer.push(event.clone());
-                                Ok(())
-                            }))
-                            .unwrap();
+                match &event.event_inner {
+                    events::EventInner::InstanceEvent(instance_event) => {
+                        match instance_event.instance_event_inner {
+                            events::InstanceEventInner::InstanceOutput(_) => {
+                                console_out_buffer
+                                    .lock()
+                                    .await
+                                    .transform(Box::new(move |event_buffer| {
+                                        event_buffer.push(event.clone());
+                                        Ok(())
+                                    }))
+                                    .unwrap();
+                            }
+                            _ => {
+                                event_buffer
+                                    .lock()
+                                    .await
+                                    .transform(Box::new(move |event_buffer| -> Result<(), Error> {
+                                        event_buffer.push(event.clone());
+                                        Ok(())
+                                    }))
+                                    .unwrap();
+                            }
+                        }
                     }
-                    _ => {
-                        event_buffer
-                            .lock()
-                            .await
-                            .transform(Box::new(move |event_buffer| -> Result<(), Error> {
-                                event_buffer.push(event.clone());
-                                Ok(())
-                            }))
-                            .unwrap();
-                    }
+                    events::EventInner::UserEvent(_) => todo!(),
                 }
             }
         }

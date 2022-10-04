@@ -5,15 +5,18 @@ use axum::Router;
 use axum::{extract::Path, Extension, Json};
 
 use futures::future::join_all;
-use log::info;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+
+use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
 use crate::prelude::PATH_TO_INSTANCES;
 use crate::traits::InstanceInfo;
 
+use crate::util::rand_alphanumeric;
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
@@ -143,6 +146,7 @@ pub async fn create_minecraft_instance(
     let uuid = setup_config.uuid.clone();
     tokio::task::spawn({
         let uuid = uuid.clone();
+        let event_broadcaster = state.event_broadcaster.clone();
         async move {
             let minecraft_instance = match minecraft::Instance::new(
                 setup_config.clone(),
@@ -152,6 +156,17 @@ pub async fn create_minecraft_instance(
             {
                 Ok(v) => v,
                 Err(_) => {
+                    event_broadcaster.send(Event {
+                        event_inner: EventInner::InstanceEvent(InstanceEvent {
+                            instance_uuid: uuid.clone(),
+                            instance_name : name.clone(),
+                            instance_event_inner: InstanceEventInner::InstanceCreationFailed,
+                        }),
+                        details: "".to_string(),
+                        timestamp: chrono::Utc::now().timestamp(),
+                        idempotency : rand_alphanumeric(5),
+                    
+                    }).map_err(|_|error!("Instance setup failed AND failed to communicate this result through websocket")).unwrap();
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
                         .map_err(|e| Error {
@@ -160,7 +175,8 @@ pub async fn create_minecraft_instance(
                             "Instance creation failed. Failed to clean up instance directory: {}",
                             e
                         ),
-                        });
+                        })
+                        .unwrap();
                     return;
                 }
             };
