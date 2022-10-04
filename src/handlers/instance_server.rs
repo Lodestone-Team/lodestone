@@ -1,11 +1,13 @@
-use axum::{Router, routing::{put, post, get}, Extension, extract::Path};
-
+use axum::{
+    extract::Path,
+    routing::{get, post, put},
+    Extension, Router,
+};
 
 use axum::Json;
 use axum_auth::AuthBearer;
 
 use serde_json::{json, Value};
-
 
 use crate::traits::{Supported, Unsupported};
 
@@ -15,7 +17,6 @@ use crate::{
     traits::{Error, ErrorInner},
     AppState,
 };
-
 
 pub async fn start_instance(
     Extension(state): Extension<AppState>,

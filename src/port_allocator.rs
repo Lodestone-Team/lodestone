@@ -5,10 +5,8 @@ pub struct PortAllocator {
 }
 
 impl PortAllocator {
-    pub fn new(allocated_ports : HashSet<u32>) -> PortAllocator {
-        PortAllocator {
-            allocated_ports,
-        }
+    pub fn new(allocated_ports: HashSet<u32>) -> PortAllocator {
+        PortAllocator { allocated_ports }
     }
 
     pub fn allocate(&mut self, start_port: u32) -> u32 {

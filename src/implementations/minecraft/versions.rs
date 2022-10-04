@@ -5,7 +5,6 @@ use serde_json::Value;
 
 use crate::traits::{Error, ErrorInner};
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MinecraftVersions {
     old_alpha: HashSet<String>,

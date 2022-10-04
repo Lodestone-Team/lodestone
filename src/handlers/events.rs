@@ -41,9 +41,13 @@ pub async fn get_event_buffer(
             .await
             .get_ref()
             .iter()
-            .filter(|event| {
-                (event.instance_uuid == uuid || uuid == "all")
-                    && can_user_view_event(event, &requester)
+            .rev()
+            .filter(|event| match &event.event_inner {
+                EventInner::InstanceEvent(instance_event) => {
+                    (instance_event.instance_uuid == uuid || uuid == "all")
+                        && can_user_view_event(event, &requester)
+                }
+                _ => false,
             })
             .cloned()
             .collect(),
@@ -66,9 +70,13 @@ pub async fn get_console_buffer(
             .await
             .get_ref()
             .iter()
-            .filter(|event| {
-                (event.instance_uuid == uuid || uuid == "all")
-                    && can_user_view_event(event, &requester)
+            .rev()
+            .filter(|event| match &event.event_inner {
+                EventInner::InstanceEvent(instance_event) => {
+                    (instance_event.instance_uuid == uuid || uuid == "all")
+                        && can_user_view_event(event, &requester)
+                }
+                _ => false,
             })
             .cloned()
             .collect(),
@@ -114,55 +122,38 @@ async fn event_stream_ws(
     loop {
         tokio::select! {
             Ok(event) = event_receiver.recv() => {
-                if event.instance_uuid != uuid && uuid != "all" {
-                    continue;
-                }
-                if can_user_view_event(
-                    &event,
-                    match users.lock().await.get_ref().get(&uid) {
-                        Some(user) => user,
-                        None => break,
+                match &event.event_inner {
+                    EventInner::InstanceEvent(instance_event) => {
+                        if instance_event.instance_uuid != uuid && uuid != "all" {
+                            continue;
+                        }
+                        if can_user_view_event(
+                            &event,
+                            match users.lock().await.get_ref().get(&uid) {
+                                Some(user) => user,
+                                None => break,
+                            },
+                        ) {
+                            if let Err(e) = sender
+                                .send(axum::extract::ws::Message::Text(
+                                    serde_json::to_string(&event).unwrap(),
+                                ))
+                                .await
+                            {
+                                error!("Failed to send event: {}", e);
+                                break;
+                            }
+                        }
                     },
-                ) {
-                    if let Err(e) = sender
-                        .send(axum::extract::ws::Message::Text(
-                            serde_json::to_string(&event).unwrap(),
-                        ))
-                        .await
-                    {
-                        error!("Failed to send event: {}", e);
-                        break;
-                    }
+                    EventInner::UserEvent(user_event) => todo!(),
                 }
+
             }
             Some(Ok(ws_msg)) = receiver.next() => {
                 match sender.send(ws_msg).await {
                     Ok(_) => debug!("Replied to ping"),
                     Err(_) => break,
                 };
-            }
-        }
-    }
-
-    while let Ok(event) = event_receiver.recv().await {
-        if event.instance_uuid != uuid && uuid != "all" {
-            continue;
-        }
-        if can_user_view_event(
-            &event,
-            match users.lock().await.get_ref().get(&uid) {
-                Some(user) => user,
-                None => break,
-            },
-        ) {
-            if let Err(e) = sender
-                .send(axum::extract::ws::Message::Text(
-                    serde_json::to_string(&event).unwrap(),
-                ))
-                .await
-            {
-                error!("Failed to send event: {}", e);
-                break;
             }
         }
     }
@@ -200,11 +191,11 @@ async fn console_stream_ws(
 ) {
     let (mut sender, mut _receiver) = stream.split();
     while let Ok(event) = event_receiver.recv().await {
-        if event.instance_uuid != uuid && uuid != "all" {
-            continue;
-        }
-        match event.event_inner {
-            EventInner::InstanceOutput(_) => {
+        match &event.event_inner {
+            EventInner::InstanceEvent(instance_event) => {
+                if instance_event.instance_uuid != uuid && uuid != "all" {
+                    continue;
+                }
                 if can_user_view_event(
                     &event,
                     match users.lock().await.get_ref().get(&uid) {
@@ -218,12 +209,12 @@ async fn console_stream_ws(
                         ))
                         .await
                     {
-                        error!("Failed to send console out: {}", e);
+                        error!("Failed to send event: {}", e);
                         break;
                     }
                 }
             }
-            _ => continue,
+            EventInner::UserEvent(_) => {}
         }
     }
 }

@@ -14,7 +14,11 @@ impl TMacro for Instance {
         todo!()
     }
 
-    async fn create_macro(&mut self, _name: &str, _content: &str) -> Result<(), crate::traits::Error> {
+    async fn create_macro(
+        &mut self,
+        _name: &str,
+        _content: &str,
+    ) -> Result<(), crate::traits::Error> {
         todo!()
     }
 

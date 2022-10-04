@@ -1,4 +1,4 @@
-use axum::{Json, Router, routing::get};
+use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, CpuRefreshKind, DiskExt, System, SystemExt};
 

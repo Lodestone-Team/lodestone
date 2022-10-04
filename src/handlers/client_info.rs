@@ -1,7 +1,7 @@
 use std::{env, sync::atomic::Ordering};
 
-use crate::{AppState, prelude::VERSION};
-use axum::{Extension, Json, Router, routing::get};
+use crate::{prelude::VERSION, AppState};
+use axum::{routing::get, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 

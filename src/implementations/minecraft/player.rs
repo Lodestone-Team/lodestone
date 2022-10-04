@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde_json::json;
 
-
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_player::TPlayerManagement;
 use crate::traits::Supported;

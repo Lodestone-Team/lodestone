@@ -48,4 +48,3 @@ impl From<User> for PublicUser {
         }
     }
 }
-

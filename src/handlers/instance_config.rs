@@ -1,4 +1,4 @@
-use axum::{extract::Path, Extension, Json, Router, routing::get};
+use axum::{extract::Path, routing::get, Extension, Json, Router};
 
 use crate::{
     traits::{Error, ErrorInner},
@@ -68,8 +68,7 @@ pub async fn get_instance_name(
             .lock()
             .await
             .name()
-            .await
-            ,
+            .await,
     ))
 }
 
@@ -111,8 +110,7 @@ pub async fn get_instance_description(
             .lock()
             .await
             .description()
-            .await
-            ,
+            .await,
     ))
 }
 
@@ -137,9 +135,18 @@ pub async fn set_instance_description(
     Ok(Json("ok".to_string()))
 }
 
-pub fn get_instance_config_routes () -> Router {
+pub fn get_instance_config_routes() -> Router {
     Router::new()
-        .route("/instance/:uuid/port", get(get_instance_port).put(set_instance_port))
-        .route("/instance/:uuid/name", get(get_instance_name).put(set_instance_name))
-        .route("/instance/:uuid/description", get(get_instance_description).put(set_instance_description))
+        .route(
+            "/instance/:uuid/port",
+            get(get_instance_port).put(set_instance_port),
+        )
+        .route(
+            "/instance/:uuid/name",
+            get(get_instance_name).put(set_instance_name),
+        )
+        .route(
+            "/instance/:uuid/description",
+            get(get_instance_description).put(set_instance_description),
+        )
 }
