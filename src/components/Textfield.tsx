@@ -1,12 +1,12 @@
 import { faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { useEffect, useState } from 'react';
+import { HTMLInputTypeAttribute, useEffect, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { Result } from '@badrap/result';
 import { ok } from 'assert';
 import { ClientError } from 'data/ClientError';
 
-const onChangeValidateTimeout = 500;
+const onChangeValidateTimeout = 100;
 const inputClassName =
   'bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-600 disabled:bg-gray-800';
 const inputBorderClassName =
@@ -19,11 +19,17 @@ export default function Textfield({
   value: initialValue,
   className,
   onSubmit: onSubmitProp,
+  type,
+  min,
+  max,
   validate,
 }: {
   label: string;
   value: string;
   className?: string;
+  type?: HTMLInputTypeAttribute;
+  min?: number;
+  max?: number;
   onSubmit: (arg: string) => Promise<Result<void, ClientError>>;
   validate?: (arg: string) => Promise<Result<void, ClientError>>;
 }) {
@@ -120,7 +126,7 @@ export default function Textfield({
             )}
           </div>
           <input
-            type="text"
+            type={type}
             value={value}
             onChange={onChange}
             className={`${inputClassName} ${
@@ -129,11 +135,13 @@ export default function Textfield({
             onBlur={() => {
               setValue(value.trim());
             }}
+            min={min}
+            max={max}
           />
         </form>
         {error && (
           <div
-            className={`absolute whitespace-nowrap text-right font-sans not-italic text-red text-smaller -bottom-5
+            className={`absolute whitespace-nowrap text-right font-sans not-italic text-red text-small -bottom-6
           `}
           >
             {errorMessage || 'Unknown error'}
