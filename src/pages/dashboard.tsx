@@ -106,7 +106,7 @@ const Dashboard: NextPageWithLayout = () => {
       key={uuid}
     >
       <div className="flex flex-col items-start h-full gap-2">
-        <div className="flex flex-row items-center w-full gap-12">
+        <div className="flex flex-row items-center w-full gap-12 pr-28">
           <div className="flex flex-row items-center min-w-0 gap-4">
             {/* TODO: create a universal "text with edit button" component */}
             <EditableTextfield
@@ -117,7 +117,7 @@ const Dashboard: NextPageWithLayout = () => {
               containerClassName="min-w-0"
             />
           </div>
-          <div className="flex flex-row items-center gap-4">
+          <div className="flex flex-row items-center flex-shrink-0 gap-4">
             {/* TODO: create a universal game flavour image component */}
             <img
               src="/assets/minecraft-vanilla.png"

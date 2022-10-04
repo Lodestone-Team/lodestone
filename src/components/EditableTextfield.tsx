@@ -102,12 +102,12 @@ export default function EditableTextfield({
     <div
       className={`relative flex flex-row justify-start items-center tracking-tight group ${
         type === 'heading'
-          ? 'font-semibold font-heading text-2xlarge'
+          ? 'font-semibold font-heading text-xlarge'
           : 'italic text-small font-medium'
       } ${containerClassName}`}
     >
       <div
-        className={`w-full mr-[0.5ch] ${errorStatus && `border-2 border-red -ml-0.5`} ${
+        className={`min-w-0 mr-[0.5ch] ${errorStatus && `border-2 border-red -ml-0.5 -my-0.5`} ${
           type === 'heading' ? 'rounded-lg' : 'rounded'
         }`}
       >
@@ -119,7 +119,7 @@ export default function EditableTextfield({
             onBlur={onCancel}
             autoFocus={true}
             placeholder={placeholder}
-          ></AutoGrowInput>
+          />
         ) : (
           <div
             className={`
