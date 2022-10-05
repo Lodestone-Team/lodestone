@@ -7,6 +7,14 @@ use crate::util::{DownloadProgress, SetupProgress};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
+pub struct PlayerMessage {
+    pub message: String,
+    pub player_name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
 pub enum InstanceEventInner {
     InstanceStarting,
     InstanceStarted,
@@ -21,7 +29,7 @@ pub enum InstanceEventInner {
     PlayerChange(HashSet<String>),
     PlayerJoined(String),
     PlayerLeft(String),
-    PlayerMessage(String, String),
+    PlayerMessage(PlayerMessage),
     Downloading(DownloadProgress),
     Setup(SetupProgress),
 }
@@ -34,6 +42,7 @@ pub struct InstanceEvent {
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
+#[serde(tag = "type")]
 pub enum UserEventInner {
     UserCreated,
     UserDeleted,
@@ -49,6 +58,7 @@ pub struct UserEvent {
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
+#[serde(tag = "type")]
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),

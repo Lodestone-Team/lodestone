@@ -3,7 +3,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner, PlayerMessage};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{State, TServer};
@@ -224,7 +224,10 @@ impl TServer for Instance {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                                         instance_uuid: uuid.clone(),
                                         instance_event_inner: InstanceEventInner::PlayerMessage(
-                                            player, msg,
+                                            PlayerMessage {
+                                                player_name: player,
+                                                message: msg,
+                                            },
                                         ),
                                         instance_name: name.clone(),
                                     }),
