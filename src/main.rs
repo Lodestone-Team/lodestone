@@ -322,7 +322,7 @@ async fn main() {
                 match &event.event_inner {
                     events::EventInner::InstanceEvent(instance_event) => {
                         match instance_event.instance_event_inner {
-                            events::InstanceEventInner::InstanceOutput(_) => {
+                            events::InstanceEventInner::InstanceOutput { .. } => {
                                 console_out_buffer
                                     .lock()
                                     .await

@@ -3,7 +3,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner, PlayerMessage};
+use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{State, TServer};
@@ -170,9 +170,9 @@ impl TServer for Instance {
                             let _ = event_broadcaster.send(Event {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                                     instance_uuid: uuid.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceOutput(
-                                        line.clone(),
-                                    ),
+                                    instance_event_inner: InstanceEventInner::InstanceOutput {
+                                        message: line.clone(),
+                                    },
                                     instance_name: name.clone(),
                                 }),
                                 details: "".to_string(),
@@ -195,9 +195,9 @@ impl TServer for Instance {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                                         instance_uuid: uuid.clone(),
-                                        instance_event_inner: InstanceEventInner::SystemMessage(
-                                            line,
-                                        ),
+                                        instance_event_inner: InstanceEventInner::SystemMessage {
+                                            message: line,
+                                        },
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
@@ -223,12 +223,10 @@ impl TServer for Instance {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                                         instance_uuid: uuid.clone(),
-                                        instance_event_inner: InstanceEventInner::PlayerMessage(
-                                            PlayerMessage {
-                                                player_name: player,
-                                                message: msg,
-                                            },
-                                        ),
+                                        instance_event_inner: InstanceEventInner::PlayerMessage {
+                                            player,
+                                            player_message: msg,
+                                        },
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),

@@ -706,9 +706,9 @@ impl Instance {
                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                             instance_uuid: uuid.clone(),
                             instance_name: name.clone(),
-                            instance_event_inner: InstanceEventInner::PlayerJoined(
-                                player_diff.to_owned(),
-                            ),
+                            instance_event_inner: InstanceEventInner::PlayerJoined {
+                                player: player_diff.to_owned(),
+                            },
                         }),
                         details: "".to_string(),
                         timestamp: chrono::Utc::now().timestamp(),
@@ -721,9 +721,9 @@ impl Instance {
                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                             instance_uuid: uuid.clone(),
                             instance_name: name.clone(),
-                            instance_event_inner: InstanceEventInner::PlayerLeft(
-                                player_diff.to_owned(),
-                            ),
+                            instance_event_inner: InstanceEventInner::PlayerLeft {
+                                player: player_diff.to_owned(),
+                            },
                         }),
                         details: "".to_string(),
                         timestamp: chrono::Utc::now().timestamp(),
