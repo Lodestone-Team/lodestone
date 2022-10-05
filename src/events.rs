@@ -26,13 +26,14 @@ pub enum InstanceEventInner {
     Setup(SetupProgress),
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
 pub struct InstanceEvent {
     pub instance_uuid: String,
     pub instance_name: String,
     pub instance_event_inner: InstanceEventInner,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
-
+#[ts(export)]
 pub enum UserEventInner {
     UserCreated,
     UserDeleted,
@@ -40,12 +41,14 @@ pub enum UserEventInner {
     UserLoggedOut,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
 pub struct UserEvent {
     pub user_id: String,
     pub user_event_inner: UserEventInner,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
