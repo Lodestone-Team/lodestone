@@ -16,7 +16,7 @@ use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
 
 use crate::{
-    events::{Event, EventInner},
+    events::{Event, EventInner, InstanceEventInner, UserEventInner},
     json_store::user::User,
     stateful::Stateful,
     traits::{Error, ErrorInner},
@@ -145,7 +145,16 @@ async fn event_stream_ws(
                             }
                         }
                     },
-                    EventInner::UserEvent(user_event) => todo!(),
+                    EventInner::UserEvent(user_event) => {
+                        match user_event.user_event_inner {
+                            UserEventInner::UserLoggedOut | UserEventInner::UserDeleted => {
+                                if user_event.user_id == uid {
+                                    break;
+                                }
+                            },
+                            _ => {}
+                        }
+                    },
                 }
 
             }
@@ -189,32 +198,53 @@ async fn console_stream_ws(
     uuid: String,
     users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
 ) {
-    let (mut sender, mut _receiver) = stream.split();
-    while let Ok(event) = event_receiver.recv().await {
-        match &event.event_inner {
-            EventInner::InstanceEvent(instance_event) => {
-                if instance_event.instance_uuid != uuid && uuid != "all" {
-                    continue;
-                }
-                if can_user_view_event(
-                    &event,
-                    match users.lock().await.get_ref().get(&uid) {
-                        Some(user) => user,
-                        None => break,
-                    },
-                ) {
-                    if let Err(e) = sender
-                        .send(axum::extract::ws::Message::Text(
-                            serde_json::to_string(&event).unwrap(),
-                        ))
-                        .await
-                    {
-                        error!("Failed to send event: {}", e);
-                        break;
+    let (mut sender, mut receiver) = stream.split();
+    loop {
+        tokio::select! {
+            Ok(event) = event_receiver.recv() => {
+                match &event.event_inner {
+                    EventInner::InstanceEvent(instance_event) => {
+                        if matches!(
+                            instance_event.instance_event_inner,
+                            InstanceEventInner::InstanceOutput { .. }
+                        ) && (instance_event.instance_uuid == uuid || uuid == "all")
+                            && can_user_view_event(
+                                &event,
+                                match users.lock().await.get_ref().get(&uid) {
+                                    Some(user) => user,
+                                    None => break,
+                                },
+                            )
+                        {
+                            if let Err(e) = sender
+                                .send(axum::extract::ws::Message::Text(
+                                    serde_json::to_string(&event).unwrap(),
+                                ))
+                                .await
+                            {
+                                error!("Failed to send event: {}", e);
+                                break;
+                            }
+                        }
                     }
+                    EventInner::UserEvent(user_event) => {
+                        match user_event.user_event_inner {
+                            UserEventInner::UserLoggedOut | UserEventInner::UserDeleted => {
+                                if user_event.user_id == uid {
+                                    break;
+                                }
+                            },
+                            _ => {}
+                        }
+                    },
                 }
             }
-            EventInner::UserEvent(_) => {}
+            Some(Ok(ws_msg)) = receiver.next() => {
+                match sender.send(ws_msg).await {
+                    Ok(_) => debug!("Replied to ping"),
+                    Err(_) => break,
+                };
+            }
         }
     }
 }
