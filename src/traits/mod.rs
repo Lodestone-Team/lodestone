@@ -24,7 +24,8 @@ pub type MaybeUnsupported<T> = Option<T>;
 pub use core::option::Option::None as Unsupported;
 pub use core::option::Option::Some as Supported;
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(export)]
 pub enum ErrorInner {
     // IO errors:
     FailedToReadFileOrDir,
@@ -87,7 +88,9 @@ pub enum ErrorInner {
     InvalidPassword,
     PermissionDenied,
 }
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, TS)]
+#[serde(rename = "ClientError")]
+#[ts(export)]
 pub struct Error {
     pub inner: ErrorInner,
     pub detail: String,

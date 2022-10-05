@@ -70,6 +70,7 @@ pub enum EventInner {
     UserEvent(UserEvent),
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[serde(rename="ClientEvent")]
 #[ts(export)]
 pub struct Event {
     pub event_inner: EventInner,

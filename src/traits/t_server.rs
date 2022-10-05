@@ -5,6 +5,7 @@ use ts_rs::TS;
 use super::MaybeUnsupported;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename = "InstanceState")]
 #[ts(export)]
 pub enum State {
     Starting,
