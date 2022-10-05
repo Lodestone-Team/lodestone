@@ -25,7 +25,9 @@ pub enum InstanceEventInner {
     SystemMessage {
         message: String,
     },
-    PlayerChange(HashSet<String>),
+    PlayerChange{
+        player_list: HashSet<String>,
+    },
     PlayerJoined {
         player: String,
     },
