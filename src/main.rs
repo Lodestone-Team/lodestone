@@ -344,7 +344,7 @@ async fn main() {
                             }
                         }
                     }
-                    events::EventInner::UserEvent(_) => todo!(),
+                    events::EventInner::UserEvent(_) => {}
                 }
             }
         }
