@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    events::{Event, EventInner, UserEvent, UserEventInner},
     json_store::{
         permission::Permission,
         user::{PublicUser, User},
@@ -17,6 +18,7 @@ use axum::{
 };
 use axum_auth::{AuthBasic, AuthBearer};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use log::error;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
@@ -79,7 +81,7 @@ pub async fn new_user(
         })?;
     let hashed_psw = hash_password(&login_request.password);
     let uid = uuid::Uuid::new_v4().to_string();
-    let mut users = state.users.lock().await;
+    let users = state.users.lock().await;
     if users
         .get_ref()
         .iter()
@@ -90,26 +92,46 @@ pub async fn new_user(
             detail: "".to_string(),
         });
     }
-    users
-        .transform({
-            let uid = uid.clone();
-            Box::new(move |v| {
-                v.insert(
-                    uid.clone(),
-                    User {
-                        uid: uid.clone(),
-                        username: login_request.username.clone(),
-                        hashed_psw: hashed_psw.clone(),
-                        is_admin: false,
-                        is_owner: false,
-                        permissions: HashMap::new(),
-                        secret: rand_alphanumeric(32),
-                    },
-                );
-                Ok(())
-            })
+    tokio::task::spawn({
+        let uid = uid.clone();
+        let users = state.users.clone();
+        async move {
+            users
+                .lock()
+                .await
+                .transform({
+                    let uid = uid.clone();
+                    Box::new(move |v| {
+                        v.insert(
+                            uid.clone(),
+                            User {
+                                uid: uid.clone(),
+                                username: login_request.username.clone(),
+                                hashed_psw: hashed_psw.clone(),
+                                is_admin: false,
+                                is_owner: false,
+                                permissions: HashMap::new(),
+                                secret: rand_alphanumeric(32),
+                            },
+                        );
+                        Ok(())
+                    })
+                })
+                .unwrap();
+        }
+    });
+    state
+        .event_broadcaster
+        .send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id: uid.clone(),
+                user_event_inner: UserEventInner::UserLoggedOut,
+            }),
+            details: "".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            idempotency: rand_alphanumeric(5),
         })
-        .unwrap();
+        .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(json!(uid)))
 }
 
@@ -130,12 +152,65 @@ pub async fn delete_user(
         });
     }
     users
+        .transform(Box::new({
+            let uid = uid.clone();
+            move |v| {
+                v.remove(&uid);
+                Ok(())
+            }
+        }))
+        .unwrap();
+    state
+        .event_broadcaster
+        .send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id: uid,
+                user_event_inner: UserEventInner::UserDeleted,
+            }),
+            details: "".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            idempotency: rand_alphanumeric(5),
+        })
+        .map_err(|e| error!("Error sending event: {}", e));
+    Ok(Json(json!("ok")))
+}
+
+pub async fn logout(
+    Extension(state): Extension<AppState>,
+    Path(uid): Path<String>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<String>, Error> {
+    let mut users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::PermissionDenied,
+        detail: "Token error".to_string(),
+    })?;
+    if requester.uid != uid && !is_authorized(&requester, "", Permission::CanManageUser) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "You are not authorized to log out this user".to_string(),
+        });
+    }
+    let user_id = uid.clone();
+    users
         .transform(Box::new(move |v| {
-            v.remove(&uid);
+            v.get_mut(&uid).unwrap().secret = rand_alphanumeric(32);
             Ok(())
         }))
         .unwrap();
-    Ok(Json(json!("ok")))
+    state
+        .event_broadcaster
+        .send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id,
+                user_event_inner: UserEventInner::UserLoggedOut,
+            }),
+            details: "".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            idempotency: rand_alphanumeric(5),
+        })
+        .map_err(|e| error!("Error sending event: {}", e));
+    Ok(Json("ok".to_string()))
 }
 
 pub async fn update_permissions(
@@ -355,4 +430,5 @@ pub fn get_user_routes() -> Router {
         .route("/user/info", get(get_self_info))
         .route("/user/password", put(change_password))
         .route("/user/login", post(login))
+        .route("/user/logout/:uid", post(logout))
 }
