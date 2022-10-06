@@ -10,7 +10,7 @@ use axum_auth::AuthBearer;
 
 use futures::{SinkExt, StreamExt};
 use log::{debug, error};
-use ringbuffer::{RingBufferExt, RingBuffer, AllocRingBuffer};
+use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
 use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
@@ -126,6 +126,9 @@ async fn event_stream_ws(
             Ok(event) = event_receiver.recv() => {
                 match &event.event_inner {
                     EventInner::InstanceEvent(instance_event) => {
+                        if event.is_event_console_message() {
+                            continue;
+                        }
                         if instance_event.instance_uuid != uuid && uuid != "all" {
                             continue;
                         }
@@ -206,10 +209,7 @@ async fn console_stream_ws(
             Ok(event) = event_receiver.recv() => {
                 match &event.event_inner {
                     EventInner::InstanceEvent(instance_event) => {
-                        if matches!(
-                            instance_event.instance_event_inner,
-                            InstanceEventInner::InstanceOutput { .. }
-                        ) && (instance_event.instance_uuid == uuid || uuid == "all")
+                        if event.is_event_console_message() && (instance_event.instance_uuid == uuid || uuid == "all")
                             && can_user_view_event(
                                 &event,
                                 match users.lock().await.get_ref().get(&uid) {

@@ -319,41 +319,28 @@ async fn main() {
         let mut event_receiver = tx.subscribe();
         async move {
             while let Ok(event) = event_receiver.recv().await {
-                match &event.event_inner {
-                    events::EventInner::InstanceEvent(instance_event) => {
-                        match &instance_event.instance_event_inner {
-                            events::InstanceEventInner::InstanceOutput { .. } => {
-                                console_out_buffer
-                                    .lock()
-                                    .await
-                                    .transform(Box::new({
-                                        let instance_uuid = instance_event.instance_uuid.clone();
-                                        move |console_buffer| {
-                                            console_buffer
-                                                .entry(instance_uuid.clone())
-                                                .or_insert_with(|| AllocRingBuffer::with_capacity(512))
-                                                .push(event.clone());
-                                            Ok(())
-                                        }
-                                    }))
-                                    .unwrap();
-                            }
-                            _ => {
-                                event_buffer
-                                    .lock()
-                                    .await
-                                    .transform(Box::new({
-                                        let event = event.clone();
-                                        move |event_buffer| -> Result<(), Error> {
-                                            event_buffer.push(event.clone());
-                                            Ok(())
-                                        }
-                                    }))
-                                    .unwrap();
-                            }
-                        }
-                    }
-                    events::EventInner::UserEvent(_) => {}
+                if event.is_event_console_message() {
+                    let event = event.clone();
+                    console_out_buffer
+                        .lock()
+                        .await
+                        .transform(Box::new(move |buffer| -> Result<(), Error> {
+                            buffer
+                                .entry(event.get_instance_uuid())
+                                .or_insert_with(|| AllocRingBuffer::with_capacity(512))
+                                .push(event.clone());
+                            Ok(())
+                        }))
+                        .unwrap();
+                } else {
+                    event_buffer
+                        .lock()
+                        .await
+                        .transform(Box::new(move |buffer| -> Result<(), Error> {
+                            buffer.push(event.clone());
+                            Ok(())
+                        }))
+                        .unwrap();
                 }
             }
         }
