@@ -6,7 +6,7 @@ import { catchAsyncToString } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 const inputClassName =
-  'bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-600 disabled:bg-gray-800';
+  'appearance-none bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-600 disabled:bg-gray-800';
 const inputBorderClassName =
   'enabled:outline-gray-400 enabled:focus-visible:outline-blue enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
 const inputErrorBorderClassName =
@@ -20,6 +20,7 @@ export default function Textfield({
   type,
   min,
   max,
+  removeArrows,
   validate, //throws error if invalid
 }: {
   label: string;
@@ -28,6 +29,7 @@ export default function Textfield({
   type?: HTMLInputTypeAttribute;
   min?: number;
   max?: number;
+  removeArrows?: boolean;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
 }) {
@@ -38,7 +40,7 @@ export default function Textfield({
 
   // we want to validate the input after the user stops typing for a while
   useEffect(() => {
-    if(!touched) return;
+    if (!touched) return;
     const timeout = setTimeout(async () => {
       if (validate) {
         const trimmed = value.trim();
@@ -53,7 +55,7 @@ export default function Textfield({
   // set touch to false when the value changes
   useEffect(() => {
     setTouched(initialValue !== value);
-    if(initialValue !== value) setError('');
+    if (initialValue !== value) setError('');
   }, [initialValue, value]);
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,7 +65,7 @@ export default function Textfield({
   };
 
   const onSubmit = async () => {
-    if(!touched) return;
+    if (!touched) return;
     const trimmed = value.trim();
     setValue(trimmed);
     setIsLoading(true);
@@ -125,7 +127,8 @@ export default function Textfield({
             onChange={onChange}
             className={`${inputClassName} ${
               error ? inputErrorBorderClassName : inputBorderClassName
-            }`}
+            }
+            ${removeArrows && 'noSpin'}`}
             onBlur={() => {
               setValue(value.trim());
             }}

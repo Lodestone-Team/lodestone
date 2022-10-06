@@ -89,3 +89,17 @@ input {
 .rc-tooltip {
   @apply opacity-100;
 }
+
+/* Removing the spin arrow */
+
+/* Chrome, Safari, Edge, Opera */
+input.noSpin::-webkit-outer-spin-button,
+input.noSpin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input.noSpin[type=number] {
+  -moz-appearance: textfield;
+}

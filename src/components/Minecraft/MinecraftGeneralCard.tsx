@@ -18,6 +18,7 @@ export default function MinecraftGeneralCard({
       label="Port"
       value={instance.port.toString()}
       type="number"
+      removeArrows={true}
       onSubmit={async (port) => {
         const numPort = parseInt(port);
         await axiosPutSingleValue<void>(
