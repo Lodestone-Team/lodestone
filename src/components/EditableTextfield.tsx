@@ -2,9 +2,8 @@ import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
+import { catchAsyncToString } from 'utils/util';
 import AutoGrowInput from './AutoGrowInput';
-import { Result } from '@badrap/result';
-import { ClientError } from 'data/ClientError';
 
 export type TextfieldType = 'heading' | 'description';
 
@@ -15,7 +14,7 @@ type Props = {
   textClassName?: string;
   iconClassName?: string;
   placeholder?: string;
-  onSubmit: (arg: string) => Promise<Result<void, ClientError>>;
+  onSubmit: (arg: string) => Promise<void>;
 };
 
 export default function EditableTextfield({
@@ -25,7 +24,7 @@ export default function EditableTextfield({
   textClassName = '',
   iconClassName = '',
   placeholder = '',
-  onSubmit,
+  onSubmit: onSubmitProp,
 }: Props) {
   const [displayText, setDisplayText] = useState<string>(initialText);
   const [editText, setEditText] = useState<string>(initialText);
@@ -34,8 +33,7 @@ export default function EditableTextfield({
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [errorStatus, setErrorStatus] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [error, setError] = useState<string>('');
 
   const onEdit = (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
@@ -44,31 +42,20 @@ export default function EditableTextfield({
 
   const onSave = async () => {
     setIsLoading(true);
-    const trimmedText = editText.trim();
-    const result = await onSubmit(trimmedText);
-    result.unwrap(
-      () => {
-        setIsLoading(false);
-        setIsEditing(false);
-        setDisplayText(trimmedText);
-        setEditText(trimmedText);
-        setErrorStatus(false);
-        setErrorMessage('');
-      },
-      (error) => {
-        setIsLoading(false);
-        setErrorStatus(true);
-        setErrorMessage(error.detail);
-      }
-    );
+    const trimmed = editText.trim();
+    setEditText(trimmed);
+    setIsLoading(true);
+    const error = await catchAsyncToString(onSubmitProp(trimmed));
+    setError(error);
+    setIsLoading(false);
+    setDisplayText(trimmed);
   };
 
   const onCancel = () => {
     if (isLoading) return;
     setEditText(displayText);
     setIsEditing(false);
-    setErrorStatus(false);
-    setErrorMessage('');
+    setError('');
   };
 
   useEffect(() => {
@@ -88,7 +75,7 @@ export default function EditableTextfield({
     };
   });
 
-  const errorNode = errorStatus ? (
+  const errorNode = error ? (
     <div
       className={`absolute whitespace-nowrap text-right font-sans not-italic text-red ${
         type === 'heading'
@@ -96,7 +83,7 @@ export default function EditableTextfield({
           : 'text-smaller -bottom-[1.3em]'
       }`}
     >
-      {errorMessage}
+      {error}
     </div>
   ) : null;
 
@@ -112,7 +99,7 @@ export default function EditableTextfield({
     >
       <div
         className={`min-w-0 mr-[0.5ch] ${
-          errorStatus && `border-2 border-red -ml-0.5 -my-0.5`
+          error && `border-2 border-red -ml-0.5 -my-0.5`
         } ${type === 'heading' ? 'rounded-lg' : 'rounded'}`}
       >
         {isEditing ? (

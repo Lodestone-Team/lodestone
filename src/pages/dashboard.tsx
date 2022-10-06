@@ -94,21 +94,19 @@ const Dashboard: NextPageWithLayout = () => {
   };
 
   const setInstanceName = async (name: string) => {
-    const result = await axiosPutSingleValue<void>(`/instance/${uuid}/name`, name);
+    await axiosPutSingleValue<void>(`/instance/${uuid}/name`, name);
     updateInstance(uuid, queryClient, (oldData) => ({
       ...oldData,
       name,
     }));
-    return result;
   };
 
   const setInstanceDescription = async (description: string) => {
-    const result = await axiosPutSingleValue<void>(`/instance/${uuid}/description`, description);
+    await axiosPutSingleValue<void>(`/instance/${uuid}/description`, description);
     updateInstance(uuid, queryClient, (oldData) => ({
       ...oldData,
       description,
     }));
-    return result;
   };
 
   return (

@@ -1,9 +1,8 @@
-import { Result } from '@badrap/result';
-import { ClientError } from 'data/ClientError';
-import { InstanceState } from 'data/InstanceList';
 import { LabelColor } from 'components/Label';
 import { NextRouter } from 'next/router';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import { ClientError } from 'bindings/ClientError';
+import { InstanceState } from 'bindings/InstanceState';
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -37,32 +36,33 @@ export function isAxiosError<ResponseType>(
   return axios.isAxiosError(error);
 }
 
+/**
+ * @throws Error
+ */
 export async function axiosWrapper<ResponseType>(
   config: AxiosRequestConfig
-): Promise<Result<ResponseType, ClientError>> {
+): Promise<ResponseType> {
   try {
     const response = await axios.request<ResponseType>(config);
-    return Result.ok(response.data);
+    return response.data;
   } catch (error) {
     if (isAxiosError<ClientError>(error)) {
       if (error.response) {
         if (error.response.data.inner) {
           // TODO: more runtime type checking
-          return Result.err(error.response.data);
+          throw error.response.data.toString();
         } else
-          return Result.err(
-            new ClientError('NetworkError', `${error.code}: ${error.response.statusText}`)
-          );
-      } else return Result.err(new ClientError('NetworkError', error.message));
+          throw new Error(`${error.code}: ${error.response.statusText}`);
+      } else throw new Error(`Network error: ${error.code}`);
     }
-    return Result.err(new ClientError('UnknownError', 'Unknown error'));
+    throw new Error(`Unknown error: ${error}`);
   }
 }
 
 export async function axiosPutSingleValue<ResponseType>(
   url: string,
   value: unknown
-): Promise<Result<ResponseType, ClientError>> {
+): Promise<ResponseType> {
   return axiosWrapper<ResponseType>({
     method: 'put',
     url,
@@ -72,3 +72,18 @@ export async function axiosPutSingleValue<ResponseType>(
     }
   });
 }
+
+// meant to be used with an async function
+// that throws an error if the condition is not met
+// and returns void otherwise
+// returns a string if the condition is not met
+// returns empty string otherwise
+export async function catchAsyncToString (promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+    return '';
+  } catch (e) {
+    if(e instanceof Error) return e.message;
+    return 'Unknown error';
+  }
+};

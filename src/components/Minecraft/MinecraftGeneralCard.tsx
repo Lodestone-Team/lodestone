@@ -3,7 +3,6 @@ import DashboardCard from 'components/DashboardCard';
 import Textfield from 'components/Textfield';
 import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper } from 'utils/util';
-import { Result } from '@badrap/result';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 
@@ -23,42 +22,25 @@ export default function MinecraftGeneralCard({
           value={instance.port.toString()}
           onSubmit={async (port) => {
             const numPort = parseInt(port);
-            if (isNaN(numPort))
-              return Result.err(ClientError.fromString('must be a number'));
-            if (numPort < 0 || numPort > 65535)
-              return Result.err(
-                ClientError.fromString('must be between 0 and 65535')
-              );
-            const result = await axiosPutSingleValue<void>(
+            await axiosPutSingleValue<void>(
               `/instance/${instance.uuid}/port`,
               numPort
             );
-            if (result.isOk) {
-              updateInstance(instance.uuid, queryClient, (oldData) => ({
-                ...oldData,
-                port: numPort,
-              }));
-            }
-            return result;
+            updateInstance(instance.uuid, queryClient, (oldData) => ({
+              ...oldData,
+              port: numPort,
+            }));
           }}
           validate={async (port) => {
             const numPort = parseInt(port);
-            if (isNaN(numPort))
-              return Result.err(ClientError.fromString('must be a number'));
+            if (isNaN(numPort)) throw new Error('Port must be a number');
             if (numPort < 0 || numPort > 65535)
-              return Result.err(
-                ClientError.fromString('must be between 0 and 65535')
-              );
+              throw new Error('Port must be between 0 and 65535');
             const result = await axiosWrapper<boolean>({
               method: 'get',
               url: `/check/port/${numPort}`,
             });
-            if (result.isOk && result.unwrap() === true) {
-              return Result.err(
-                ClientError.fromString('port is already in use')
-              );
-            }
-            return result;
+            if (result) throw new Error('Port not available');
           }}
         />
       </div>
