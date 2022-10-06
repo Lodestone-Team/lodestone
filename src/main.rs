@@ -60,7 +60,7 @@ pub struct AppState {
     instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
     users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
     events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
-    console_out_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
+    console_out_buffer: Arc<Mutex<Stateful<HashMap<String, AllocRingBuffer<Event>>>>>,
     event_broadcaster: Sender<Event>,
     is_setup: Arc<AtomicBool>,
     uuid: String,
@@ -251,7 +251,7 @@ async fn main() {
     );
 
     let stateful_console_out_buffer = Stateful::new(
-        AllocRingBuffer::with_capacity(512),
+        HashMap::new(),
         Box::new(|_, _| Ok(())),
         Box::new(|_event_buffer, _| {
             // todo: write to persistent storage
@@ -321,14 +321,20 @@ async fn main() {
             while let Ok(event) = event_receiver.recv().await {
                 match &event.event_inner {
                     events::EventInner::InstanceEvent(instance_event) => {
-                        match instance_event.instance_event_inner {
+                        match &instance_event.instance_event_inner {
                             events::InstanceEventInner::InstanceOutput { .. } => {
                                 console_out_buffer
                                     .lock()
                                     .await
-                                    .transform(Box::new(move |event_buffer| {
-                                        event_buffer.push(event.clone());
-                                        Ok(())
+                                    .transform(Box::new({
+                                        let instance_uuid = instance_event.instance_uuid.clone();
+                                        move |console_buffer| {
+                                            console_buffer
+                                                .entry(instance_uuid.clone())
+                                                .or_insert_with(|| AllocRingBuffer::with_capacity(512))
+                                                .push(event.clone());
+                                            Ok(())
+                                        }
                                     }))
                                     .unwrap();
                             }
@@ -336,9 +342,12 @@ async fn main() {
                                 event_buffer
                                     .lock()
                                     .await
-                                    .transform(Box::new(move |event_buffer| -> Result<(), Error> {
-                                        event_buffer.push(event.clone());
-                                        Ok(())
+                                    .transform(Box::new({
+                                        let event = event.clone();
+                                        move |event_buffer| -> Result<(), Error> {
+                                            event_buffer.push(event.clone());
+                                            Ok(())
+                                        }
                                     }))
                                     .unwrap();
                             }

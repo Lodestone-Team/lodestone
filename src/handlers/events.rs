@@ -10,7 +10,7 @@ use axum_auth::AuthBearer;
 
 use futures::{SinkExt, StreamExt};
 use log::{debug, error};
-use ringbuffer::RingBufferExt;
+use ringbuffer::{RingBufferExt, RingBuffer, AllocRingBuffer};
 
 use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
@@ -69,6 +69,8 @@ pub async fn get_console_buffer(
             .lock()
             .await
             .get_ref()
+            .get(&uuid)
+            .unwrap_or(&AllocRingBuffer::new())
             .iter()
             .rev()
             .filter(|event| match &event.event_inner {
