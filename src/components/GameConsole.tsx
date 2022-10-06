@@ -96,7 +96,7 @@ export default function GameConsole({
             key={line.idempotency}
             className="hover:bg-gray-800 py-[0.125rem] px-4"
           >
-            {line.event_inner.InstanceOutput}
+            {line.message}
           </li>
         ))}
       </ol>

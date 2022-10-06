@@ -1,30 +1,8 @@
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
+import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
-
-export type InstanceState =
-  | 'Starting'
-  | 'Running'
-  | 'Stopping'
-  | 'Stopped'
-  | 'Error';
-
-export type GameType = 'minecraft';
-
-export interface InstanceInfo {
-  uuid: string;
-  name: string;
-  port: number;
-  description: string;
-  game_type: GameType;
-  flavour: string;
-  state: InstanceState;
-  player_count: number;
-  max_player_count: number;
-  creation_time: number;
-  path: string;
-}
 
 export const updateInstance = (
   uuid: string,

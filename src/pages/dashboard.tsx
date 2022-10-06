@@ -18,7 +18,6 @@ import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
 import axios from 'axios';
 import { useQueryClient } from '@tanstack/react-query';
-import { ClientError, isClientError } from 'data/ClientError';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 
 const Dashboard: NextPageWithLayout = () => {

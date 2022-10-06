@@ -1,19 +1,11 @@
+import { InstanceEvent } from './../bindings/InstanceEvent';
+import { match, otherwise } from 'variant';
 import { isUserAuthorized } from './UserInfo';
 import { useUserInfo } from 'data/UserInfo';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
-
-export type EventInner = { InstanceOutput: string };
-
-export interface Event {
-  event_inner: EventInner;
-  instance_uuid: string;
-  instance_name: string;
-  details: string;
-  timestamp: number;
-  idempotency: string;
-}
+import { ClientEvent } from 'bindings/ClientEvent';
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -23,6 +15,51 @@ export type ConsoleStreamStatus =
   | 'live-no-buffer'
   | 'closed'
   | 'error';
+
+// simplified version of a ClientEvent with just InstanceOutput
+export type ConsoleEvent = {
+  timestamp: bigint;
+  idempotency: string;
+  detail: string;
+  uuid: string;
+  name: string;
+  message: string;
+};
+
+// function to convert a ClientEvent to a ConsoleEvent
+const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
+  const event_inner: InstanceEvent = match(
+    event.event_inner,
+    otherwise(
+      {
+        InstanceEvent: (instanceEvent) => instanceEvent,
+      },
+      () => {
+        throw new Error('Expected InstanceEvent');
+      }
+    )
+  );
+
+  const instance_event_inner = match(event_inner.instance_event_inner,
+    otherwise(
+      {
+        InstanceOutput: (instanceOutput) => instanceOutput,
+      },
+      () => {
+        throw new Error('Expected InstanceOutput');
+      }
+    )
+  );
+
+  return {
+    timestamp: event.timestamp,
+    idempotency: event.idempotency,
+    detail: event.details,
+    uuid: event_inner.instance_uuid,
+    name: event_inner.instance_name,
+    message: instance_event_inner.InstanceOutput.message,
+  };
+};
 
 /**
  * Does two things:
@@ -36,8 +73,9 @@ export type ConsoleStreamStatus =
  * @return whatever useQuery returns
  */
 export const useConsoleStream = (uuid: string) => {
-  const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
-  const [consoleLog, setConsoleLog] = useState<Event[]>([]);
+  const { address, port, apiVersion, isReady, token } =
+    useContext(LodestoneContext);
+  const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
   statusRef.current = status;
@@ -49,7 +87,7 @@ export const useConsoleStream = (uuid: string) => {
   const { data: userInfo } = useUserInfo();
   const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
 
-  const mergeConsoleLog = (newLog: Event[]) => {
+  const mergeConsoleLog = (newLog: ConsoleEvent[]) => {
     setConsoleLog((oldLog) => {
       const mergedLog = [...oldLog, ...newLog];
       // TODO: implement snowflake ids and use those instead of idempotency
@@ -86,8 +124,8 @@ export const useConsoleStream = (uuid: string) => {
     };
 
     websocket.onmessage = (messageEvent) => {
-      const event: Event = JSON.parse(messageEvent.data);
-      mergeConsoleLog([event]);
+      const event: ClientEvent = JSON.parse(messageEvent.data);
+      mergeConsoleLog([toConsoleEvent(event)]);
     };
 
     websocket.onclose = (event) => {

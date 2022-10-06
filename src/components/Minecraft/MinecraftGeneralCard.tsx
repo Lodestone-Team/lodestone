@@ -1,11 +1,11 @@
 import axios from 'axios';
 import DashboardCard from 'components/DashboardCard';
 import Textfield from 'components/Textfield';
-import { ClientError } from 'data/ClientError';
-import { InstanceInfo, updateInstance } from 'data/InstanceList';
+import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper } from 'utils/util';
 import { Result } from '@badrap/result';
 import { useQueryClient } from '@tanstack/react-query';
+import { InstanceInfo } from 'bindings/InstanceInfo';
 
 export default function MinecraftGeneralCard({
   instance,

@@ -1,44 +1,12 @@
-import { InstanceState, updateInstance } from 'data/InstanceList';
+import { InstanceEvent } from 'bindings/InstanceEvent';
+import { UserEvent } from 'bindings/UserEvent';
+import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContext, useEffect } from 'react';
-
-export interface DownloadProgress {
-  total: number;
-  downloaded: number;
-  download_name: string;
-}
-
-export interface SetupProgress {
-  current_step: [number, string];
-  total_steps: number;
-}
-
-export type EventInner =
-  | 'InstanceStarting'
-  | 'InstanceStarted'
-  | 'InstanceStopping'
-  | 'InstanceStopped'
-  | 'InstanceWarning'
-  | 'InstanceError'
-  | { InstanceInput: string }
-  | { InstanceOutput: string }
-  | { SystemMessage: string }
-  | { PlayerChange: Array<string> }
-  | { PlayerJoined: string }
-  | { PlayerLeft: string }
-  | { PlayerMessage: [string, string] }
-  | { Downloading: DownloadProgress }
-  | { Setup: SetupProgress };
-
-export interface Event {
-  event_inner: EventInner;
-  instance_uuid: string;
-  instance_name: string;
-  details: string;
-  timestamp: number;
-  idempotency: string;
-}
+import { InstanceState } from 'bindings/InstanceState';
+import { ClientEvent } from 'bindings/ClientEvent';
+import { match } from 'variant';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -46,7 +14,8 @@ export interface Event {
  */
 export const useEventStream = () => {
   const queryClient = useQueryClient();
-  const { address, port, apiVersion, isReady, token } = useContext(LodestoneContext);
+  const { address, port, apiVersion, isReady, token } =
+    useContext(LodestoneContext);
 
   useEffect(() => {
     const updateInstanceState = (uuid: string, state: InstanceState) => {
@@ -56,7 +25,12 @@ export const useEventStream = () => {
     };
     const updateInstancePlayerCount = (uuid: string, increment: number) => {
       updateInstance(uuid, queryClient, (oldInfo) => {
-        return { ...oldInfo, player_count: oldInfo.player_count + increment };
+        return {
+          ...oldInfo,
+          player_count: oldInfo.player_count
+            ? oldInfo.player_count + increment
+            : oldInfo.player_count,
+        };
       });
     };
 
@@ -69,69 +43,100 @@ export const useEventStream = () => {
       }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
     websocket.onmessage = (messageEvent) => {
-      const {
-        event_inner: details,
-        instance_uuid: uuid,
-        instance_name: name,
-      }: Event = JSON.parse(messageEvent.data);
-      // do something different for each event type
-      switch (details) {
-        case 'InstanceStarting':
-          updateInstanceState(uuid, 'Starting');
-          break;
-        case 'InstanceStarted':
-          updateInstanceState(uuid, 'Running');
-          break;
-        case 'InstanceStopping':
-          updateInstanceState(uuid, 'Stopping');
-          break;
-        case 'InstanceStopped':
-          updateInstanceState(uuid, 'Stopped');
-          break;
-        case 'InstanceWarning':
-          alert(
-            `¯\\_(ツ)_/¯ Got a warning on ${name}: ${details}, who knows what that means`
-          );
-          break;
-        case 'InstanceError':
-          updateInstanceState(uuid, 'Error');
-          break;
-      }
+      const { event_inner, timestamp, idempotency }: ClientEvent = JSON.parse(
+        messageEvent.data
+      );
 
-      // now handle the object types
-      if (typeof details === 'object') {
-        if ('InstanceInput' in details) {
-          console.log(`Got input on ${name}: ${details.InstanceInput}`);
-        } else if ('InstanceOutput' in details) {
-          console.log(`Got output on ${name}: ${details.InstanceOutput}`);
-        } else if ('SystemMessage' in details) {
-          console.log(
-            `Got system message on ${name}: ${details.SystemMessage}`
-          );
-        } else if ('PlayerChange' in details) {
-          console.log(
-            `Players on ${name} are now : ${details.PlayerChange.join(', ')}`
-          );
-        } else if ('PlayerJoined' in details) {
-          console.log(`Player joined ${name}: ${details.PlayerJoined}`);
-          updateInstancePlayerCount(uuid, 1);
-        } else if ('PlayerLeft' in details) {
-          console.log(`Player left ${name}: ${details.PlayerLeft}`);
-          updateInstancePlayerCount(uuid, -1);
-        } else if ('PlayerMessage' in details) {
-          console.log(
-            `Player ${details.PlayerMessage[0]} said ${details.PlayerMessage[1]}`
-          );
-        } else if ('Downloading' in details) {
-          console.log(
-            `Downloading ${details.Downloading.download_name} ${details.Downloading.downloaded}/${details.Downloading.total}`
-          );
-        } else if ('Setup' in details) {
-          console.log(
-            `Setting up ${name} ${details.Setup.current_step[0]}/${details.Setup.total_steps}`
-          );
-        }
-      }
+      // I love match statements
+      match(event_inner, {
+        InstanceEvent: ({
+          instance_event_inner: event_inner,
+          instance_uuid: uuid,
+          instance_name: name,
+        }) => {
+          match(event_inner, {
+            InstanceStarting: () => {
+              updateInstanceState(uuid, 'Starting');
+            },
+            InstanceStarted: () => {
+              updateInstanceState(uuid, 'Running');
+            },
+            InstanceStopping: () => {
+              updateInstanceState(uuid, 'Stopping');
+            },
+            InstanceStopped: () => {
+              updateInstanceState(uuid, 'Stopped');
+            },
+            InstanceWarning: () => {
+              alert(
+                "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
+              );
+              // TODO: remove alert and replace with something more elegant
+            },
+            InstanceError: () => {
+              updateInstanceState(uuid, 'Error');
+            },
+            InstanceCreationFailed: () => {
+              alert(
+                "Failed to create instance. This shouldn't happen, please report this to the developers."
+              );
+              // TODO: remove alert and instead show a notification
+            },
+            InstanceInput: ({ message }) => {
+              console.log(`Got input on ${name}: ${message}`);
+            },
+            InstanceOutput: ({ message }) => {
+              console.log(`Got output on ${name}: ${message}`);
+            },
+            SystemMessage: ({ message }) => {
+              console.log(`Got system message on ${name}: ${message}`);
+            },
+            PlayerChange: ({ player_list }) => {
+              // updateInstancePlayerCount(uuid, player_list.length);
+              console.log(`Got player change on ${name}: ${player_list}`);
+              // TODO: update player list, use namemc api to get player icons too maybe?
+            },
+            PlayerJoined: ({ player }) => {
+              console.log(`${player} joined ${name}`);
+              updateInstancePlayerCount(uuid, 1);
+            },
+            PlayerLeft: ({ player }) => {
+              console.log(`${player} left ${name}`);
+              updateInstancePlayerCount(uuid, -1);
+            },
+            PlayerMessage: ({ player, player_message }) => {
+              console.log(`${player} said ${player_message} on ${name}`);
+            },
+            Downloading: ({ total, downloaded, download_name }) => {
+              console.log(
+                `Downloading ${name}: ${downloaded}/${total} (${download_name})`
+              );
+            },
+            Setup: ({ current_step, total_steps }) => {
+              const [current, stepName] = current_step;
+              console.log(
+                `Setting up ${name}: ${current}/${total_steps} (${stepName})`
+              );
+            },
+          });
+        },
+        UserEvent: ({ user_id: uid, user_event_inner: event_inner }) => {
+          match(event_inner, {
+            UserCreated: () => {
+              console.log(`User ${uid} created`);
+            },
+            UserDeleted: () => {
+              console.log(`User ${uid} deleted`);
+            },
+            UserLoggedIn: () => {
+              console.log(`User ${uid} logged in`);
+            },
+            UserLoggedOut: () => {
+              console.log(`User ${uid} logged out`);
+            },
+          });
+        },
+      });
     };
 
     return () => {

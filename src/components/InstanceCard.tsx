@@ -3,7 +3,8 @@ import Button from './Button';
 import Label from './Label';
 import {  useState } from 'react';
 import axios from 'axios';
-import { InstanceInfo, InstanceState } from 'data/InstanceList';
+import { InstanceState } from 'bindings/InstanceState';
+import { InstanceInfo } from 'bindings/InstanceInfo';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string } = {

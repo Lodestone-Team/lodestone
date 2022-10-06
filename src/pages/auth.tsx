@@ -6,15 +6,9 @@ import { pushKeepQuery } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import { useCookies } from 'react-cookie';
 import Link from 'next/link';
-import { PublicUser } from 'data/UserInfo';
-import { ClientError } from 'data/ClientError';
 import { LodestoneContext } from 'data/LodestoneContext';
-
-export interface LoginReply {
-  token: string;
-  user: PublicUser;
-  doesntExist: string;
-}
+import { ClientError } from 'bindings/ClientError';
+import { LoginReply } from 'bindings/LoginReply';
 
 const Auth: NextPageWithLayout = () => {
   const router = useRouter();
