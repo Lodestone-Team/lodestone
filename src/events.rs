@@ -25,7 +25,7 @@ pub enum InstanceEventInner {
     SystemMessage {
         message: String,
     },
-    PlayerChange{
+    PlayerChange {
         player_list: HashSet<String>,
     },
     PlayerJoined {
@@ -72,11 +72,31 @@ pub enum EventInner {
     UserEvent(UserEvent),
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[serde(rename="ClientEvent")]
+#[serde(rename = "ClientEvent")]
 #[ts(export)]
 pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
     pub timestamp: i64,
     pub idempotency: String,
+}
+
+impl Event {
+    pub fn is_event_console_message(&self) -> bool {
+        match &self.event_inner {
+            EventInner::InstanceEvent(instance_event) => matches!(
+                &instance_event.instance_event_inner,
+                InstanceEventInner::InstanceOutput { .. }
+                    | InstanceEventInner::PlayerMessage { .. }
+                    | InstanceEventInner::SystemMessage { .. }
+            ),
+            _ => false,
+        }
+    }
+    pub fn get_instance_uuid(&self) -> String {
+        match &self.event_inner {
+            EventInner::InstanceEvent(instance_event) => instance_event.instance_uuid.clone(),
+            _ => panic!("Event is not an instance event"),
+        }
+    }
 }
