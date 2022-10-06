@@ -4,7 +4,7 @@ import { HTMLInputTypeAttribute, useEffect, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 
-const onChangeValidateTimeout = 500;
+const onChangeValidateTimeout = 100;
 const inputClassName =
   'bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-600 disabled:bg-gray-800';
 const inputBorderClassName =
@@ -38,6 +38,7 @@ export default function Textfield({
 
   // we want to validate the input after the user stops typing for a while
   useEffect(() => {
+    if(!touched) return;
     const timeout = setTimeout(async () => {
       if (validate) {
         const trimmed = value.trim();
@@ -47,11 +48,12 @@ export default function Textfield({
       }
     }, onChangeValidateTimeout);
     return () => clearTimeout(timeout);
-  }, [value, validate]);
+  }, [value, validate, touched]);
 
   // set touch to false when the value changes
   useEffect(() => {
     setTouched(initialValue !== value);
+    if(initialValue !== value) setError('');
   }, [initialValue, value]);
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,6 +63,7 @@ export default function Textfield({
   };
 
   const onSubmit = async () => {
+    if(!touched) return;
     const trimmed = value.trim();
     setValue(trimmed);
     setIsLoading(true);
@@ -81,7 +84,7 @@ export default function Textfield({
   };
 
   let icon = null;
-  if (error) {
+  if (isLoading) {
     icon = (
       <BeatLoader
         size="0.25rem"

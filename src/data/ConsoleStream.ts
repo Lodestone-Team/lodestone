@@ -40,10 +40,11 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
     )
   );
 
-  const instance_event_inner = match(event_inner.instance_event_inner,
+  const message = match(
+    event_inner.instance_event_inner,
     otherwise(
       {
-        InstanceOutput: (instanceOutput) => instanceOutput,
+        InstanceOutput: (instanceOutput) => instanceOutput.message,
       },
       () => {
         throw new Error('Expected InstanceOutput');
@@ -57,7 +58,7 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
     detail: event.details,
     uuid: event_inner.instance_uuid,
     name: event_inner.instance_name,
-    message: instance_event_inner.InstanceOutput.message,
+    message: message,
   };
 };
 
@@ -92,12 +93,11 @@ export const useConsoleStream = (uuid: string) => {
       const mergedLog = [...oldLog, ...newLog];
       // TODO: implement snowflake ids and use those instead of idempotency
       // this is slow ik
-      return mergedLog.filter((event, index) => {
-        return (
+      return mergedLog.filter(
+        (event, index) =>
           mergedLog.findIndex((e) => e.idempotency === event.idempotency) ===
           index
-        );
-      });
+      );
     });
   };
 
@@ -144,7 +144,7 @@ export const useConsoleStream = (uuid: string) => {
     axios
       .get(`/instance/${uuid}/console/buffer`)
       .then((response) => {
-        mergeConsoleLog(response.data);
+        mergeConsoleLog(response.data.map(toConsoleEvent));
         if (statusRef.current === 'loading') setStatus('buffered');
         if (statusRef.current === 'live-no-buffer') setStatus('live');
       })
