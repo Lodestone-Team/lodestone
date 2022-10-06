@@ -173,7 +173,7 @@ impl Instance {
                 instance_uuid: config.uuid.clone(),
                 instance_name: config.name.clone(),
                 instance_event_inner: InstanceEventInner::Setup(SetupProgress {
-                    current_step: (4, "Creating directories".to_string()),
+                    current_step: (1, "Creating directories".to_string()),
                     total_steps: 4,
                 }),
             }),
@@ -247,7 +247,7 @@ impl Instance {
                 instance_uuid: config.uuid.clone(),
                 instance_name: config.name.clone(),
                 instance_event_inner: InstanceEventInner::Setup(SetupProgress {
-                    current_step: (4, "Downloading JRE".to_string()),
+                    current_step: (2, "Downloading JRE".to_string()),
                     total_steps: 4,
                 }),
             }),
@@ -480,9 +480,12 @@ impl Instance {
                     old_state.to_string(),
                     new_state.to_string()
                 );
-                let (ret, details, log): (Result<(), Error>, String, Box<dyn Fn()>) = match (
-                    old_state, new_state,
-                ) {
+                let (ret, event, details, log): (
+                    Result<(), Error>,
+                    Option<Event>,
+                    String,
+                    Box<dyn Fn()>,
+                ) = match (old_state, new_state) {
                     (State::Starting, State::Starting) => {
                         let err_message = "Cannot start, instance is already starting";
                         (
@@ -490,14 +493,25 @@ impl Instance {
                                 inner: ErrorInner::InstanceStarting,
                                 detail: err_message.to_owned(),
                             }),
+                            None,
                             err_message.to_owned(),
                             Box::new(|| warn!("[{}] {}", &name, err_message.to_owned())),
                         )
                     }
                     (State::Starting, State::Running) => {
-                        let msg = "Instance started";
+                        let msg = "Instance started successfully";
                         (
                             Ok(()),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceStarted,
+                                }),
+                                details: msg.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
+                            }),
                             msg.to_owned(),
                             Box::new(|| info!("[{}] {}", &name, msg.to_owned())),
                         )
@@ -509,6 +523,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceStopping,
                                 detail: msg.to_owned(),
                             }),
+                            None,
                             msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
                         )
@@ -517,6 +532,16 @@ impl Instance {
                         let msg = "Instance exited unexpectly before fully started up";
                         (
                             Ok(()),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceStopped,
+                                }),
+                                details: msg.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
+                            }),
                             msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
                         )
@@ -528,6 +553,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceErrored,
                                 detail: msg.to_owned(),
                             }),
+                            None,
                             msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
                         )
@@ -539,6 +565,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceStarted,
                                 detail: msg.to_owned(),
                             }),
+                            None,
                             msg.to_owned(),
                             Box::new(|| warn!("[{}] {}", &name, msg.to_owned())),
                         )
@@ -547,16 +574,37 @@ impl Instance {
                         let msg = "Instance is stopping";
                         (
                             Ok(()),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceStopped,
+                                }),
+                                details: msg.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
+                            }),
                             msg.to_owned(),
                             Box::new(|| info!("[{}] {}", &name, msg.to_owned())),
                         )
                     }
                     (State::Running, State::Stopped) => {
                         let msg = "Instance transitioned from Running to Stopped state without the Stopping state. \
-                            This probably mean the instance has crashed while running, or got killed by the system. But could also mean Lodestone failed to detect when the instance is stopping. \
+                            This is most likely caused by the server being shut down internally, and lodestone failed to detect it. \
+                            It could also mean the instance has crashed while running, or got killed by the system. \
                             If you believe this is a bug, please report it";
                         (
                             Ok(()),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceStopped,
+                                }),
+                                details: msg.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
+                            }),
                             msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
                         )
@@ -568,11 +616,15 @@ impl Instance {
                                 inner: ErrorInner::InstanceStarting,
                                 detail: err_msg.to_owned(),
                             }),
+                            None,
                             err_msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, err_msg.to_owned())),
                         )
                     }
-                    (State::Stopping, State::Running) => todo!(),
+                    (State::Stopping, State::Running) => {
+                        error!("Attempting to switch to Running while stopping, this is a bug, please report it");
+                        panic!("Irrecoverable error, please report this bug");
+                    }
                     (State::Stopping, State::Stopping) => {
                         let err_message = "Instance is already stopping";
                         (
@@ -580,6 +632,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceStopping,
                                 detail: err_message.to_owned(),
                             }),
+                            None,
                             err_message.to_owned(),
                             Box::new({
                                 let name = name.clone();
@@ -592,6 +645,16 @@ impl Instance {
                         let msg = "Instance stopped";
                         (
                             Ok(()),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceStopped,
+                                }),
+                                details: msg.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
+                            }),
                             msg.to_owned(),
                             Box::new({
                                 let name = name.clone();
@@ -603,6 +666,16 @@ impl Instance {
                         let msg = "Instance is starting";
                         (
                             Ok(()),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceStarting,
+                                }),
+                                details: msg.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
+                            }),
                             msg.to_owned(),
                             Box::new({
                                 let name = name.clone();
@@ -618,6 +691,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceStopped,
                                 detail: err_msg.to_owned(),
                             }),
+                            None,
                             err_msg.to_owned(),
                             Box::new({
                                 let name = name.clone();
@@ -632,6 +706,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceStopped,
                                 detail: err_message.to_owned(),
                             }),
+                            None,
                             err_message.to_owned(),
                             Box::new({
                                 let name = name.clone();
@@ -647,6 +722,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceErrored,
                                 detail: err_message.to_owned(),
                             }),
+                            None,
                             err_message.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, err_message.to_owned())),
                         )
@@ -658,6 +734,16 @@ impl Instance {
                             Err(Error {
                                 inner: ErrorInner::InstanceErrored,
                                 detail: err_message.to_owned(),
+                            }),
+                            Some(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_uuid: uuid.clone(),
+                                    instance_name: name.clone(),
+                                    instance_event_inner: InstanceEventInner::InstanceError,
+                                }),
+                                details: err_message.to_owned(),
+                                timestamp: chrono::Utc::now().timestamp(),
+                                idempotency: rand_alphanumeric(5),
                             }),
                             err_message.to_owned(),
                             Box::new({
@@ -678,6 +764,7 @@ impl Instance {
                                 inner: ErrorInner::InstanceErrored,
                                 detail: "instance errored".to_string(),
                             }),
+                            None,
                             err_message.clone(),
                             Box::new({
                                 let err_message = err_message;
@@ -689,7 +776,11 @@ impl Instance {
                     }
                 };
                 log();
-
+                event.map(|e| {
+                    event_broadcaster
+                        .send(e)
+                        .map_err(|e| error!("Failed to update state: {}", e))
+                });
                 ret
             }
         };
