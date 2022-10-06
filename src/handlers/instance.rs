@@ -106,7 +106,7 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             game_type: "minecraft".to_string(),
             uuid: uuid.clone(),
             path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, uuid[0..8].to_string()))),
+                .with(|path| path.join(format!("{}-{}", config.name, &uuid[0..8]))),
         }
     }
 }
@@ -130,14 +130,14 @@ pub async fn create_minecraft_instance(
             detail: "Name must not be longer than 100 characters".to_string(),
         });
     }
-    name = format!("{}-{}", name, setup_config.uuid[0..5].to_string());
+    name = format!("{}-{}", name, &setup_config.uuid[0..5]);
     for (_, instance) in state.instances.lock().await.iter() {
         let path = instance.lock().await.path().await;
         if path == setup_config.path {
             while path == setup_config.path {
                 info!("You just hit the lottery");
                 setup_config.uuid = uuid::Uuid::new_v4().to_string();
-                name = format!("{}-{}", name, setup_config.uuid[0..5].to_string());
+                name = format!("{}-{}", name, &setup_config.uuid[0..5]);
                 setup_config.name = name.clone();
             }
         }
