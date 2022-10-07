@@ -1,4 +1,3 @@
-import axios from 'axios';
 import DashboardCard from 'components/DashboardCard';
 import Textfield from 'components/Textfield';
 import { updateInstance } from 'data/InstanceList';

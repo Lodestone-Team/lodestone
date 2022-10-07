@@ -1,5 +1,3 @@
-import { InstanceEvent } from 'bindings/InstanceEvent';
-import { UserEvent } from 'bindings/UserEvent';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -43,6 +41,7 @@ export const useEventStream = () => {
       }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
     websocket.onmessage = (messageEvent) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { event_inner, timestamp, idempotency }: ClientEvent = JSON.parse(
         messageEvent.data
       );

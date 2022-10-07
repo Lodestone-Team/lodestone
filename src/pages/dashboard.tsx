@@ -10,13 +10,10 @@ import { ReactElement, ReactNode, useContext, useMemo } from 'react';
 import { useRouterQuery } from 'utils/hooks';
 import {
   axiosPutSingleValue,
-  axiosWrapper,
-  isAxiosError,
   stateToLabelColor,
 } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
-import axios from 'axios';
 import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 
