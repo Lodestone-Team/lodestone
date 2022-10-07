@@ -6,7 +6,7 @@ import { catchAsyncToString } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 const inputClassName =
-  'appearance-none bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-600 disabled:bg-gray-800';
+  'appearance-none bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-500 disabled:bg-gray-800';
 const inputBorderClassName =
   'enabled:outline-gray-400 enabled:focus-visible:outline-blue enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
 const inputErrorBorderClassName =
@@ -21,6 +21,7 @@ export default function Textfield({
   min,
   max,
   removeArrows,
+  disabled = false,
   validate, //throws error if invalid
 }: {
   label: string;
@@ -30,6 +31,7 @@ export default function Textfield({
   min?: number;
   max?: number;
   removeArrows?: boolean;
+  disabled?: boolean;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
 }) {
@@ -134,6 +136,7 @@ export default function Textfield({
             }}
             min={min}
             max={max}
+            disabled={disabled}
           />
         </form>
         {error && (

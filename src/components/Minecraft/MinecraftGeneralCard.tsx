@@ -4,6 +4,7 @@ import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
+import { useInstanceManifest } from 'data/InstanceManifest';
 
 export default function MinecraftGeneralCard({
   instance,
@@ -11,6 +12,18 @@ export default function MinecraftGeneralCard({
   instance: InstanceInfo;
 }) {
   const queryClient = useQueryClient();
+  const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
+  const supportedOptions = manifest?.supported_operations
+    ? manifest.supported_operations
+    : [];
+  const currentSettings = manifest?.settings ? manifest.settings : [];
+
+  if (isLoading) {
+    // TODO: show an unobtrusive loading screen, reduce UI flicker
+    return <div>Loading...</div>;
+  }
+
+  console.log(supportedOptions)
 
   const portField = (
     <Textfield
@@ -18,6 +31,7 @@ export default function MinecraftGeneralCard({
       value={instance.port.toString()}
       type="number"
       removeArrows={true}
+      disabled={!supportedOptions.includes('SetPort')}
       onSubmit={async (port) => {
         const numPort = parseInt(port);
         await axiosPutSingleValue<void>(

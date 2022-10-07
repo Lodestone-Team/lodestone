@@ -20,12 +20,17 @@ import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
   const { query: uuid } = useRouterQuery('uuid');
-  const { data: instances } = useInstanceList();
+  const { data: instances, isLoading } = useInstanceList();
   const queryClient = useQueryClient();
 
   const instance = useMemo(() => {
     if (uuid) return instances?.[uuid];
   }, [uuid, instances]);
+
+  if (isLoading){
+    // TODO: show an unobtrusive loading screen, reduce UI flicker
+    return <div>Loading...</div>;
+  }
 
   // TODO: add loading state, don't let it flash blank
   if (!uuid) return <></>;
