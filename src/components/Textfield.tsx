@@ -1,12 +1,18 @@
-import { faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { HTMLInputTypeAttribute, useEffect, useState } from 'react';
+import {
+  HTMLInputTypeAttribute,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 const inputClassName =
-  'appearance-none bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-500 disabled:bg-gray-800';
+  'w-full appearance-none bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-500 disabled:bg-gray-800';
 const inputBorderClassName =
   'enabled:outline-gray-400 enabled:focus-visible:outline-blue enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
 const inputErrorBorderClassName =
@@ -22,7 +28,7 @@ export default function Textfield({
   max,
   removeArrows,
   disabled = false,
-  validate, //throws error if invalid
+  validate: validateProp, //throws error if invalid
 }: {
   label: string;
   value: string;
@@ -39,6 +45,22 @@ export default function Textfield({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [touched, setTouched] = useState<boolean>(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const validate = useCallback(
+    async (value: string) => {
+      if (type === 'number') {
+        const numValue = parseInt(value);
+        if (isNaN(numValue)) throw new Error('Must be a number');
+        if (min !== undefined && numValue < min)
+          throw new Error(`Must be greater than ${min}`);
+        if (max !== undefined && numValue > max)
+          throw new Error(`Must be less than ${max}`);
+      }
+      if (validateProp) await validateProp(value);
+    },
+    [max, min, type, validateProp]
+  );
 
   // we want to validate the input after the user stops typing for a while
   useEffect(() => {
@@ -66,7 +88,8 @@ export default function Textfield({
     setTouched(true);
   };
 
-  const onSubmit = async () => {
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     if (!touched) return;
     const trimmed = value.trim();
     setValue(trimmed);
@@ -82,15 +105,24 @@ export default function Textfield({
     setIsLoading(false);
   };
 
-  const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const onReset = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    await onSubmit();
+    setValue(initialValue);
+    setError('');
+    setTouched(false);
   };
 
-  let icon = null;
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key === 'Escape')
+      // escape
+      formRef.current?.reset();
+  };
+
+  const icons = [];
   if (isLoading) {
-    icon = (
+    icons.push(
       <BeatLoader
+        key="loading"
         size="0.25rem"
         cssOverride={{
           width: '2rem',
@@ -104,11 +136,20 @@ export default function Textfield({
     );
   }
   if (touched) {
-    icon = (
+    icons.push(
       <FontAwesomeIcon
         icon={faFloppyDisk}
         className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
-        onClick={onSubmit}
+        onClick={() => formRef.current?.requestSubmit()}
+        key="save"
+      />
+    );
+    icons.push(
+      <FontAwesomeIcon
+        icon={faRotateRight}
+        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
+        onClick={() => formRef.current?.reset()}
+        key="reset"
       />
     );
   }
@@ -119,9 +160,15 @@ export default function Textfield({
         {label}:
       </label>
       <div className="mt-1">
-        <form onSubmit={onFormSubmit} className="relative">
+        <form
+          onSubmit={onSubmit}
+          onReset={onReset}
+          className="relative"
+          ref={formRef}
+          onKeyDown={handleKeyDown}
+        >
           <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end p-1.5">
-            {icon}
+            <div className="flex flex-row gap-2">{icons}</div>
           </div>
           <input
             type={type}
@@ -134,8 +181,6 @@ export default function Textfield({
             onBlur={() => {
               setValue(value.trim());
             }}
-            min={min}
-            max={max}
             disabled={disabled}
           />
         </form>
