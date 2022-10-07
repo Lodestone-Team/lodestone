@@ -88,9 +88,18 @@ export const useConsoleStream = (uuid: string) => {
   const { data: userInfo } = useUserInfo();
   const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
 
-  const mergeConsoleLog = (newLog: ConsoleEvent[]) => {
+  const mergeConsoleLog = (newLog: ClientEvent[]) => {
     setConsoleLog((oldLog) => {
-      const mergedLog = [...oldLog, ...newLog];
+      const consoleEvents = newLog
+        .filter((event) => {
+          return (
+            event.event_inner.type === 'InstanceEvent' &&
+            event.event_inner.instance_event_inner.type === 'InstanceOutput'
+          );
+        })
+        .map(toConsoleEvent);
+
+      const mergedLog = [...oldLog, ...consoleEvents];
       // TODO: implement snowflake ids and use those instead of idempotency
       // this is slow ik
       return mergedLog.filter(
@@ -125,7 +134,7 @@ export const useConsoleStream = (uuid: string) => {
 
     websocket.onmessage = (messageEvent) => {
       const event: ClientEvent = JSON.parse(messageEvent.data);
-      mergeConsoleLog([toConsoleEvent(event)]);
+      mergeConsoleLog([event]);
     };
 
     websocket.onclose = (event) => {
@@ -144,7 +153,7 @@ export const useConsoleStream = (uuid: string) => {
     axios
       .get(`/instance/${uuid}/console/buffer`)
       .then((response) => {
-        mergeConsoleLog(response.data.map(toConsoleEvent));
+        mergeConsoleLog(response.data);
         if (statusRef.current === 'loading') setStatus('buffered');
         if (statusRef.current === 'live-no-buffer') setStatus('live');
       })
