@@ -24,8 +24,6 @@ export default function MinecraftGeneralCard({
     return <div>Loading...</div>;
   }
 
-  console.log(supportedOptions);
-
   const portField = (
     <Textfield
       label="Port"
@@ -77,12 +75,54 @@ export default function MinecraftGeneralCard({
     />
   ) : null;
 
+  const minRamField = supportedOptions.includes('GetMinRam') ? (
+    <Textfield
+      label="Min RAM"
+      value={instance.min_ram?.toString() ?? ''}
+      type="number"
+      min={0}
+      max={100000}
+      removeArrows={true}
+      disabled={!supportedOptions.includes('SetMinRam')}
+      onSubmit={async (minRam) => {
+        const numMinRam = parseInt(minRam);
+        await axiosPutSingleValue<void>(`/instance/${uuid}/min_ram`, numMinRam);
+        updateInstance(uuid, queryClient, (oldData) => ({
+          ...oldData,
+          min_ram: numMinRam,
+        }));
+      }}
+    />
+  ) : null;
+
+  const maxRamField = supportedOptions.includes('GetMaxRam') ? (
+    <Textfield
+      label="Max RAM"
+      value={instance.max_ram?.toString() ?? ''}
+      type="number"
+      min={0}
+      max={100000}
+      removeArrows={true}
+      disabled={!supportedOptions.includes('SetMaxRam')}
+      onSubmit={async (maxRam) => {
+        const numMaxRam = parseInt(maxRam);
+        await axiosPutSingleValue<void>(`/instance/${uuid}/max_ram`, numMaxRam);
+        updateInstance(uuid, queryClient, (oldData) => ({
+          ...oldData,
+          max_ram: numMaxRam,
+        }));
+      }}
+    />
+  ) : null;      
+
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> General Settings </h1>
       <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-4 child:w-full">
         {portField}
         {maxPlayersField}
+        {minRamField}
+        {maxRamField}
       </div>
     </DashboardCard>
   );
