@@ -135,6 +135,98 @@ pub async fn set_instance_description(
     Ok(Json("ok".to_string()))
 }
 
+pub async fn set_min_ram(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+    Json(min_ram): Json<u32>,
+) -> Result<Json<String>, Error> {
+    state
+        .instances
+        .lock()
+        .await
+        .get(&uuid)
+        .ok_or(Error {
+            inner: ErrorInner::InstanceNotFound,
+            detail: "".to_string(),
+        })?
+        .lock()
+        .await
+        .set_min_ram(min_ram)
+        .await
+        .ok_or(Error {
+            inner: ErrorInner::UnsupportedOperation,
+            detail: "".to_string(),
+        })??;
+    Ok(Json("ok".to_string()))
+}
+
+pub async fn get_min_ram(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+) -> Result<Json<Option<u32>>, Error> {
+    Ok(Json(
+        state
+            .instances
+            .lock()
+            .await
+            .get(&uuid)
+            .ok_or(Error {
+                inner: ErrorInner::InstanceNotFound,
+                detail: "".to_string(),
+            })?
+            .lock()
+            .await
+            .min_ram()
+            .await,
+    ))
+}
+
+pub async fn set_max_ram(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+    Json(max_ram): Json<u32>,
+) -> Result<Json<String>, Error> {
+    state
+        .instances
+        .lock()
+        .await
+        .get(&uuid)
+        .ok_or(Error {
+            inner: ErrorInner::InstanceNotFound,
+            detail: "".to_string(),
+        })?
+        .lock()
+        .await
+        .set_max_ram(max_ram)
+        .await
+        .ok_or(Error {
+            inner: ErrorInner::UnsupportedOperation,
+            detail: "".to_string(),
+        })??;
+    Ok(Json("ok".to_string()))
+}
+
+pub async fn get_max_ram(
+    Extension(state): Extension<AppState>,
+    Path(uuid): Path<String>,
+) -> Result<Json<Option<u32>>, Error> {
+    Ok(Json(
+        state
+            .instances
+            .lock()
+            .await
+            .get(&uuid)
+            .ok_or(Error {
+                inner: ErrorInner::InstanceNotFound,
+                detail: "".to_string(),
+            })?
+            .lock()
+            .await
+            .max_ram()
+            .await,
+    ))
+}
+
 pub fn get_instance_config_routes() -> Router {
     Router::new()
         .route(
@@ -148,5 +240,13 @@ pub fn get_instance_config_routes() -> Router {
         .route(
             "/instance/:uuid/description",
             get(get_instance_description).put(set_instance_description),
+        )
+        .route(
+            "/instance/:uuid/min_ram",
+            get(get_min_ram).put(set_min_ram),
+        )
+        .route(
+            "/instance/:uuid/max_ram",
+            get(get_max_ram).put(set_max_ram),
         )
 }
