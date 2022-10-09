@@ -5,6 +5,8 @@ import { axiosPutSingleValue, axiosWrapper } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useInstanceManifest } from 'data/InstanceManifest';
+import { useGameSetting } from 'data/GameSetting';
+import Dropdown from 'components/Atoms/Dropdown';
 
 export default function MinecraftGeneralCard({
   instance,
@@ -18,6 +20,8 @@ export default function MinecraftGeneralCard({
     : [];
   const currentSettings = manifest?.settings ? manifest.settings : [];
   const uuid = instance.uuid;
+
+  const {data: gamemode, isLoading: gamemodeLoading} = useGameSetting(uuid, 'gamemode');
 
   if (isLoading) {
     // TODO: show an unobtrusive loading screen, reduce UI flicker
@@ -113,7 +117,15 @@ export default function MinecraftGeneralCard({
         }));
       }}
     />
-  ) : null;      
+  ) : null;
+
+  const gameModeField = currentSettings.includes('gamemode') ? (
+    <Dropdown label="Game Mode" value={gamemode ?? ""} disabled={gamemodeLoading}
+    options = {['survival', 'creative', 'adventure']}
+    onChange={async (value) => {
+      await axiosPutSingleValue<void>(`/instance/${uuid}/game/gamemode`, value);
+    }} />
+  ) : null;
 
   return (
     <DashboardCard>
@@ -123,6 +135,7 @@ export default function MinecraftGeneralCard({
         {maxPlayersField}
         {minRamField}
         {maxRamField}
+        {gameModeField}
       </div>
     </DashboardCard>
   );

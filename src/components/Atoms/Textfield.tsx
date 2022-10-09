@@ -12,11 +12,14 @@ import { catchAsyncToString } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 const inputClassName =
-  'w-full appearance-none bg-gray-700 p-1.5 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-500 disabled:bg-gray-800';
+  'w-full appearance-none bg-gray-700 py-1.5 px-3 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-500 disabled:bg-gray-800';
 const inputBorderClassName =
   'enabled:outline-gray-400 enabled:focus-visible:outline-blue enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
 const inputErrorBorderClassName =
   'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
+
+const iconClassName =
+  'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
 
 export type TextFieldType = 'text' | 'number';
 
@@ -54,7 +57,7 @@ export default function Textfield({
   const validate = useCallback(
     async (value: string) => {
       if (type === 'number') {
-        if(!value) {
+        if (!value) {
           throw new Error('Cannot be empty');
         }
         const numValue = parseInt(value);
@@ -131,12 +134,12 @@ export default function Textfield({
   const uiError = errorProp || error;
 
   let icons = [];
-  
+
   if (touched) {
     icons.push(
       <FontAwesomeIcon
         icon={faFloppyDisk}
-        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
+        className={iconClassName}
         onClick={() => formRef.current?.requestSubmit()}
         key="save"
       />
@@ -144,14 +147,14 @@ export default function Textfield({
     icons.push(
       <FontAwesomeIcon
         icon={faRotateRight}
-        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
+        className={iconClassName}
         onClick={() => formRef.current?.reset()}
         key="reset"
       />
     );
   }
   if (isLoading) {
-    icons = [(
+    icons = [
       <BeatLoader
         key="loading"
         size="0.25rem"
@@ -163,8 +166,8 @@ export default function Textfield({
           margin: `0 -0.5rem`,
         }}
         color="#6b7280"
-      />
-    )];
+      />,
+    ];
   }
 
   return (
@@ -180,7 +183,7 @@ export default function Textfield({
           ref={formRef}
           onKeyDown={handleKeyDown}
         >
-          <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end p-1.5">
+          <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
             <div className="flex flex-row gap-2">{icons}</div>
           </div>
           <input

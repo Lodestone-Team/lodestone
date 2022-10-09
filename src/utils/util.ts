@@ -39,13 +39,15 @@ export function isAxiosError<ResponseType>(
 export function errorToMessage(error: unknown): string {
   if (isAxiosError<ClientError>(error)) {
     if (error.response) {
-      if (error.response.data.inner) {
+      if (error.response.data && error.response.data.inner) {
         // TODO: more runtime type checking
         return error.response.data.toString();
+      } else if (error.code === 'ERR_NETWORK') {
+        return 'Network error';
       } else return `${error.code}: ${error.response.statusText}`;
     } else return `Network error: ${error.code}`;
   }
-  if(error === null) return "";
+  if (error === null) return '';
   return `Unknown error: ${error}`;
 }
 
