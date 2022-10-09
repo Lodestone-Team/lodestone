@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import DashboardCard from 'components/DashboardCard';
-import SettingTextfield from 'components/SettingTextfield';
+import SettingField from 'components/SettingField';
 import { useInstanceManifest } from 'data/InstanceManifest';
 
 export default function MinecraftSettingCard({
@@ -18,11 +18,11 @@ export default function MinecraftSettingCard({
 
   // hand picked list of minecraft settings to be shown
   const settings = [
-    'gamemode',
-    'difficulty',
+    // 'gamemode',
+    // 'difficulty',
     'white-list',
-    'online-mode',
-    'pvp',
+    // 'online-mode',
+    // 'pvp',
     'enable-command-block',
     'allow-flight',
     'spawn-animals',
@@ -47,12 +47,12 @@ export default function MinecraftSettingCard({
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> Game Settings </h1>
-      <div className="grid w-full grid-cols-2 gap-4 child:w-full md:grid-cols-4">
+      <div className="grid w-full grid-cols-2 gap-8 child:w-full md:grid-cols-4">
         {availableSettings.map((setting) => {
           return (
-            <SettingTextfield
+            <SettingField
               instance={instance}
-              settingName={setting}
+              setting={setting}
               label={setting}
               key={setting}
             />

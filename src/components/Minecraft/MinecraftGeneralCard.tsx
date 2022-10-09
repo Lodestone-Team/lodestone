@@ -7,6 +7,7 @@ import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { useGameSetting } from 'data/GameSetting';
 import Dropdown from 'components/Atoms/Dropdown';
+import SettingField from 'components/SettingField';
 
 export default function MinecraftGeneralCard({
   instance,
@@ -21,7 +22,10 @@ export default function MinecraftGeneralCard({
   const currentSettings = manifest?.settings ? manifest.settings : [];
   const uuid = instance.uuid;
 
-  const {data: gamemode, isLoading: gamemodeLoading} = useGameSetting(uuid, 'gamemode');
+  const { data: gamemode, isLoading: gamemodeLoading } = useGameSetting(
+    uuid,
+    'gamemode'
+  );
 
   if (isLoading) {
     // TODO: show an unobtrusive loading screen, reduce UI flicker
@@ -120,22 +124,57 @@ export default function MinecraftGeneralCard({
   ) : null;
 
   const gameModeField = currentSettings.includes('gamemode') ? (
-    <Dropdown label="Game Mode" value={gamemode ?? ""} disabled={gamemodeLoading}
-    options = {['survival', 'creative', 'adventure']}
-    onChange={async (value) => {
-      await axiosPutSingleValue<void>(`/instance/${uuid}/game/gamemode`, value);
-    }} />
+    <SettingField
+      instance={instance}
+      setting="gamemode"
+      label="Game Mode"
+      type="dropdown"
+      options={['survival', 'creative', 'adventure']}
+    />
+  ) : null;
+
+  const difficultyField = currentSettings.includes('difficulty') ? (
+    <SettingField
+      instance={instance}
+      setting="difficulty"
+      label="Difficulty"
+      type="dropdown"
+      options={['peaceful', 'easy', 'normal', 'hard']}
+    />
+  ) : null;
+
+  const onlineModeField = currentSettings.includes('online-mode') ? (
+    <SettingField
+      instance={instance}
+      setting="online-mode"
+      label='"Online Mode"'
+      type="dropdown"
+      options={['true', 'false']}
+    />
+  ) : null;
+
+  const pvpField = currentSettings.includes('pvp') ? (
+    <SettingField
+      instance={instance}
+      setting="pvp"
+      label="PvP"
+      type="dropdown"
+      options={['true', 'false']}
+    />
   ) : null;
 
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> General Settings </h1>
-      <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-4 child:w-full">
+      <div className="grid w-full grid-cols-2 gap-8 child:w-full md:grid-cols-4">
         {portField}
         {maxPlayersField}
         {minRamField}
         {maxRamField}
         {gameModeField}
+        {difficultyField}
+        {onlineModeField}
+        {pvpField}
       </div>
     </DashboardCard>
   );
