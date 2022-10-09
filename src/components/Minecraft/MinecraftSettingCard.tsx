@@ -13,8 +13,31 @@ export default function MinecraftSettingCard({
   const supportedOptions = manifest?.supported_operations
     ? manifest.supported_operations
     : [];
-  const currentSettings = manifest?.settings ? manifest.settings : [];
+  const supportedSettings = manifest?.settings ? manifest.settings : [];
   const uuid = instance.uuid;
+
+  // hand picked list of minecraft settings to be shown
+  const settings = [
+    'gamemode',
+    'difficulty',
+    'white-list',
+    'online-mode',
+    'pvp',
+    'enable-command-block',
+    'allow-flight',
+    'spawn-animals',
+    'spawn-monsters',
+    'spawn-npcs',
+    'allow-nether',
+    'force-gamemode',
+    'spawn-protection',
+    'require-resource-pack',
+    'resource-pack',
+    'resource-pack-prompt'
+  ]
+  
+  const availableSettings = supportedSettings.filter((setting) => settings.includes(setting));
+
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -25,7 +48,7 @@ export default function MinecraftSettingCard({
     <DashboardCard>
       <h1 className="font-bold text-medium"> Game Settings </h1>
       <div className="grid w-full grid-cols-2 gap-4 child:w-full md:grid-cols-4">
-        {currentSettings.map((setting) => {
+        {availableSettings.map((setting) => {
           return (
             <SettingTextfield
               instance={instance}
