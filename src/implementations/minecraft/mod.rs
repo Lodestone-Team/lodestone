@@ -460,10 +460,10 @@ impl Instance {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!("failed to write to config {}", &path_to_config.display()),
         })?;
-        Ok(Instance::restore(restore_config, event_broadcaster))
+        Ok(Instance::restore(restore_config, event_broadcaster).await)
     }
 
-    pub fn restore(config: RestoreConfig, event_broadcaster: Sender<Event>) -> Instance {
+    pub async fn restore(config: RestoreConfig, event_broadcaster: Sender<Event>) -> Instance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
@@ -852,7 +852,7 @@ impl Instance {
             ))),
             settings: Arc::new(Mutex::new(HashMap::new())),
         };
-        let _ = instance.read_properties();
+        instance.read_properties().await.expect("Failed to read properties");
         instance
     }
 
@@ -876,7 +876,7 @@ impl Instance {
 
     async fn read_properties(&mut self) -> Result<(), Error> {
         *self.settings.lock().await =
-            read_properties_from_path(&self.path_to_properties).map_err(|_| Error {
+            read_properties_from_path(&self.path_to_properties).await.map_err(|_| Error {
                 inner: ErrorInner::FailedToReadFileOrDir,
                 detail: "".to_string(),
             })?;

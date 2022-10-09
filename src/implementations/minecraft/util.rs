@@ -1,27 +1,27 @@
-use std::{collections::HashMap, fs::File, io::BufRead, path::Path, str::FromStr};
-
 use serde_json;
+use std::{collections::HashMap, fs::File, io::BufRead, path::Path, str::FromStr};
+use tokio::io::AsyncBufReadExt;
 
 use crate::traits::{Error, ErrorInner};
 
-pub fn read_properties_from_path(
+pub async fn read_properties_from_path(
     path_to_properties: &Path,
 ) -> Result<HashMap<String, String>, Error> {
-    let properties_file = File::open(path_to_properties).map_err(|_| Error {
-        inner: ErrorInner::FailedToWriteFileOrDir,
-        detail: "Failed to open properties file. Has the instance been started at least once?"
-            .to_string(),
-    })?;
-    let buf_reader = std::io::BufReader::new(properties_file);
-    let stream = buf_reader
-        .lines()
-        .filter(Result::is_ok)
-        // this unwrap is safe because we filtered all the ok values
-        .map(Result::unwrap);
-
+    let properties_file = tokio::fs::File::open(path_to_properties)
+        .await
+        .map_err(|_| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: "Failed to open properties file. Has the instance been started at least once?"
+                .to_string(),
+        })?;
+    let buf_reader = tokio::io::BufReader::new(properties_file);
+    let mut stream = buf_reader.lines();
     let mut ret = HashMap::new();
 
-    for line in stream {
+    while let Some(line) = stream.next_line().await.map_err(|_| Error {
+        inner: ErrorInner::FailedToReadFileOrDir,
+        detail: "".to_string(),
+    })? {
         // if a line starts with '#', it is a comment, skip it
         if line.starts_with('#') {
             continue;
