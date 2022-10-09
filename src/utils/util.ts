@@ -1,4 +1,4 @@
-import { LabelColor } from 'components/Label';
+import { LabelColor } from 'components/Atoms/Label';
 import { NextRouter } from 'next/router';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';

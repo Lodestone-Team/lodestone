@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
 import { catchAsyncToString } from 'utils/util';
-import AutoGrowInput from './AutoGrowInput';
+import AutoGrowInput from './Atoms/AutoGrowInput';
 
 export type TextfieldType = 'heading' | 'description';
 

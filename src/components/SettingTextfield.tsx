@@ -5,7 +5,7 @@ import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGameSetting } from 'data/GameSetting';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { axiosPutSingleValue, errorToMessage } from 'utils/util';
-import Textfield from './Textfield';
+import Textfield from './Atoms/Textfield';
 
 export default function SettingTextfield({
   instance,

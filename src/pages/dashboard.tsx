@@ -3,7 +3,7 @@ import ClipboardTextfield from 'components/ClipboardTextfield';
 import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
-import Label from 'components/Label';
+import Label from 'components/Atoms/Label';
 import { updateInstance, useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ReactElement, ReactNode, useContext, useMemo } from 'react';

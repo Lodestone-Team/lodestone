@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import Button from 'components/Button';
+import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
 import { useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';

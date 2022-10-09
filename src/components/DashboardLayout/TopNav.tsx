@@ -1,4 +1,4 @@
-import Button from 'components/Button';
+import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';

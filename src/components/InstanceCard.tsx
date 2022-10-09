@@ -1,6 +1,6 @@
 import { capitalizeFirstLetter, stateToLabelColor } from 'utils/util';
-import Button from './Button';
-import Label from './Label';
+import Button from './Atoms/Button';
+import Label from './Atoms/Label';
 import {  useState } from 'react';
 import axios from 'axios';
 import { InstanceState } from 'bindings/InstanceState';
