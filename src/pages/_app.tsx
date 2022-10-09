@@ -68,7 +68,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           protocol,
           apiVersion,
           isReady: isReady,
-          token: cookies.token,
+          token: cookies.token ?? '',
         }}
       >
         {getLayout(<Component {...pageProps} />)}

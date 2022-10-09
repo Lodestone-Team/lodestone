@@ -1,12 +1,19 @@
+import { ClientError } from 'bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { Permission } from 'bindings/Permission';
 import { PublicUser } from 'bindings/PublicUser';
 import { useContext } from 'react';
+import { isAxiosError } from 'utils/util';
 import { LodestoneContext } from './LodestoneContext';
+import { useCookies } from 'react-cookie';
 
+// this won't ever change. if it does it will be invalidated manually
 export const useUserInfo = () => {
-  return useQuery<PublicUser, AxiosError>(
+  const { token } = useContext(LodestoneContext);
+  const [, setCookie] = useCookies(['token']);
+
+  return useQuery<PublicUser, AxiosError<ClientError>>(
     ['user', 'info'],
     () => {
       return axios
@@ -14,7 +21,12 @@ export const useUserInfo = () => {
         .then((response) => response.data);
     },
     {
-      enabled: useContext(LodestoneContext).isReady,
+      enabled: useContext(LodestoneContext).isReady && token.length > 0,
+      onError: (error) => {
+        if (error.response?.data.inner === 'PermissionDenied')
+          // then token is invalid, delete it
+          setCookie('token', '');
+      },
     }
   );
 };

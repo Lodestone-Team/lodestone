@@ -18,12 +18,14 @@ const inputBorderClassName =
 const inputErrorBorderClassName =
   'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
 
+export type TextFieldType = 'text' | 'number';
+
 export default function Textfield({
   label,
   value: initialValue,
   className,
   onSubmit: onSubmitProp,
-  type,
+  type = 'text',
   min,
   max,
   removeArrows,
@@ -33,7 +35,7 @@ export default function Textfield({
   label: string;
   value: string;
   className?: string;
-  type?: HTMLInputTypeAttribute;
+  type?: TextFieldType;
   min?: number;
   max?: number;
   removeArrows?: boolean;
@@ -50,6 +52,9 @@ export default function Textfield({
   const validate = useCallback(
     async (value: string) => {
       if (type === 'number') {
+        if(!value) {
+          throw new Error('Cannot be empty');
+        }
         const numValue = parseInt(value);
         if (isNaN(numValue)) throw new Error('Must be a number');
         if (min !== undefined && numValue < min)
@@ -66,12 +71,10 @@ export default function Textfield({
   useEffect(() => {
     if (!touched) return;
     const timeout = setTimeout(async () => {
-      if (validate) {
-        const trimmed = value.trim();
-        const error = await catchAsyncToString(validate(trimmed));
-        setError(error);
-        if (error) return;
-      }
+      const trimmed = value.trim();
+      const error = await catchAsyncToString(validate(trimmed));
+      setError(error);
+      if (error) return;
     }, onChangeValidateTimeout);
     return () => clearTimeout(timeout);
   }, [value, validate, touched]);
@@ -94,14 +97,14 @@ export default function Textfield({
     const trimmed = value.trim();
     setValue(trimmed);
     setIsLoading(true);
-    if (validate) {
-      const error = await catchAsyncToString(validate(value));
-      setError(error);
+    const validateError = await catchAsyncToString(validate(value));
+    if (validateError) {
+      setError(validateError);
       setIsLoading(false);
-      if (error) return;
+      return;
     }
-    const error = await catchAsyncToString(onSubmitProp(trimmed));
-    setError(error);
+    const submitError = await catchAsyncToString(onSubmitProp(trimmed));
+    setError(submitError);
     setIsLoading(false);
   };
 
@@ -118,23 +121,8 @@ export default function Textfield({
       formRef.current?.reset();
   };
 
-  const icons = [];
-  if (isLoading) {
-    icons.push(
-      <BeatLoader
-        key="loading"
-        size="0.25rem"
-        cssOverride={{
-          width: '2rem',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          margin: `0 -0.5rem`,
-        }}
-        color="#6b7280"
-      />
-    );
-  }
+  let icons = [];
+  
   if (touched) {
     icons.push(
       <FontAwesomeIcon
@@ -152,6 +140,22 @@ export default function Textfield({
         key="reset"
       />
     );
+  }
+  if (isLoading) {
+    icons = [(
+      <BeatLoader
+        key="loading"
+        size="0.25rem"
+        cssOverride={{
+          width: '2rem',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          margin: `0 -0.5rem`,
+        }}
+        color="#6b7280"
+      />
+    )];
   }
 
   return (
@@ -171,7 +175,6 @@ export default function Textfield({
             <div className="flex flex-row gap-2">{icons}</div>
           </div>
           <input
-            type={type}
             value={value}
             onChange={onChange}
             className={`${inputClassName} ${
