@@ -36,6 +36,19 @@ export function isAxiosError<ResponseType>(
   return axios.isAxiosError(error);
 }
 
+export function errorToMessage(error: unknown): string {
+  if (isAxiosError<ClientError>(error)) {
+    if (error.response) {
+      if (error.response.data.inner) {
+        // TODO: more runtime type checking
+        return error.response.data.toString();
+      } else return `${error.code}: ${error.response.statusText}`;
+    } else return `Network error: ${error.code}`;
+  }
+  if(error === null) return "";
+  return `Unknown error: ${error}`;
+}
+
 /**
  * @throws Error
  */
@@ -46,16 +59,7 @@ export async function axiosWrapper<ResponseType>(
     const response = await axios.request<ResponseType>(config);
     return response.data;
   } catch (error) {
-    if (isAxiosError<ClientError>(error)) {
-      if (error.response) {
-        if (error.response.data.inner) {
-          // TODO: more runtime type checking
-          throw error.response.data.toString();
-        } else
-          throw new Error(`${error.code}: ${error.response.statusText}`);
-      } else throw new Error(`Network error: ${error.code}`);
-    }
-    throw new Error(`Unknown error: ${error}`);
+    throw new Error(errorToMessage(error));
   }
 }
 
@@ -69,7 +73,7 @@ export async function axiosPutSingleValue<ResponseType>(
     data: JSON.stringify(value),
     headers: {
       'Content-Type': 'application/json',
-    }
+    },
   });
 }
 
@@ -78,12 +82,14 @@ export async function axiosPutSingleValue<ResponseType>(
 // and returns void otherwise
 // returns a string if the condition is not met
 // returns empty string otherwise
-export async function catchAsyncToString (promise: Promise<unknown>): Promise<string> {
+export async function catchAsyncToString(
+  promise: Promise<unknown>
+): Promise<string> {
   try {
     await promise;
     return '';
   } catch (e) {
-    if(e instanceof Error) return e.message;
+    if (e instanceof Error) return e.message;
     return 'Unknown error';
   }
-};
+}

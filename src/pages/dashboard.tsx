@@ -8,14 +8,12 @@ import { updateInstance, useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ReactElement, ReactNode, useContext, useMemo } from 'react';
 import { useRouterQuery } from 'utils/hooks';
-import {
-  axiosPutSingleValue,
-  stateToLabelColor,
-} from 'utils/util';
+import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
+import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
@@ -27,7 +25,7 @@ const Dashboard: NextPageWithLayout = () => {
     if (uuid) return instances?.[uuid];
   }, [uuid, instances]);
 
-  if (isLoading){
+  if (isLoading) {
     // TODO: show an unobtrusive loading screen, reduce UI flicker
     return <div>Loading...</div>;
   }
@@ -38,7 +36,7 @@ const Dashboard: NextPageWithLayout = () => {
   if (!instance) {
     return (
       <div className="px-12 py-10 bg-gray-800">
-        <h1 className="-ml-4 font-semibold tracking-tight text-gray-300 text-2xlarge font-heading">
+        <h1 className="-ml-4 font-semibold tracking-tight text-gray-300 font-heading text-2xlarge">
           Instance not found
         </h1>
       </div>
@@ -63,9 +61,7 @@ const Dashboard: NextPageWithLayout = () => {
       {
         title: 'Settings',
         content: (
-          <DashboardCard>
-            <h1 className="font-bold text-medium"> Placeholder </h1>
-          </DashboardCard>
+          <MinecraftSettingCard instance={instance} />
         ),
       },
       {
@@ -104,7 +100,10 @@ const Dashboard: NextPageWithLayout = () => {
   };
 
   const setInstanceDescription = async (description: string) => {
-    await axiosPutSingleValue<void>(`/instance/${uuid}/description`, description);
+    await axiosPutSingleValue<void>(
+      `/instance/${uuid}/description`,
+      description
+    );
     updateInstance(uuid, queryClient, (oldData) => ({
       ...oldData,
       description,
@@ -171,10 +170,10 @@ const Dashboard: NextPageWithLayout = () => {
               <Tab
                 key={tab.title}
                 className={({ selected }) =>
-                  `tracking-tight text-medium font-semibold focus-visible:outline-none ${
+                  `text-medium font-semibold tracking-tight focus-visible:outline-none ${
                     selected
-                      ? 'text-blue border-b-2 border-blue'
-                      : 'text-gray-500 mb-0.5'
+                      ? 'border-b-2 border-blue text-blue'
+                      : 'mb-0.5 text-gray-500'
                   }`
                 }
               >

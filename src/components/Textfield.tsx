@@ -28,6 +28,7 @@ export default function Textfield({
   type = 'text',
   min,
   max,
+  error: errorProp,
   removeArrows,
   disabled = false,
   validate: validateProp, //throws error if invalid
@@ -38,6 +39,7 @@ export default function Textfield({
   type?: TextFieldType;
   min?: number;
   max?: number;
+  error?: string;
   removeArrows?: boolean;
   disabled?: boolean;
   onSubmit: (arg: string) => Promise<void>;
@@ -85,6 +87,11 @@ export default function Textfield({
     if (initialValue !== value) setError('');
   }, [initialValue, value]);
 
+  // set value to initialValue when initialValue changes
+  useEffect(() => {
+    setValue(initialValue);
+  }, [initialValue]);
+
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
     setValue(currentText);
@@ -120,6 +127,8 @@ export default function Textfield({
       // escape
       formRef.current?.reset();
   };
+
+  const uiError = errorProp || error;
 
   let icons = [];
   
@@ -178,7 +187,7 @@ export default function Textfield({
             value={value}
             onChange={onChange}
             className={`${inputClassName} ${
-              error ? inputErrorBorderClassName : inputBorderClassName
+              uiError ? inputErrorBorderClassName : inputBorderClassName
             }
             ${removeArrows && 'noSpin'}`}
             onBlur={() => {
@@ -187,12 +196,12 @@ export default function Textfield({
             disabled={disabled}
           />
         </form>
-        {error && (
+        {uiError && (
           <div
             className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
           `}
           >
-            {error || 'Unknown error'}
+            {uiError || 'Unknown error'}
           </div>
         )}
       </div>
