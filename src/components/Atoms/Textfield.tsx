@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { catchAsyncToString } from 'utils/util';
+import { catchAsyncToString, parseintStrict } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 const inputClassName =
@@ -60,7 +60,7 @@ export default function Textfield({
         if (!value) {
           throw new Error('Cannot be empty');
         }
-        const numValue = parseInt(value);
+        const numValue = parseintStrict(value);
         if (isNaN(numValue)) throw new Error('Must be a number');
         if (min !== undefined && numValue < min)
           throw new Error(`Must be greater than ${min}`);
@@ -87,7 +87,7 @@ export default function Textfield({
   // set touch to false when the value changes
   useEffect(() => {
     setTouched(initialValue !== value);
-    if (initialValue !== value) setError('');
+    if (initialValue === value) setError('');
   }, [initialValue, value]);
 
   // set value to initialValue when initialValue changes

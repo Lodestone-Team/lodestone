@@ -95,3 +95,11 @@ export async function catchAsyncToString(
     return 'Unknown error';
   }
 }
+
+export function parseintStrict(value: string): number {
+  // parseint passes even if there are trailing characters
+  // so we check that the string is the same as the parsed int
+  const parsed = parseInt(value);
+  if (parsed.toString() !== value) throw new Error('Not an integer');
+  return parsed;
+}

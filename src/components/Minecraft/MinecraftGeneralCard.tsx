@@ -1,7 +1,7 @@
 import DashboardCard from 'components/DashboardCard';
 import Textfield from 'components/Atoms/Textfield';
 import { updateInstance } from 'data/InstanceList';
-import { axiosPutSingleValue, axiosWrapper } from 'utils/util';
+import { axiosPutSingleValue, axiosWrapper, parseintStrict } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useInstanceManifest } from 'data/InstanceManifest';
@@ -42,7 +42,7 @@ export default function MinecraftGeneralCard({
       max={65535}
       disabled={!supportedOptions.includes('SetPort')}
       validate={async (port) => {
-        const numPort = parseInt(port);
+        const numPort = parseintStrict(port);
         const result = await axiosWrapper<boolean>({
           method: 'get',
           url: `/check/port/${numPort}`,
@@ -50,7 +50,7 @@ export default function MinecraftGeneralCard({
         if (result) throw new Error('Port not available');
       }}
       onSubmit={async (port) => {
-        const numPort = parseInt(port);
+        const numPort = parseintStrict(port);
         await axiosPutSingleValue<void>(`/instance/${uuid}/port`, numPort);
         updateInstance(uuid, queryClient, (oldData) => ({
           ...oldData,
@@ -70,7 +70,7 @@ export default function MinecraftGeneralCard({
       removeArrows={true}
       // disabled={!supportedOptions.includes('SetMaxPlayers')}
       onSubmit={async (maxPlayers) => {
-        const numMaxPlayers = parseInt(maxPlayers);
+        const numMaxPlayers = parseintStrict(maxPlayers);
         await axiosPutSingleValue<void>(
           `/instance/${uuid}/players/max`,
           numMaxPlayers
