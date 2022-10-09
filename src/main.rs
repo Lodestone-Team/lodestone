@@ -75,7 +75,7 @@ async fn restore_instances(
 ) -> HashMap<String, Arc<Mutex<dyn TInstance>>> {
     let mut ret: HashMap<String, Arc<Mutex<dyn TInstance>>> = HashMap::new();
 
-    for instance in list_dir(&lodestone_path.join("instances"), Some(true))
+    for instance_future in list_dir(&lodestone_path.join("instances"), Some(true))
         .await
         .unwrap()
         .iter()
@@ -112,6 +112,7 @@ async fn restore_instances(
             }
         })
     {
+        let instance = instance_future.await;
         ret.insert(
             instance.uuid().await.to_string(),
             Arc::new(Mutex::new(instance)),
