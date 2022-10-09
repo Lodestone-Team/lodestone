@@ -47,9 +47,9 @@ pub trait TConfigurable: Sync + Send {
     async fn set_port(&mut self, _port: u32) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         Unsupported
     }
-    async fn set_cmd_argss(
+    async fn set_cmd_args(
         &mut self,
-        _cmd_argss: Vec<String>,
+        _cmd_args: Vec<String>,
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         Unsupported
     }

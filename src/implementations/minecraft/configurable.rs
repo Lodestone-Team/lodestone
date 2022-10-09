@@ -116,7 +116,7 @@ impl TConfigurable for Instance {
         })
     }
 
-    async fn set_cmd_argss(
+    async fn set_cmd_args(
         &mut self,
         cmd_args: Vec<String>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {

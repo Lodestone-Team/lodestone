@@ -167,7 +167,7 @@ pub struct ServerInstance {
     timeout_no_activity: Arc<Mutex<i32>>,
     start_on_connection: Arc<Mutex<bool>>,
     backup_period: Arc<Mutex<i32>>,
-    cmd_argss: Vec<String>,
+    cmd_args: Vec<String>,
     path: PathBuf,
     pub stdin: Arc<Mutex<Option<ChildStdin>>>,
     status: Arc<Mutex<Status>>,
@@ -186,15 +186,15 @@ pub struct ServerInstance {
 
 impl ServerInstance {
     pub fn new(config: &InstanceConfig, path: PathBuf) -> ServerInstance {
-        let mut cmd_argss: Vec<String> = vec![];
+        let mut cmd_args: Vec<String> = vec![];
         let config_override = config.fill_default();
         // this unwrap is safe because we just filled it in
-        cmd_argss.push(format!("-Xms{}M", config_override.min_ram.unwrap()));
-        cmd_argss.push(format!("-Xmx{}M", config_override.max_ram.unwrap()));
-        cmd_argss.push("-jar".to_string());
-        cmd_argss.push("server.jar".to_string());
-        cmd_argss.push("nogui".to_string());
-        info!("cmd_argss: {:?}", cmd_argss);
+        cmd_args.push(format!("-Xms{}M", config_override.min_ram.unwrap()));
+        cmd_args.push(format!("-Xmx{}M", config_override.max_ram.unwrap()));
+        cmd_args.push("-jar".to_string());
+        cmd_args.push("server.jar".to_string());
+        cmd_args.push("nogui".to_string());
+        info!("cmd_args: {:?}", cmd_args);
 
         let properties_manager = PropertiesManager::new(path.join("server.properties")).unwrap();
         let resource_manager = ResourceManager::new(path.clone());
@@ -256,7 +256,7 @@ impl ServerInstance {
             flavour: config.flavour,
             name: config.name.clone(),
             stdin,
-            cmd_argss,
+            cmd_args,
             process: None,
             path: path.clone(),
             port: config.port.expect("no port provided"),
@@ -530,7 +530,7 @@ impl ServerInstance {
         *self.status.lock().unwrap() = Status::Starting;
         let mut command = Command::new("java");
         command
-            .args(&self.cmd_argss)
+            .args(&self.cmd_args)
             .stdout(Stdio::piped())
             .stdin(Stdio::piped());
         match command.spawn() {
