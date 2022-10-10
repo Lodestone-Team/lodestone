@@ -31,20 +31,20 @@ export default function Dropdown({
   disabled = false,
 }: {
   label: string;
-  value: string;
+  value?: string;
   options: string[];
   className?: string;
   error?: string;
   disabled?: boolean;
   onChange: (arg: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
   // set value to initialValue when initialValue changes
   useEffect(() => {
-    setValue(initialValue);
+    setValue(initialValue || 'Select...');
   }, [initialValue]);
 
   const onChange = async (newValue: string) => {
@@ -53,8 +53,8 @@ export default function Dropdown({
     const submitError = await catchAsyncToString(onChangeProp(newValue));
     setError(submitError);
     setIsLoading(false);
-    if(submitError.length > 0) {
-      setValue(initialValue);
+    if (submitError.length > 0) {
+      setValue(initialValue || 'Select...');
     }
   };
 
@@ -79,23 +79,27 @@ export default function Dropdown({
 
   return (
     <div className={`flex flex-col gap-1 ${className} group relative`}>
-      <label className="block font-medium text-gray-300 text-small">
+      <label className="absolute font-medium text-gray-300 -top-6 text-small">
         {label}:
       </label>
       <div className="relative mt-1">
         <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
           <div className="flex flex-row gap-2">{icon}</div>
         </div>
-        <Listbox value={value} onChange={onChange} disabled={disabled || isLoading}>
+        <Listbox
+          value={value}
+          onChange={onChange}
+          disabled={disabled || isLoading}
+        >
           <Listbox.Button
             className={`py-1.5 px-3 ${inputClassName} ${
-              error === '' ? inputBorderClassName : inputErrorBorderClassName
+              uiError === '' ? inputBorderClassName : inputErrorBorderClassName
             }`}
           >
             {value}
           </Listbox.Button>
           <Listbox.Options
-            className={`${inputClassName} absolute mt-2 max-h-60 overflow-auto py-1 shadow-md`}
+            className={`${inputClassName} absolute z-50 mt-2 max-h-60 overflow-auto py-1 shadow-md`}
           >
             {options.map((option) => (
               <Listbox.Option
@@ -118,16 +122,23 @@ export default function Dropdown({
                     </span>
                     {selected && (
                       <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-accent">
-                        <FontAwesomeIcon
-                          icon={faCheck}
-                          className="w-4 h-4"
-                        />
+                        <FontAwesomeIcon icon={faCheck} className="w-4 h-4" />
                       </span>
                     )}
                   </>
                 )}
               </Listbox.Option>
             ))}
+            {(initialValue === undefined || initialValue.length === 0) && (
+              <Listbox.Option
+                key={'Select...'}
+                value={''}
+                className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
+                disabled
+              >
+                <span className={`block truncate font-normal`}>Select...</span>
+              </Listbox.Option>
+            )}
           </Listbox.Options>
         </Listbox>
         {uiError && (

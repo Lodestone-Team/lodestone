@@ -25,39 +25,52 @@ export type TextFieldType = 'text' | 'number';
 
 export default function Textfield({
   label,
+  placeholder,
   value: initialValue,
   className,
   onSubmit: onSubmitProp,
   type = 'text',
   min,
   max,
+  required,
+  maxLength = 1024,
   error: errorProp,
   removeArrows,
   disabled = false,
+  id = '',
+  showIcons = true,
   validate: validateProp, //throws error if invalid
+  onChange: onChangeProp,
 }: {
-  label: string;
-  value: string;
+  label?: string;
+  placeholder?: string;
+  value?: string;
   className?: string;
   type?: TextFieldType;
   min?: number;
   max?: number;
+  required?: boolean;
+  maxLength?: number;
   error?: string;
   removeArrows?: boolean;
   disabled?: boolean;
+  id?: string;
+  showIcons?: boolean;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
+  onChange?: (arg: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState(initialValue ?? '');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [touched, setTouched] = useState<boolean>(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   const validate = useCallback(
-    async (value: string) => {
+    async (value: string, submit: boolean) => {
+      if (required && !value && submit) throw new Error('Cannot be empty');
       if (type === 'number') {
-        if (!value) {
+        if (!value && submit) {
           throw new Error('Cannot be empty');
         }
         const numValue = parseintStrict(value);
@@ -77,7 +90,7 @@ export default function Textfield({
     if (!touched) return;
     const timeout = setTimeout(async () => {
       const trimmed = value.trim();
-      const error = await catchAsyncToString(validate(trimmed));
+      const error = await catchAsyncToString(validate(trimmed, false));
       setError(error);
       if (error) return;
     }, onChangeValidateTimeout);
@@ -92,22 +105,26 @@ export default function Textfield({
 
   // set value to initialValue when initialValue changes
   useEffect(() => {
-    setValue(initialValue);
+    setValue(initialValue ?? '');
   }, [initialValue]);
 
-  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const currentText = e.target.value;
     setValue(currentText);
     setTouched(true);
+    if (onChangeProp){
+      const error = await catchAsyncToString(onChangeProp(currentText));
+      if(error) setError(error);
+    } 
   };
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!touched) return;
+    // if (!touched) return;
     const trimmed = value.trim();
     setValue(trimmed);
     setIsLoading(true);
-    const validateError = await catchAsyncToString(validate(value));
+    const validateError = await catchAsyncToString(validate(value, true));
     if (validateError) {
       setError(validateError);
       setIsLoading(false);
@@ -120,7 +137,7 @@ export default function Textfield({
 
   const onReset = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setValue(initialValue);
+    setValue(initialValue ?? '');
     setError('');
     setTouched(false);
   };
@@ -172,9 +189,11 @@ export default function Textfield({
 
   return (
     <div className={`flex flex-col gap-1 ${className} group relative`}>
-      <label className="block font-medium text-gray-300 text-small">
-        {label}:
-      </label>
+      {label && (
+        <label className="absolute font-medium text-gray-300 -top-6 text-small">
+          {label}:
+        </label>
+      )}
       <div className="mt-1">
         <form
           onSubmit={onSubmit}
@@ -182,13 +201,16 @@ export default function Textfield({
           className="relative"
           ref={formRef}
           onKeyDown={handleKeyDown}
+          id={id}
         >
           <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
-            <div className="flex flex-row gap-2">{icons}</div>
+            <div className="flex flex-row gap-2">{showIcons && icons}</div>
           </div>
           <input
             value={value}
+            placeholder={placeholder}
             onChange={onChange}
+            maxLength={maxLength}
             className={`${inputClassName} ${
               uiError ? inputErrorBorderClassName : inputBorderClassName
             }
