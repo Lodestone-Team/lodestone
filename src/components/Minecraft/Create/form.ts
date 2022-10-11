@@ -4,10 +4,10 @@ import * as yup from 'yup';
 
 export const formId = 'minecraftCreateNewInstanceForm';
 
-export const initialValues: Optional<MinecraftSetupConfigPrimitive> = {
+export const initialValues: MinecraftSetupConfigPrimitive = {
   name: '',
   version: '',
-  flavour: '',
+  flavour: 'vanilla',
   port: 25565,
   cmd_args: [] as string[],
   description: 'Pizza is good',
