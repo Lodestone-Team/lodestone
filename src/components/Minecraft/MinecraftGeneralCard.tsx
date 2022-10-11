@@ -1,12 +1,12 @@
 import DashboardCard from 'components/DashboardCard';
-import Textfield from 'components/Atoms/Textfield';
+import Textfield from 'components/Atoms/Config/Textfield';
 import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper, parseintStrict } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { useGameSetting } from 'data/GameSetting';
-import Dropdown from 'components/Atoms/Dropdown';
+import Dropdown from 'components/Atoms/Config/Dropdown';
 import SettingField from 'components/SettingField';
 
 export default function MinecraftGeneralCard({

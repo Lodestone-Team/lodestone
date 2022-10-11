@@ -1,5 +1,5 @@
 import InputField from 'components/Atoms/Form/InputField';
-import Textfield from 'components/Atoms/Textfield';
+import Textfield from 'components/Atoms/Config/Textfield';
 
 export default function MinecraftNameForm() {
   return (
