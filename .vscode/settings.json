@@ -1,5 +1,8 @@
 {
-  "cSpell.words": ["reduxjs"],
+  "cSpell.words": [
+    "Formik",
+    "reduxjs"
+  ],
 
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": true

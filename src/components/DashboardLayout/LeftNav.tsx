@@ -6,7 +6,7 @@ import { useClientInfo } from 'data/SystemInfo';
 import Button from 'components/Atoms/Button';
 import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog } from '@headlessui/react';
-import CreateInstanceFlow from 'components/Minecraft/CreateMinecraftInstance';
+import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 
 // format duration in seconds to DD:HH:MM:SS
 const formatDuration = (duration: number) => {
@@ -66,7 +66,7 @@ export default function LeftNav() {
           onClose={() => setShowCreateInstance(false)}
           className="relative z-10"
         >
-          <div className="fixed inset-0 bg-gray-900/70" />
+          <div className="fixed inset-0 bg-gray-800/70" />
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex items-center justify-center min-h-full p-4 text-center">
               <Dialog.Panel>

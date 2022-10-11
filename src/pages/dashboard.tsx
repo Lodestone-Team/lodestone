@@ -8,18 +8,26 @@ import { updateInstance, useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ReactElement, ReactNode, useContext, useMemo } from 'react';
 import { useRouterQuery } from 'utils/hooks';
-import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
+import {
+  axiosPutSingleValue,
+  axiosWrapper,
+  pushKeepQuery,
+  stateToLabelColor,
+} from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
+import Button from 'components/Atoms/Button';
+import { useRouter } from 'next/router';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
   const { query: uuid } = useRouterQuery('uuid');
   const { data: instances, isLoading } = useInstanceList();
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const instance = useMemo(() => {
     if (uuid) return instances?.[uuid];
@@ -60,9 +68,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Settings',
-        content: (
-          <MinecraftSettingCard instance={instance} />
-        ),
+        content: <MinecraftSettingCard instance={instance} />,
       },
       {
         title: 'Resources',
@@ -153,6 +159,28 @@ const Dashboard: NextPageWithLayout = () => {
               textToCopy={lodestoneContex.address}
             />
           </Label>
+          <Button
+              label="Delete (Temporary, no confirmation)"
+              onClick={() => {
+                axiosWrapper({
+                  method: 'DELETE',
+                  url: `/instance/${uuid}`,
+                }).then(() => {
+                  queryClient.invalidateQueries(['instances', 'list']);
+                  router.push(
+                    {
+                      pathname: '/',
+                      query: {
+                        ...router.query,
+                        uuid: null,
+                      },
+                    },
+                    undefined,
+                    { shallow: true }
+                  );
+                });
+              }}
+            />
         </div>
         <div className="flex flex-row items-center w-full gap-2">
           {/* TODO: create a universal "text with edit button" component */}
