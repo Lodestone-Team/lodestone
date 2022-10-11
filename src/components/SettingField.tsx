@@ -5,8 +5,8 @@ import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGameSetting } from 'data/GameSetting';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { axiosPutSingleValue, errorToMessage } from 'utils/util';
-import Dropdown from './Atoms/Config/Dropdown';
-import Textfield from './Atoms/Config/Textfield';
+import Dropdown from './Atoms/Config/SelectBox';
+import Textfield from './Atoms/Config/TextBox';
 
 export default function SettingField({
   instance,
