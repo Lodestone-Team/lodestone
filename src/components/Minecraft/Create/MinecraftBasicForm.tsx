@@ -51,7 +51,7 @@ export default function MinecraftBasicForm() {
           disabled={minecraftVersionsLoading || !values.flavour}
           options={minecraftVersions ?? []}
         />
-        <InputField type="number" name="port" label="Port" />
+        <InputField type="number" name="port" label="Port" min={0} max={65535} />
       </div>
     </>
   );

@@ -4,7 +4,7 @@ import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Listbox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 const inputClassName =
   'w-full bg-gray-700 text-left rounded-md enabled:outline enabled:outline-2 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px] disabled:text-gray-500 disabled:bg-gray-800 enabled:hover:bg-gray-800';
@@ -35,6 +35,15 @@ export default function SelectField(props: SelectFieldProps) {
         {label ? `${label}:` : ''}
       </label>
       <div className="relative mt-1">
+        <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
+          <div className="flex flex-row gap-2">
+            <FontAwesomeIcon
+              key="icon"
+              icon={faAngleDown}
+              className={iconClassName}
+            />
+          </div>
+        </div>
         <Listbox
           value={selectedValue ? selectedValue : ''}
           name={field.name}
