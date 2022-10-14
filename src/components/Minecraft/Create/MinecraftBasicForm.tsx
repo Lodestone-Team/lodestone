@@ -8,7 +8,11 @@ import { LodestoneContext } from 'data/LodestoneContext';
 import { Field, useFormikContext } from 'formik';
 import { useContext } from 'react';
 
-export default function MinecraftBasicForm() {
+export default function MinecraftBasicForm({
+  toggleAdvanced,
+}: {
+  toggleAdvanced: () => void;
+}) {
   const { isReady } = useContext(LodestoneContext);
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
     useQuery<MinecraftFlavour[]>(
@@ -35,8 +39,8 @@ export default function MinecraftBasicForm() {
         The Basics
       </h1>
       <p>
-        Some basic information about your minecraft server. You can change these
-        at any time.
+        Some basic information about your minecraft server.<br/>
+        <span className="underline cursor-pointer text-green hover:text-green-accent" onClick={toggleAdvanced} >Click here for advanced settings</span>
       </p>
       <div className="flex flex-col gap-12 mt-10 text-left">
         <SelectField
@@ -51,7 +55,13 @@ export default function MinecraftBasicForm() {
           disabled={minecraftVersionsLoading || !values.flavour}
           options={minecraftVersions ?? []}
         />
-        <InputField type="number" name="port" label="Port" min={0} max={65535} />
+        <InputField
+          type="number"
+          name="port"
+          label="Port"
+          min={0}
+          max={65535}
+        />
       </div>
     </>
   );

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
@@ -28,6 +28,19 @@ export default function SelectField(props: SelectFieldProps) {
   const [touched, error] = at(meta, 'touched', 'error');
   const isError = touched && error && true;
   const uiError = isError ? error : '';
+
+  // reset the field value if the options change
+  useEffect(() => {
+    if (selectedValue && !options.includes(selectedValue)) {
+      field.onChange({
+        target: {
+          name: field.name,
+          value: '',
+        },
+      });
+      console.log('resetting field value');
+    }
+  }, [options, selectedValue]);
 
   return (
     <div className={`flex flex-col gap-1 ${className} group relative`}>

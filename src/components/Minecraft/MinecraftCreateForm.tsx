@@ -8,14 +8,14 @@ import MinecraftAdvancedForm from './Create/MinecraftAdvancedForm';
 import MinecraftBasicForm from './Create/MinecraftBasicForm';
 import MinecraftNameForm from './Create/MinecraftNameForm';
 
-function _renderStepContent(step: number) {
+function _renderStepContent(step: number, toggleAdvanced: () => void) {
   switch (step) {
     case 0:
       return <MinecraftNameForm />;
     case 1:
-      return <MinecraftBasicForm />;
+      return <MinecraftBasicForm toggleAdvanced={toggleAdvanced} />;
     case 2:
-      return <MinecraftAdvancedForm />;
+      return <MinecraftAdvancedForm toggleAdvanced={toggleAdvanced} />;
     default:
       return 'Unknown step';
   }
@@ -30,7 +30,7 @@ export default function CreateMinecraftInstance({
 }) {
   const [activeStep, setActiveStep] = useState(0);
   const currentValidationSchema = validationSchema[activeStep];
-  const isLastStep = activeStep === steps.length - 1;
+  const formReady = activeStep === 1 || activeStep === 2;
 
   const createInstance = async (value: MinecraftSetupConfigPrimitive) => {
     await axiosWrapper<void>({
@@ -55,8 +55,7 @@ export default function CreateMinecraftInstance({
     values: MinecraftSetupConfigPrimitive,
     actions: FormikHelpers<MinecraftSetupConfigPrimitive>
   ) {
-    console.log('values', values);
-    if (isLastStep) {
+    if (formReady) {
       _submitForm(values, actions);
     } else {
       setActiveStep(activeStep + 1);
@@ -67,6 +66,10 @@ export default function CreateMinecraftInstance({
 
   function _handleBack() {
     setActiveStep(activeStep - 1);
+  }
+  
+  function toggleAdvanced() {
+    setActiveStep(activeStep === 1 ? 2 : 1);
   }
 
   return (
@@ -81,7 +84,7 @@ export default function CreateMinecraftInstance({
             id={formId}
             className="flex flex-col items-stretch gap-6 text-center"
           >
-            {_renderStepContent(activeStep)}
+            {_renderStepContent(activeStep, toggleAdvanced)}
 
             <div className="flex flex-row justify-between">
               {activeStep !== 0 ? (
@@ -92,7 +95,7 @@ export default function CreateMinecraftInstance({
               <Button
                 disabled={isSubmitting}
                 type="submit"
-                label={isLastStep ? 'Create Instance' : 'Next'}
+                label={formReady ? 'Create Instance' : 'Next'}
                 loading={isSubmitting}
               />
             </div>
