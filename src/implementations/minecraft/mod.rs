@@ -852,7 +852,10 @@ impl Instance {
             ))),
             settings: Arc::new(Mutex::new(HashMap::new())),
         };
-        instance.read_properties().await.expect("Failed to read properties");
+        instance
+            .read_properties()
+            .await
+            .expect("Failed to read properties");
         instance
     }
 
@@ -875,8 +878,9 @@ impl Instance {
     }
 
     async fn read_properties(&mut self) -> Result<(), Error> {
-        *self.settings.lock().await =
-            read_properties_from_path(&self.path_to_properties).await.map_err(|_| Error {
+        *self.settings.lock().await = read_properties_from_path(&self.path_to_properties)
+            .await
+            .map_err(|_| Error {
                 inner: ErrorInner::FailedToReadFileOrDir,
                 detail: "".to_string(),
             })?;
