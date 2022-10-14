@@ -36,7 +36,6 @@ export const validationSchema = [
     name: yup.string().required('Name is required'),
   }),
   yup.object().shape({
-    name: yup.string().required('Name is required'),
     flavour: yup.string().required('Flavour is required'),
     version: yup.string().required('Version is required'),
     port: yup

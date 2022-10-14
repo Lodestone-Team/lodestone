@@ -41,14 +41,15 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
 
   const protocol = 'http';
   const apiVersion = 'v1';
+  const apiAddress = address ?? 'localhost';
 
   // set axios defaults
   useLayoutEffect(() => {
     if (!isReady) return;
-    axios.defaults.baseURL = `${protocol}://${address}:${
+    axios.defaults.baseURL = `${protocol}://${apiAddress}:${
       port ?? 3000
     }/api/${apiVersion}`;
-  }, [address, port, isReady]);
+  }, [apiAddress, port, isReady]);
 
   useLayoutEffect(() => {
     if (cookies.token)

@@ -64,7 +64,7 @@ export default function ToolTip({
             left: x ?? 0,
           }}
           className={
-            'text-gray-300 absolute bg-gray-500 rounded text-small p-1 leading-none'
+            'text-gray-300 absolute bg-gray-500 rounded text-small p-1 leading-none select-none'
           }
           {...getFloatingProps()}
         >

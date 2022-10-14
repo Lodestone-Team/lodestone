@@ -42,3 +42,11 @@ export const isUserAuthorized = (
   if (!user.permissions[permission]) return false;
   return user.permissions[permission].includes(instanceId);
 };
+
+export const useUserAuthorized = (
+  permission: Permission,
+  instanceId: string
+) => {
+  const { data: user } = useUserInfo();
+  return isUserAuthorized(user, permission, instanceId);
+};

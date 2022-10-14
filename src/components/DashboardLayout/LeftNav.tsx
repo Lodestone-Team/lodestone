@@ -55,12 +55,14 @@ export default function LeftNav() {
         <h1 className="mb-4 font-bold text-center truncate text-medium">
           Server&nbsp;Instances
         </h1>
-        <Button
-          label="Add&nbsp;Instance"
-          className="m-auto mb-4 w-fit"
-          icon={faPlus}
-          onClick={() => setShowCreateInstance(true)}
-        />
+        <div className="flex flex-row items-center justify-center w-full mb-4">
+          <Button
+            label="Add&nbsp;Instance"
+            className="w-fit"
+            icon={faPlus}
+            onClick={() => setShowCreateInstance(true)}
+          />
+        </div>
         <Dialog
           open={showCreateInstance}
           onClose={() => setShowCreateInstance(false)}
@@ -70,7 +72,9 @@ export default function LeftNav() {
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex items-center justify-center min-h-full p-4 text-center">
               <Dialog.Panel>
-                <CreateInstanceFlow onComplete={() => setShowCreateInstance(false)} />
+                <CreateInstanceFlow
+                  onComplete={() => setShowCreateInstance(false)}
+                />
               </Dialog.Panel>
             </div>
           </div>
