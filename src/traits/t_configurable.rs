@@ -24,9 +24,7 @@ pub trait TConfigurable: Sync + Send {
     async fn path(&self) -> PathBuf;
     /// does start when lodestone starts
     async fn auto_start(&self) -> bool;
-    async fn restart_on_crash(&self) -> MaybeUnsupported<bool> {
-        Unsupported
-    }
+    async fn restart_on_crash(&self) -> bool;
     async fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
         Unsupported
     }
