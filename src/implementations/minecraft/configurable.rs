@@ -71,8 +71,8 @@ impl TConfigurable for Instance {
         Supported(self.config.timeout_no_activity)
     }
 
-    async fn start_on_connection(&self) -> MaybeUnsupported<bool> {
-        Supported(self.config.start_on_connection)
+    async fn start_on_connection(&self) -> bool {
+        self.config.start_on_connection
     }
 
     async fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {

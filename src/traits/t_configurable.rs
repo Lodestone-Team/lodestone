@@ -31,9 +31,7 @@ pub trait TConfigurable: Sync + Send {
     async fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
         Unsupported
     }
-    async fn start_on_connection(&self) -> MaybeUnsupported<bool> {
-        Unsupported
-    }
+    async fn start_on_connection(&self) -> bool;
     async fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
         Unsupported
     }
