@@ -188,7 +188,8 @@ impl TServer for Instance {
                                     .update(State::Running)
                                     .expect("Failed to update state");
                                 *settings.lock().await =
-                                    read_properties_from_path(&path_to_properties).await
+                                    read_properties_from_path(&path_to_properties)
+                                        .await
                                         .expect("Failed to read properties");
                             }
                             if let Some(system_msg) = parse_system_msg(&line) {

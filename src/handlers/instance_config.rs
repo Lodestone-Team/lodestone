@@ -158,7 +158,8 @@ pub async fn set_instance_setting(
             inner: ErrorInner::MalformedRequest,
             detail: "".to_string(),
         })),
-    }.ok_or(Error {
+    }
+    .ok_or(Error {
         inner: ErrorInner::UnsupportedOperation,
         detail: "".to_string(),
     })??;

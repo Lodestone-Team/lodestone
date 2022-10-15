@@ -9,7 +9,7 @@ pub enum Permission {
     CanStartInstance,
     CanStopInstance,
     CanAccessConsole,
-    CanChangeSetting,
+    CanManageSetting,
     CanManageResource,
     CanAccessMacro,
 
