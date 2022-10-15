@@ -5,7 +5,7 @@ export type Permission =
   | 'CanStartInstance'
   | 'CanStopInstance'
   | 'CanAccessConsole'
-  | 'CanChangeSetting'
+  | 'CanManageSetting'
   | 'CanManageResource'
   | 'CanAccessMacro'
   | 'CanCreateInstance'

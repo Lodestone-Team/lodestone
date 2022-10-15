@@ -16,10 +16,10 @@ export interface InstanceInfo {
   creation_time: bigint;
   path: string;
   auto_start: boolean;
-  restart_on_crash: boolean | null;
+  restart_on_crash: boolean;
   timeout_last_left: number | null;
   timeout_no_activity: number | null;
-  start_on_connection: boolean | null;
+  start_on_connection: boolean;
   backup_period: number | null;
   state: InstanceState;
   player_count: number | null;
