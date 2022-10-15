@@ -53,7 +53,7 @@ export default function MinecraftBasicForm({
           name="version"
           label="Version"
           disabled={minecraftVersionsLoading || !values.flavour}
-          options={minecraftVersions === undefined ? [] : minecraftVersions["release"]}
+          options={minecraftVersions?.release ?? []}
         />
         <InputField
           type="number"

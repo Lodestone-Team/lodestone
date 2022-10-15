@@ -53,7 +53,7 @@ export const validationSchema = [
   yup.object().shape({
     min_ram: yup.number().required('Min RAM is required'),
     max_ram: yup.number().required('Max RAM is required'),
-    cmd_args: yup.array().of(yup.string()).nullable(),
+    cmd_args: yup.string().nullable(),
     auto_start: yup.boolean(),
     restart_on_crash: yup.boolean(),
   }),
