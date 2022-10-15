@@ -1,5 +1,5 @@
 import DashboardCard from 'components/DashboardCard';
-import Textfield from 'components/Atoms/Config/TextBox';
+import Textfield from 'components/Atoms/Config/InputBox';
 import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper, parseintStrict } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';

@@ -6,7 +6,7 @@ import { useGameSetting } from 'data/GameSetting';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { axiosPutSingleValue, errorToMessage } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
-import Textfield from './Atoms/Config/TextBox';
+import Textfield from './Atoms/Config/InputBox';
 
 export default function SettingField({
   instance,

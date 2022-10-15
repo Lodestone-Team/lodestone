@@ -93,7 +93,6 @@ export default function CreateMinecraftInstance({
                 <div></div>
               )}
               <Button
-                disabled={isSubmitting}
                 type="submit"
                 label={formReady ? 'Create Instance' : 'Next'}
                 loading={isSubmitting}

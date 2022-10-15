@@ -3,9 +3,9 @@ import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 
 const inputClassName =
-  'w-full appearance-none bg-gray-700 py-1.5 px-3 rounded-md  enabled:outline enabled:outline-2 enabled:text-gray-300 tracking-tight leading-snug font-medium enabled:focus-visible:ring-[6px]  disabled:text-gray-500 disabled:bg-gray-800';
+  'w-full appearance-none bg-gray-900 py-1.5 px-3 rounded-md outline outline-1 enabled:text-gray-300 tracking-tight leading-snug font-medium focus-visible:ring-4  disabled:text-white/50 disabled:bg-gray-800';
 const inputBorderClassName =
-  'enabled:outline-gray-400 enabled:focus-visible:outline-blue enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
+  'outline-gray-faded/30 enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
 const inputErrorBorderClassName =
   'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
 
@@ -14,7 +14,7 @@ const iconClassName =
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;
-  type?: 'text' | 'number';
+  type?: 'text' | 'number' | "password";
 };
 
 export default function InputField(props: InputFieldProps) {

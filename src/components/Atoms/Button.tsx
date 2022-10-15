@@ -1,6 +1,6 @@
-import { IconDefinition } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { DOMAttributes } from "react";
+import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { DOMAttributes } from 'react';
 
 // A styled button component
 export default function Button({
@@ -9,11 +9,11 @@ export default function Button({
   loading = false,
   className,
   onClick,
-  type = "button",
+  type = 'button',
   icon,
   form,
   value,
-  ... props
+  ...props
 }: {
   label: string;
   disabled?: boolean;
@@ -23,12 +23,12 @@ export default function Button({
   form?: string;
   value?: string;
   onClick?: DOMAttributes<HTMLButtonElement>['onClick'];
-  type?: "button" | "submit" | "reset";
+  type?: 'button' | 'submit' | 'reset';
 }) {
   disabled = disabled || loading;
   return (
     <button
-      className={`${className} group select-none py-1 px-2 rounded-lg bg-gray-600 enabled:outline-gray-400 enabled:outline enabled:outline-0 enabled:text-gray-300 tracking-tight leading-snug font-semibold enabled:focus-visible:ring-4 enabled:focus-visible:ring-gray-500 enabled:hover:bg-gray-700 enabled:hover:outline-2 disabled:text-gray-500`}
+      className={`${className} group select-none rounded-lg bg-gray-700 py-1 px-2 font-semibold leading-snug tracking-tight outline outline-1 outline-gray-faded/30 enabled:text-gray-300 enabled:hover:bg-gray-600 enabled:hover:outline-white/50 enabled:active:bg-gray-700 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue/30 disabled:text-white/50`}
       disabled={disabled}
       onClick={onClick}
       type={type}

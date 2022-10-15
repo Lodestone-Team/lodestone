@@ -9,35 +9,51 @@ import Link from 'next/link';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ClientError } from 'bindings/ClientError';
 import { LoginReply } from 'bindings/LoginReply';
+import InputField from 'components/Atoms/Form/InputField';
+import { Form, Formik, FormikHelpers } from 'formik';
+import * as yup from 'yup';
+
+type LoginValues = {
+  username: string;
+  password: string;
+};
+
+const initialValues: LoginValues = {
+  username: '',
+  password: '',
+};
+
+const validationSchema = yup.object({
+  username: yup.string().required('Username is required'),
+  password: yup.string().required('Password is required'),
+});
 
 const Auth: NextPageWithLayout = () => {
   const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [buttonLoading, setButtonLoading] = useState(false);
-  const [, setCookie, ] = useCookies(['token']);
-  const {token} = useContext(LodestoneContext);
+  const [, setCookie] = useCookies(['token']);
+  const { token } = useContext(LodestoneContext);
 
   useEffect(() => {
     if (token) {
       alert('Logged in!');
       pushKeepQuery(router, '/');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const onSubmit = (event: React.SyntheticEvent) => {
-    event.preventDefault();
-    setButtonLoading(true);
-
+  const onSubmit = (
+    values: LoginValues,
+    actions: FormikHelpers<LoginValues>
+  ) => {
     // login using basic auth
     axios
-      .post<LoginReply>('/user/login', {}, {
-        auth: {
-          username,
-          password,
-        },
-      })
+      .post<LoginReply>(
+        '/user/login',
+        {},
+        {
+          auth: values,
+        }
+      )
       .then((response) => {
         // set the token cookie
         setCookie('token', response.data.token);
@@ -49,20 +65,22 @@ const Auth: NextPageWithLayout = () => {
             error.response.status === 403 ||
             error.response.status === 500
           ) {
-            alert(`Error: ${error.response.data.inner}: ${error.response.data.detail}`);
+            alert(
+              `Error: ${error.response.data.inner}: ${error.response.data.detail}`
+            );
           }
         } else {
           alert(`Login failed: ${error.message}`);
         }
       })
       .finally(() => {
-        setButtonLoading(false);
+        actions.setSubmitting(false);
       });
   };
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-800">
-      <div className="flex flex-col items-stretch justify-center w-[500px] gap-12 px-12 py-24 bg-gray-900 rounded-3xl">
+      <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-900 px-12 py-24">
         <div className="flex flex-col items-center gap-6 text-center">
           <img src="/logo.svg" alt="logo" className="w-40" />
           <h1 className="font-bold tracking-tight text-gray-300 text-larger">
@@ -73,40 +91,31 @@ const Auth: NextPageWithLayout = () => {
             <br />
             Don&apos;t have Lodestone?{' '}
             <Link href="/get-started">
-              <span className="text-green-accent hover:text-green hover:cursor-pointer">
+              <span className="text-green-accent hover:cursor-pointer hover:text-green">
                 Get started here
               </span>
             </Link>
           </p>
         </div>
-        <form noValidate autoComplete="off" onSubmit={onSubmit}>
-          <div className="flex flex-col gap-y-6">
-            <input
-              type="text"
-              id="username"
-              name="username"
-              placeholder="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="p-2 text-gray-300 bg-gray-700 border border-gray-400 rounded-lg placeholder:text-gray-500"
-            />
-            <input
-              type="password"
-              id="password"
-              name="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="p-2 text-gray-300 bg-gray-700 border border-gray-400 rounded-lg placeholder:text-gray-500"
-            />
-            <Button
-              label="Login"
-              type="submit"
-              loading={buttonLoading}
-              className="font-bold text-medium"
-            />
-          </div>
-        </form>
+        <Formik
+          initialValues={initialValues}
+          validationSchema={validationSchema}
+          onSubmit={onSubmit}
+        >
+          {({ isSubmitting }) => (
+            <Form
+              id="loginForm"
+              className="flex flex-col gap-6"
+              autoComplete="off"
+            >
+              <div className="flex flex-col gap-y-6">
+                <InputField type="text" name="username" label="Username" />
+                <InputField type="password" name="password" label="Password" />
+              </div>
+              <Button type="submit" label="Login" loading={isSubmitting} />
+            </Form>
+          )}
+        </Formik>
       </div>
     </div>
   );
