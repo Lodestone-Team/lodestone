@@ -9,6 +9,7 @@ use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+use ts_rs::TS;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 
@@ -63,7 +64,8 @@ pub async fn get_instance_info(
     ))
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
 pub struct MinecraftSetupConfigPrimitive {
     pub name: String,
     pub version: String,
