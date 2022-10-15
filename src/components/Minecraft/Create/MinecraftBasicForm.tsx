@@ -24,7 +24,7 @@ export default function MinecraftBasicForm({
   const { values } = useFormikContext<MinecraftSetupConfigPrimitive>();
 
   const { data: minecraftVersions, isLoading: minecraftVersionsLoading } =
-    useQuery<string[]>(
+    useQuery<{ [key: string]: Array<string> }>(
       ['minecraft', 'versions', values.flavour],
       () =>
         axios
@@ -39,7 +39,7 @@ export default function MinecraftBasicForm({
         The Basics
       </h1>
       <p>
-        Some basic information about your minecraft server.<br/>
+        Some basic information about your minecraft server.<br />
         <span className="underline cursor-pointer text-green hover:text-green-accent" onClick={toggleAdvanced} >Click here for advanced settings</span>
       </p>
       <div className="flex flex-col gap-12 mt-10 text-left">
@@ -53,7 +53,7 @@ export default function MinecraftBasicForm({
           name="version"
           label="Version"
           disabled={minecraftVersionsLoading || !values.flavour}
-          options={minecraftVersions ?? []}
+          options={minecraftVersions === undefined ? [] : minecraftVersions["release"]}
         />
         <InputField
           type="number"
