@@ -1,21 +1,27 @@
+import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
 import Button from 'components/Atoms/Button';
-import { Form, Formik, FormikHelpers } from 'formik';
-import { useState } from 'react';
+import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
+import { useRef, useState } from 'react';
 import { axiosWrapper } from 'utils/util';
-import { formId, initialValues, validationSchema } from './Create/form';
+import {
+  formId,
+  initialValues,
+  MinecraftSetupConfigPrimitiveForm,
+  validationSchema,
+} from './Create/form';
 import MinecraftAdvancedForm from './Create/MinecraftAdvancedForm';
 import MinecraftBasicForm from './Create/MinecraftBasicForm';
 import MinecraftNameForm from './Create/MinecraftNameForm';
 
-function _renderStepContent(step: number, toggleAdvanced: () => void) {
+function _renderStepContent(step: number) {
   switch (step) {
     case 0:
       return <MinecraftNameForm />;
     case 1:
-      return <MinecraftBasicForm toggleAdvanced={toggleAdvanced} />;
+      return <MinecraftBasicForm />;
     case 2:
-      return <MinecraftAdvancedForm toggleAdvanced={toggleAdvanced} />;
+      return <MinecraftAdvancedForm />;
     default:
       return 'Unknown step';
   }
@@ -30,7 +36,9 @@ export default function CreateMinecraftInstance({
 }) {
   const [activeStep, setActiveStep] = useState(0);
   const currentValidationSchema = validationSchema[activeStep];
-  const formReady = activeStep === 1 || activeStep === 2;
+  const formReady = activeStep === steps.length - 1;
+  const formikRef =
+    useRef<FormikProps<MinecraftSetupConfigPrimitiveForm>>(null);
 
   const createInstance = async (value: MinecraftSetupConfigPrimitive) => {
     await axiosWrapper<void>({
@@ -41,10 +49,19 @@ export default function CreateMinecraftInstance({
   };
 
   async function _submitForm(
-    values: MinecraftSetupConfigPrimitive,
-    actions: FormikHelpers<MinecraftSetupConfigPrimitive>
+    values: MinecraftSetupConfigPrimitiveForm,
+    actions: FormikHelpers<MinecraftSetupConfigPrimitiveForm>
   ) {
-    await createInstance(values);
+    const parsedValues: MinecraftSetupConfigPrimitive = {
+      ...values,
+      flavour: values.flavour as MinecraftFlavour,
+      cmd_args: values.cmd_args.split(' '),
+      auto_start: values.auto_start === 'true',
+      restart_on_crash: values.restart_on_crash === 'true',
+      start_on_connection: values.start_on_connection === 'true',
+    };
+
+    await createInstance(parsedValues);
     actions.setSubmitting(false);
 
     setActiveStep(activeStep + 1);
@@ -52,8 +69,8 @@ export default function CreateMinecraftInstance({
   }
 
   function _handleSubmit(
-    values: MinecraftSetupConfigPrimitive,
-    actions: FormikHelpers<MinecraftSetupConfigPrimitive>
+    values: MinecraftSetupConfigPrimitiveForm,
+    actions: FormikHelpers<MinecraftSetupConfigPrimitiveForm>
   ) {
     if (formReady) {
       _submitForm(values, actions);
@@ -67,10 +84,6 @@ export default function CreateMinecraftInstance({
   function _handleBack() {
     setActiveStep(activeStep - 1);
   }
-  
-  function toggleAdvanced() {
-    setActiveStep(activeStep === 1 ? 2 : 1);
-  }
 
   return (
     <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-900 px-12 py-24">
@@ -78,13 +91,14 @@ export default function CreateMinecraftInstance({
         initialValues={initialValues}
         validationSchema={currentValidationSchema}
         onSubmit={_handleSubmit}
+        innerRef={formikRef}
       >
         {({ isSubmitting }) => (
           <Form
             id={formId}
             className="flex flex-col items-stretch gap-6 text-center"
           >
-            {_renderStepContent(activeStep, toggleAdvanced)}
+            {_renderStepContent(activeStep)}
 
             <div className="flex flex-row justify-between">
               {activeStep !== 0 ? (

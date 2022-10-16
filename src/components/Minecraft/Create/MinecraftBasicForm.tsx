@@ -7,12 +7,9 @@ import SelectField from 'components/Atoms/Form/SelectField';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { Field, useFormikContext } from 'formik';
 import { useContext } from 'react';
+import { MinecraftSetupConfigPrimitiveForm } from './form';
 
-export default function MinecraftBasicForm({
-  toggleAdvanced,
-}: {
-  toggleAdvanced: () => void;
-}) {
+export default function MinecraftBasicForm() {
   const { isReady } = useContext(LodestoneContext);
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
     useQuery<MinecraftFlavour[]>(
@@ -21,7 +18,7 @@ export default function MinecraftBasicForm({
       { enabled: isReady }
     );
 
-  const { values } = useFormikContext<MinecraftSetupConfigPrimitive>();
+  const { values } = useFormikContext<MinecraftSetupConfigPrimitiveForm>();
 
   const { data: minecraftVersions, isLoading: minecraftVersionsLoading } =
     useQuery<{ [key: string]: Array<string> }>(
@@ -39,8 +36,8 @@ export default function MinecraftBasicForm({
         The Basics
       </h1>
       <p>
-        Some basic information about your minecraft server.<br />
-        <span className="underline cursor-pointer text-green hover:text-green-accent" onClick={toggleAdvanced} >Click here for advanced settings</span>
+        Some basic information about your minecraft server.
+        <br />
       </p>
       <div className="flex flex-col gap-12 mt-10 text-left">
         <SelectField

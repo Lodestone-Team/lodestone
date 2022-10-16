@@ -22,11 +22,6 @@ export default function MinecraftGeneralCard({
   const currentSettings = manifest?.settings ? manifest.settings : [];
   const uuid = instance.uuid;
 
-  const { data: gamemode, isLoading: gamemodeLoading } = useGameSetting(
-    uuid,
-    'gamemode'
-  );
-
   if (isLoading) {
     // TODO: show an unobtrusive loading screen, reduce UI flicker
     return <div>Loading...</div>;

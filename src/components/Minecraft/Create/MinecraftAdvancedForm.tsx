@@ -1,11 +1,7 @@
 import InputField from 'components/Atoms/Form/InputField';
 import { Field } from 'formik';
 
-export default function MinecraftAdvancedForm({
-  toggleAdvanced,
-}: {
-  toggleAdvanced: () => void;
-}) {
+export default function MinecraftAdvancedForm() {
   return (
     <>
       <h1 className="font-bold tracking-tight text-gray-300 text-larger">
@@ -14,12 +10,6 @@ export default function MinecraftAdvancedForm({
       <p>
         Advanced settings for your minecraft server.
         <br />
-        <span
-          className="underline cursor-pointer text-green hover:text-green-accent"
-          onClick={toggleAdvanced}
-        >
-          Back to basic settings
-        </span>
       </p>
       <div className="flex flex-col gap-12 mt-10 text-left">
         <div className="flex flex-row gap-8 justify-evenly">

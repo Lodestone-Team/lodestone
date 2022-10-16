@@ -1,25 +1,46 @@
 import { axiosWrapper, catchAsyncToString } from 'utils/util';
 import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
 import * as yup from 'yup';
+import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 
 export const formId = 'minecraftCreateNewInstanceForm';
 
-export const initialValues: MinecraftSetupConfigPrimitive = {
+export type MinecraftSetupConfigPrimitiveForm = {
+  name: string;
+  version: string;
+  flavour: string;
+  port: number;
+  cmd_args: string;
+  description: string;
+  fabric_loader_version: string | null;
+  fabric_installer_version: string | null;
+  min_ram: number;
+  max_ram: number;
+  auto_start: string;
+  restart_on_crash: string;
+  timeout_last_left: number | null;
+  timeout_no_activity: number | null;
+  start_on_connection: string;
+  backup_period: number | null;
+};
+
+
+export const initialValues: MinecraftSetupConfigPrimitiveForm = {
   name: '',
   version: '',
-  flavour: 'vanilla',
+  flavour: '',
   port: 25565,
-  cmd_args: [] as string[],
+  cmd_args: '',
   description: 'Pizza is good',
   fabric_loader_version: null,
   fabric_installer_version: null,
   min_ram: 128,
   max_ram: 1024,
-  auto_start: false,
-  restart_on_crash: false,
+  auto_start: 'false',
+  restart_on_crash: 'false',
   timeout_last_left: null,
   timeout_no_activity: null,
-  start_on_connection: null,
+  start_on_connection: 'false',
   backup_period: null,
 };
 
