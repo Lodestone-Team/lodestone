@@ -40,6 +40,13 @@ export const useEventStream = () => {
         port ?? 3000
       }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
+
+    // if the websocket because error, we should try to reconnect
+    websocket.onerror = (event) => {
+      console.error('websocket error', event);
+      alert("Disconnected from server, please refresh the page to reconnect");
+    };
+
     websocket.onmessage = (messageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { event_inner, timestamp, idempotency }: ClientEvent = JSON.parse(
