@@ -58,7 +58,11 @@ const Dashboard: NextPageWithLayout = () => {
     minecraft: [
       {
         title: 'General',
-        content: <MinecraftGeneralCard instance={instance} />,
+        content: (
+          <DashboardCard>
+            <h1 className="font-bold text-medium"> Placeholder </h1>
+          </DashboardCard>
+        ),
       },
       {
         title: 'Console',
@@ -68,7 +72,12 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Settings',
-        content: <MinecraftSettingCard instance={instance} />,
+        content: (
+          <>
+            <MinecraftGeneralCard instance={instance} />
+            <MinecraftSettingCard instance={instance} />
+          </>
+        ),
       },
       {
         title: 'Resources',
@@ -160,27 +169,27 @@ const Dashboard: NextPageWithLayout = () => {
             />
           </Label>
           <Button
-              label="Delete (Temporary, no confirmation)"
-              onClick={() => {
-                axiosWrapper({
-                  method: 'DELETE',
-                  url: `/instance/${uuid}`,
-                }).then(() => {
-                  queryClient.invalidateQueries(['instances', 'list']);
-                  router.push(
-                    {
-                      pathname: '/',
-                      query: {
-                        ...router.query,
-                        uuid: null,
-                      },
+            label="Delete (Temporary, no confirmation)"
+            onClick={() => {
+              axiosWrapper({
+                method: 'DELETE',
+                url: `/instance/${uuid}`,
+              }).then(() => {
+                queryClient.invalidateQueries(['instances', 'list']);
+                router.push(
+                  {
+                    pathname: '/',
+                    query: {
+                      ...router.query,
+                      uuid: null,
                     },
-                    undefined,
-                    { shallow: true }
-                  );
-                });
-              }}
-            />
+                  },
+                  undefined,
+                  { shallow: true }
+                );
+              });
+            }}
+          />
         </div>
         <div className="flex flex-row items-center w-full gap-2">
           {/* TODO: create a universal "text with edit button" component */}
@@ -211,7 +220,7 @@ const Dashboard: NextPageWithLayout = () => {
           </Tab.List>
           <Tab.Panels className="w-full grow">
             {tabList[instance.game_type].map((tab) => (
-              <Tab.Panel className="w-full h-full" key={tab.title}>
+              <Tab.Panel className="flex flex-col w-full h-full gap-8" key={tab.title}>
                 {tab.content}
               </Tab.Panel>
             ))}
