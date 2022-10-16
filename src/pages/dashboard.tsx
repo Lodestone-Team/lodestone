@@ -6,7 +6,7 @@ import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Atoms/Label';
 import { updateInstance, useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { ReactElement, ReactNode, useContext, useMemo } from 'react';
+import { ReactElement, ReactNode, useContext, useMemo, useState } from 'react';
 import { useRouterQuery } from 'utils/hooks';
 import {
   axiosPutSingleValue,
@@ -29,6 +29,7 @@ const Dashboard: NextPageWithLayout = () => {
   const { data: instances, isLoading } = useInstanceList();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [selectedTabIndex, setSelectedTabIndex] = useState(0)
 
   const instance = useMemo(() => {
     if (uuid) return instances?.[uuid];
@@ -200,7 +201,7 @@ const Dashboard: NextPageWithLayout = () => {
             containerClassName="min-w-0"
           />
         </div>
-        <Tab.Group>
+        <Tab.Group selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
           <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
             {tabList[instance.game_type].map((tab) => (
               <Tab
