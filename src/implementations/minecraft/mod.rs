@@ -21,6 +21,7 @@ use log::{debug, error, info, warn};
 use serde_json::to_string_pretty;
 use tokio::sync::broadcast::Sender;
 use tokio::{self};
+use ts_rs::TS;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::prelude::PATH_TO_BINARIES;
@@ -33,42 +34,14 @@ use crate::util::{download_file, rand_alphanumeric, unzip_file, SetupProgress};
 
 use self::util::{get_fabric_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, TS, Serialize, Deserialize)]
+#[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
+#[ts(export)]
 pub enum Flavour {
     Vanilla,
     Fabric,
     Paper,
     Spigot,
-}
-
-impl<'de> serde::Deserialize<'de> for Flavour {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        debug!("Deserializing Flavour, {}", s);
-        match s.to_lowercase().as_str() {
-            "vanilla" => Ok(Flavour::Vanilla),
-            "fabric" => Ok(Flavour::Fabric),
-            "paper" => Ok(Flavour::Paper),
-            "spigot" => Ok(Flavour::Spigot),
-            _ => Err(serde::de::Error::custom(format!("Unknown flavour: {}", s))),
-        }
-    }
-}
-impl serde::Serialize for Flavour {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Flavour::Vanilla => serializer.serialize_str("vanilla"),
-            Flavour::Fabric => serializer.serialize_str("fabric"),
-            Flavour::Paper => serializer.serialize_str("paper"),
-            Flavour::Spigot => serializer.serialize_str("spigot"),
-        }
-    }
 }
 
 impl ToString for Flavour {
