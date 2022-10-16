@@ -21,6 +21,7 @@ import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
+import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
@@ -98,9 +99,7 @@ const Dashboard: NextPageWithLayout = () => {
       {
         title: 'Monitor',
         content: (
-          <DashboardCard>
-            <h1 className="font-bold text-medium"> Placeholder </h1>
-          </DashboardCard>
+          <MinecraftPerformanceCard />
         ),
       },
     ],

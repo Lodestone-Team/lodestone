@@ -9,7 +9,7 @@ export default function DashboardCard({
 }) {
   return (
     <div
-      className={`flex h-fit w-full flex-col items-start justify-evenly gap-8 rounded-2xl bg-gray-900 px-10 pt-8 pb-10 ${className}`}
+      className={`flex h-fit w-full flex-col justify-evenly gap-8 rounded-2xl bg-gray-900 px-10 pt-8 pb-10 ${className}`}
     >
       {children}
     </div>

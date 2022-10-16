@@ -8,6 +8,11 @@ export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
 };
 
+export function round(num: number, precision: number) {
+  const factor = Math.pow(10, precision);
+  return Math.round(num * factor) / factor;
+}
+
 // a map from InstanceStatus to string names
 // instancestatus is a union type
 export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
