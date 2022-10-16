@@ -187,7 +187,7 @@ pub async fn set_game_setting(
     Extension(state): Extension<AppState>,
     Path((uuid, key)): Path<(String, String)>,
     Json(value): Json<String>,
-) -> Result<Json<String>, Error> {
+) -> Result<Json<()>, Error> {
     state
         .instances
         .lock()
@@ -201,7 +201,7 @@ pub async fn set_game_setting(
         .await
         .set_field(&key, value)
         .await?;
-    Ok(Json("ok".to_string()))
+    Ok(Json(()))
 }
 
 pub fn get_instance_config_routes() -> Router {

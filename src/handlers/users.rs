@@ -298,7 +298,7 @@ pub async fn change_password(
     Extension(state): Extension<AppState>,
     Json(config): Json<Value>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<()>, Error> {
     let mut users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::PermissionDenied,
@@ -343,7 +343,7 @@ pub async fn change_password(
             Ok(())
         }))
         .unwrap();
-    Ok(Json(json!("ok")))
+    Ok(Json(()))
 }
 
 #[derive(Serialize, TS)]

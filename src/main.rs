@@ -6,21 +6,19 @@ use crate::{
         instance::*, instance_config::get_instance_config_routes,
         instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
-        instance_setup_configs::get_instance_setup_config_routes, system::get_system_routes,
-        users::get_user_routes,
+        instance_setup_configs::get_instance_setup_config_routes, setup::get_setup_route,
+        system::get_system_routes, users::get_user_routes,
     },
     prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES},
     traits::Error,
     util::{download_file, rand_alphanumeric},
 };
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{routing::get, Extension, Router};
 use events::Event;
 use implementations::minecraft;
 use json_store::user::User;
 use log::{debug, info};
 use port_allocator::PortAllocator;
-use rand_core::OsRng;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 use serde_json::Value;
@@ -67,6 +65,7 @@ pub struct AppState {
     client_name: Arc<Mutex<String>>,
     up_since: i64,
     port_allocator: Arc<Mutex<PortAllocator>>,
+    first_time_setup_key: Arc<Mutex<Option<String>>>,
 }
 
 async fn restore_instances(
@@ -260,38 +259,18 @@ async fn main() {
         }),
     );
 
-    if !stateful_users
+    let first_time_setup_key = if !stateful_users
         .get_ref()
         .iter()
         .any(|(_, user)| user.is_owner)
     {
-        let owner_psw: String = rand_alphanumeric(8);
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let hashed_psw = argon2
-            .hash_password(owner_psw.as_bytes(), &salt)
-            .unwrap()
-            .to_string();
-        let uid = uuid::Uuid::new_v4().to_string();
-        let owner = User {
-            username: "owner".to_string(),
-            is_owner: true,
-            permissions: HashMap::new(),
-            uid: uid.clone(),
-            hashed_psw,
-            is_admin: false,
-            secret: rand_alphanumeric(32),
-        };
-        stateful_users
-            .transform(Box::new(move |users| -> Result<(), Error> {
-                users.insert(uid.clone(), owner.clone());
-                Ok(())
-            }))
-            .unwrap();
-        info!("Created owner account since none was present");
-        info!("Username: owner");
-        info!("Password: {}", owner_psw);
-    }
+        let key = rand_alphanumeric(16);
+        // log the first time setup key in green so it's easy to find
+        info!("\x1b[32mFirst time setup key: {}\x1b[0m", key);
+        Some(key)
+    } else {
+        None
+    };
     let instances = restore_instances(&lodestone_path, &tx).await;
     let mut allocated_ports = HashSet::new();
     for (_, instance) in instances.iter() {
@@ -312,6 +291,7 @@ async fn main() {
         ))),
         up_since: chrono::Utc::now().timestamp(),
         port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
+        first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
     };
 
     let event_buffer_task = tokio::spawn({
@@ -371,6 +351,7 @@ async fn main() {
         .merge(get_checks_routes())
         .merge(get_user_routes())
         .merge(get_client_info_routes())
+        .merge(get_setup_route())
         .route("/test", get(test))
         .layer(Extension(shared_state))
         .layer(cors);

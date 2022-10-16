@@ -98,7 +98,7 @@ pub async fn send_command(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
     Json(command): Json<String>,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<()>, Error> {
     match state
         .instances
         .lock()
@@ -113,7 +113,7 @@ pub async fn send_command(
         .send_command(&command)
         .await
     {
-        Supported(v) => v.map(|_| Json(json!("ok"))),
+        Supported(v) => v.map(|_| Json(())),
         Unsupported => Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "".to_string(),

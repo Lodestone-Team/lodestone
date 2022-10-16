@@ -195,7 +195,7 @@ pub async fn create_minecraft_instance(
 pub async fn delete_instance(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<()>, Error> {
     let mut instances = state.instances.lock().await;
     if let Some(instance) = instances.get(&uuid) {
         let instance_lock = instance.lock().await;
@@ -219,7 +219,7 @@ pub async fn delete_instance(
                 .deallocate(instance_lock.port().await);
             drop(instance_lock);
             instances.remove(&uuid);
-            Ok(Json(json!("OK")))
+            Ok(Json(()))
         }
     } else {
         Err(Error {
