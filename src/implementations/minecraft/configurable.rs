@@ -110,7 +110,15 @@ impl TConfigurable for Instance {
     async fn set_port(&mut self, port: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
         Supported({
             self.config.port = port;
-            self.settings.port = port;
+            match self.settings.lock().await.get_mut("server-port").ok_or_else(|| {Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Server port not found in settings. Has the instance been started at least once?".to_string(),
+            }}) {
+                Ok(port) => {
+                    *port = port.to_string()
+                }
+                Err(e) => return Some(Err(e)),
+            };
             self.write_config_to_file()
                 .await
                 .and(self.write_properties_to_file().await)
