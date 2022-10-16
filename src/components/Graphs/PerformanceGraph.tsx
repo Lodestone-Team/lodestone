@@ -15,6 +15,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { useIntervalImmediate } from 'utils/hooks';
+import { asyncCallWithTimeout } from 'utils/util';
 
 ChartJS.register(
   CategoryScale,
@@ -69,9 +70,14 @@ export default function PerformanceGraph({
   const update = async () => {
     const newData = [...dataHistory];
     newData.shift();
-    const [value, max] = await getter();
-    newData.push(value);
-    setMax(max);
+    try {
+      const [value, max] = await asyncCallWithTimeout(getter(), 500);
+      newData.push(value);
+      setMax(max);
+    } catch (e) {
+      console.log(e);
+      newData.push(0);
+    }
     setDataHistory(newData);
     setCounter(counter + 1);
   };

@@ -13,6 +13,32 @@ export function round(num: number, precision: number) {
   return Math.round(num * factor) / factor;
 }
 
+/**
+ * Call an async function with a maximum time limit (in milliseconds) for the timeout
+ * @param {Promise<any>} asyncPromise An asynchronous promise to resolve
+ * @param {number} timeLimit Time limit to attempt function in milliseconds
+ * @returns {Promise<any> | undefined} Resolved promise for async function call, or an error if time limit reached
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const asyncCallWithTimeout = async (
+  asyncPromise: Promise<any>,
+  timeLimit: number
+): Promise<any> => {
+  let timeoutHandle: NodeJS.Timeout;
+
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error('Async call timeout limit reached')),
+      timeLimit
+    );
+  });
+
+  return Promise.race([asyncPromise, timeoutPromise]).then((result) => {
+    clearTimeout(timeoutHandle);
+    return result;
+  });
+};
+
 // a map from InstanceStatus to string names
 // instancestatus is a union type
 export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
