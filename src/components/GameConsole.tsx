@@ -111,7 +111,7 @@ export default function GameConsole({
           }}
         >
           <input
-            className="w-full bg-[#101010] placeholder:text-gray-500 text-gray-300 py-3 px-4 outline-gray-300 focus-visible:outline-2 outline-white/50 focus-visible:outline rounded-b-2xl disabled:placeholder:text-gray-600"
+            className="w-full bg-[#101010] placeholder:text-gray-500 text-gray-300 py-3 px-4 focus-visible:outline-2 outline-white/50 focus-visible:outline rounded-b-2xl disabled:placeholder:text-gray-600"
             placeholder={
               enableInput ? 'Enter command...' : 'Server is not running or insufficient permissions'
             }
