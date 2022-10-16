@@ -110,6 +110,7 @@ impl TConfigurable for Instance {
     async fn set_port(&mut self, port: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
         Supported({
             self.config.port = port;
+            self.settings.port = port;
             self.write_config_to_file()
                 .await
                 .and(self.write_properties_to_file().await)
