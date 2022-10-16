@@ -37,7 +37,7 @@ export default function MinecraftPerformanceCard() {
       <div className="flex flex-row gap-10 mb-10">
         <div className="w-1/2 h-80">
           <PerformanceGraph
-            title="CPU"
+            title="CPU Usage"
             color="#62DD76"
             backgroundColor="#61AE3240"
             getter={getCpuUsage}
@@ -46,11 +46,11 @@ export default function MinecraftPerformanceCard() {
         </div>
         <div className="w-1/2 h-80">
           <PerformanceGraph
-            title="Memory"
+            title="Memory Usage"
             color="#62DD76"
             backgroundColor="#61AE3240"
             getter={getRamUsage}
-            unit="GB"
+            unit="GiB"
           />
         </div>
       </div>
