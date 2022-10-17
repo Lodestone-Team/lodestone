@@ -4,12 +4,13 @@ import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
 import '@fortawesome/fontawesome-svg-core/styles.css';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
-import { ReactElement, ReactNode, useLayoutEffect } from 'react';
+import { ReactElement, ReactNode } from 'react';
 import { NextPage } from 'next';
 import { LodestoneContext } from 'data/LodestoneContext';
 import axios from 'axios';
 import { useRouterQuery } from 'utils/hooks';
 import { useCookies } from 'react-cookie';
+import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 
 config.autoAddCss = false;
 
@@ -44,14 +45,14 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const apiAddress = address ?? 'localhost';
 
   // set axios defaults
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!isReady) return;
     axios.defaults.baseURL = `${protocol}://${apiAddress}:${
       port ?? 3000
     }/api/${apiVersion}`;
   }, [apiAddress, port, isReady]);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (cookies.token)
       axios.defaults.headers.common[
         'Authorization'
