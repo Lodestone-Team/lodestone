@@ -16,7 +16,6 @@ use crate::{
 use axum::{routing::get, Extension, Router};
 use events::Event;
 use implementations::minecraft;
-use json_store::user::User;
 use log::{debug, info};
 use port_allocator::PortAllocator;
 use reqwest::{header, Method};
@@ -41,16 +40,17 @@ use tokio::{
 };
 use tower_http::cors::{Any, CorsLayer};
 use traits::{t_configurable::TConfigurable, TInstance};
+use auth::user::User;
 use util::list_dir;
 use uuid::Uuid;
 mod events;
 mod handlers;
 mod implementations;
-mod json_store;
 mod port_allocator;
 pub mod prelude;
 mod stateful;
 mod traits;
+mod auth;
 mod util;
 
 #[derive(Clone)]
@@ -217,7 +217,7 @@ async fn main() {
 
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(128);
 
-    let mut stateful_users = Stateful::new(
+    let stateful_users = Stateful::new(
         restore_users(&PATH_TO_STORES.with(|v| v.join("users"))).await,
         {
             Box::new(move |users, _| {
