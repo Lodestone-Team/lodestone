@@ -39,10 +39,9 @@ impl TPlayerManagement for Instance {
         &mut self,
         _max_player_count: u32,
     ) -> crate::traits::MaybeUnsupported<()> {
-        Supported(
-            self.set_field("max-players", _max_player_count.to_string())
-                .await
-                .expect("Failed to set max-players"),
-        )
+        self.set_field("max-players", _max_player_count.to_string())
+            .await
+            .expect("Failed to set max-players");
+        Supported(())
     }
 }
