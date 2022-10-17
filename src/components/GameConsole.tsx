@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useConsoleStream } from 'data/ConsoleStream';
-import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
+import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
@@ -16,8 +16,7 @@ export default function GameConsole({
 }) {
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
-  const { data: userInfo } = useUserInfo();
-  const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
+  const canAccessConsole = useUserAuthorized('can_access_console', uuid);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -

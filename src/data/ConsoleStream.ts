@@ -1,7 +1,6 @@
 import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
-import { isUserAuthorized } from './UserInfo';
-import { useUserInfo } from 'data/UserInfo';
+import { useUserInfo, useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
@@ -84,9 +83,7 @@ export const useConsoleStream = (uuid: string) => {
     statusRef.current = newStatus;
     setStatusInner(newStatus);
   };
-
-  const { data: userInfo } = useUserInfo();
-  const canAccessConsole = isUserAuthorized(userInfo, 'CanAccessConsole', uuid);
+  const canAccessConsole = useUserAuthorized('can_access_console', uuid);
 
   const mergeConsoleLog = (newLog: ClientEvent[]) => {
     setConsoleLog((oldLog) => {

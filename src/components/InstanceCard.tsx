@@ -54,8 +54,8 @@ export default function InstanceCard({
   onClick: cardOnClick,
 }: InstanceCardProps) {
   const [loading, setLoading] = useState(false);
-  const canViewInstance = useUserAuthorized('CanViewInstance', uuid);
-  const canStopInstance = useUserAuthorized('CanStopInstance', uuid);
+  const canViewInstance = useUserAuthorized('can_view_instance', uuid);
+  const canStopInstance = useUserAuthorized('can_stop_instance', uuid);
   let disabled = false;
   switch (stateToApiEndpointMap[state]) {
     case '/start':
