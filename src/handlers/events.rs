@@ -16,10 +16,10 @@ use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
 
 use crate::{
-    events::{Event, EventInner, InstanceEventInner, UserEventInner},
-    json_store::user::User,
+    events::{Event, EventInner, UserEventInner},
     stateful::Stateful,
     traits::{Error, ErrorInner},
+    auth::user::User,
     AppState,
 };
 

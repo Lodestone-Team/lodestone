@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+
 
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{extract::Path, Extension, Json, Router};
@@ -6,8 +6,8 @@ use log::info;
 use rand_core::OsRng;
 
 use crate::{
-    json_store::user::User,
     traits::{Error, ErrorInner},
+    auth::{permission::UserPermission, user::User},
     util::rand_alphanumeric,
     AppState,
 };
@@ -31,7 +31,7 @@ pub async fn setup_owner(
             let owner = User {
                 username: "owner".to_string(),
                 is_owner: true,
-                permissions: HashMap::new(),
+                permissions: UserPermission::new(),
                 uid: uid.clone(),
                 hashed_psw,
                 is_admin: false,

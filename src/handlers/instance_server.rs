@@ -9,10 +9,12 @@ use axum_auth::AuthBearer;
 
 use serde_json::{json, Value};
 
-use crate::traits::{Supported, Unsupported};
+use crate::{
+    traits::{Supported, Unsupported},
+    auth::user::UserAction,
+};
 
-use super::util::{is_authorized, try_auth};
-use crate::json_store::permission::Permission::{self};
+use super::util::try_auth;
 use crate::{
     traits::{Error, ErrorInner},
     AppState,
@@ -28,7 +30,7 @@ pub async fn start_instance(
         inner: ErrorInner::PermissionDenied,
         detail: "".to_string(),
     })?;
-    if !is_authorized(&requester, &uuid, Permission::CanStartInstance) {
+    if requester.can_perform_action(&UserAction::StartInstance(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to start instance".to_string(),

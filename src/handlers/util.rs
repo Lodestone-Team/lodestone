@@ -6,7 +6,7 @@ use rand_core::OsRng;
 
 use crate::{
     events::{Event, EventInner},
-    json_store::{permission::Permission, user::User},
+    auth::user::{User, UserAction},
 };
 
 use super::users::Claim;
@@ -45,33 +45,12 @@ pub fn try_auth(token: &str, users: &HashMap<String, User>) -> Option<User> {
     Some(claimed_requester.to_owned())
 }
 
-pub fn is_authorized(user: &User, instance_uuid: &str, perm: Permission) -> bool {
-    if user.is_owner {
-        return true;
-    }
-
-    match perm {
-        Permission::CanManageUser | Permission::CanAccessMacro => user.is_owner,
-        Permission::CanManagePermission => user.is_admin,
-        _ => {
-            user.is_admin
-                || user
-                    .permissions
-                    .get(&perm)
-                    .map(|p| p.contains(instance_uuid))
-                    .unwrap_or(false)
-        }
-    }
-}
-
 pub fn can_user_view_event(event: &Event, user: &User) -> bool {
     match &event.event_inner {
         EventInner::InstanceEvent(event) => {
-            is_authorized(user, &event.instance_uuid, Permission::CanViewInstance)
+            user.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
         }
-        EventInner::UserEvent(event) => {
-            is_authorized(user, &event.user_id, Permission::CanManageUser)
-        }
+        EventInner::UserEvent(_event) => user.can_perform_action(&UserAction::ManageUser),
     }
 }
 
