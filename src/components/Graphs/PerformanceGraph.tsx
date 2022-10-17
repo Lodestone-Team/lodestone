@@ -14,7 +14,7 @@ import {
   Tick,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { useIntervalImmediate } from 'utils/hooks';
+import { useIntervalClockSeconds, useIntervalImmediate } from 'utils/hooks';
 import { asyncCallWithTimeout } from 'utils/util';
 
 ChartJS.register(
@@ -65,24 +65,32 @@ export default function PerformanceGraph({
   const [dataHistory, setDataHistory] = useState(
     new Array(timeWindow_s / pollrate_s).fill(0)
   );
+  const dataRef = React.useRef(dataHistory);
+  dataRef.current = dataHistory;
   const [counter, setCounter] = useState(0);
 
   const update = async () => {
-    const newData = [...dataHistory];
-    newData.shift();
+    const now = Date.now();
+    let val = 0;
     try {
-      const [value, max] = await asyncCallWithTimeout(getter(), 500);
-      newData.push(value);
+      const [value, max] = await asyncCallWithTimeout(getter(), pollrate_s * 1000 * 0.9);
+      val = value;
       setMax(max);
     } catch (e) {
       console.log(e);
-      newData.push(0);
     }
-    setDataHistory(newData);
-    setCounter(counter + 1);
+
+    setTimeout(() => {
+      const newHistory = [...dataRef.current];
+      newHistory.shift();
+      newHistory.push(val);
+      console.log(dataHistory, dataRef.current, newHistory);
+      setDataHistory(newHistory);
+      setCounter(counter + 1);
+    }, Math.max(0, pollrate_s * 1000 - (Date.now() - now)));
   };
 
-  useIntervalImmediate(update, pollrate_s * 1000);
+  useIntervalClockSeconds(update, pollrate_s);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartData: ChartData<'line', any[], string> = {
