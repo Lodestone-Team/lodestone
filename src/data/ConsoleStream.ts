@@ -83,7 +83,7 @@ export const useConsoleStream = (uuid: string) => {
     statusRef.current = newStatus;
     setStatusInner(newStatus);
   };
-  const canAccessConsole = useUserAuthorized('can_access_console', uuid);
+  const canAccessConsole = useUserAuthorized('can_access_instance_console', uuid);
 
   const mergeConsoleLog = (newLog: ClientEvent[]) => {
     setConsoleLog((oldLog) => {

@@ -23,6 +23,7 @@ import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import MinecraftFileCard from 'components/Minecraft/MinecraftFileCard';
+import { useUserAuthorized } from 'data/UserInfo';
 
 const Dashboard: NextPageWithLayout = () => {
   const lodestoneContex = useContext(LodestoneContext);
@@ -31,6 +32,7 @@ const Dashboard: NextPageWithLayout = () => {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0)
+  const canDeleteInstance = useUserAuthorized('can_delete_instance');
 
   const instance = useMemo(() => {
     if (uuid) return instances?.[uuid];
@@ -70,7 +72,7 @@ const Dashboard: NextPageWithLayout = () => {
       {
         title: 'Console',
         content: (
-          <GameConsole uuid={uuid} enableInput={instance.state === 'Running'} />
+          <GameConsole instance={instance} />
         ),
       },
       {
@@ -177,6 +179,7 @@ const Dashboard: NextPageWithLayout = () => {
           </Label>
           <Button
             label="Delete (Temporary, no confirmation)"
+            disabled={!canDeleteInstance}
             onClick={() => {
               axiosWrapper({
                 method: 'DELETE',

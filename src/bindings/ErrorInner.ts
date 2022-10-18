@@ -36,5 +36,5 @@ export type ErrorInner =
   | 'MalformedRequest'
   | 'UserNotFound'
   | 'UserAlreadyExists'
-  | 'InvalidPassword'
+  | 'Unauthorized'
   | 'PermissionDenied';

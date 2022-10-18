@@ -4,11 +4,11 @@ export interface UserPermission {
   can_view_instance: Array<string>;
   can_start_instance: Array<string>;
   can_stop_instance: Array<string>;
-  can_access_console: Array<string>;
-  can_access_setting: Array<string>;
-  can_read_resource: Array<string>;
-  can_write_resource: Array<string>;
-  can_access_macro: Array<string>;
+  can_access_instance_console: Array<string>;
+  can_access_instance_setting: Array<string>;
+  can_read_instance_resource: Array<string>;
+  can_write_instance_resource: Array<string>;
+  can_access_instance_macro: Array<string>;
   can_read_instance_file: Array<string>;
   can_write_instance_file: Array<string>;
   can_create_instance: boolean;

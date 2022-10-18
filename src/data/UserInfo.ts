@@ -23,7 +23,7 @@ export const useUserInfo = () => {
     {
       enabled: useContext(LodestoneContext).isReady && token.length > 0,
       onError: (error) => {
-        if (error.response?.data.inner === 'PermissionDenied')
+        if (error.response?.data.inner === 'Unauthorized')
           // then token is invalid, delete it
           setCookie('token', '');
       },

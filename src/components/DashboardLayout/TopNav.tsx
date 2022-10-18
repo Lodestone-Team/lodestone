@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
@@ -13,6 +14,7 @@ export default function TopNav() {
   const [userState, setUserState] = useState<UserState>('logged-out');
   const [,, removeCookie] = useCookies(['token']);
   const {token} = useContext(LodestoneContext);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!token) {
@@ -43,6 +45,7 @@ export default function TopNav() {
         onClick={() => {
           // remove token cookie
           removeCookie('token');
+          queryClient.invalidateQueries(['user']);
           if (userState !== 'logged-in')
             // redirect to login page
             pushKeepQuery(router, '/auth');

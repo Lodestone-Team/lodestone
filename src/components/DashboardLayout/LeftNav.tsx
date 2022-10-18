@@ -7,6 +7,7 @@ import Button from 'components/Atoms/Button';
 import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog } from '@headlessui/react';
 import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
+import { useUserAuthorized } from 'data/UserInfo';
 
 // format duration in seconds to DD:HH:MM:SS
 const formatDuration = (duration: number) => {
@@ -24,6 +25,7 @@ const formatDuration = (duration: number) => {
 export default function LeftNav() {
   const { data: clientInfo, isLoading: clientInfoLoading } = useClientInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
+  const canCreateInstance = useUserAuthorized('can_create_instance');
 
   const systemName = clientInfoLoading ? '...' : clientInfo?.client_name;
   const cpu = clientInfoLoading ? '...' : clientInfo?.cpu;
@@ -60,6 +62,7 @@ export default function LeftNav() {
             label="Add&nbsp;Instance"
             className="w-fit"
             icon={faPlus}
+            disabled={!canCreateInstance}
             onClick={() => setShowCreateInstance(true)}
           />
         </div>
