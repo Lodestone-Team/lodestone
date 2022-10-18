@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use axum::{extract::Path, Extension, Json};
-
+use axum_auth::AuthBearer;
 use futures::future::join_all;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use ts_rs::TS;
 
+use crate::auth::user::UserAction;
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
@@ -23,6 +24,8 @@ use crate::{
     traits::{t_server::State, Error, ErrorInner},
     AppState,
 };
+
+use super::util::try_auth;
 
 pub async fn get_instance_list(
     Extension(state): Extension<AppState>,
@@ -115,8 +118,20 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
 pub async fn create_minecraft_instance(
     Extension(state): Extension<AppState>,
     Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
-    println!("Creating minecraft instance");
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::PermissionDenied,
+        detail: "".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::CreateInstance) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to get instance state".to_string(),
+        });
+    }
+    drop(users);
     primitive_setup_config.name = sanitize_filename::sanitize(&primitive_setup_config.name);
     let mut setup_config: SetupConfig = primitive_setup_config.into();
     let mut name = setup_config.name.clone();
@@ -197,7 +212,20 @@ pub async fn create_minecraft_instance(
 pub async fn delete_instance(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::PermissionDenied,
+        detail: "".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::DeleteInstance) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to delete instance".to_string(),
+        });
+    }
+    drop(users);
     let mut instances = state.instances.lock().await;
     if let Some(instance) = instances.get(&uuid) {
         let instance_lock = instance.lock().await;
