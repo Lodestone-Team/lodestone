@@ -11,7 +11,7 @@ export default function MinecraftAdvancedForm() {
         Advanced settings for your minecraft server.
         <br />
       </p>
-      <div className="flex flex-col gap-12 mt-10 text-left">
+      <div className="flex flex-col gap-16 mt-10 text-left">
         <div className="flex flex-row gap-8 justify-evenly">
           <InputField type="number" name="min_ram" label="Minimum Ram" />
           <InputField type="number" name="max_ram" label="Maximum Ram" />

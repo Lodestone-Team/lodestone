@@ -39,7 +39,7 @@ export default function MinecraftBasicForm() {
         Some basic information about your minecraft server.
         <br />
       </p>
-      <div className="flex flex-col gap-12 mt-10 text-left">
+      <div className="flex flex-col gap-16 mt-10 text-left">
         <SelectField
           name="flavour"
           label="Flavour"

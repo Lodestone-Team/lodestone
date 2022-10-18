@@ -8,7 +8,7 @@ export default function MinecraftNameForm() {
         Create an Instance
       </h1>
       <p>Create a new Minecraft server instance to play with your friends.</p>
-      <div className="flex flex-col gap-8 mt-10 text-left">
+      <div className="flex flex-col gap-16 mt-10 text-left">
         <InputField type="text" name="name" label="Name" />
       </div>
     </>

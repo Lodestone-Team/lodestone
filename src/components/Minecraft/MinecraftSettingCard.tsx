@@ -36,8 +36,7 @@ export default function MinecraftSettingCard({
     'resource-pack-prompt'
   ]
   
-  const availableSettings = supportedSettings.filter((setting) => settings.includes(setting));
-
+  const availableSettings = settings.filter((setting) => supportedSettings.includes(setting));
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -47,7 +46,7 @@ export default function MinecraftSettingCard({
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> Game Settings </h1>
-      <div className="grid w-full grid-cols-2 gap-8 child:w-full md:grid-cols-4">
+      <div className="grid w-full grid-cols-2 gap-x-8 gap-y-16 child:w-full md:grid-cols-4">
         {availableSettings.map((setting) => {
           return (
             <SettingField

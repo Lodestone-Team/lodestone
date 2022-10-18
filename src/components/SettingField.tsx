@@ -7,6 +7,8 @@ import { useInstanceManifest } from 'data/InstanceManifest';
 import { axiosPutSingleValue, errorToMessage } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
 import Textfield from './Atoms/Config/InputBox';
+import { useEffect, useState } from 'react';
+import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 
 export default function SettingField({
   instance,
@@ -27,12 +29,16 @@ export default function SettingField({
 }) {
   const uuid = instance.uuid;
   const {
-    data: settingValue,
+    data: initialSetting,
     isLoading,
     error,
   } = useGameSetting(uuid, setting);
   label = label ?? setting;
-  const value = settingValue ?? '';
+  const [value, setValue] = useState(initialSetting ?? '');
+
+  useIsomorphicLayoutEffect(() => {
+    setValue(initialSetting ?? '');
+  }, [initialSetting]);
 
   const errorString = errorToMessage(error);
 
@@ -50,6 +56,7 @@ export default function SettingField({
               `/instance/${uuid}/game/${setting}`,
               value
             );
+            setValue(value);
           }}
         />
       );
