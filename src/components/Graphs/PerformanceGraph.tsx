@@ -12,6 +12,7 @@ import {
   ChartOptions,
   ChartData,
   Tick,
+  ScriptableLineSegmentContext,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { useIntervalClockSeconds, useIntervalImmediate } from 'utils/hooks';
@@ -38,6 +39,10 @@ ChartJS.defaults.font = {
 
 ChartJS.defaults.color = '#E3E3E4';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const skipped = (ctx: ScriptableLineSegmentContext, value: any) =>
+  ctx.p0.skip || ctx.p1.skip ? value : undefined;
+
 export default function PerformanceGraph({
   title,
   color,
@@ -63,17 +68,22 @@ export default function PerformanceGraph({
     .map((n) => pollrate_s * n + 's');
 
   const [dataHistory, setDataHistory] = useState(
-    new Array(timeWindow_s / pollrate_s).fill(0)
+    new Array(timeWindow_s / pollrate_s).fill(NaN)
   );
   const dataRef = React.useRef(dataHistory);
   dataRef.current = dataHistory;
-  const [counter, setCounter] = useState(0);
+  const [counter, setCounter] = useState(-1);
+  const counterRef = React.useRef(counter);
+  counterRef.current = counter;
 
   const update = async () => {
     const now = Date.now();
-    let val = 0;
+    let val = NaN;
     try {
-      const [value, max] = await asyncCallWithTimeout(getter(), pollrate_s * 1000 * 0.9);
+      const [value, max] = await asyncCallWithTimeout(
+        getter(),
+        pollrate_s * 1000 * 0.9
+      );
       val = value;
       setMax(max);
     } catch (e) {
@@ -84,9 +94,8 @@ export default function PerformanceGraph({
       const newHistory = [...dataRef.current];
       newHistory.shift();
       newHistory.push(val);
-      console.log(dataHistory, dataRef.current, newHistory);
       setDataHistory(newHistory);
-      setCounter(counter + 1);
+      setCounter(counterRef.current + 1);
     }, Math.max(0, pollrate_s * 1000 - (Date.now() - now)));
   };
 
@@ -104,6 +113,12 @@ export default function PerformanceGraph({
         fill: true,
         pointRadius: 0,
         pointHoverRadius: 0,
+        segment: {
+          borderColor: (ctx) => skipped(ctx, '#767A82'),
+          borderDash: (ctx) => skipped(ctx, [6, 6]),
+          backgroundColor: (ctx) => skipped(ctx, '#A5A5AC4D'),
+        },
+        spanGaps: true,
       },
     ],
   };
@@ -173,13 +188,15 @@ export default function PerformanceGraph({
           drawTicks: false,
         },
         beginAtZero: true,
-        min: 0,
+        // min: 0,
         max,
         ticks: {
-          maxTicksLimit: 4,
+          maxTicksLimit: 8,
           padding: 10,
           align: 'inner',
-          callback: (value) => value + unit,
+          callback: function (val: number | string, idx: number) {
+            return val + unit;
+          },
         },
       },
     },
