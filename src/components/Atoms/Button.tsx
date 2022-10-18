@@ -28,7 +28,7 @@ export default function Button({
   disabled = disabled || loading;
   return (
     <button
-      className={`${className} group select-none rounded-lg bg-gray-700 py-1 px-2 font-semibold leading-snug tracking-tight outline outline-1 outline-gray-faded/30 enabled:text-gray-300 enabled:hover:bg-gray-600 enabled:hover:outline-white/50 enabled:active:bg-gray-700 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue/30 disabled:text-white/50`}
+      className={`${className} group select-none rounded-lg bg-gray-700 py-1 px-2 font-semibold leading-snug tracking-tight outline outline-1 outline-gray-faded/30 enabled:text-gray-300 enabled:hover:bg-gray-600 enabled:hover:outline-white/50 enabled:active:bg-gray-700 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue/30 disabled:text-white/50 disabled:bg-gray-800`}
       disabled={disabled}
       onClick={onClick}
       type={type}
