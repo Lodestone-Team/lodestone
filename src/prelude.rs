@@ -18,6 +18,7 @@ thread_local! {
     pub static PATH_TO_INSTANCES : PathBuf = LODESTONE_PATH.with(|p| p.join("instances"));
     pub static PATH_TO_BINARIES : PathBuf = LODESTONE_PATH.with(|p| p.join("bin"));
     pub static PATH_TO_STORES : PathBuf = LODESTONE_PATH.with(|p| p.join("stores"));
+    pub static PATH_TO_USERS : PathBuf = PATH_TO_STORES.with(|p| p.join("users.json"));
 
 }
 

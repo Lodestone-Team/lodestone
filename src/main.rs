@@ -9,10 +9,11 @@ use crate::{
         instance_setup_configs::get_instance_setup_config_routes, setup::get_setup_route,
         system::get_system_routes, users::get_user_routes,
     },
-    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES},
+    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
     traits::Error,
     util::{download_file, rand_alphanumeric},
 };
+use auth::user::User;
 use axum::{routing::get, Extension, Router};
 use events::Event;
 use implementations::minecraft;
@@ -40,9 +41,9 @@ use tokio::{
 };
 use tower_http::cors::{Any, CorsLayer};
 use traits::{t_configurable::TConfigurable, TInstance};
-use auth::user::User;
 use util::list_dir;
 use uuid::Uuid;
+mod auth;
 mod events;
 mod handlers;
 mod implementations;
@@ -50,7 +51,6 @@ mod port_allocator;
 pub mod prelude;
 mod stateful;
 mod traits;
-mod auth;
 mod util;
 
 #[derive(Clone)]
@@ -218,11 +218,11 @@ async fn main() {
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(128);
 
     let stateful_users = Stateful::new(
-        restore_users(&PATH_TO_STORES.with(|v| v.join("users"))).await,
+        restore_users(&PATH_TO_USERS.with(|v| v.to_owned())).await,
         {
             Box::new(move |users, _| {
                 serde_json::to_writer(
-                    std::fs::File::create(&PATH_TO_STORES.with(|v| v.join("users"))).unwrap(),
+                    std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
                     users,
                 )
                 .unwrap();
@@ -232,7 +232,7 @@ async fn main() {
         {
             Box::new(move |users, _| {
                 serde_json::to_writer(
-                    std::fs::File::create(&PATH_TO_STORES.with(|v| v.join("users"))).unwrap(),
+                    std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
                     users,
                 )
                 .unwrap();
