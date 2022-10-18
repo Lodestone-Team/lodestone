@@ -60,8 +60,8 @@ impl User {
             Ok(())
         } else {
             // reject granting any unsafe permission
-            if !permissions.can_write_resource.is_empty()
-                || !permissions.can_access_macro.is_empty()
+            if !permissions.can_write_instance_resource.is_empty()
+                || !permissions.can_access_instance_macro.is_empty()
                 || permissions.can_write_global_file
                 || permissions.can_manage_permission
                 || !permissions.can_write_instance_file.is_empty()
@@ -100,16 +100,16 @@ impl User {
                 self.is_admin || self.permissions.can_stop_instance.contains(instance_id)
             }
             UserAction::AccessConsole(instance_id) => {
-                self.is_admin || self.permissions.can_access_console.contains(instance_id)
+                self.is_admin || self.permissions.can_access_instance_console.contains(instance_id)
             }
             UserAction::AccessSetting(instance_id) => {
-                self.is_admin || self.permissions.can_access_setting.contains(instance_id)
+                self.is_admin || self.permissions.can_access_instance_setting.contains(instance_id)
             }
             UserAction::ReadResource(instance_id) => {
-                self.is_admin || self.permissions.can_read_resource.contains(instance_id)
+                self.is_admin || self.permissions.can_read_instance_resource.contains(instance_id)
             }
             UserAction::WriteResource(instance_id) => {
-                self.permissions.can_write_resource.contains(instance_id)
+                self.permissions.can_write_instance_resource.contains(instance_id)
             }
             UserAction::ReadInstanceFile(instance_id) => {
                 self.is_admin
@@ -123,7 +123,7 @@ impl User {
                 .can_write_instance_file
                 .contains(instance_id),
             UserAction::AccessMacro(instance_id) => {
-                self.permissions.can_access_macro.contains(instance_id)
+                self.permissions.can_access_instance_macro.contains(instance_id)
             }
             UserAction::CreateInstance => self.is_admin || self.permissions.can_create_instance,
             UserAction::DeleteInstance => self.is_admin || self.permissions.can_delete_instance,
