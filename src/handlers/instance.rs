@@ -122,8 +122,8 @@ pub async fn create_minecraft_instance(
 ) -> Result<Json<String>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::CreateInstance) {
         return Err(Error {
@@ -216,8 +216,8 @@ pub async fn delete_instance(
 ) -> Result<Json<()>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::DeleteInstance) {
         return Err(Error {

@@ -243,7 +243,7 @@ pub async fn get_self_info(
     Ok(Json(
         (&try_auth(&token, users.get_ref()).ok_or(Error {
             inner: ErrorInner::Unauthorized,
-            detail: "".to_string(),
+            detail: "Token error".to_string(),
         })?)
             .into(),
     ))

@@ -31,7 +31,7 @@ pub async fn get_event_buffer(
     Path(uuid): Path<String>,
 ) -> Result<Json<Vec<Event>>, Error> {
     let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
     Ok(Json(
@@ -60,7 +60,7 @@ pub async fn get_console_buffer(
     Path(uuid): Path<String>,
 ) -> Result<Json<Vec<Event>>, Error> {
     let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
     Ok(Json(
@@ -101,8 +101,8 @@ pub async fn event_stream(
     let user = parse_bearer_token(query.token.as_str())
         .and_then(|token| try_auth(&token, users.get_ref()))
         .ok_or_else(|| Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "".to_string(),
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
         })?;
     drop(users);
     let users = state.users.clone();
@@ -185,8 +185,8 @@ pub async fn console_stream(
     let user = parse_bearer_token(query.token.as_str())
         .and_then(|token| try_auth(&token, users.get_ref()))
         .ok_or_else(|| Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "".to_string(),
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
         })?;
     drop(users);
     let users = state.users.clone();

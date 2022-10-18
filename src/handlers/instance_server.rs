@@ -27,8 +27,8 @@ pub async fn start_instance(
 ) -> Result<Json<Value>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::StartInstance(uuid.clone())) {
         return Err(Error {
@@ -63,8 +63,8 @@ pub async fn stop_instance(
 ) -> Result<Json<Value>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::StopInstance(uuid.clone())) {
         return Err(Error {
@@ -96,8 +96,8 @@ pub async fn kill_instance(
 ) -> Result<Json<Value>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::StopInstance(uuid.clone())) {
         return Err(Error {
@@ -143,8 +143,8 @@ pub async fn send_command(
 ) -> Result<Json<()>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::AccessConsole(uuid.clone())) {
         return Err(Error {
@@ -182,8 +182,8 @@ pub async fn get_instance_state(
 ) -> Result<Json<Value>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::ViewInstance(uuid.clone())) {
         return Err(Error {

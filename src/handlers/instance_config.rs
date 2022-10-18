@@ -42,8 +42,8 @@ pub async fn get_instance_setting(
 ) -> Result<Json<Value>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
@@ -90,8 +90,8 @@ pub async fn set_instance_setting(
 ) -> Result<Json<String>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
@@ -202,8 +202,8 @@ pub async fn get_game_setting(
 ) -> Result<Json<String>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
@@ -232,8 +232,8 @@ pub async fn set_game_setting(
 ) -> Result<Json<()>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
