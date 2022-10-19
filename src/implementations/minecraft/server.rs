@@ -43,13 +43,13 @@ impl TServer for Instance {
 
         let jre = if std::env::consts::OS == "macos" {
             self.path_to_runtimes
+                .join("java")
                 .join("Contents")
                 .join("Home")
                 .join("bin")
         } else {
-            self.path_to_runtimes.clone()
+            self.path_to_runtimes.join("java")
         }
-        .join("java")
         .join(format!("jre{}", self.config.jre_major_version))
         .join("bin")
         .join("java");
