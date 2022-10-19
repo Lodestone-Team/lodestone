@@ -247,8 +247,14 @@ impl TServer for Instance {
                     }
                 });
             }
-            Err(_) => {
+            Err(e) => {
                 env::set_current_dir("../..").unwrap();
+                error!("Failed to start server, {}", e);
+                self.state.lock().await.update(State::Stopped);
+                return Err(Error {
+                    inner: ErrorInner::FailedToExecute,
+                    detail: "Failed to start server".into(),
+                });
             }
         }
         self.config.has_started = true;
