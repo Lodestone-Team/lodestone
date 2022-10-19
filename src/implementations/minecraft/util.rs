@@ -228,7 +228,11 @@ pub async fn get_fabric_jar_url(
 
 pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     let client = reqwest::Client::new();
-    let os = std::env::consts::OS;
+    let os = if std::env::consts::OS == "macos" {
+        "mac"
+    } else {
+        std::env::consts::OS
+    };
     let arch = if std::env::consts::ARCH == "x86_64" {
         "x64"
     } else {
