@@ -78,7 +78,7 @@ export default function SelectBox({
   );
 
   return (
-    <div className={`flex flex-col gap-1 ${className} group relative`}>
+    <div className={`flex flex-col gap-1 ${className} group relative text-base`}>
       <label className="absolute font-medium text-gray-300 -top-6 text-small">
         {label}:
       </label>

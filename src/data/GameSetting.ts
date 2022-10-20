@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 
-export const useGameSetting = (uuid: string, setting: string) =>
-  useQuery<string, AxiosError>(
+export const useGameSetting = (uuid: string, setting: string) => {
+  const context = useContext(LodestoneContext);
+
+  return useQuery<string, AxiosError>(
     ['instances', uuid, 'settings', 'game', setting],
     () => {
       return axios
@@ -14,6 +16,7 @@ export const useGameSetting = (uuid: string, setting: string) =>
         });
     },
     {
-      enabled: useContext(LodestoneContext).isReady,
+      enabled: context.isReady && context.token.length > 0,
     }
   );
+};

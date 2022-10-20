@@ -9,6 +9,7 @@ import Dropdown from './Atoms/Config/SelectBox';
 import Textfield from './Atoms/Config/InputBox';
 import { useEffect, useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
+import { useUserAuthorized } from 'data/UserInfo';
 
 export default function SettingField({
   instance,
@@ -35,6 +36,7 @@ export default function SettingField({
   } = useGameSetting(uuid, setting);
   label = label ?? setting;
   const [value, setValue] = useState(initialSetting ?? '');
+  const can_access_instance_setting = useUserAuthorized('can_access_instance_setting', instance.uuid);
 
   useIsomorphicLayoutEffect(() => {
     setValue(initialSetting ?? '');
