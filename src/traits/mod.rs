@@ -72,6 +72,7 @@ pub enum ErrorInner {
     FailedToExecute,
     FailedToAcquireStdin,
     FailedToAcquireStdout,
+    FailedToAcquireStderr,
 
     // API changed
     APIChanged,

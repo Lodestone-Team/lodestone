@@ -88,6 +88,16 @@ impl TServer for Instance {
                         detail: "Failed to take stdout during startup".to_string(),
                     }
                 })?;
+                let stderr = proc.stderr.take().ok_or_else(|| {
+                    error!(
+                        "[{}] Failed to take stderr during startup",
+                        self.config.name.clone()
+                    );
+                    Error {
+                        inner: ErrorInner::FailedToAcquireStderr,
+                        detail: "Failed to take stderr during startup".to_string(),
+                    }
+                })?;
                 self.process = Some(proc);
                 task::spawn({
                     use fancy_regex::Regex;
@@ -171,8 +181,17 @@ impl TServer for Instance {
 
                         let mut did_start = false;
 
-                        let mut lines = BufReader::new(stdout).lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
+                        let mut stdout_lines = BufReader::new(stdout).lines();
+                        let mut stderr_lines = BufReader::new(stderr).lines();
+
+                        while let Ok(Some(line)) = tokio::select!(
+                            line = stdout_lines.next_line() => {
+                                line
+                            }
+                            line = stderr_lines.next_line() => {
+                                line
+                            }
+                        ) {
                             info!("[{}] {}", name, line);
                             let _ = event_broadcaster.send(Event {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
