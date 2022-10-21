@@ -46,20 +46,17 @@ impl TServer for Instance {
             .join("java")
             .join(format!("jre{}", self.config.jre_major_version))
             .join(if std::env::consts::OS == "macos" {
-                self.path_to_runtimes
-                    .join("Contents")
-                    .join("Home")
-                    .join("bin")
+                "Contents/Home/bin"
             } else {
-                "bin".into()
+                "bin"
             })
             .join("java");
         match Command::new(&jre)
             .arg(format!("-Xmx{}M", self.config.max_ram))
             .arg(format!("-Xms{}M", self.config.min_ram))
-            .args(&self.config.cmd_args)
             .arg("-jar")
             .arg(&self.config.path.join("server.jar"))
+            .args(&self.config.cmd_args)
             .arg("nogui")
             .stdout(Stdio::piped())
             .stdin(Stdio::piped())
