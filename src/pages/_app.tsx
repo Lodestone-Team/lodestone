@@ -65,7 +65,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider
         value={{
-          address: address as string,
+          address: apiAddress as string,
           port: port ?? '3000',
           protocol,
           apiVersion,
