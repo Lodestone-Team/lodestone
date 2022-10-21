@@ -15,8 +15,8 @@ const labelColorMap = {
 };
 
 const labelSizeMap = {
-  small: 'text-smaller py-[0.25em] px-1.5',
-  large: 'text-base py-1.5 px-3',
+  small: 'text-smaller py-[0.25em] px-1',
+  large: 'text-small py-1 px-2',
 };
 
 export default function Label({
@@ -33,7 +33,7 @@ export default function Label({
 }) {
   return (
     <span
-      className={`select-none font-bold tracking-tight rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]} ${className}`}
+      className={`select-none font-bold tracking-medium rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]} ${className}`}
       {...rest}
     >
       {children}

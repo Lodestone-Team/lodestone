@@ -12,8 +12,8 @@ export type UserState = 'loading' | 'logged-in' | 'logged-out';
 export default function TopNav() {
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const [,, removeCookie] = useCookies(['token']);
-  const {token} = useContext(LodestoneContext);
+  const [, , removeCookie] = useCookies(['token']);
+  const { token } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -31,7 +31,10 @@ export default function TopNav() {
   }, [token, isLoading, isError, user]);
 
   return (
-    <div className="flex flex-row items-center justify-end w-full h-16 gap-2 p-2 bg-gray-700 border-b border-gray-faded/30">
+    <div className="flex flex-row items-center justify-end w-full h-12 gap-2 px-4 py-2 bg-gray-700 border-b border-gray-faded/30">
+      <div className="grow">
+        <img src="/logo.svg" alt="logo" className="w-32" />
+      </div>
       <p className="font-medium text-gray-300">
         {userState === 'logged-in' && user
           ? `Hi, ${user.username}`

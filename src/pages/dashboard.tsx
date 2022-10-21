@@ -31,7 +31,7 @@ const Dashboard: NextPageWithLayout = () => {
   const { data: instances, isLoading } = useInstanceList();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [selectedTabIndex, setSelectedTabIndex] = useState(0)
+  const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const canDeleteInstance = useUserAuthorized('can_delete_instance');
 
   const instance = useMemo(() => {
@@ -71,9 +71,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Console',
-        content: (
-          <GameConsole instance={instance} />
-        ),
+        content: <GameConsole instance={instance} />,
       },
       {
         title: 'Settings',
@@ -102,15 +100,11 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Monitor',
-        content: (
-          <MinecraftPerformanceCard />
-        ),
+        content: <MinecraftPerformanceCard />,
       },
       {
         title: 'Experimental',
-        content: (
-          <MinecraftFileCard />
-        ),
+        content: <MinecraftFileCard />,
       },
     ],
   };
@@ -136,34 +130,29 @@ const Dashboard: NextPageWithLayout = () => {
 
   return (
     <div
-      className="h-0 px-12 pt-6 pb-10 overflow-y-auto bg-gray-800 grow"
+      className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800"
       key={uuid}
     >
-      <div className="flex flex-col items-start h-full gap-2">
-        <div className="flex flex-row items-center w-full gap-12 pr-28">
-          <div className="flex flex-row items-center min-w-0 gap-4">
-            {/* TODO: create a universal "text with edit button" component */}
-            <EditableTextfield
-              initialText={instance.name}
-              type={'heading'}
-              onSubmit={setInstanceName}
-              placeholder="No name"
-              containerClassName="min-w-0"
-            />
-          </div>
-          <div className="flex flex-row items-center flex-shrink-0 gap-4">
-            {/* TODO: create a universal game flavour image component */}
-            <img
-              src="/assets/minecraft-vanilla.png"
-              alt={`${instance.game_type} logo`}
-              className="w-8 h-8"
-            />
-            <Label size="large" color={labelColor}>
-              {instance.state}
-            </Label>
-          </div>
+      <div className="flex flex-col items-start h-full min-h-0 gap-2">
+        <div className="flex flex-row items-center min-w-0 gap-4">
+          {/* TODO: create a universal "text with edit button" component */}
+          <EditableTextfield
+            initialText={instance.name}
+            type={'heading'}
+            onSubmit={setInstanceName}
+            placeholder="No name"
+            containerClassName="min-w-0"
+          />
         </div>
         <div className="flex flex-row items-center gap-4 -mt-2">
+          <img
+            src="/assets/minecraft-vanilla.png"
+            alt={`${instance.game_type} logo`}
+            className="w-6 h-6"
+          />
+          <Label size="large" color={labelColor}>
+            {instance.state}
+          </Label>
           <Label size="large" color={labelColor}>
             Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
@@ -211,7 +200,10 @@ const Dashboard: NextPageWithLayout = () => {
             containerClassName="min-w-0"
           />
         </div>
-        <Tab.Group selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
+        <Tab.Group
+          selectedIndex={selectedTabIndex}
+          onChange={setSelectedTabIndex}
+        >
           <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
             {tabList[instance.game_type].map((tab) => (
               <Tab
@@ -230,7 +222,10 @@ const Dashboard: NextPageWithLayout = () => {
           </Tab.List>
           <Tab.Panels className="w-full grow">
             {tabList[instance.game_type].map((tab) => (
-              <Tab.Panel className="flex flex-col w-full h-full gap-8" key={tab.title}>
+              <Tab.Panel
+                className="flex flex-col w-full h-full gap-8"
+                key={tab.title}
+              >
                 {tab.content}
               </Tab.Panel>
             ))}

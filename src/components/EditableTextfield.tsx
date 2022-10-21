@@ -93,7 +93,7 @@ export default function EditableTextfield({
     <div
       className={`relative flex flex-row justify-start items-center tracking-tight group ${
         type === 'heading'
-          ? 'font-semibold font-heading text-xlarge'
+          ? 'font-semibold font-heading text-2xlarge'
           : 'italic text-small font-medium'
       } ${containerClassName}`}
     >

@@ -38,9 +38,8 @@ export default function LeftNav() {
   }, 1000);
 
   return (
-    <div className="flex flex-col items-center h-screen px-4 pt-10 overflow-x-visible bg-gray-700 border-r border-gray-faded/30">
-      <div className="w-full max-w-xs px-6 pb-6 mb-5 border-b border-gray-faded/30">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+    <div className="flex flex-col items-center px-4 pt-4 overflow-x-visible bg-gray-700 border-r border-gray-faded/30">
+      {/* <div className="w-full max-w-xs px-6 pb-6 mb-5 border-b border-gray-faded/30">
         <img src="/logo.svg" alt="logo" className="w-full" />
         <SystemStat
           name="client&nbsp;name"
@@ -52,14 +51,14 @@ export default function LeftNav() {
           name="uptime"
           value={clientInfoLoading ? '...' : formatDuration(uptime)}
         />
-      </div>
+      </div> */}
       <div className="flex flex-col w-full overflow-x-visible grow">
-        <h1 className="mb-4 font-bold text-center truncate text-medium">
-          Server&nbsp;Instances
-        </h1>
-        <div className="flex flex-row items-center justify-center w-full mb-4">
+        <div className="flex flex-row items-center justify-start w-full gap-4 mb-4 items-begin">
+          <h1 className="mr-1 font-bold tracking-tight text-large">
+            Instances
+          </h1>
           <Button
-            label="Add&nbsp;Instance"
+            label="Add"
             className="w-fit"
             icon={faPlus}
             disabled={!canCreateInstance}

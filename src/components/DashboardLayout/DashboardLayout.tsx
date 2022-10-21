@@ -13,26 +13,25 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   useEventStream();
-  
+
   const { width: windowWidth } = useWindowSize();
   const minWidth = (windowWidth / 12) * 1.5;
   const maxWidth = (windowWidth / 12) * 4;
-  
 
   return (
-    <Split
-      sizes={[10, 90]}
-      minSize={[minWidth, 0]}
-      maxSize={[maxWidth, Infinity]}
-      snapOffset={0}
-      gutterSize={0}
-      className="flex flex-row w-full min-h-screen text-gray-300 bg-gray-800"
-    >
-      <LeftNav />
-      <div className="flex flex-col">
-        <TopNav />
-        {children}
-      </div>
-    </Split>
+    <div className="flex flex-col h-screen">
+      <TopNav />
+      <Split
+        sizes={[10, 90]}
+        minSize={[minWidth, 0]}
+        maxSize={[maxWidth, Infinity]}
+        snapOffset={0}
+        gutterSize={0}
+        className="flex flex-row items-stretch w-screen text-gray-300 bg-gray-800 grow"
+      >
+        <LeftNav />
+        <div>{children}</div>
+      </Split>
+    </div>
   );
 }
