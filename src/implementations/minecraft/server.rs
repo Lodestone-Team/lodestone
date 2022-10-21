@@ -181,15 +181,19 @@ impl TServer for Instance {
                         let mut stdout_lines = BufReader::new(stdout).lines();
                         let mut stderr_lines = BufReader::new(stderr).lines();
 
-                        while let Ok(Some(line)) = tokio::select!(
+                        while let (Ok(Some(line)), is_stdout) = tokio::select!(
                             line = stdout_lines.next_line() => {
-                                line
+                                (line, true)
                             }
                             line = stderr_lines.next_line() => {
-                                line
+                                (line, false)
                             }
                         ) {
-                            info!("[{}] {}", name, line);
+                            if is_stdout {
+                                info!("[{}] {}", name, line);
+                            } else {
+                                warn!("[{}] {}", name, line);
+                            }
                             let _ = event_broadcaster.send(Event {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                                     instance_uuid: uuid.clone(),
