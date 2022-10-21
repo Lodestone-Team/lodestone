@@ -27,7 +27,7 @@ export default function DashboardLayout({
         maxSize={[maxWidth, Infinity]}
         snapOffset={0}
         gutterSize={0}
-        className="flex flex-row items-stretch w-screen text-gray-300 bg-gray-800 grow"
+        className="flex flex-row items-stretch w-screen min-h-0 text-gray-300 bg-gray-800 grow"
       >
         <LeftNav />
         <div>{children}</div>
