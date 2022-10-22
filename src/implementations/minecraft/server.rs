@@ -410,9 +410,6 @@ impl TServer for Instance {
             sys.refresh_process(Pid::from_u32(pid));
             let proc = (*sys).process(Pid::from_u32(pid));
             if let Some(proc) = proc {
-                if proc.status() == ProcessStatus::Zombie {
-                    return MonitorReport::default()
-                }
                 let cpu_usage =
                     sys.process(Pid::from_u32(pid)).unwrap().cpu_usage() / sys.cpus().len() as f32;
 
