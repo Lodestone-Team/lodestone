@@ -39,7 +39,7 @@ indicatif = "0.15.0"
 fs_extra = "1.2.0"
 
 sanitize-filename = "0.4.0"
-sysinfo = "0.26.2"
+sysinfo = "0.26.5"
 rlua = "0.19.1"
 rand = "0.6.5"
 log = "0.4.17"
