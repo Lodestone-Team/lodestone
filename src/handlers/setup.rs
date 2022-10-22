@@ -1,13 +1,11 @@
-
-
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{extract::Path, Extension, Json, Router};
 use log::info;
 use rand_core::OsRng;
 
 use crate::{
-    traits::{Error, ErrorInner},
     auth::{permission::UserPermission, user::User},
+    traits::{Error, ErrorInner},
     util::rand_alphanumeric,
     AppState,
 };

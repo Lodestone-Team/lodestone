@@ -5,8 +5,8 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use rand_core::OsRng;
 
 use crate::{
-    events::{Event, EventInner},
     auth::user::{User, UserAction},
+    events::{Event, EventInner},
 };
 
 use super::users::Claim;

@@ -1,10 +1,10 @@
 use crate::{
-    events::{Event, EventInner, UserEvent, UserEventInner},
-    traits::{Error, ErrorInner},
     auth::{
         permission::UserPermission,
         user::{PublicUser, User, UserAction},
     },
+    events::{Event, EventInner, UserEvent, UserEventInner},
+    traits::{Error, ErrorInner},
     util::rand_alphanumeric,
     AppState,
 };

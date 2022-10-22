@@ -16,10 +16,10 @@ use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
 
 use crate::{
+    auth::user::User,
     events::{Event, EventInner, UserEventInner},
     stateful::Stateful,
     traits::{Error, ErrorInner},
-    auth::user::User,
     AppState,
 };
 
@@ -166,7 +166,7 @@ async fn event_stream_ws(
             Some(Ok(ws_msg)) = receiver.next() => {
                 match sender.send(ws_msg).await {
                     Ok(_) => debug!("Replied to ping"),
-                    Err(_) => break,
+                    Err(_) => {debug!("breaking"); break},
                 };
             }
         }
