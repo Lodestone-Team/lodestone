@@ -14,6 +14,32 @@ pub enum State {
     Stopped,
     Error,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct DiskUsage {
+    pub total_written_bytes: u64,
+    pub written_bytes: u64,
+    pub total_read_bytes: u64,
+    pub read_bytes: u64,
+}
+
+impl From<sysinfo::DiskUsage> for DiskUsage {
+    fn from(du: sysinfo::DiskUsage) -> Self {
+        Self {
+            total_written_bytes: du.total_written_bytes,
+            written_bytes: du.written_bytes,
+            total_read_bytes: du.total_read_bytes,
+            read_bytes: du.read_bytes,
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+
+pub struct MonitorReport {
+    pub memory_usage: Option<u64>,
+    pub disk_usage: Option<DiskUsage>,
+    pub cpu_usage: Option<f32>,
+    pub start_time: Option<u64>,
+}
 
 impl ToString for State {
     fn to_string(&self) -> String {
@@ -34,4 +60,5 @@ pub trait TServer {
     async fn kill(&mut self) -> Result<(), super::Error>;
     async fn state(&self) -> State;
     async fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), super::Error>>;
+    async fn monitor(&self) -> MonitorReport;
 }

@@ -6,8 +6,8 @@ use crate::{
         instance::*, instance_config::get_instance_config_routes,
         instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
-        instance_setup_configs::get_instance_setup_config_routes, setup::get_setup_route,
-        system::get_system_routes, users::get_user_routes,
+        instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
+        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
     prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
     traits::Error,
@@ -30,6 +30,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
+use sysinfo::SystemExt;
 use tokio::{
     fs::create_dir_all,
     process::Command,
@@ -40,7 +41,7 @@ use tokio::{
     },
 };
 use tower_http::cors::{Any, CorsLayer};
-use traits::{t_configurable::TConfigurable, TInstance};
+use traits::{t_configurable::TConfigurable, t_server::MonitorReport, TInstance};
 use util::list_dir;
 use uuid::Uuid;
 mod auth;
@@ -59,11 +60,13 @@ pub struct AppState {
     users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
     events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
     console_out_buffer: Arc<Mutex<Stateful<HashMap<String, AllocRingBuffer<Event>>>>>,
+    monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
     event_broadcaster: Sender<Event>,
     is_setup: Arc<AtomicBool>,
     uuid: String,
     client_name: Arc<Mutex<String>>,
     up_since: i64,
+    system: Arc<Mutex<sysinfo::System>>,
     port_allocator: Arc<Mutex<PortAllocator>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
 }
@@ -282,6 +285,7 @@ async fn main() {
         users: Arc::new(Mutex::new(stateful_users)),
         events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
         console_out_buffer: Arc::new(Mutex::new(stateful_console_out_buffer)),
+        monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
         is_setup: Arc::new(AtomicBool::new(false)),
         uuid: Uuid::new_v4().to_string(),
@@ -292,9 +296,10 @@ async fn main() {
         up_since: chrono::Utc::now().timestamp(),
         port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
+        system: Arc::new(Mutex::new(sysinfo::System::new_all())),
     };
 
-    let event_buffer_task = tokio::spawn({
+    let event_buffer_task = {
         let event_buffer = shared_state.events_buffer.clone();
         let console_out_buffer = shared_state.console_out_buffer.clone();
         let mut event_receiver = tx.subscribe();
@@ -325,7 +330,27 @@ async fn main() {
                 }
             }
         }
-    });
+    };
+
+    let monitor_report_task = {
+        let monitor_buffer = shared_state.monitor_buffer.clone();
+        let instances = shared_state.instances.clone();
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                for (uuid, instance) in instances.lock().await.iter() {
+                    let report = instance.lock().await.monitor().await;
+                    monitor_buffer
+                        .lock()
+                        .await
+                        .entry(uuid.to_owned())
+                        .or_insert_with(|| AllocRingBuffer::with_capacity(64))
+                        .push(report);
+                }
+                interval.tick().await;
+            }
+        }
+    };
 
     let cors = CorsLayer::new()
         .allow_methods([
@@ -352,6 +377,7 @@ async fn main() {
         .merge(get_user_routes())
         .merge(get_client_info_routes())
         .merge(get_setup_route())
+        .merge(get_monitor_routes())
         .route("/test", get(test))
         .layer(Extension(shared_state))
         .layer(cors);
@@ -359,6 +385,7 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     select! {
         _ = event_buffer_task => info!("Event buffer task exited"),
+        _ = monitor_report_task => info!("Monitor report task exited"),
         _ = axum::Server::bind(&addr)
         .serve(app.into_make_service()) => info!("Server exited"),
     }

@@ -10,6 +10,7 @@ pub mod versions;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use sysinfo::SystemExt;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Child;
@@ -125,6 +126,7 @@ pub struct Instance {
     start_on_connection: Arc<AtomicBool>,
     backup_period: Arc<Mutex<Option<u32>>>,
     process: Option<Child>,
+    system: Arc<Mutex<sysinfo::System>>,
     players: Arc<Mutex<Stateful<HashSet<String>>>>,
     settings: Arc<Mutex<HashMap<String, String>>>,
 }
@@ -824,6 +826,7 @@ impl Instance {
                 Box::new(players_callback),
             ))),
             settings: Arc::new(Mutex::new(HashMap::new())),
+            system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         };
         instance
             .read_properties()

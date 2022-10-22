@@ -1,12 +1,13 @@
 use std::env;
 use std::process::Stdio;
+use sysinfo::{Pid, PidExt, ProcessExt, ProcessStatus, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_server::{State, TServer};
+use crate::traits::t_server::{MonitorReport, State, TServer};
 
 use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
 use crate::util::rand_alphanumeric;
@@ -402,5 +403,33 @@ impl TServer for Instance {
                 }
             }
         })
+    }
+    async fn monitor(&self) -> MonitorReport {
+        if let Some(pid) = self.process.as_ref().and_then(|p| p.id()) {
+            let mut sys = self.system.lock().await;
+            sys.refresh_process(Pid::from_u32(pid));
+            let proc = (*sys).process(Pid::from_u32(pid));
+            if let Some(proc) = proc {
+                if proc.status() == ProcessStatus::Zombie {
+                    return MonitorReport::default()
+                }
+                let cpu_usage =
+                    sys.process(Pid::from_u32(pid)).unwrap().cpu_usage() / sys.cpus().len() as f32;
+
+                let memory_usage = proc.memory();
+                let disk_usage = proc.disk_usage();
+                let start_time = proc.start_time();
+                MonitorReport {
+                    memory_usage: Some(memory_usage),
+                    disk_usage: Some(disk_usage.into()),
+                    cpu_usage: Some(cpu_usage),
+                    start_time: Some(start_time),
+                }
+            } else {
+                MonitorReport::default()
+            }
+        } else {
+            MonitorReport::default()
+        }
     }
 }
