@@ -35,6 +35,7 @@ dependencies = [
  "rand_core 0.6.3",
  "reqwest",
  "ringbuffer",
+ "safe-path",
  "sanitize-filename",
  "semver",
  "serde",
@@ -1698,6 +1699,15 @@ name = "ryu"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
+
+[[package]]
+name = "safe-path"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "980abdd3220aa19b67ca3ea07b173ca36383f18ae48cde696d90c8af39447ffb"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "sanitize-filename"
