@@ -266,3 +266,27 @@ pub fn rand_alphanumeric(len: usize) -> String {
 pub fn rand_macro_uuid() -> String {
     format!("MACRO_{}", uuid::Uuid::new_v4())
 }
+
+// safe_path only works on linux and messes up on windows
+// this is a hacky solution
+pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
+    root: R,
+    unsafe_path: U,
+) -> Result<PathBuf, Error> {
+    let mut ret = safe_path::scoped_join(&root, unsafe_path).map_err(|_| Error {
+        inner: ErrorInner::MalformedFile,
+        detail: "Failed to join path".to_string(),
+    })?;
+    if cfg!(windows) {
+        // construct a new path
+        // that replace the prefix component with the component of the root path
+        ret = ret
+            .components()
+            .skip(1)
+            .fold(root.as_ref().to_path_buf(), |mut acc, c| {
+                acc.push(c.as_os_str());
+                acc
+            });
+    }
+    Ok(ret)
+}
