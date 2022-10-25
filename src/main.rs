@@ -4,7 +4,7 @@ use crate::{
     handlers::{
         checks::get_checks_routes, client_info::get_client_info_routes, events::get_events_routes,
         instance::*, instance_config::get_instance_config_routes,
-        instance_manifest::get_instance_manifest_routes,
+        instance_macro::get_instance_macro_routes, instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
@@ -48,6 +48,7 @@ mod auth;
 mod events;
 mod handlers;
 mod implementations;
+pub mod macro_executor;
 mod port_allocator;
 pub mod prelude;
 mod stateful;
@@ -312,7 +313,7 @@ async fn main() {
                         .await
                         .transform(Box::new(move |buffer| -> Result<(), Error> {
                             buffer
-                                .entry(event.get_instance_uuid())
+                                .entry(event.get_instance_uuid().unwrap())
                                 .or_insert_with(|| AllocRingBuffer::with_capacity(512))
                                 .push(event.clone());
                             Ok(())
@@ -378,6 +379,7 @@ async fn main() {
         .merge(get_client_info_routes())
         .merge(get_setup_route())
         .merge(get_monitor_routes())
+        .merge(get_instance_macro_routes())
         .route("/test", get(test))
         .layer(Extension(shared_state))
         .layer(cors);

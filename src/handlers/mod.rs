@@ -6,6 +6,7 @@ pub mod client_info;
 pub mod events;
 pub mod instance;
 pub mod instance_config;
+pub mod instance_macro;
 pub mod instance_manifest;
 pub mod instance_players;
 pub mod instance_server;
