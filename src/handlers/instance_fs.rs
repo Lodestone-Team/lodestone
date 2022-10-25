@@ -64,7 +64,7 @@ async fn list_instance_files(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let path = scoped_join(root, relative_path).map_err(|_| Error {
+    let path = scoped_join(&root, relative_path).map_err(|_| Error {
         inner: ErrorInner::MalformedRequest,
         detail: "Invalid path".to_string(),
     })?;
@@ -78,10 +78,14 @@ async fn list_instance_files(
         list_dir(&path, None)
             .await?
             .iter()
-            .map(|p| {
-                let r: File = p.into();
+            .map({
+                let root = root.clone();
+                move |p| {
+                // remove the root path from the file path
+                let path = p.strip_prefix(&root).unwrap();
+                let r: File = path.into();
                 r
-            })
+            }})
             .collect(),
     ))
 }
