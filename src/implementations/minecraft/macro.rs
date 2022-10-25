@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use log::error;
 use mlua::Lua;
-use tokio::{io::AsyncWriteExt};
+use tokio::{io::AsyncWriteExt, task::yield_now};
 
 
 use crate::{
@@ -29,6 +29,16 @@ impl Instance {
                         "sleep_and_yield",
                         lua.create_async_function(|_, (secs,): (u64,)| async move {
                             tokio::time::sleep(Duration::from_secs(secs)).await;
+                            Ok(())
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                    lua.globals()
+                    .set(
+                        "yield_now",
+                        lua.create_async_function(|_, ()| async move {
+                            yield_now().await;
                             Ok(())
                         })
                         .unwrap(),
@@ -115,11 +125,12 @@ impl Instance {
                                             lua: None,
                                             content: macro_code,
                                             args,
+                                            // todo: figure out how to inherit the executor
                                             executor: None,
                                         };
                                         let uuid = rand_macro_uuid();
                                         macro_sender
-                                            .send((exec_instruction, uuid.clone()))
+                                            .send((crate::macro_executor::Task::Spawn(exec_instruction), uuid.clone()))
                                             .unwrap();
                                         Ok(uuid)
                                     } else {
@@ -131,6 +142,21 @@ impl Instance {
                         .unwrap(),
                     )
                     .unwrap();
+                lua.globals().set(
+                    "abort",
+                    lua.create_async_function({
+                        let macro_sender = macro_sender.clone();
+                        move |_, uuid: String| {
+                            let macro_sender = macro_sender.clone();
+                            async move {
+                                macro_sender
+                                    .send((crate::macro_executor::Task::Abort(uuid), String::new()))
+                                    .unwrap();
+                                Ok(())
+                            }
+                        }
+                    }).unwrap()
+                ).unwrap();
                 lua.globals().set("INSTANCE_PATH", path.clone()).unwrap();
 
                 lua
