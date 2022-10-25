@@ -20,7 +20,16 @@ use crate::{
 };
 
 // list of protected file extension that cannot be modified
-static PROTECTED_EXTENSIONS: [&str; 8] = ["jar", "lua", "sh", "exe", "bat", "cmd", "msi", ".lodestone_config"];
+static PROTECTED_EXTENSIONS: [&str; 8] = [
+    "jar",
+    "lua",
+    "sh",
+    "exe",
+    "bat",
+    "cmd",
+    "msi",
+    ".lodestone_config",
+];
 
 fn is_file_protected(path: &std::path::Path) -> bool {
     if let Some(ext) = path.extension() {
@@ -64,10 +73,20 @@ async fn list_instance_files(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let path = scoped_join(&root, relative_path).map_err(|_| Error {
+    let mut path = scoped_join(&root, relative_path).map_err(|_| Error {
         inner: ErrorInner::MalformedRequest,
         detail: "Invalid path".to_string(),
     })?;
+    // safe_path only works on linux and messes up on windows
+    // this is a hacky solution
+    if cfg!(windows) {
+        // construct a new path
+        // that replace the prefix component with the component of the root path
+        path = path.components().skip(1).fold(root.clone(), |mut acc, c| {
+            acc.push(c.as_os_str());
+            acc
+        });
+    }
     if !path.exists() || !path.is_dir() {
         return Err(Error {
             inner: ErrorInner::FileOrDirNotFound,
@@ -81,11 +100,12 @@ async fn list_instance_files(
             .map({
                 let root = root.clone();
                 move |p| {
-                // remove the root path from the file path
-                let path = p.strip_prefix(&root).unwrap();
-                let r: File = path.into();
-                r
-            }})
+                    // remove the root path from the file path
+                    let path = p.strip_prefix(&root).unwrap();
+                    let r: File = path.into();
+                    r
+                }
+            })
             .collect(),
     ))
 }
