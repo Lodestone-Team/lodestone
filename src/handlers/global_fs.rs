@@ -1,4 +1,4 @@
-use std::{fs::read_dir, path::PathBuf};
+use std::path::PathBuf;
 
 use axum::{
     body::Bytes,
@@ -7,9 +7,9 @@ use axum::{
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
-use safe_path::scoped_join;
+
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+
 use ts_rs::TS;
 
 use crate::{

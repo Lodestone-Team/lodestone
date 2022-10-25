@@ -3,13 +3,13 @@ use std::{sync::Arc, thread, time::Duration};
 use async_trait::async_trait;
 use log::error;
 use mlua::Lua;
-use safe_path::scoped_join;
+
 use tokio::{io::AsyncWriteExt, task::yield_now};
 
 use crate::{
     macro_executor::LuaExecutionInstruction,
     traits::{t_macro::TMacro, Error, ErrorInner},
-    util::{list_dir, rand_macro_uuid},
+    util::{list_dir, rand_macro_uuid, scoped_join_win_safe},
 };
 
 use super::Instance;
@@ -228,7 +228,8 @@ impl Instance {
                                 let path = path.clone();
                                 let macro_sender = macro_sender.clone();
                                 async move {
-                                    let macro_path = scoped_join(path, macro_name).unwrap();
+                                    let macro_path =
+                                        scoped_join_win_safe(path, macro_name).unwrap();
                                     if let Ok(macro_code) =
                                         tokio::fs::read_to_string(macro_path).await
                                     {

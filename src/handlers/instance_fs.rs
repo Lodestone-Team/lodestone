@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use axum::{
     body::Bytes,
     extract::Path,
@@ -7,15 +5,11 @@ use axum::{
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
-use safe_path::scoped_join;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use ts_rs::TS;
 
 use crate::{
     auth::user::UserAction,
     traits::{Error, ErrorInner},
-    util::list_dir,
+    util::{list_dir, scoped_join_win_safe},
     AppState,
 };
 
@@ -39,10 +33,7 @@ fn is_file_protected(path: &std::path::Path) -> bool {
     }
 }
 
-use super::{
-    global_fs::{File, FileType},
-    util::try_auth,
-};
+use super::{global_fs::File, util::try_auth};
 
 async fn list_instance_files(
     Extension(state): Extension<AppState>,
@@ -73,20 +64,7 @@ async fn list_instance_files(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let mut path = scoped_join(&root, relative_path).map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Invalid path".to_string(),
-    })?;
-    // safe_path only works on linux and messes up on windows
-    // this is a hacky solution
-    if cfg!(windows) {
-        // construct a new path
-        // that replace the prefix component with the component of the root path
-        path = path.components().skip(1).fold(root.clone(), |mut acc, c| {
-            acc.push(c.as_os_str());
-            acc
-        });
-    }
+    let mut path = scoped_join_win_safe(&root, relative_path)?;
     if !path.exists() || !path.is_dir() {
         return Err(Error {
             inner: ErrorInner::FileOrDirNotFound,
@@ -136,10 +114,7 @@ async fn read_instance_file(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let path = scoped_join(root, relative_path).map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Invalid path".to_string(),
-    })?;
+    let path = scoped_join_win_safe(root, relative_path)?;
     if !path.exists() || !path.is_file() {
         return Err(Error {
             inner: ErrorInner::MalformedRequest,
@@ -182,10 +157,7 @@ async fn write_instance_file(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let path = scoped_join(root, relative_path).map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Invalid path".to_string(),
-    })?;
+    let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if is_file_protected(&path) {
         return Err(Error {
@@ -230,10 +202,7 @@ async fn make_instance_directory(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let path = scoped_join(root, relative_path).map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Invalid path".to_string(),
-    })?;
+    let path = scoped_join_win_safe(root, relative_path)?;
     // create the file if it doesn't exist
     tokio::fs::create_dir_all(path).await.map_err(|_| Error {
         inner: ErrorInner::MalformedRequest,
@@ -271,10 +240,7 @@ async fn remove_instance_file(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let path = scoped_join(root, relative_path).map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Invalid path".to_string(),
-    })?;
+    let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if is_file_protected(&path) {
         return Err(Error {
