@@ -3,6 +3,7 @@ use std::{sync::Arc, thread, time::Duration};
 use async_trait::async_trait;
 use log::error;
 use mlua::Lua;
+use safe_path::scoped_join;
 use tokio::{io::AsyncWriteExt, task::yield_now};
 
 use crate::{
@@ -227,7 +228,7 @@ impl Instance {
                                 let path = path.clone();
                                 let macro_sender = macro_sender.clone();
                                 async move {
-                                    let macro_path = format!("{}/macros/{}.lua", path, macro_name);
+                                    let macro_path = scoped_join(path, macro_name).unwrap();
                                     if let Ok(macro_code) =
                                         tokio::fs::read_to_string(macro_path).await
                                     {
