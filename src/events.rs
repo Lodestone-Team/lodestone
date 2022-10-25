@@ -63,6 +63,23 @@ pub struct UserEvent {
     pub user_id: String,
     pub user_event_inner: UserEventInner,
 }
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum MacroEventInner {
+    MacroStarted,
+    MacroStopped,
+    MacroErrored{
+        error_msg : String,
+    },
+}
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct MacroEvent {
+    pub instance_uuid : String,
+    pub macro_uuid: String,
+    pub macro_event_inner: MacroEventInner,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -70,6 +87,7 @@ pub struct UserEvent {
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
+    MacroEvent(MacroEvent),
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[serde(rename = "ClientEvent")]

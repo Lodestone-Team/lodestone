@@ -132,23 +132,7 @@ async fn event_stream_ws(
                         if instance_event.instance_uuid != uuid && uuid != "all" {
                             continue;
                         }
-                        if can_user_view_event(
-                            &event,
-                            match users.lock().await.get_ref().get(&uid) {
-                                Some(user) => user,
-                                None => break,
-                            },
-                        ) {
-                            if let Err(e) = sender
-                                .send(axum::extract::ws::Message::Text(
-                                    serde_json::to_string(&event).unwrap(),
-                                ))
-                                .await
-                            {
-                                error!("Failed to send event: {}", e);
-                                break;
-                            }
-                        }
+
                     },
                     EventInner::UserEvent(user_event) => {
                         match user_event.user_event_inner {
@@ -157,9 +141,31 @@ async fn event_stream_ws(
                                     break;
                                 }
                             },
-                            _ => {}
+                            _ => continue,
                         }
                     },
+                    EventInner::MacroEvent(macro_event) => {
+                        if macro_event.instance_uuid != uuid && uuid != "all" {
+                            continue;
+                        }
+                    }
+                };
+                if can_user_view_event(
+                    &event,
+                    match users.lock().await.get_ref().get(&uid) {
+                        Some(user) => user,
+                        None => break,
+                    },
+                ) {
+                    if let Err(e) = sender
+                        .send(axum::extract::ws::Message::Text(
+                            serde_json::to_string(&event).unwrap(),
+                        ))
+                        .await
+                    {
+                        error!("Failed to send event: {}", e);
+                        break;
+                    }
                 }
 
             }
@@ -239,6 +245,7 @@ async fn console_stream_ws(
                             _ => {}
                         }
                     },
+                    EventInner::MacroEvent(_) => continue
                 }
             }
             Some(Ok(ws_msg)) = receiver.next() => {
