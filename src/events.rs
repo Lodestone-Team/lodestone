@@ -93,10 +93,23 @@ impl Event {
             _ => false,
         }
     }
-    pub fn get_instance_uuid(&self) -> String {
+    pub fn try_player_message(&self) -> Option<(String, String)> {
         match &self.event_inner {
-            EventInner::InstanceEvent(instance_event) => instance_event.instance_uuid.clone(),
-            _ => panic!("Event is not an instance event"),
+            EventInner::InstanceEvent(instance_event) => match &instance_event.instance_event_inner
+            {
+                InstanceEventInner::PlayerMessage {
+                    player,
+                    player_message,
+                } => Some((player.clone(), player_message.clone())),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    pub fn get_instance_uuid(&self) -> Option<String> {
+        match &self.event_inner {
+            EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
+            _ => None,
         }
     }
 }
