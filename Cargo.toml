@@ -57,6 +57,9 @@ whoami = "1.2.3"
 home = "0.5.3"
 port_scanner = "0.1.5"
 safe-path = "0.1.0"
+[patch.crates-io]
+safe-path = {git = "https://github.com/Lodestone-Team/safe_path_subset"}
+
 [dependencies.uuid]
 version = "1.1.2"
 features = [
