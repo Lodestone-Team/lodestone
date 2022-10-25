@@ -104,6 +104,7 @@ impl IntoResponse for Error {
             ErrorInner::MalformedRequest => (StatusCode::BAD_REQUEST, json!(self).to_string()),
             ErrorInner::PermissionDenied => (StatusCode::FORBIDDEN, json!(self).to_string()),
             ErrorInner::Unauthorized => (StatusCode::UNAUTHORIZED, json!(self).to_string()),
+            ErrorInner::FileOrDirNotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string()),
         };
         (status, error_message).into_response()
