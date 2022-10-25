@@ -1,10 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 use async_trait::async_trait;
 use log::error;
 use mlua::Lua;
 use tokio::{io::AsyncWriteExt, task::yield_now};
-
 
 use crate::{
     macro_executor::LuaExecutionInstruction,
@@ -34,7 +33,27 @@ impl Instance {
                         .unwrap(),
                     )
                     .unwrap();
-                    lua.globals()
+                lua.globals()
+                    .set(
+                        "yield_now",
+                        lua.create_async_function(|_, ()| async move {
+                            yield_now().await;
+                            Ok(())
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                lua.globals()
+                    .set(
+                        "sleep_and_block",
+                        lua.create_async_function(|_, (secs,): (u64,)| async move {
+                            thread::sleep(Duration::from_secs(secs));
+                            Ok(())
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                lua.globals()
                     .set(
                         "yield_now",
                         lua.create_async_function(|_, ()| async move {
@@ -57,6 +76,97 @@ impl Instance {
                                         Some(stdin) => {
                                             stdin
                                                 .write_all(format!("{}\n", cmd).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                        None => {
+                                            error!("Failed to send stdin, stdin is not available")
+                                        }
+                                    }
+                                    Ok(())
+                                }
+                            }
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                lua.globals()
+                    .set(
+                        "log_info",
+                        lua.create_async_function({
+                            let stdin = stdin.clone();
+                            move |_, msg: String| {
+                                let stdin = stdin.clone();
+                                async move {
+                                    let mut stdin = stdin.lock().await;
+                                    match stdin.as_mut() {
+                                        Some(stdin) => {
+                                            stdin
+                                                .write_all(format!(
+                                                    "tellraw @a [\"\",{{\"text\":\"[Info] \",\"color\":\"green\"}},{{\"text\":\"{}\"}}]\n",
+                                                    msg
+                                                ).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                        None => {
+                                            error!("Failed to send stdin, stdin is not available")
+                                        }
+                                    }
+                                    Ok(())
+                                }
+                            }
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                lua.globals()
+                    .set(
+                        "log_warn",
+                        lua.create_async_function({
+                            let stdin = stdin.clone();
+                            move |_, msg: String| {
+                                let stdin = stdin.clone();
+                                async move {
+                                    let mut stdin = stdin.lock().await;
+                                    match stdin.as_mut() {
+                                        Some(stdin) => {
+                                            stdin
+                                                .write_all( format!(
+                                                    "tellraw @a [\"\",{{\"text\":\"[Warn] \",\"color\":\"yellow\"}},{{\"text\":\"{}\"}}]\n",
+                                                    msg
+                                                ).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                        None => {
+                                            error!("Failed to send stdin, stdin is not available")
+                                        }
+                                    }
+                                    Ok(())
+                                }
+                            }
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                lua.globals()
+                    .set(
+                        "log_err",
+                        lua.create_async_function({
+                            let stdin = stdin.clone();
+                            move |_, msg: String| {
+                                let stdin = stdin.clone();
+                                async move {
+                                    let mut stdin = stdin.lock().await;
+                                    match stdin.as_mut() {
+                                        Some(stdin) => {
+                                            stdin
+                                                .write_all(format!(
+                                                    "tellraw @a [\"\",{{\"text\":\"[Error] \",\"color\":\"red\"}},{{\"text\":\"{}\"}}]\n",
+                                                    msg
+                                                )
+                                                .as_bytes())
                                                 .await
                                                 .unwrap();
                                         }
@@ -130,7 +240,12 @@ impl Instance {
                                         };
                                         let uuid = rand_macro_uuid();
                                         macro_sender
-                                            .send((crate::macro_executor::Task::Spawn(exec_instruction), uuid.clone()))
+                                            .send((
+                                                crate::macro_executor::Task::Spawn(
+                                                    exec_instruction,
+                                                ),
+                                                uuid.clone(),
+                                            ))
                                             .unwrap();
                                         Ok(uuid)
                                     } else {
@@ -142,21 +257,27 @@ impl Instance {
                         .unwrap(),
                     )
                     .unwrap();
-                lua.globals().set(
-                    "abort",
-                    lua.create_async_function({
-                        let macro_sender = macro_sender.clone();
-                        move |_, uuid: String| {
+                lua.globals()
+                    .set(
+                        "abort",
+                        lua.create_async_function({
                             let macro_sender = macro_sender.clone();
-                            async move {
-                                macro_sender
-                                    .send((crate::macro_executor::Task::Abort(uuid), String::new()))
-                                    .unwrap();
-                                Ok(())
+                            move |_, uuid: String| {
+                                let macro_sender = macro_sender.clone();
+                                async move {
+                                    macro_sender
+                                        .send((
+                                            crate::macro_executor::Task::Abort(uuid),
+                                            String::new(),
+                                        ))
+                                        .unwrap();
+                                    Ok(())
+                                }
                             }
-                        }
-                    }).unwrap()
-                ).unwrap();
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
                 lua.globals().set("INSTANCE_PATH", path.clone()).unwrap();
 
                 lua
