@@ -97,14 +97,11 @@ async fn list_instance_files(
         list_dir(&path, None)
             .await?
             .iter()
-            .map({
-                let root = root.clone();
-                move |p| {
-                    // remove the root path from the file path
-                    let path = p.strip_prefix(&root).unwrap();
-                    let r: File = path.into();
-                    r
-                }
+            .map(move |p| {
+                // remove the root path from the file path
+                let mut r: File = p.as_path().into();
+                r.path = p.strip_prefix(&root).unwrap().to_str().unwrap().to_string();
+                r
             })
             .collect(),
     ))
