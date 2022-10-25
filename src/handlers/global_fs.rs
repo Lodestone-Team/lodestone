@@ -36,8 +36,8 @@ pub struct File {
     pub file_type: FileType,
 }
 
-impl From<&PathBuf> for File {
-    fn from(path: &PathBuf) -> Self {
+impl From<&std::path::Path> for File {
+    fn from(path: &std::path::Path) -> Self {
         let file_type = if path.is_dir() {
             FileType::Directory
         } else if path.is_file() {
@@ -96,7 +96,7 @@ async fn list_files(
             .await?
             .iter()
             .map(|p| {
-                let r: File = p.into();
+                let r: File = p.as_path().into();
                 r
             })
             .collect(),
