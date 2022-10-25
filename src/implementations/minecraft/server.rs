@@ -1,11 +1,16 @@
+
 use std::env;
 use std::process::Stdio;
-use sysinfo::{Pid, PidExt, ProcessExt, ProcessStatus, SystemExt};
+use std::sync::Arc;
+
+use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Command};
+use tokio::sync::Mutex;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
+use crate::macro_executor::LuaExecutionInstruction;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
@@ -13,16 +18,18 @@ use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
 use crate::util::rand_alphanumeric;
 
 use super::Instance;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use tokio::task;
 
 #[async_trait::async_trait]
 impl TServer for Instance {
     async fn start(&mut self) -> Result<(), Error> {
         self.state.lock().await.update(State::Starting)?;
+        env::set_current_dir(&self.config.path).unwrap();
+
         let prelaunch = self.path().await.join("prelaunch.sh");
         if prelaunch.exists() {
-            let _ = Command::new("bash")
+            let output = Command::new("bash")
                 .arg(&self.path().await.join("prelaunch.sh"))
                 .output()
                 .await
@@ -33,14 +40,17 @@ impl TServer for Instance {
                         e.to_string()
                     );
                 });
+            info!(
+                "[{}] prelaunch.sh exited with code {}",
+                self.config.name.clone(),
+                output.unwrap().status.code().unwrap()
+            );
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
                 self.config.name.clone()
             );
         }
-
-        env::set_current_dir(&self.config.path).unwrap();
 
         let jre = self
             .path_to_runtimes
@@ -66,7 +76,7 @@ impl TServer for Instance {
         {
             Ok(mut proc) => {
                 env::set_current_dir("../..").unwrap();
-                proc.stdin.as_mut().ok_or_else(|| {
+                let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
                         self.config.name.clone()
@@ -76,6 +86,7 @@ impl TServer for Instance {
                         detail: "Failed to take stdin during startup".to_string(),
                     }
                 })?;
+                self.stdin = Arc::new(Mutex::new(Some(stdin)));
                 let stdout = proc.stdout.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdout during startup",
@@ -108,6 +119,9 @@ impl TServer for Instance {
                     let uuid = self.config.uuid.clone();
                     let name = self.config.name.clone();
                     let players = self.players.clone();
+                    let macro_executor = self.macro_executor.clone();
+                    let path_to_macros = self.path_to_macros.clone();
+                    let _macro_std = self.macro_std();
                     async move {
                         fn parse_system_msg(msg: &str) -> Option<String> {
                             lazy_static! {
@@ -162,6 +176,24 @@ impl TServer for Instance {
                             if RE.is_match(system_msg).unwrap() {
                                 if let Some(cap) = RE.captures(system_msg).ok()? {
                                     Some(cap.get(1)?.as_str().to_string())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+
+                        fn parse_macro_invocation(
+                            msg: &str,
+                        ) -> Option<(String, String, Vec<String>)> {
+                            if let Some((player, msg)) = parse_player_msg(msg) {
+                                if msg.starts_with(".macro") {
+                                    let mut args = msg.split_whitespace();
+                                    args.next();
+                                    let macro_name = args.next()?.to_string();
+                                    let args = args.map(|s| s.to_string()).collect();
+                                    Some((player, macro_name, args))
                                 } else {
                                     None
                                 }
@@ -262,6 +294,21 @@ impl TServer for Instance {
                                     timestamp: chrono::Utc::now().timestamp(),
                                     idempotency: rand_alphanumeric(5),
                                 });
+                                if let Some((player, macro_name, args)) =
+                                    parse_macro_invocation(&line)
+                                {
+                                    debug!("Invoking macro {} with args {:?}", macro_name, args);
+                                    let path = path_to_macros.join(macro_name);
+                                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                                        let exec = LuaExecutionInstruction {
+                                            content,
+                                            args,
+                                            executor: Some(player),
+                                            lua: None,
+                                        };
+                                        macro_executor.spawn(exec);
+                                    }
+                                }
                             }
                         }
                         let _ = state.lock().await.update(State::Stopped);
@@ -285,17 +332,10 @@ impl TServer for Instance {
     async fn stop(&mut self) -> Result<(), Error> {
         self.state.lock().await.update(State::Stopping)?;
         let name = self.config.name.clone();
-        let uuid = self.config.uuid.clone();
-        self.process
-            .as_mut()
-            .ok_or_else(|| {
-                error!("[{}] Failed to stop instance: process not available", name);
-                Error {
-                    inner: ErrorInner::FailedToAcquireStdin,
-                    detail: "Failed to stop instance: process not available".to_string(),
-                }
-            })?
-            .stdin
+        let _uuid = self.config.uuid.clone();
+        self.stdin
+            .lock()
+            .await
             .as_mut()
             .ok_or_else(|| {
                 error!("[{}] Failed to stop instance: stdin not available", name);
@@ -331,12 +371,12 @@ impl TServer for Instance {
             .as_mut()
             .ok_or_else(|| {
                 error!(
-                    "[{}] Failed to kill instance: stdin not open",
+                    "[{}] Failed to kill instance: process not available",
                     self.config.name.clone()
                 );
                 Error {
                     inner: ErrorInner::StdinNotOpen,
-                    detail: "Failed to kill instance: stdin not open".to_string(),
+                    detail: "Failed to kill instance:  process not available".to_string(),
                 }
             })?
             .kill()

@@ -21,10 +21,12 @@ use ::serde::{Deserialize, Serialize};
 use log::{debug, error, info, warn};
 use serde_json::to_string_pretty;
 use tokio::sync::broadcast::Sender;
+
 use tokio::{self};
 use ts_rs::TS;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
 use crate::stateful::Stateful;
 use crate::traits::t_configurable::PathBuf;
@@ -114,7 +116,7 @@ pub struct Instance {
     path_to_properties: PathBuf,
 
     // directory paths
-    path_to_macros: PathBuf,
+    pub path_to_macros: PathBuf,
     path_to_resources: PathBuf,
     path_to_runtimes: PathBuf,
 
@@ -126,9 +128,12 @@ pub struct Instance {
     start_on_connection: Arc<AtomicBool>,
     backup_period: Arc<Mutex<Option<u32>>>,
     process: Option<Child>,
+    stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players: Arc<Mutex<Stateful<HashSet<String>>>>,
     settings: Arc<Mutex<HashMap<String, String>>>,
+    // this field will always be Some
+    macro_executor: MacroExecutor,
 }
 
 impl Instance {
@@ -455,7 +460,7 @@ impl Instance {
                     old_state.to_string(),
                     new_state.to_string()
                 );
-                let (ret, event, details, log): (
+                let (ret, event, _details, log): (
                     Result<(), Error>,
                     Option<Event>,
                     String,
@@ -827,7 +832,14 @@ impl Instance {
             ))),
             settings: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
+            stdin: Arc::new(Mutex::new(None)),
+            macro_executor: MacroExecutor::new(Arc::new(Mutex::new(Arc::new(mlua::Lua::new)))),
         };
+        let get_lua = instance.macro_std();
+        instance
+            .macro_executor
+            .set_lua(Arc::new(move || get_lua()))
+            .await;
         instance
             .read_properties()
             .await
