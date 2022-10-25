@@ -262,3 +262,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
 pub fn rand_alphanumeric(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect()
 }
+
+pub fn rand_macro_uuid() -> String {
+    format!("MACRO_{}", uuid::Uuid::new_v4())
+}
