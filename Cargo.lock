@@ -29,12 +29,12 @@ dependencies = [
  "jsonwebtoken",
  "lazy_static",
  "log",
+ "mlua",
  "port_scanner",
  "rand 0.6.5",
  "rand_core 0.6.3",
  "reqwest",
  "ringbuffer",
- "rlua",
  "sanitize-filename",
  "semver",
  "serde",
@@ -924,6 +924,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879d54834c8c76457ef4293a689b2a8c59b076067ad77b15efafbb05f92a592b"
 
 [[package]]
+name = "itertools"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -993,6 +1002,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "lua-src"
+version = "544.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "708ba3c844d5e9d38def4a09dd871c17c370f519b3c4b7261fbabe4a613a814c"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "luajit-src"
+version = "210.4.3+resty8384278"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19ee5d5afddf1ec76ffa55ca7c3001f2f8a703834beba53c56a38ea6641cef44"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "matches"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1054,6 +1081,41 @@ dependencies = [
  "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys",
+]
+
+[[package]]
+name = "mlua"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86b8fdab73969938b10159fb7e4fee45e96f386baadd8eaa6150e3161f28dfe2"
+dependencies = [
+ "bstr",
+ "cc",
+ "futures-core",
+ "futures-task",
+ "futures-util",
+ "lua-src",
+ "luajit-src",
+ "mlua_derive",
+ "num-traits",
+ "once_cell",
+ "pkg-config",
+ "rustc-hash",
+]
+
+[[package]]
+name = "mlua_derive"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9214e60d3cf1643013b107330fcd374ccec1e4ba1eef76e7e5da5e8202e71c0"
+dependencies = [
+ "itertools",
+ "once_cell",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn",
 ]
 
 [[package]]
@@ -1316,6 +1378,30 @@ name = "ppv-lite86"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
+
+[[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check",
+]
 
 [[package]]
 name = "proc-macro2"
@@ -1602,28 +1688,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rlua"
-version = "0.19.4"
+name = "rustc-hash"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95b38117a836316ef62c02f6751e6d28e2eb53a1c35f0329427a9fb9c1c7b6a0"
-dependencies = [
- "bitflags",
- "bstr",
- "libc",
- "num-traits",
- "rlua-lua54-sys",
-]
-
-[[package]]
-name = "rlua-lua54-sys"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23ae48797c3e76fb2c205fda8f30e28416a15b9fc1d649cc7cea9ff1fb9cf028"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
-]
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "ryu"
