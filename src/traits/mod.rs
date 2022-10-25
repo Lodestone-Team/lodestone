@@ -67,6 +67,7 @@ pub enum ErrorInner {
 
     // Macro errors:
     FailedToRun,
+    MacroNotFound,
 
     // Process errors:
     FailedToExecute,
