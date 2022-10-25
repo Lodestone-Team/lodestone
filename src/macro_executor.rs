@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use log::{debug, error};
+use log::error;
 use mlua::Lua;
 use tokio::{
     runtime::Builder,
@@ -14,7 +14,8 @@ use tokio::{
 
 use crate::{
     events::{MacroEvent, MacroEventInner},
-    traits::{Error, ErrorInner}, util::rand_macro_uuid,
+    traits::{Error, ErrorInner},
+    util::rand_macro_uuid,
 };
 #[derive(Debug)]
 pub struct LuaExecutionInstruction {

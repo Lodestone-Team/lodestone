@@ -4,8 +4,10 @@
 pub mod checks;
 pub mod client_info;
 pub mod events;
+pub mod global_fs;
 pub mod instance;
 pub mod instance_config;
+pub mod instance_fs;
 pub mod instance_macro;
 pub mod instance_manifest;
 pub mod instance_players;
@@ -16,5 +18,3 @@ pub mod setup;
 pub mod system;
 pub mod users;
 mod util;
-pub mod instance_fs;
-pub mod global_fs;

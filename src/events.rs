@@ -69,14 +69,12 @@ pub struct UserEvent {
 pub enum MacroEventInner {
     MacroStarted,
     MacroStopped,
-    MacroErrored{
-        error_msg : String,
-    },
+    MacroErrored { error_msg: String },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct MacroEvent {
-    pub instance_uuid : String,
+    pub instance_uuid: String,
     pub macro_uuid: String,
     pub macro_event_inner: MacroEventInner,
 }

@@ -3,11 +3,12 @@
 use crate::{
     handlers::{
         checks::get_checks_routes, client_info::get_client_info_routes, events::get_events_routes,
-        instance::*, instance_config::get_instance_config_routes,
-        instance_macro::get_instance_macro_routes, instance_manifest::get_instance_manifest_routes,
+        global_fs::get_global_fs_routes, instance::*, instance_config::get_instance_config_routes,
+        instance_fs::get_instance_fs_routes, instance_macro::get_instance_macro_routes,
+        instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes, instance_fs::get_instance_fs_routes, global_fs::get_global_fs_routes,
+        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
     prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
     traits::Error,

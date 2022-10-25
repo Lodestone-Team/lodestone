@@ -1,11 +1,10 @@
-
 use std::env;
 use std::process::Stdio;
 use std::sync::Arc;
 
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Command};
+use tokio::process::Command;
 use tokio::sync::Mutex;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
