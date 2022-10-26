@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
-use crate::macro_executor::LuaExecutionInstruction;
+use crate::macro_executor::{LuaExecutionInstruction};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
@@ -26,24 +26,19 @@ impl TServer for Instance {
         self.state.lock().await.update(State::Starting)?;
         env::set_current_dir(&self.config.path).unwrap();
 
-        let prelaunch = self.path().await.join("prelaunch.sh");
+        let prelaunch = self.path().await.join("prelaunch.lua");
         if prelaunch.exists() {
-            let output = Command::new("bash")
-                .arg(&self.path().await.join("prelaunch.sh"))
-                .output()
-                .await
-                .map_err(|e| {
-                    error!(
-                        "[{}] Failed to run prelaunch script: {}",
-                        self.config.name.clone(),
-                        e.to_string()
-                    );
-                });
-            info!(
-                "[{}] prelaunch.sh exited with code {}",
-                self.config.name.clone(),
-                output.unwrap().status.code().unwrap()
-            );
+            // read prelaunch.lua
+            let prelaunch = tokio::fs::read_to_string(prelaunch).await.unwrap();
+            // execute prelaunch.lua
+            let uuid = self.macro_executor.spawn(LuaExecutionInstruction {
+                lua: None,
+                content: prelaunch,
+                args: vec![],
+                executor: None,
+            });
+            // wait for prelaunch.lua to finish
+            let _ = self.macro_executor.wait_with_timeout(uuid, 5.0).await;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
