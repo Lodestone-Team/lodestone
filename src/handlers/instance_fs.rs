@@ -24,7 +24,7 @@ static PROTECTED_EXTENSIONS: [&str; 10] = [
     "msi",
     "lodestone_config",
     "out",
-    "inf"
+    "inf",
 ];
 
 fn is_file_protected(path: &std::path::Path) -> bool {
