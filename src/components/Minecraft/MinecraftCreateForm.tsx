@@ -55,7 +55,7 @@ export default function CreateMinecraftInstance({
     const parsedValues: MinecraftSetupConfigPrimitive = {
       ...values,
       flavour: values.flavour as MinecraftFlavour,
-      cmd_args: values.cmd_args.split(' '),
+      cmd_args: values.cmd_args.split(' ').filter((item) => item !== ''),
       auto_start: values.auto_start === 'true',
       restart_on_crash: values.restart_on_crash === 'true',
       start_on_connection: values.start_on_connection === 'true',
