@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use log::error;
 use mlua::Lua;
@@ -34,7 +34,7 @@ pub enum Task {
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     sender: mpsc::UnboundedSender<(Task, String)>,
-    event_sender: broadcast::Sender<MacroEvent>,
+    event_broadcaster: broadcast::Sender<MacroEvent>,
     /// since the Lua struct isn't clone, we store a Fn closure that produces a Lua struct
     get_lua: Arc<Mutex<Arc<dyn Fn() -> Lua + Send + Sync>>>,
 }
@@ -45,13 +45,13 @@ impl MacroExecutor {
             mpsc::UnboundedSender<(Task, String)>,
             mpsc::UnboundedReceiver<(Task, String)>,
         ) = mpsc::unbounded_channel();
-        let (event_sender, _) = broadcast::channel(16);
+        let (event_broadcaster, _) = broadcast::channel(16);
         let process_table = Arc::new(Mutex::new(HashMap::new()));
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
             let process_table = process_table.clone();
             let get_lua = get_lua.clone();
-            let event_sender = event_sender.clone();
+            let event_broadcaster = event_broadcaster.clone();
             move || {
                 let local = LocalSet::new();
                 local.spawn_local(async move {
@@ -60,7 +60,7 @@ impl MacroExecutor {
                             Task::Spawn(exec_instruction) => {
                                 let handle = tokio::task::spawn_local({
                                     let get_lua = get_lua.clone();
-                                    let event_sender = event_sender.clone();
+                                    let event_broadcaster = event_broadcaster.clone();
                                     let uuid = uuid.clone();
                                     async move {
                                         let LuaExecutionInstruction {
@@ -81,12 +81,10 @@ impl MacroExecutor {
                                                 .set(format!("ARG{}", i + 1), arg.to_owned())
                                                 .unwrap();
                                         }
-                                        // debug!("Executing lua: {}", content);
-
                                         let _ = lua.load(&content).exec_async().await.map_err({
                                             |e| {
                                                 error!("Failed to execute lua: {}", e);
-                                                let _ = event_sender.send(MacroEvent {
+                                                let _ = event_broadcaster.send(MacroEvent {
                                                     macro_uuid: uuid.clone(),
                                                     macro_event_inner:
                                                         MacroEventInner::MacroErrored {
@@ -96,7 +94,7 @@ impl MacroExecutor {
                                                 });
                                             }
                                         });
-                                        let _ = event_sender.send(MacroEvent {
+                                        let _ = event_broadcaster.send(MacroEvent {
                                             macro_uuid: uuid.clone(),
                                             macro_event_inner: MacroEventInner::MacroStopped,
                                             instance_uuid: "".to_string(),
@@ -123,7 +121,7 @@ impl MacroExecutor {
             macro_process_table: process_table,
             sender: tx,
             get_lua,
-            event_sender,
+            event_broadcaster,
         }
     }
     /// modify the lua execution context while choosing preserving the old context by adding a new layer
@@ -139,7 +137,7 @@ impl MacroExecutor {
     }
 
     pub fn event_stream(&self) -> broadcast::Receiver<MacroEvent> {
-        self.event_sender.subscribe()
+        self.event_broadcaster.subscribe()
     }
 
     /// set the lua execution context
@@ -169,6 +167,24 @@ impl MacroExecutor {
             })?
             .abort();
         Ok(())
+    }
+    pub async fn wait_with_timeout(&self, macro_uuid: String, timeout: f64) -> Result<(), ()> {
+        let mut rx = self.event_broadcaster.subscribe();
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs_f64(timeout)) => {
+                Err(())
+            }
+            _ = {
+                async {loop {
+                    let event = rx.recv().await.unwrap();
+                    if event.macro_uuid == macro_uuid {
+                        break;
+                    }
+                }
+            }} => {
+                Ok(())
+            }
+        }
     }
     /// return the sender
     ///
