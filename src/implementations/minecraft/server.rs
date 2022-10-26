@@ -64,9 +64,16 @@ impl TServer for Instance {
         match Command::new(&jre)
             .arg(format!("-Xmx{}M", self.config.max_ram))
             .arg(format!("-Xms{}M", self.config.min_ram))
+            .args(
+                &self
+                    .config
+                    .cmd_args
+                    .iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<&String>>(),
+            )
             .arg("-jar")
             .arg(&self.config.path.join("server.jar"))
-            .args(&self.config.cmd_args)
             .arg("nogui")
             .stdout(Stdio::piped())
             .stdin(Stdio::piped())
