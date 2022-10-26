@@ -14,7 +14,7 @@ use crate::{
 };
 
 // list of protected file extension that cannot be modified
-static PROTECTED_EXTENSIONS: [&str; 8] = [
+static PROTECTED_EXTENSIONS: [&str; 10] = [
     "jar",
     "lua",
     "sh",
@@ -22,14 +22,16 @@ static PROTECTED_EXTENSIONS: [&str; 8] = [
     "bat",
     "cmd",
     "msi",
-    ".lodestone_config",
+    "lodestone_config",
+    "out",
+    "inf"
 ];
 
 fn is_file_protected(path: &std::path::Path) -> bool {
     if let Some(ext) = path.extension() {
         PROTECTED_EXTENSIONS.contains(&ext.to_str().unwrap())
     } else {
-        false
+        true
     }
 }
 
@@ -64,7 +66,7 @@ async fn list_instance_files(
     let root = instance.path().await;
     drop(instance);
     drop(instances);
-    let mut path = scoped_join_win_safe(&root, relative_path)?;
+    let path = scoped_join_win_safe(&root, relative_path)?;
     if !path.exists() || !path.is_dir() {
         return Err(Error {
             inner: ErrorInner::FileOrDirNotFound,
