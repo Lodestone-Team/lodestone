@@ -36,7 +36,7 @@ struct NewUserSchema {
 
 fn create_jwt(user: &User, jwt_secret: &str) -> Result<String, Error> {
     let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(1))
+        .checked_add_signed(chrono::Duration::days(60))
         .expect("valid timestamp")
         .timestamp();
     let claim = Claim {
