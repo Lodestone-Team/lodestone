@@ -1,15 +1,13 @@
 use std::env;
 use std::process::Stdio;
-use std::sync::Arc;
 
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::Mutex;
 
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
-use crate::macro_executor::{LuaExecutionInstruction};
+use crate::macro_executor::LuaExecutionInstruction;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
@@ -38,7 +36,7 @@ impl TServer for Instance {
                 executor: None,
             });
             // wait for prelaunch.lua to finish
-            let _ = self.macro_executor.wait_with_timeout(uuid, 5.0).await;
+            let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -87,7 +85,7 @@ impl TServer for Instance {
                         detail: "Failed to take stdin during startup".to_string(),
                     }
                 })?;
-                self.stdin = Arc::new(Mutex::new(Some(stdin)));
+                self.stdin.lock().await.replace(stdin);
                 let stdout = proc.stdout.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdout during startup",
@@ -224,7 +222,7 @@ impl TServer for Instance {
                             }
                         ) {
                             if is_stdout {
-                                info!("[{}] {}", name, line);
+                                // info!("[{}] {}", name, line);
                             } else {
                                 warn!("[{}] {}", name, line);
                             }
@@ -308,6 +306,8 @@ impl TServer for Instance {
                                             lua: None,
                                         };
                                         macro_executor.spawn(exec);
+                                    } else {
+                                        warn!("Failed to read macro file {:?}", path);
                                     }
                                 }
                             }
@@ -405,8 +405,8 @@ impl TServer for Instance {
                 detail: "Instance not running".to_string(),
             })
         } else {
-            match self.process.as_mut() {
-                Some(proc) => match {
+            match self.stdin.lock().await.as_mut() {
+                Some(stdin) => match {
                     if command == "stop" {
                         self.state
                             .lock()
@@ -414,11 +414,7 @@ impl TServer for Instance {
                             .update(State::Stopping)
                             .expect("Failed to update state")
                     }
-                    proc.stdin
-                        .as_mut()
-                        .unwrap()
-                        .write_all(format!("{}\n", command).as_bytes())
-                        .await
+                    stdin.write_all(format!("{}\n", command).as_bytes()).await
                 } {
                     Ok(_) => Ok(()),
                     Err(e) => {
