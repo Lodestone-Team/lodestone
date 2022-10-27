@@ -7,10 +7,9 @@ use mlua::Lua;
 use tokio::{io::AsyncWriteExt, task::yield_now};
 
 use crate::{
-    events::{MacroEventInner},
-    macro_executor::{LuaExecutionInstruction},
+    macro_executor::LuaExecutionInstruction,
     traits::{t_macro::TMacro, Error, ErrorInner},
-    util::{list_dir, rand_macro_uuid, scoped_join_win_safe},
+    util::{list_dir, scoped_join_win_safe},
 };
 
 use super::Instance;
@@ -22,8 +21,7 @@ impl Instance {
             let path = self.config.path.clone().to_str().unwrap().to_string();
             let uuid = self.config.uuid.clone();
             let event_broadcaster = self.event_broadcaster.clone();
-            let macro_sender = self.macro_executor.get_sender();
-            // dont use the macro executor, use the sender and the event broadcaster
+s            // dont use the macro executor, use the sender and the event broadcaster
             let macro_executor = self.macro_executor.clone();
             move || {
                 let lua = Lua::new();
@@ -177,10 +175,10 @@ impl Instance {
                 let spawn_task = lua
                     .create_async_function({
                         let path = path.clone();
-                        let macro_sender = macro_sender.clone();
+                        let macro_executor = macro_executor.clone();
                         move |_, (macro_name, args): (String, Vec<String>)| {
                             let path = path.clone();
-                            let macro_sender = macro_sender.clone();
+                            let macro_executor = macro_executor.clone();
                             async move {
                                 let macro_path =
                                     scoped_join_win_safe(path, format!("macros/{}", macro_name))
@@ -195,14 +193,7 @@ impl Instance {
                                         // todo: figure out how to inherit the executor
                                         executor: None,
                                     };
-                                    let uuid = rand_macro_uuid();
-                                    macro_sender
-                                        .send((
-                                            crate::macro_executor::Task::Spawn(exec_instruction),
-                                            uuid.clone(),
-                                        ))
-                                        .unwrap();
-                                    Ok(uuid)
+                                    Ok(macro_executor.spawn(exec_instruction))
                                 } else {
                                     panic!("Failed to load macro");
                                 }
@@ -212,40 +203,23 @@ impl Instance {
                     .unwrap();
                 let abort_task = lua
                     .create_async_function({
-                        let macro_sender = macro_sender.clone();
+                        let macro_executor = macro_executor.clone();
                         move |_, uuid: String| {
-                            let macro_sender = macro_sender.clone();
-                            async move {
-                                macro_sender
-                                    .send((crate::macro_executor::Task::Abort(uuid), String::new()))
-                                    .unwrap();
-                                Ok(())
-                            }
+                            let macro_executor = macro_executor.clone();
+                            async move { Ok(macro_executor.abort_macro(&uuid).await.is_ok()) }
                         }
                     })
                     .unwrap();
                 let await_task = lua
                     .create_async_function({
                         let macro_executor = macro_executor.clone();
-                        move |_, (macro_uuid, timeout): (String, f64)| {
+                        move |_, (macro_uuid, timeout): (String, Option<f64>)| {
                             let macro_executor = macro_executor.clone();
                             async move {
-                                tokio::select! {
-                                    _ = tokio::time::sleep(Duration::from_secs_f64(timeout)) => {
-                                        Ok(false)
-                                    }
-                                    _ = {
-                                        async {loop {
-                                            let event = macro_executor.event_stream().recv().await.unwrap();
-                                            if event.macro_uuid == macro_uuid && matches!(event.macro_event_inner, MacroEventInner::MacroStopped) {
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } => {
-                                        Ok(true)
-                                    }
-                                }
+                                Ok(macro_executor
+                                    .wait_with_timeout(macro_uuid, timeout)
+                                    .await
+                                    .is_ok())
                             }
                         }
                     })
