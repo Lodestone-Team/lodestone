@@ -18,7 +18,7 @@ use auth::user::User;
 use axum::{routing::get, Extension, Router};
 use events::Event;
 use implementations::minecraft;
-use log::{debug, info};
+use log::{debug, info, warn};
 use port_allocator::PortAllocator;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
@@ -37,7 +37,7 @@ use tokio::{
     process::Command,
     select,
     sync::{
-        broadcast::{self, Receiver, Sender},
+        broadcast::{self, Receiver, Sender, error::RecvError},
         Mutex,
     },
 };
@@ -220,7 +220,7 @@ async fn main() {
 
     download_dependencies().await.unwrap();
 
-    let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(128);
+    let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(256);
 
     let stateful_users = Stateful::new(
         restore_users(&PATH_TO_USERS.with(|v| v.to_owned())).await,
@@ -306,9 +306,22 @@ async fn main() {
         let console_out_buffer = shared_state.console_out_buffer.clone();
         let mut event_receiver = tx.subscribe();
         async move {
-            while let Ok(event) = event_receiver.recv().await {
+            loop {
+                let result = event_receiver.recv().await;
+                if let Err(error) = result.as_ref() {
+                    match error {
+                        RecvError::Lagged(_) => {
+                            warn!("Event buffer lagged");
+                            continue;
+                        }
+                        RecvError::Closed => {
+                            warn!("Event buffer closed");
+                            break;
+                        }
+                    }
+                }
+                let event = result.unwrap();
                 if event.is_event_console_message() {
-                    let event = event.clone();
                     console_out_buffer
                         .lock()
                         .await
