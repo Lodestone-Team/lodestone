@@ -21,7 +21,6 @@ impl Instance {
             let path = self.config.path.clone().to_str().unwrap().to_string();
             let uuid = self.config.uuid.clone();
             let event_broadcaster = self.event_broadcaster.clone();
-s            // dont use the macro executor, use the sender and the event broadcaster
             let macro_executor = self.macro_executor.clone();
             move || {
                 let lua = Lua::new();
