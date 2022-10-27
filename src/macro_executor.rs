@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use log::error;
+use log::{error, info};
 use mlua::Lua;
 use tokio::{
     runtime::Builder,
     sync::{
         broadcast,
         mpsc::{self, UnboundedSender},
-        Mutex,
+        oneshot, Mutex,
     },
     task::{JoinHandle, LocalSet},
 };
@@ -150,6 +150,7 @@ impl MacroExecutor {
         self.sender
             .send((Task::Spawn(exec_instruction), uuid.clone()))
             .expect("Thread with LocalSet has shut down.");
+        info!("Spawned macro with uuid {}", uuid);
         uuid
     }
 
@@ -168,10 +169,23 @@ impl MacroExecutor {
             .abort();
         Ok(())
     }
-    pub async fn wait_with_timeout(&self, macro_uuid: String, timeout: f64) -> Result<(), ()> {
+    pub async fn wait_with_timeout(
+        &self,
+        macro_uuid: String,
+        timeout: Option<f64>,
+    ) -> Result<(), ()> {
         let mut rx = self.event_broadcaster.subscribe();
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs_f64(timeout)) => {
+            _ = async {
+                if let Some(timeout) = timeout {
+                    tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
+                } else {
+                    // create a future that never resolves
+                    let (_tx, rx) = oneshot::channel::<()>();
+                    let _ = rx.await;
+
+                }
+            } => {
                 Err(())
             }
             _ = {
