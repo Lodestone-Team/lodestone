@@ -406,4 +406,10 @@ async fn main() {
         _ = axum::Server::bind(&addr)
         .serve(app.into_make_service()) => info!("Server exited"),
     }
+    // cleanup
+    let instances = shared_state.instances.lock().await;
+    for (_, instance) in instances.iter() {
+        let instance = instance.lock().await;
+        instance.stop().await;
+    }
 }
