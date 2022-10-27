@@ -8,6 +8,7 @@ use tokio::process::Command;
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::macro_executor::LuaExecutionInstruction;
+use crate::prelude::LODESTONE_PATH;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
@@ -74,7 +75,7 @@ impl TServer for Instance {
             .spawn()
         {
             Ok(mut proc) => {
-                env::set_current_dir("../..").unwrap();
+                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
@@ -317,7 +318,7 @@ impl TServer for Instance {
                 });
             }
             Err(e) => {
-                env::set_current_dir("../..").unwrap();
+                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 error!("Failed to start server, {}", e);
                 self.state.lock().await.update(State::Stopped);
                 return Err(Error {
