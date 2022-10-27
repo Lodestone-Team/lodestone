@@ -396,7 +396,6 @@ async fn main() {
         .merge(get_instance_macro_routes())
         .merge(get_instance_fs_routes())
         .merge(get_global_fs_routes())
-        .route("/test", get(test))
         .layer(Extension(shared_state))
         .layer(cors);
     let app = Router::new().nest("/api/v1", api_routes);
@@ -407,14 +406,4 @@ async fn main() {
         _ = axum::Server::bind(&addr)
         .serve(app.into_make_service()) => info!("Server exited"),
     }
-}
-
-async fn test() -> String {
-    tokio::task::spawn(async {
-        loop {
-            tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(1))).await;
-            println!("test");
-        }
-    });
-    "test".to_string()
 }
