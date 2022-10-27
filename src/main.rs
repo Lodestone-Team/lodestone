@@ -396,7 +396,7 @@ async fn main() {
         .merge(get_instance_macro_routes())
         .merge(get_instance_fs_routes())
         .merge(get_global_fs_routes())
-        .layer(Extension(shared_state))
+        .layer(Extension(shared_state.clone()))
         .layer(cors);
     let app = Router::new().nest("/api/v1", api_routes);
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
@@ -409,7 +409,7 @@ async fn main() {
     // cleanup
     let instances = shared_state.instances.lock().await;
     for (_, instance) in instances.iter() {
-        let instance = instance.lock().await;
-        instance.stop().await;
+        let mut instance = instance.lock().await;
+        instance.stop().await.unwrap();
     }
 }
