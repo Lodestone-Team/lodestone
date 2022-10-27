@@ -15,10 +15,10 @@ use crate::{
     util::{download_file, rand_alphanumeric},
 };
 use auth::user::User;
-use axum::{routing::get, Extension, Router};
+use axum::{Extension, Router};
 use events::Event;
 use implementations::minecraft;
-use log::{debug, info, warn};
+use log::{debug, info, warn, error};
 use port_allocator::PortAllocator;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
@@ -37,7 +37,7 @@ use tokio::{
     process::Command,
     select,
     sync::{
-        broadcast::{self, Receiver, Sender, error::RecvError},
+        broadcast::{self, error::RecvError, Receiver, Sender},
         Mutex,
     },
 };
@@ -277,6 +277,14 @@ async fn main() {
         None
     };
     let instances = restore_instances(&lodestone_path, &tx).await;
+    for instance in instances.values() {
+        let mut instance = instance.lock().await;
+        if instance.auto_start().await {
+            if let Err(e) = instance.start().await {
+                error!("Failed to start instance {}: {:?}", instance.name().await, e);
+            }
+        }
+    }
     let mut allocated_ports = HashSet::new();
     for (_, instance) in instances.iter() {
         let instance = instance.lock().await;
