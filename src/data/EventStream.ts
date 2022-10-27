@@ -142,6 +142,19 @@ export const useEventStream = () => {
             },
           });
         },
+        MacroEvent: ({ instance_uuid: uuid, macro_uuid: macro_id, macro_event_inner: event_inner }) => {
+          match(event_inner, {
+            MacroStarted: () => {
+              console.log(`Macro ${macro_id} started on ${uuid}`);
+            },
+            MacroStopped: () => {
+              console.log(`Macro ${macro_id} stopped on ${uuid}`);
+            },
+            MacroErrored: ({error_msg}) => {
+              console.log(`Macro ${macro_id} errored on ${uuid}: ${error_msg}`);
+            },
+          });
+        },
       });
     };
 
