@@ -105,10 +105,10 @@ const Auth: NextPageWithLayout = () => {
           {({ isSubmitting }) => (
             <Form
               id="loginForm"
-              className="flex flex-col gap-6"
+              className="flex flex-col gap-12"
               autoComplete="off"
             >
-              <div className="flex flex-col gap-y-16">
+              <div className="flex flex-col gap-y-12">
                 <InputField type="text" name="username" label="Username" />
                 <InputField type="password" name="password" label="Password" />
               </div>
