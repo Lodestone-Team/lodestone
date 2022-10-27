@@ -121,7 +121,6 @@ impl TServer for Instance {
                     let players = self.players.clone();
                     let macro_executor = self.macro_executor.clone();
                     let path_to_macros = self.path_to_macros.clone();
-                    let _macro_std = self.macro_std();
                     async move {
                         fn parse_system_msg(msg: &str) -> Option<String> {
                             lazy_static! {

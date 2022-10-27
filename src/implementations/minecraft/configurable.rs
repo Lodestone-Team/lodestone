@@ -63,18 +63,6 @@ impl TConfigurable for Instance {
         self.config.restart_on_crash
     }
 
-    async fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
-        Supported(self.config.timeout_last_left)
-    }
-
-    async fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
-        Supported(self.config.timeout_no_activity)
-    }
-
-    async fn start_on_connection(&self) -> bool {
-        self.config.start_on_connection
-    }
-
     async fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
         Supported(self.config.backup_period)
     }

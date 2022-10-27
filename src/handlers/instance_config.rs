@@ -29,9 +29,6 @@ pub enum InstanceSetting {
     Path,
     AutoStart,
     RestartOnCrash,
-    TimeoutLastLeft,
-    TimeoutNoActivity,
-    StartOnConnection,
     BackupPeriod,
 }
 
@@ -75,9 +72,6 @@ pub async fn get_instance_setting(
         InstanceSetting::Path => json!(instance.path().await.display().to_string()),
         InstanceSetting::AutoStart => json!(instance.auto_start().await),
         InstanceSetting::RestartOnCrash => json!(instance.restart_on_crash().await),
-        InstanceSetting::TimeoutLastLeft => json!(instance.timeout_last_left().await),
-        InstanceSetting::TimeoutNoActivity => json!(instance.timeout_no_activity().await),
-        InstanceSetting::StartOnConnection => json!(instance.start_on_connection().await),
         InstanceSetting::BackupPeriod => json!(instance.backup_period().await),
     }))
 }
@@ -112,8 +106,7 @@ pub async fn set_instance_setting(
 
     match value {
         Value::Null => match key {
-            InstanceSetting::TimeoutLastLeft => instance.set_timeout_last_left(None).await,
-            InstanceSetting::TimeoutNoActivity => instance.set_timeout_no_activity(None).await,
+
             InstanceSetting::BackupPeriod => instance.set_backup_period(None).await,
             _ => Some(Err(Error {
                 inner: ErrorInner::MalformedRequest,
@@ -127,12 +120,7 @@ pub async fn set_instance_setting(
             })? as u32;
 
             match key {
-                InstanceSetting::TimeoutLastLeft => {
-                    instance.set_timeout_last_left(Some(number)).await
-                }
-                InstanceSetting::TimeoutNoActivity => {
-                    instance.set_timeout_no_activity(Some(number)).await
-                }
+
                 InstanceSetting::BackupPeriod => instance.set_backup_period(Some(number)).await,
                 InstanceSetting::MaxRam => instance.set_max_ram(number).await,
                 InstanceSetting::MinRam => instance.set_min_ram(number).await,
@@ -146,7 +134,6 @@ pub async fn set_instance_setting(
         Value::Bool(b) => match key {
             InstanceSetting::AutoStart => instance.set_auto_start(b).await,
             InstanceSetting::RestartOnCrash => instance.set_restart_on_crash(b).await,
-            InstanceSetting::StartOnConnection => instance.set_start_on_connection(b).await,
             _ => Some(Err(Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "".to_string(),

@@ -25,13 +25,6 @@ pub trait TConfigurable: Sync + Send {
     /// does start when lodestone starts
     async fn auto_start(&self) -> bool;
     async fn restart_on_crash(&self) -> bool;
-    async fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
-        Unsupported
-    }
-    async fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
-        Unsupported
-    }
-    async fn start_on_connection(&self) -> bool;
     async fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
         Unsupported
     }
