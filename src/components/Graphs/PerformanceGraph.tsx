@@ -43,10 +43,16 @@ ChartJS.defaults.color = '#E3E3E4';
 const skipped = (ctx: ScriptableLineSegmentContext, value: any) =>
   ctx.p0.skip || ctx.p1.skip ? value : undefined;
 
+/**
+ *
+ * @param getter A function that returns [value, max], if this is set to null, the graph will not pull data by itself and will rely on data being passed in
+ */
 export default function PerformanceGraph({
   title,
   color,
   backgroundColor,
+  data,
+  max: maxProp,
   pollrate_s = 1,
   timeWindow_s = 61,
   className = '',
@@ -56,11 +62,13 @@ export default function PerformanceGraph({
   title: string;
   color: string;
   backgroundColor: string;
+  data?: number[];
+  max?: number;
   pollrate_s?: number;
   timeWindow_s?: number;
   className?: string;
   unit?: string;
-  getter: () => Promise<[number, number]>;
+  getter?: () => Promise<[number, number]>;
 }): JSX.Element {
   const [max, setMax] = useState(100);
   const labels = Array.from(Array(timeWindow_s / pollrate_s).keys())
@@ -77,6 +85,7 @@ export default function PerformanceGraph({
   counterRef.current = counter;
 
   const update = async () => {
+    if (!getter) return;
     const now = Date.now();
     let val = NaN;
     try {
@@ -101,13 +110,16 @@ export default function PerformanceGraph({
 
   useIntervalClockSeconds(update, pollrate_s);
 
+  const displayData = data ?? dataHistory;
+  const displayMax = maxProp ?? max;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartData: ChartData<'line', any[], string> = {
     labels,
     datasets: [
       {
         label: title,
-        data: dataHistory,
+        data: displayData,
         backgroundColor: backgroundColor,
         borderColor: color,
         fill: true,
@@ -140,7 +152,7 @@ export default function PerformanceGraph({
       },
       title: {
         display: true,
-        text: `${title} - ${dataHistory[dataHistory.length - 1]}/${max}${unit}`,
+        text: `${title} - ${displayData[displayData.length - 1]}/${displayMax}${unit}`,
       },
     },
     scales: {
@@ -176,12 +188,12 @@ export default function PerformanceGraph({
         grid: {
           display: true,
           color: function (context) {
-            return context.tick.value === 0 || context.tick.value === max
+            return context.tick.value === 0 || context.tick.value === displayMax
               ? '#767A82'
               : '#44464B';
           },
           lineWidth: function (context) {
-            return context.tick.value === 0 || context.tick.value === max
+            return context.tick.value === 0 || context.tick.value === displayMax
               ? 2
               : 1;
           },
@@ -189,7 +201,7 @@ export default function PerformanceGraph({
         },
         beginAtZero: true,
         // min: 0,
-        max,
+        max:displayMax,
         ticks: {
           maxTicksLimit: 8,
           padding: 10,

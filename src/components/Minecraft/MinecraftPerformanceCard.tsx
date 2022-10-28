@@ -1,36 +1,24 @@
 import axios from 'axios';
+import { InstanceInfo } from 'bindings/InstanceInfo';
 import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
+import { usePerformanceStream } from 'data/PerformanceStream';
+import { useClientInfo } from 'data/SystemInfo';
 import { round } from 'utils/util';
-
-type CpuUsageReply = {
-  cpu_speed: number;
-  cpu_load: number;
-};
-
-type RamUsageReply = {
-  total: number;
-  free: number;
-};
 
 const bytesInGigabyte = 1073741824;
 
-const getCpuUsage = async (): Promise<[number, number]> => {
-  return await axios.get<CpuUsageReply>('/system/cpu').then((res) => {
-    return [round(res.data.cpu_load, 1), 100];
-  });
-};
+export default function MinecraftPerformanceCard({
+  instance,
+}: {
+  instance: InstanceInfo;
+}) {
+  const { buffer: performanceBuffer, latency_s } = usePerformanceStream(
+    instance.uuid
+  );
+  const { data } = useClientInfo();
+  const total_ram = data?.total_ram ?? 32;
 
-const getRamUsage = async (): Promise<[number, number]> => {
-  return await axios.get<RamUsageReply>('/system/ram').then((res) => {
-    return [
-      round((res.data.total - res.data.free) / bytesInGigabyte, 1),
-      round(res.data.total / bytesInGigabyte, 1),
-    ];
-  });
-};
-
-export default function MinecraftPerformanceCard() {
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> Performance </h1>
@@ -40,7 +28,10 @@ export default function MinecraftPerformanceCard() {
             title="CPU Usage"
             color="#62DD76"
             backgroundColor="#61AE3240"
-            getter={getCpuUsage}
+            data={performanceBuffer.map((p) =>
+              p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
+            )}
+            max={100}
             unit="%"
           />
         </div>
@@ -49,7 +40,10 @@ export default function MinecraftPerformanceCard() {
             title="Memory Usage"
             color="#62DD76"
             backgroundColor="#61AE3240"
-            getter={getRamUsage}
+            data={performanceBuffer.map((p) =>
+              p.memory_usage !== null ? round(Number(p.memory_usage) / bytesInGigabyte, 1) : NaN
+            )}
+            max={round(total_ram / bytesInGigabyte, 1)}
             unit="GiB"
           />
         </div>

@@ -12,6 +12,7 @@ import { useRouterQuery } from 'utils/hooks';
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
 import { errorToMessage } from 'utils/util';
+import { useClientInfo } from 'data/SystemInfo';
 
 config.autoAddCss = false;
 

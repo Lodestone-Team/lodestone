@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
+import Link from 'next/link';
 import router from 'next/router';
 import { useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
@@ -31,7 +32,24 @@ export default function TopNav() {
   return (
     <div className="flex flex-row items-center justify-end w-full h-12 gap-2 px-4 py-2 bg-gray-700 border-b border-gray-faded/30">
       <div className="grow">
-        <img src="/logo.svg" alt="logo" className="w-32" />
+        <img
+          src="/logo.svg"
+          alt="logo"
+          className="w-32 hover:cursor-pointer"
+          onClick={() => {
+            router.push(
+              {
+                pathname: '/',
+                query: {
+                  ...router.query,
+                  uuid: undefined,
+                },
+              },
+              undefined,
+              { shallow: true }
+            );
+          }}
+        />
       </div>
       <p className="font-medium text-gray-300">
         {userState === 'logged-in' && user

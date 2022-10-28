@@ -100,7 +100,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Monitor',
-        content: <MinecraftPerformanceCard />,
+        content: <MinecraftPerformanceCard instance={instance} />,
       },
       {
         title: 'Experimental',
