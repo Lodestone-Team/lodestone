@@ -1,5 +1,4 @@
 import Document, { Html, Head, Main, NextScript } from 'next/document';
-import { CookiesProvider } from 'react-cookie';
 
 class MyDocument extends Document {
   render() {
@@ -12,10 +11,8 @@ class MyDocument extends Document {
           />
         </Head>
         <body>
-          <CookiesProvider>
-            <Main />
-            <NextScript />
-          </CookiesProvider>
+          <Main />
+          <NextScript />
         </body>
       </Html>
     );

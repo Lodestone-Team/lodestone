@@ -97,6 +97,8 @@ const Template: ComponentStory<typeof InstanceList> = () => (
       apiVersion: 'v1',
       isReady: true,
       token: 'example-token',
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      setToken: () => {},
     }}
   >
     <QueryClientProvider client={queryClient}>

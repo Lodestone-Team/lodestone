@@ -4,7 +4,6 @@ import { useRouter } from 'next/router';
 import { useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
 import { NextPageWithLayout } from './_app';
-import { useCookies } from 'react-cookie';
 import Link from 'next/link';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ClientError } from 'bindings/ClientError';
@@ -30,8 +29,7 @@ const validationSchema = yup.object({
 
 const Auth: NextPageWithLayout = () => {
   const router = useRouter();
-  const [, setCookie] = useCookies(['token']);
-  const { token } = useContext(LodestoneContext);
+  const { token, setToken } = useContext(LodestoneContext);
 
   useEffect(() => {
     if (token) {
@@ -56,7 +54,7 @@ const Auth: NextPageWithLayout = () => {
       )
       .then((response) => {
         // set the token cookie
-        setCookie('token', response.data.token);
+        setToken(response.data.token);
       })
       .catch((error: AxiosError<ClientError>) => {
         if (axios.isAxiosError(error) && error.response) {

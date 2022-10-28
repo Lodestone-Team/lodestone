@@ -80,7 +80,8 @@ export function errorToMessage(error: unknown): string {
     }
   }
   if (error === null) return '';
-  return `Unknown error: ${error}`;
+  if (error instanceof Error) return error.message
+  return `Unknown error`;
 }
 
 /**

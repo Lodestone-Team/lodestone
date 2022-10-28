@@ -4,13 +4,14 @@ import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
 import '@fortawesome/fontawesome-svg-core/styles.css';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
-import { ReactElement, ReactNode } from 'react';
+import { ReactElement, ReactNode, useState } from 'react';
 import { NextPage } from 'next';
 import { LodestoneContext } from 'data/LodestoneContext';
 import axios from 'axios';
 import { useRouterQuery } from 'utils/hooks';
-import { useCookies } from 'react-cookie';
-import { useIsomorphicLayoutEffect } from 'usehooks-ts';
+import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
+import jwt from 'jsonwebtoken';
+import { errorToMessage } from 'utils/util';
 
 config.autoAddCss = false;
 
@@ -38,7 +39,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
   const { query: address, isReady } = useRouterQuery('address');
   const { query: port } = useRouterQuery('port');
-  const [cookies] = useCookies(['token']);
+  const [token, setToken] = useLocalStorage<string>('token', '');
 
   const protocol = 'http';
   const apiVersion = 'v1';
@@ -53,13 +54,24 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   }, [apiAddress, port, isReady]);
 
   useIsomorphicLayoutEffect(() => {
-    if (cookies.token)
-      axios.defaults.headers.common[
-        'Authorization'
-      ] = `Bearer ${cookies.token}`;
-    else delete axios.defaults.headers.common['Authorization'];
+    if (!token) {
+      delete axios.defaults.headers.common['Authorization'];
+      return;
+    }
+    try {
+      const decoded = jwt.decode(token, {complete: true});
+      if (!decoded) throw new Error('Invalid token');
+      const { exp } = decoded.payload as { exp: number };
+      if (Date.now() >= exp * 1000) throw new Error('Token expired');
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    } catch (e) {
+      const message = errorToMessage(e);
+      alert(message);
+      setToken('');
+      delete axios.defaults.headers.common['Authorization'];
+    }
     queryClient.invalidateQueries();
-  }, [cookies.token]);
+  }, [token]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -70,7 +82,8 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           protocol,
           apiVersion,
           isReady: isReady,
-          token: cookies.token ?? '',
+          token,
+          setToken,
         }}
       >
         {getLayout(<Component {...pageProps} />)}

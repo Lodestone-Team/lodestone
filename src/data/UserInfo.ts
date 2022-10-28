@@ -5,13 +5,11 @@ import { PublicUser } from 'bindings/PublicUser';
 import { useContext } from 'react';
 import { isAxiosError } from 'utils/util';
 import { LodestoneContext } from './LodestoneContext';
-import { useCookies } from 'react-cookie';
 import { UserPermission } from 'bindings/UserPermission';
 
 // this won't ever change. if it does it will be invalidated manually
 export const useUserInfo = () => {
-  const { token } = useContext(LodestoneContext);
-  const [, setCookie] = useCookies(['token']);
+  const { token, setToken } = useContext(LodestoneContext);
 
   return useQuery<PublicUser, AxiosError<ClientError>>(
     ['user', 'info'],
@@ -21,11 +19,11 @@ export const useUserInfo = () => {
         .then((response) => response.data);
     },
     {
-      enabled: useContext(LodestoneContext).isReady && token.length > 0,
+      enabled: useContext(LodestoneContext).isReady && !!token,
       onError: (error) => {
         if (error.response?.data.inner === 'Unauthorized')
           // then token is invalid, delete it
-          setCookie('token', '');
+          setToken('');
       },
     }
   );
