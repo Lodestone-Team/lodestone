@@ -121,7 +121,7 @@ export default function GameConsole({ instance }: { instance: InstanceInfo }) {
             onChange={(e) => setCommand(e.target.value)}
             id="command"
             type="text"
-            disabled={!!consoleInputMessage}
+            disabled={consoleInputMessage !== ''}
           />
         </form>
       </div>

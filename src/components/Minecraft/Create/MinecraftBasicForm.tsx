@@ -27,7 +27,7 @@ export default function MinecraftBasicForm() {
         axios
           .get(`/games/minecraft/flavours/${values.flavour}/versions`)
           .then((res) => res.data),
-      { enabled: isReady && !!values.flavour }
+      { enabled: isReady && values.flavour !== '' }
     );
 
   return (
