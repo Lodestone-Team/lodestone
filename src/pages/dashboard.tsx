@@ -7,7 +7,6 @@ import Label from 'components/Atoms/Label';
 import { updateInstance, useInstanceList } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ReactElement, ReactNode, useContext, useMemo, useState } from 'react';
-import { useRouterQuery } from 'utils/hooks';
 import {
   axiosPutSingleValue,
   axiosWrapper,
@@ -24,29 +23,19 @@ import { useRouter } from 'next/router';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import MinecraftFileCard from 'components/Minecraft/MinecraftFileCard';
 import { useUserAuthorized } from 'data/UserInfo';
+import { InstanceContext } from 'data/InstanceContext';
 
 const Dashboard: NextPageWithLayout = () => {
-  const lodestoneContex = useContext(LodestoneContext);
-  const { query: uuid } = useRouterQuery('uuid');
-  const { data: instances, isLoading } = useInstanceList();
+  const { address } = useContext(LodestoneContext);
+  const { selectedInstance: instance } =
+    useContext(InstanceContext);
   const queryClient = useQueryClient();
+  const uuid = instance?.uuid;
   const router = useRouter();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const canDeleteInstance = useUserAuthorized('can_delete_instance');
 
-  const instance = useMemo(() => {
-    if (uuid) return instances?.[uuid];
-  }, [uuid, instances]);
-
-  if (isLoading) {
-    // TODO: show an unobtrusive loading screen, reduce UI flicker
-    return <div>Loading...</div>;
-  }
-
-  // TODO: add loading state, don't let it flash blank
-  if (!uuid) return <></>;
-
-  if (!instance) {
+  if (!instance || !uuid) {
     return (
       <div className="px-12 py-10 bg-gray-800">
         <h1 className="-ml-4 font-semibold tracking-tight text-gray-300 font-heading text-2xlarge">
@@ -71,14 +60,14 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Console',
-        content: <GameConsole instance={instance} />,
+        content: <GameConsole/>,
       },
       {
         title: 'Settings',
         content: (
           <>
-            <MinecraftGeneralCard instance={instance} />
-            <MinecraftSettingCard instance={instance} />
+            <MinecraftGeneralCard />
+            <MinecraftSettingCard />
           </>
         ),
       },
@@ -100,7 +89,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Monitor',
-        content: <MinecraftPerformanceCard instance={instance} />,
+        content: <MinecraftPerformanceCard />,
       },
       {
         title: 'Experimental',
@@ -162,8 +151,8 @@ const Dashboard: NextPageWithLayout = () => {
             className="flex flex-row items-center gap-3"
           >
             <ClipboardTextfield
-              text={`${lodestoneContex.address}:${instance.port}`}
-              textToCopy={lodestoneContex.address}
+              text={`${address}:${instance.port}`}
+              textToCopy={address}
             />
           </Label>
           <Button

@@ -8,12 +8,12 @@ import { useInstanceManifest } from 'data/InstanceManifest';
 import { useGameSetting } from 'data/GameSetting';
 import Dropdown from 'components/Atoms/Config/SelectBox';
 import SettingField from 'components/SettingField';
+import { useContext } from 'react';
+import { InstanceContext } from 'data/InstanceContext';
 
-export default function MinecraftGeneralCard({
-  instance,
-}: {
-  instance: InstanceInfo;
-}) {
+export default function MinecraftGeneralCard() {
+  const { selectedInstance: instance } = useContext(InstanceContext);
+  if (!instance) throw new Error('No instance selected');
   const queryClient = useQueryClient();
   const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
   const supportedOptions = manifest?.supported_operations

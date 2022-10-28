@@ -2,13 +2,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import DashboardCard from 'components/DashboardCard';
 import SettingField from 'components/SettingField';
+import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
+import { useContext } from 'react';
 
-export default function MinecraftSettingCard({
-  instance,
-}: {
-  instance: InstanceInfo;
-}) {
+export default function MinecraftSettingCard() {
+  const { selectedInstance: instance } = useContext(InstanceContext);
+  if (!instance) throw new Error('No instance selected');
   const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
   const supportedOptions = manifest?.supported_operations
     ? manifest.supported_operations
@@ -33,10 +33,12 @@ export default function MinecraftSettingCard({
     'spawn-protection',
     'require-resource-pack',
     'resource-pack',
-    'resource-pack-prompt'
-  ]
-  
-  const availableSettings = settings.filter((setting) => supportedSettings.includes(setting));
+    'resource-pack-prompt',
+  ];
+
+  const availableSettings = settings.filter((setting) =>
+    supportedSettings.includes(setting)
+  );
 
   if (isLoading) {
     return <div>Loading...</div>;

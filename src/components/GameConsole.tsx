@@ -1,14 +1,17 @@
 import axios from 'axios';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useConsoleStream } from 'data/ConsoleStream';
+import { InstanceContext } from 'data/InstanceContext';
 import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
-import { useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 
 const autoScrollThreshold = 100;
 
-export default function GameConsole({ instance }: { instance: InstanceInfo }) {
+export default function GameConsole() {
+  const { selectedInstance: instance } = useContext(InstanceContext);
+  if (!instance) throw new Error('No instance selected');
   const uuid = instance.uuid;
   const canAccessConsole = useUserAuthorized(
     'can_access_instance_console',
