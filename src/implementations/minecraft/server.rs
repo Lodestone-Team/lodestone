@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::process::Stdio;
 
@@ -425,7 +426,13 @@ impl TServer for Instance {
                     detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
-        Ok(())
+        self.players
+            .lock()
+            .await
+            .transform(Box::new(|v: &mut HashSet<String>| {
+                v.clear();
+                Ok(())
+            }))
     }
     async fn kill(&mut self) -> Result<(), crate::traits::Error> {
         if self.state().await == State::Stopped {
@@ -458,7 +465,14 @@ impl TServer for Instance {
                     inner: ErrorInner::InstanceStopped,
                     detail: "Failed to kill instance, instance already existed".to_string(),
                 }
-            })
+            })?;
+        self.players
+            .lock()
+            .await
+            .transform(Box::new(|v: &mut HashSet<String>| {
+                v.clear();
+                Ok(())
+            }))
     }
 
     async fn state(&self) -> State {
