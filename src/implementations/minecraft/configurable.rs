@@ -7,7 +7,7 @@ use crate::traits::{self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupp
 
 use crate::traits::Error;
 
-use super::Instance;
+use super::{BackupInstruction, Instance};
 
 #[async_trait]
 impl TConfigurable for Instance {
@@ -160,47 +160,15 @@ impl TConfigurable for Instance {
         })
     }
 
-    async fn set_timeout_last_left(
-        &mut self,
-        timeout_last_left: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.timeout_last_left = timeout_last_left;
-            *self.timeout_last_left.lock().await = timeout_last_left;
-            self.write_config_to_file().await
-        })
-    }
-
-    async fn set_timeout_no_activity(
-        &mut self,
-        timeout_no_activity: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            *self.timeout_no_activity.lock().await = timeout_no_activity;
-            self.config.timeout_no_activity = timeout_no_activity;
-            self.write_config_to_file().await
-        })
-    }
-
-    async fn set_start_on_connection(
-        &mut self,
-        start_on_connection: bool,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.start_on_connection = start_on_connection;
-            self.auto_start
-                .store(start_on_connection, atomic::Ordering::Relaxed);
-            self.write_config_to_file().await
-        })
-    }
-
     async fn set_backup_period(
         &mut self,
         backup_period: Option<u32>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {
         Supported({
-            *self.backup_period.lock().await = backup_period;
-            self.config.timeout_no_activity = backup_period;
+            self.config.backup_period = backup_period;
+            self.backup_sender
+                .send(BackupInstruction::SetPeriod(backup_period))
+                .unwrap();
             self.write_config_to_file().await
         })
     }

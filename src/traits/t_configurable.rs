@@ -66,24 +66,6 @@ pub trait TConfigurable: Sync + Send {
     ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
         Unsupported
     }
-    async fn set_timeout_last_left(
-        &mut self,
-        _timeout_last_left: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        Unsupported
-    }
-    async fn set_timeout_no_activity(
-        &mut self,
-        _timeout_no_activity: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        Unsupported
-    }
-    async fn set_start_on_connection(
-        &mut self,
-        _start_on_connection: bool,
-    ) -> MaybeUnsupported<Result<(), crate::traits::Error>> {
-        Unsupported
-    }
     async fn set_backup_period(
         &mut self,
         _backup_period: Option<u32>,
