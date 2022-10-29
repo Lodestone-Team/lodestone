@@ -27,10 +27,14 @@ pub enum InstanceEventInner {
     },
     PlayerChange {
         player_list: HashSet<String>,
+        players_joined : HashSet<String>,
+        players_left : HashSet<String>,
     },
+    #[deprecated]
     PlayerJoined {
         player: String,
     },
+    #[deprecated]
     PlayerLeft {
         player: String,
     },
