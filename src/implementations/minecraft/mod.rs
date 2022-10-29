@@ -10,6 +10,7 @@ pub mod versions;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 use sysinfo::SystemExt;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -22,6 +23,7 @@ use log::{debug, error, info, warn};
 use serde_json::to_string_pretty;
 use tokio::sync::broadcast::Sender;
 
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::{self};
 use ts_rs::TS;
 
@@ -99,9 +101,6 @@ pub struct RestoreConfig {
     pub creation_time: i64,
     pub auto_start: bool,
     pub restart_on_crash: bool,
-    pub timeout_last_left: Option<u32>,
-    pub timeout_no_activity: Option<u32>,
-    pub start_on_connection: bool,
     pub backup_period: Option<u32>,
     pub jre_major_version: u64,
     pub has_started: bool,
@@ -123,17 +122,22 @@ pub struct Instance {
     // variables which can be changed at runtime
     auto_start: Arc<AtomicBool>,
     restart_on_crash: Arc<AtomicBool>,
-    timeout_last_left: Arc<Mutex<Option<u32>>>,
-    timeout_no_activity: Arc<Mutex<Option<u32>>>,
-    start_on_connection: Arc<AtomicBool>,
-    backup_period: Arc<Mutex<Option<u32>>>,
+    backup_period: Option<u32>,
     process: Option<Child>,
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players: Arc<Mutex<Stateful<HashSet<String>>>>,
     settings: Arc<Mutex<HashMap<String, String>>>,
-    // this field will always be Some
     macro_executor: MacroExecutor,
+    backup_sender: UnboundedSender<BackupInstruction>,
+}
+
+#[derive(Debug, Clone)]
+enum BackupInstruction {
+    SetPeriod(Option<u32>),
+    BackupNow,
+    Pause,
+    Resume
 }
 
 impl Instance {
@@ -420,9 +424,6 @@ impl Instance {
             creation_time: chrono::Utc::now().timestamp(),
             auto_start: config.auto_start.unwrap_or(false),
             restart_on_crash: config.restart_on_crash.unwrap_or(false),
-            timeout_last_left: config.timeout_last_left,
-            timeout_no_activity: config.timeout_no_activity,
-            start_on_connection: config.start_on_connection.unwrap_or(false),
             backup_period: config.backup_period,
             jre_major_version,
             has_started: false,
@@ -764,6 +765,85 @@ impl Instance {
                 ret
             }
         };
+        let state = Arc::new(Mutex::new(Stateful::new(
+            State::Stopped,
+            Box::new(state_callback),
+            Box::new(|_, _| Ok(())),
+        )));
+        let (backup_tx, mut backup_rx) : (UnboundedSender<BackupInstruction>, UnboundedReceiver<BackupInstruction>) = tokio::sync::mpsc::unbounded_channel();
+        let _backup_task = tokio::spawn({
+            let backup_period = config.backup_period;
+            let path_to_resources = path_to_resources.clone();
+            let path_to_instance = config.path.clone();
+            let state = state.clone();
+            async move {
+                let backup_now = || async {
+                    debug!("Backing up instance");
+                    let backup_dir = &path_to_resources.join("worlds/backup");
+                    tokio::fs::create_dir_all(&backup_dir).await.ok();
+                    // get current time in human readable format
+                    let time = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
+                    let backup_name = format!("backup-{}", time);
+                    let backup_path = backup_dir.join(&backup_name);
+                    if let Err(e) = tokio::task::spawn_blocking(
+                        {
+                            let path_to_instance = path_to_instance.clone();
+                            let backup_path = backup_path.clone();
+                            let mut copy_option = fs_extra::dir::CopyOptions::new();
+                            copy_option.copy_inside = true;
+                        move || {
+                        fs_extra::dir::copy(&path_to_instance.join("world"), &backup_path, &copy_option)
+                    }}).await {
+                        error!("Failed to backup instance: {}", e);
+                    }
+                    
+                };
+                let mut backup_period = backup_period;
+                let mut counter = 0;
+                loop {
+                   tokio::select! {
+                          instruction = backup_rx.recv() => {
+                            if instruction.is_none() {
+                                info!("Backup task exiting");
+                                break;
+                            }
+                            let instruction = instruction.unwrap();
+                            match instruction {
+                            BackupInstruction::SetPeriod(new_period) => {
+                                backup_period = new_period;
+                            },
+                            BackupInstruction::BackupNow => backup_now().await,
+                            BackupInstruction::Pause => {
+                                    loop {
+                                        if let Some(BackupInstruction::Resume) = backup_rx.recv().await {
+                                            break;
+                                        } else {
+                                            continue
+                                        }
+                                    }
+                                
+                            },
+                            BackupInstruction::Resume => {
+                                continue;
+                            },
+                            }
+                          }
+                          _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            if let Some(period) = backup_period {
+                                if state.lock().await.get_ref() == &State::Running {
+                                    debug!("counter is {}", counter);
+                                    counter += 1;
+                                    if counter >= period {
+                                        counter = 0;
+                                        backup_now().await;
+                                    }
+                                }
+                            }
+                          }
+                   }                    
+                }
+
+        }});
 
         let players_callback = {
             let event_broadcaster = event_broadcaster.clone();
@@ -806,17 +886,10 @@ impl Instance {
         };
 
         let mut instance = Instance {
-            state: Arc::new(Mutex::new(Stateful::new(
-                State::Stopped,
-                Box::new(state_callback),
-                Box::new(|_, _| Ok(())),
-            ))),
+            state,
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
-            timeout_last_left: Arc::new(Mutex::new(config.timeout_last_left)),
-            timeout_no_activity: Arc::new(Mutex::new(config.timeout_no_activity)),
-            start_on_connection: Arc::new(AtomicBool::new(config.start_on_connection)),
-            backup_period: Arc::new(Mutex::new(config.backup_period)),
+            backup_period: config.backup_period,
             config,
             path_to_config,
             path_to_properties,
@@ -834,6 +907,7 @@ impl Instance {
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             macro_executor: MacroExecutor::new(Arc::new(Mutex::new(Arc::new(mlua::Lua::new)))),
+            backup_sender : backup_tx
         };
         let get_lua = instance.macro_std();
         instance

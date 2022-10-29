@@ -180,9 +180,20 @@ impl Instance {
                             let macro_executor = macro_executor.clone();
                             async move {
                                 let macro_path =
-                                    scoped_join_win_safe(path, format!("macros/{}", macro_name))
+                                    scoped_join_win_safe(&path, format!("macros/{}", macro_name))
                                         .unwrap()
                                         .with_extension("lua");
+                                let macro_ingame_path = scoped_join_win_safe(
+                                    &path,
+                                    format!("macros/in_game/{}", macro_name),
+                                )
+                                .unwrap()
+                                .with_extension("lua");
+                                let macro_path = if macro_path.exists() {
+                                    macro_path
+                                } else {
+                                    macro_ingame_path
+                                };
                                 if let Ok(macro_code) = tokio::fs::read_to_string(macro_path).await
                                 {
                                     let exec_instruction = LuaExecutionInstruction {
