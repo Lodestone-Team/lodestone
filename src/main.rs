@@ -18,7 +18,7 @@ use auth::user::User;
 use axum::{Extension, Router};
 use events::Event;
 use implementations::minecraft;
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 use port_allocator::PortAllocator;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
@@ -280,8 +280,13 @@ async fn main() {
     for instance in instances.values() {
         let mut instance = instance.lock().await;
         if instance.auto_start().await {
+            info!("Auto starting instance {}", instance.name().await);
             if let Err(e) = instance.start().await {
-                error!("Failed to start instance {}: {:?}", instance.name().await, e);
+                error!(
+                    "Failed to start instance {}: {:?}",
+                    instance.name().await,
+                    e
+                );
             }
         }
     }
@@ -413,11 +418,12 @@ async fn main() {
         _ = monitor_report_task => info!("Monitor report task exited"),
         _ = axum::Server::bind(&addr)
         .serve(app.into_make_service()) => info!("Server exited"),
+        _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
     }
     // cleanup
     let instances = shared_state.instances.lock().await;
     for (_, instance) in instances.iter() {
         let mut instance = instance.lock().await;
-        instance.stop().await.unwrap();
+        let _ =  instance.stop().await;
     }
 }
