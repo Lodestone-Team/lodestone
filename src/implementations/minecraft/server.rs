@@ -13,7 +13,7 @@ use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
 use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
-use crate::util::rand_alphanumeric;
+use crate::util::{rand_alphanumeric, scoped_join_win_safe};
 
 use super::Instance;
 use log::{debug, error, info, warn};
@@ -183,18 +183,67 @@ impl TServer for Instance {
                             }
                         }
 
-                        fn parse_macro_invocation(
-                            msg: &str,
-                        ) -> Option<(String, String, Vec<String>)> {
+                        enum MacroInstruction {
+                            Abort(String),
+                            Spawn {
+                                player_name: String,
+                                macro_name: String,
+                                args: Vec<String>,
+                            },
+                        }
+
+                        fn parse_macro_invocation(msg: &str) -> Option<MacroInstruction> {
                             if let Some((player, msg)) = parse_player_msg(msg) {
-                                if msg.starts_with(".macro") {
-                                    let mut args = msg.split_whitespace();
-                                    args.next();
-                                    let macro_name = args.next()?.to_string();
-                                    let args = args.map(|s| s.to_string()).collect();
-                                    Some((player, macro_name, args))
+                                lazy_static! {
+                                    static ref RE: Regex =
+                                        Regex::new(r"\.macro abort (.+)").unwrap();
+                                }
+                                if RE.is_match(&msg).unwrap() {
+                                    if let Some(cap) = RE.captures(&msg).ok()? {
+                                        Some(MacroInstruction::Abort(
+                                            cap.get(1)?.as_str().to_string(),
+                                        ))
+                                    } else {
+                                        None
+                                    }
                                 } else {
-                                    None
+                                    lazy_static! {
+                                        static ref RE: Regex =
+                                            Regex::new(r"\.macro spawn (.+)").unwrap();
+                                    }
+                                    if RE.is_match(&msg).unwrap() {
+                                        if let Some(cap) = RE.captures(&msg).ok()? {
+                                            // the first capture is the whole string
+                                            // the first word is the macro name
+                                            // the rest are the arguments
+                                            // read the first word as the macro name
+                                            let macro_name = cap
+                                                .get(1)?
+                                                .as_str()
+                                                .to_string()
+                                                .split_whitespace()
+                                                .next()?
+                                                .to_string();
+                                            let args = cap
+                                                .get(1)?
+                                                .as_str()
+                                                .split_whitespace()
+                                                .skip(1)
+                                                .map(|s| s.to_string())
+                                                .collect::<Vec<String>>();
+                                            dbg!(&args);
+
+                                            Some(MacroInstruction::Spawn {
+                                                player_name: player,
+                                                macro_name,
+                                                args,
+                                            })
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
                                 }
                             } else {
                                 None
@@ -293,21 +342,39 @@ impl TServer for Instance {
                                     timestamp: chrono::Utc::now().timestamp(),
                                     idempotency: rand_alphanumeric(5),
                                 });
-                                if let Some((player, macro_name, args)) =
-                                    parse_macro_invocation(&line)
-                                {
-                                    debug!("Invoking macro {} with args {:?}", macro_name, args);
-                                    let path = path_to_macros.join(macro_name);
-                                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                                        let exec = LuaExecutionInstruction {
-                                            content,
+                                if let Some(macro_instruction) = parse_macro_invocation(&line) {
+                                    match macro_instruction {
+                                        MacroInstruction::Abort(macro_id) => {
+                                            macro_executor.abort_macro(&macro_id).await;
+                                        }
+                                        MacroInstruction::Spawn {
+                                            player_name,
+                                            macro_name,
                                             args,
-                                            executor: Some(player),
-                                            lua: None,
-                                        };
-                                        macro_executor.spawn(exec);
-                                    } else {
-                                        warn!("Failed to read macro file {:?}", path);
+                                        } => {
+                                            debug!(
+                                                "Invoking macro {} with args {:?}",
+                                                macro_name, args
+                                            );
+                                            let path = scoped_join_win_safe(
+                                                &path_to_macros.join("in_game"),
+                                                &format!("{}.lua", macro_name),
+                                            )
+                                            .unwrap();
+                                            if let Ok(content) =
+                                                tokio::fs::read_to_string(&path).await
+                                            {
+                                                let exec = LuaExecutionInstruction {
+                                                    content,
+                                                    args,
+                                                    executor: Some(player_name),
+                                                    lua: None,
+                                                };
+                                                macro_executor.spawn(exec);
+                                            } else {
+                                                warn!("Failed to read macro file {:?}", path);
+                                            }
+                                        }
                                     }
                                 }
                             }
