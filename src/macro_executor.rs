@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use log::{error, info};
+use log::{error, info, debug};
 use mlua::Lua;
 use tokio::{
     runtime::Builder,
@@ -115,6 +115,7 @@ impl MacroExecutor {
                 // This will return once all senders are dropped and all
                 // spawned tasks have returned.
                 rt.block_on(local);
+                debug!("MacroExecutor thread exited");
             }
         });
         MacroExecutor {
