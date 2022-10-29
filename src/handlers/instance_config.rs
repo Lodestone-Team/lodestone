@@ -106,7 +106,6 @@ pub async fn set_instance_setting(
 
     match value {
         Value::Null => match key {
-
             InstanceSetting::BackupPeriod => instance.set_backup_period(None).await,
             _ => Some(Err(Error {
                 inner: ErrorInner::MalformedRequest,
@@ -120,7 +119,6 @@ pub async fn set_instance_setting(
             })? as u32;
 
             match key {
-
                 InstanceSetting::BackupPeriod => instance.set_backup_period(Some(number)).await,
                 InstanceSetting::MaxRam => instance.set_max_ram(number).await,
                 InstanceSetting::MinRam => instance.set_min_ram(number).await,
