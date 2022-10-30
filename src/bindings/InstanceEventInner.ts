@@ -13,7 +13,12 @@ export type InstanceEventInner =
   | { type: 'InstanceInput'; message: string }
   | { type: 'InstanceOutput'; message: string }
   | { type: 'SystemMessage'; message: string }
-  | { type: 'PlayerChange'; player_list: Array<string> }
+  | {
+      type: 'PlayerChange';
+      player_list: Array<string>;
+      players_joined: Array<string>;
+      players_left: Array<string>;
+    }
   | { type: 'PlayerJoined'; player: string }
   | { type: 'PlayerLeft'; player: string }
   | { type: 'PlayerMessage'; player: string; player_message: string }

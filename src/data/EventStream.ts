@@ -97,18 +97,19 @@ export const useEventStream = () => {
             SystemMessage: ({ message }) => {
               console.log(`Got system message on ${name}: ${message}`);
             },
-            PlayerChange: ({ player_list }) => {
+            PlayerChange: ({ player_list, players_joined, players_left }) => {
               // updateInstancePlayerCount(uuid, player_list.length);
               console.log(`Got player change on ${name}: ${player_list}`);
-              // TODO: update player list, use namemc api to get player icons too maybe?
+              console.log(`${players_joined} joined ${name}`);
+              console.log(`${players_left} left ${name}`);
+              updateInstancePlayerCount(uuid, players_joined.length);
+              updateInstancePlayerCount(uuid, -players_left.length);
             },
             PlayerJoined: ({ player }) => {
-              console.log(`${player} joined ${name}`);
-              updateInstancePlayerCount(uuid, 1);
+              console.log(`Deprecated PlayerJoined event on ${name}`);
             },
             PlayerLeft: ({ player }) => {
-              console.log(`${player} left ${name}`);
-              updateInstancePlayerCount(uuid, -1);
+              console.log(`Deprecated PlayerLeft event on ${name}`);
             },
             PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
