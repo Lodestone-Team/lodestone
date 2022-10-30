@@ -16,6 +16,7 @@ pub enum State {
     Error,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DiskUsage {
     pub total_written_bytes: u64,
     pub written_bytes: u64,
@@ -34,7 +35,8 @@ impl From<sysinfo::DiskUsage> for DiskUsage {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
-
+#[serde(rename = "PerformanceReport")]
+#[ts(export)]
 pub struct MonitorReport {
     pub memory_usage: Option<u64>,
     pub disk_usage: Option<DiskUsage>,
