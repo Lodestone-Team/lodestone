@@ -26,7 +26,6 @@
     "axios": "^0.27.2",
     "babel-plugin-macros": "^3.1.0",
     "chart.js": "^3.9.1",
-    "cookie": "^0.5.0",
     "formik": "^2.2.9",
     "jsonwebtoken": "^8.5.1",
     "monaco-editor": "^0.34.0",
