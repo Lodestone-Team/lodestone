@@ -87,7 +87,7 @@ export default function EditableTextfield({
     </div>
   ) : null;
 
-  const iconSize = type === 'heading' ? 'w-8' : 'w-4';
+  const iconSize = type === 'heading' ? 'w-6' : 'w-4';
 
   return (
     <div
