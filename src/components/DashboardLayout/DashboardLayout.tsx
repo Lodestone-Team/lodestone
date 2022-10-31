@@ -13,6 +13,7 @@ import { useInstanceList } from 'data/InstanceList';
 import { useRouterQuery } from 'utils/hooks';
 import router from 'next/router';
 import ResizePanel from 'components/Atoms/ResizePanel';
+import NotificationPanel from './NotificationPanel';
 
 export default function DashboardLayout({
   children,
@@ -23,6 +24,7 @@ export default function DashboardLayout({
   const { isLoading, isError, data: instances, error } = useInstanceList();
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
   const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 200);
+  const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
 
   // called for side effects
   useEventStream();
@@ -86,6 +88,16 @@ export default function DashboardLayout({
             <LeftNav />
           </ResizePanel>
           <div className="min-w-0 grow">{children}</div>
+          <ResizePanel
+            direction="w"
+            maxSize={500}
+            minSize={200}
+            size={rightNavSize}
+            validateSize={false}
+            onResize={setRightNavSize}
+          >
+            <NotificationPanel />
+          </ResizePanel>
         </div>
       </div>
     </InstanceContext.Provider>

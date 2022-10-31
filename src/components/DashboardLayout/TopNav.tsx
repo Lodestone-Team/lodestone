@@ -30,7 +30,7 @@ export default function TopNav() {
   }, [token, isLoading, isError, user]);
 
   return (
-    <div className="flex flex-row items-center justify-end w-full h-12 gap-2 px-4 py-2 bg-gray-700 border-b border-gray-faded/30">
+    <div className="flex flex-row items-center justify-end w-full h-12 gap-2 px-4 py-2 bg-gray-700 border-b-2 border-gray-faded/30">
       <div className="grow">
         <img
           src="/logo.svg"

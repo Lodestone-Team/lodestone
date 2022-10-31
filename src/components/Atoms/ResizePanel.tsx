@@ -129,10 +129,10 @@ export default function ResizePanel({
     containerStyle[isHorizontal ? 'width' : 'height'] = 'auto';
   }
 
-  const resizeBarClassNames = `flex items-center justify-center z-10 bg-transparent ${
+  const resizeBarClassNames = `bg-clip-content z-10 bg-gray-faded/30 ${
     isHorizontal
-      ? 'cursor-ew-resize w-2 -ml-1 -mr-1'
-      : 'cursor-ns-resize h-2 -mt-1 -mb-1'
+      ? 'cursor-ew-resize w-0 pl-1.5 pr-1.5 -ml-1.5 -mr-1.5'
+      : 'cursor-ns-resize h-0 pt-1.5 pb-1.5 -mt-1.5 -mb-1.5'
   } ${resizeBarClassNamesProps}`;
 
   const contentStyle = isHorizontal
