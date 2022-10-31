@@ -94,7 +94,7 @@ export default function PerformanceGraph({
         pollrate_s * 1000 * 0.9
       );
       val = value;
-      setMax(max);
+      if (max) setMax(max);
     } catch (e) {
       console.log(e);
     }
@@ -152,7 +152,9 @@ export default function PerformanceGraph({
       },
       title: {
         display: true,
-        text: `${title} - ${displayData[displayData.length - 1]}/${displayMax}${unit}`,
+        text: `${title} - ${
+          displayData[displayData.length - 1]
+        }/${displayMax}${unit}`,
       },
     },
     scales: {
@@ -201,7 +203,7 @@ export default function PerformanceGraph({
         },
         beginAtZero: true,
         // min: 0,
-        max:displayMax,
+        max: displayMax,
         ticks: {
           maxTicksLimit: 8,
           padding: 10,
