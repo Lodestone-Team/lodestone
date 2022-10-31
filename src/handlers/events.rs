@@ -41,7 +41,6 @@ pub async fn get_event_buffer(
             .await
             .get_ref()
             .iter()
-            .rev()
             .filter(|event| match &event.event_inner {
                 EventInner::InstanceEvent(instance_event) => {
                     (instance_event.instance_uuid == uuid || uuid == "all")
@@ -72,7 +71,6 @@ pub async fn get_console_buffer(
             .get(&uuid)
             .unwrap_or(&AllocRingBuffer::new())
             .iter()
-            .rev()
             .filter(|event| match &event.event_inner {
                 EventInner::InstanceEvent(instance_event) => {
                     (instance_event.instance_uuid == uuid || uuid == "all")
