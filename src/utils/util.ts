@@ -136,3 +136,29 @@ export function parseintStrict(value: string): number {
   if (parsed.toString() !== value) throw new Error('Not an integer');
   return parsed;
 }
+
+export function getWidth(el: HTMLElement, type: 'inner' | 'outer' | 'width' | 'full') {
+  if (type === 'inner') // .innerWidth()
+    return el.clientWidth;
+  else if (type === 'outer') // .outerWidth()
+    return el.offsetWidth;
+  const s = window.getComputedStyle(el, null);
+  if (type === 'width') // .width()
+    return el.clientWidth - parseInt(s.getPropertyValue('padding-left')) - parseInt(s.getPropertyValue('padding-right'));
+  else if (type === 'full') // .outerWidth(includeMargins = true)
+    return el.offsetWidth + parseInt(s.getPropertyValue('margin-left')) + parseInt(s.getPropertyValue('margin-right'));
+  throw new Error('Invalid type');
+}
+
+export function getHeight(el: HTMLElement, type: 'inner' | 'outer' | 'height' | 'full') {
+  if (type === 'inner') // .innerHeight()
+    return el.clientHeight;
+  else if (type === 'outer') // .outerHeight()
+    return el.offsetHeight;
+  const s = window.getComputedStyle(el, null);
+  if (type === 'height') // .height()
+    return el.clientHeight - parseInt(s.getPropertyValue('padding-top')) - parseInt(s.getPropertyValue('padding-bottom'));
+  else if (type === 'full') // .outerHeight(includeMargins = true)
+    return el.offsetHeight + parseInt(s.getPropertyValue('margin-top')) + parseInt(s.getPropertyValue('margin-bottom'));
+  throw new Error('Invalid type');
+}

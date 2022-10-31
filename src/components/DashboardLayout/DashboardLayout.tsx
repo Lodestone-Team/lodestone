@@ -3,7 +3,6 @@
 
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
-import Split from 'react-split';
 import { useInterval, useLocalStorage, useWindowSize } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
 import { useClientInfo } from 'data/SystemInfo';
@@ -13,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { useInstanceList } from 'data/InstanceList';
 import { useRouterQuery } from 'utils/hooks';
 import router from 'next/router';
+import ResizePanel from 'components/Atoms/ResizePanel';
 
 export default function DashboardLayout({
   children,
@@ -22,10 +22,7 @@ export default function DashboardLayout({
   const { query: uuid } = useRouterQuery('uuid');
   const { isLoading, isError, data: instances, error } = useInstanceList();
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
-  const [splitSizes, setSplitSizes] = useLocalStorage(
-    'dashboardSplitSize',
-    [12.5, 87.5]
-  );
+  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 200);
 
   // called for side effects
   useEventStream();
@@ -77,18 +74,19 @@ export default function DashboardLayout({
     >
       <div className="flex flex-col h-screen">
         <TopNav />
-        <Split
-          sizes={splitSizes}
-          minSize={[200, 0]}
-          maxSize={[500, Infinity]}
-          snapOffset={0}
-          gutterSize={0}
-          className="flex flex-row items-stretch w-screen min-h-0 text-gray-300 bg-gray-800 grow"
-          onDragEnd={setSplitSizes}
-        >
-          <LeftNav />
-          <div>{children}</div>
-        </Split>
+        <div className="flex flex-row w-full grow">
+          <ResizePanel
+            direction="e"
+            maxSize={500}
+            minSize={200}
+            size={leftNavSize}
+            validateSize={false}
+            onResize={setLeftNavSize}
+          >
+            <LeftNav />
+          </ResizePanel>
+          <div className="min-w-0 grow">{children}</div>
+        </div>
       </div>
     </InstanceContext.Provider>
   );

@@ -1,5 +1,4 @@
 import { ComponentStory, ComponentMeta } from '@storybook/react';
-import Split from 'react-split';
 import InstanceCard from './InstanceCard';
 
 export default {
@@ -20,18 +19,9 @@ export default {
 } as ComponentMeta<typeof InstanceCard>;
 
 const Template: ComponentStory<typeof InstanceCard> = (args) => (
-  <Split
-    sizes={[60, 40]}
-    snapOffset={0}
-    gutterSize={0}
-    minSize={0}
-    className="flex flex-row w-96"
-  >
-    <div className="flex flex-col child:w-full">
-      <InstanceCard {...args} />
-    </div>
-    <div className="pl-4 text-gray-300">{'   <-Try drag here'}</div>
-  </Split>
+  <div className="flex flex-col child:w-full">
+    <InstanceCard {...args} />
+  </div>
 );
 
 export const Default = Template.bind({});
