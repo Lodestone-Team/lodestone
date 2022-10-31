@@ -30,14 +30,7 @@ pub enum InstanceEventInner {
         players_joined : HashSet<String>,
         players_left : HashSet<String>,
     },
-    #[deprecated]
-    PlayerJoined {
-        player: String,
-    },
-    #[deprecated]
-    PlayerLeft {
-        player: String,
-    },
+
     PlayerMessage {
         player: String,
         player_message: String,

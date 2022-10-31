@@ -857,18 +857,6 @@ impl Instance {
                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                             instance_uuid: uuid.clone(),
                             instance_name: name.clone(),
-                            instance_event_inner: InstanceEventInner::PlayerJoined {
-                                player: player_diff.clone().last().unwrap().clone(),
-                            },
-                        }),
-                        details: "".to_string(),
-                        timestamp: chrono::Utc::now().timestamp(),
-                        idempotency: rand_alphanumeric(5),
-                    });
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: uuid.clone(),
-                            instance_name: name.clone(),
                             instance_event_inner: InstanceEventInner::PlayerChange {
                                 player_list : new_players.clone(),
                                 players_joined : player_diff.map(|s| s.to_owned()).collect(),
@@ -882,18 +870,6 @@ impl Instance {
                 } else if old_players.len() < new_players.len() {
                     let player_diff = new_players.difference(old_players);
                     // debug!("[{}] Detected player left: {}", name, player_diff);
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: uuid.clone(),
-                            instance_name: name.clone(),
-                            instance_event_inner: InstanceEventInner::PlayerLeft {
-                                player: player_diff.clone().last().unwrap().clone(),
-                            },
-                        }),
-                        details: "".to_string(),
-                        timestamp: chrono::Utc::now().timestamp(),
-                        idempotency: rand_alphanumeric(5),
-                    });
                     let _ = event_broadcaster.send(Event {
                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                             instance_uuid: uuid.clone(),
