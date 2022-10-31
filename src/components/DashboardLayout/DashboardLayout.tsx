@@ -4,7 +4,7 @@
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
 import Split from 'react-split';
-import { useWindowSize } from 'usehooks-ts';
+import { useInterval, useLocalStorage, useWindowSize } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
 import { useClientInfo } from 'data/SystemInfo';
 import { InstanceContext } from 'data/InstanceContext';
@@ -22,12 +22,14 @@ export default function DashboardLayout({
   const { query: uuid } = useRouterQuery('uuid');
   const { isLoading, isError, data: instances, error } = useInstanceList();
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
+  const [splitSizes, setSplitSizes] = useLocalStorage(
+    'dashboardSplitSize',
+    [12.5, 87.5]
+  );
+
   // called for side effects
   useEventStream();
   useClientInfo();
-  const { width: windowWidth } = useWindowSize();
-  const minWidth = (windowWidth / 12) * 1.5;
-  const maxWidth = (windowWidth / 12) * 4;
 
   useEffect(() => {
     if (uuid && instances && uuid in instances)
@@ -76,12 +78,13 @@ export default function DashboardLayout({
       <div className="flex flex-col h-screen">
         <TopNav />
         <Split
-          sizes={[10, 90]}
-          minSize={[minWidth, 0]}
-          maxSize={[maxWidth, Infinity]}
+          sizes={splitSizes}
+          minSize={[200, 0]}
+          maxSize={[500, Infinity]}
           snapOffset={0}
           gutterSize={0}
           className="flex flex-row items-stretch w-screen min-h-0 text-gray-300 bg-gray-800 grow"
+          onDragEnd={setSplitSizes}
         >
           <LeftNav />
           <div>{children}</div>
