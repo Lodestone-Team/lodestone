@@ -147,7 +147,21 @@ export const useEventStream = () => {
               updateInstancePlayerCount(uuid, players_joined.length);
               updateInstancePlayerCount(uuid, -players_left.length);
               return info(
-                `${players_joined.length} joined ${name}, ${players_left.length} left ${name}`
+                `${
+                  players_joined.length > 0
+                    ? `${players_joined.join(', ')} Joined ${name}`
+                    : ''
+                }
+                ${
+                  players_left.length > 0 && players_joined.length > 0
+                    ? ' and '
+                    : ''
+                }
+                ${
+                  players_left.length > 0
+                    ? `${players_left.join(', ')} Left ${name}`
+                    : ''
+                }`
               );
             },
             PlayerJoined: ({ player }) => {
