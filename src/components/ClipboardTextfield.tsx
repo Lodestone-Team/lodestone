@@ -13,6 +13,7 @@ export default function ClipboardTextfield({
 }) {
   const onClickCopy = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
+    // note that navigator.clipboard.writeText is only supported over HTTPS
     navigator.clipboard.writeText(textToCopy || text);
     //TODO: toast "copied" when we have notifications setup
     alert(`Copied "${textToCopy || text}"`);
