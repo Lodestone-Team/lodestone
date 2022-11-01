@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { PublicUser } from 'bindings/PublicUser';
 import { useContext } from 'react';
-import { isAxiosError } from 'utils/util';
 import { LodestoneContext } from './LodestoneContext';
 import { UserPermission } from 'bindings/UserPermission';
 

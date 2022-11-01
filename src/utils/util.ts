@@ -19,10 +19,11 @@ export function round(num: number, precision: number) {
  * @param {number} timeLimit Time limit to attempt function in milliseconds
  * @returns {Promise<any> | undefined} Resolved promise for async function call, or an error if time limit reached
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const asyncCallWithTimeout = async (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   asyncPromise: Promise<any>,
   timeLimit: number
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
   let timeoutHandle: NodeJS.Timeout;
 
@@ -164,7 +165,7 @@ export function getHeight(el: HTMLElement, type: 'inner' | 'outer' | 'height' | 
 }
 
 // format duration in seconds to DD:HH:MM:SS
-const formatDuration = (duration: number) => {
+export const formatDuration = (duration: number) => {
   const days = Math.floor(duration / 86400);
   const hours = Math.floor((duration % 86400) / 3600);
   const minutes = Math.floor((duration % 3600) / 60);

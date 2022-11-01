@@ -9,8 +9,7 @@ const inputBorderClassName =
 const inputErrorBorderClassName =
   'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
 
-const iconClassName =
-  'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
+const iconClassName = 'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;

@@ -1,6 +1,6 @@
 import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
-import { useUserInfo, useUserAuthorized } from 'data/UserInfo';
+import { useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';

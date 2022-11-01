@@ -19,8 +19,6 @@ export type InstanceEventInner =
       players_joined: Array<string>;
       players_left: Array<string>;
     }
-  | { type: 'PlayerJoined'; player: string }
-  | { type: 'PlayerLeft'; player: string }
   | { type: 'PlayerMessage'; player: string; player_message: string }
   | ({ type: 'Downloading' } & DownloadProgress)
   | ({ type: 'Setup' } & SetupProgress);

@@ -1,7 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect } from 'react';
 import { pushKeepQuery } from 'utils/util';
 import { NextPageWithLayout } from './_app';
 import Link from 'next/link';

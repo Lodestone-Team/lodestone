@@ -1,13 +1,10 @@
 // a wrapper around TextField that fetches a single setting from the server
-
-import { useQueryClient } from '@tanstack/react-query';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGameSetting } from 'data/GameSetting';
-import { useInstanceManifest } from 'data/InstanceManifest';
 import { axiosPutSingleValue, errorToMessage } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
 import Textfield from './Atoms/Config/InputBox';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
 

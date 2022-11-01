@@ -1,7 +1,6 @@
 import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  HTMLInputTypeAttribute,
   useCallback,
   useEffect,
   useRef,
@@ -82,7 +81,7 @@ export default function InputBox({
       }
       if (validateProp) await validateProp(value);
     },
-    [max, min, type, validateProp]
+    [max, min, type, validateProp, required]
   );
 
   // we want to validate the input after the user stops typing for a while

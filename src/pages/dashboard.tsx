@@ -4,13 +4,12 @@ import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Atoms/Label';
-import { updateInstance, useInstanceList } from 'data/InstanceList';
+import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { ReactElement, ReactNode, useContext, useMemo, useState } from 'react';
+import { ReactElement, ReactNode, useContext, useState } from 'react';
 import {
   axiosPutSingleValue,
   axiosWrapper,
-  pushKeepQuery,
   stateToLabelColor,
 } from 'utils/util';
 import { NextPageWithLayout } from './_app';

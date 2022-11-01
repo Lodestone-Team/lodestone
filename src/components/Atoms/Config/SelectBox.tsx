@@ -2,10 +2,7 @@ import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Listbox } from '@headlessui/react';
 import {
-  HTMLInputTypeAttribute,
-  useCallback,
   useEffect,
-  useRef,
   useState,
 } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';

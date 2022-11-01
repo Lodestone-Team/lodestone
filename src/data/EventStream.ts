@@ -164,14 +164,6 @@ export const useEventStream = () => {
                 }`
               );
             },
-            PlayerJoined: ({ player }) => {
-              console.log(`Deprecated PlayerJoined event on ${name}`);
-              return null;
-            },
-            PlayerLeft: ({ player }) => {
-              console.log(`Deprecated PlayerLeft event on ${name}`);
-              return null;
-            },
             PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
               return info(`${player} said ${player_message} on ${name}`);
@@ -248,5 +240,5 @@ export const useEventStream = () => {
     return () => {
       websocket.close();
     };
-  }, [queryClient, address, port, apiVersion, isReady, token]);
+  }, [queryClient, address, port, apiVersion, isReady, token, pushNotification]);
 };
