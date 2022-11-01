@@ -9,19 +9,6 @@ import { Dialog } from '@headlessui/react';
 import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
 
-// format duration in seconds to DD:HH:MM:SS
-const formatDuration = (duration: number) => {
-  const days = Math.floor(duration / 86400);
-  const hours = Math.floor((duration % 86400) / 3600);
-  const minutes = Math.floor((duration % 3600) / 60);
-  const seconds = Math.floor(duration % 60);
-  return `${days < 10 ? '0' + days : days}:${
-    hours < 10 ? '0' + hours : hours
-  }:${minutes < 10 ? '0' + minutes : minutes}:${
-    seconds < 10 ? '0' + seconds : seconds
-  }`;
-};
-
 export default function LeftNav() {
   const { data: clientInfo, isLoading: clientInfoLoading } = useClientInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);

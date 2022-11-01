@@ -76,7 +76,7 @@ export default function DashboardLayout({
     >
       <div className="flex flex-col h-screen">
         <TopNav />
-        <div className="flex flex-row w-full grow">
+        <div className="flex flex-row w-full min-h-0 grow">
           <ResizePanel
             direction="e"
             maxSize={500}
@@ -84,6 +84,7 @@ export default function DashboardLayout({
             size={leftNavSize}
             validateSize={false}
             onResize={setLeftNavSize}
+            containerClassNames="min-h-0"
           >
             <LeftNav />
           </ResizePanel>
@@ -95,6 +96,7 @@ export default function DashboardLayout({
             size={rightNavSize}
             validateSize={false}
             onResize={setRightNavSize}
+            containerClassNames="min-h-0"
           >
             <NotificationPanel />
           </ResizePanel>

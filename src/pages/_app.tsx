@@ -13,6 +13,7 @@ import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
 import { errorToMessage } from 'utils/util';
 import { useClientInfo } from 'data/SystemInfo';
+import { DashboardNotification } from 'data/EventStream';
 
 config.autoAddCss = false;
 
@@ -41,6 +42,11 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const { query: address, isReady } = useRouterQuery('address');
   const { query: port } = useRouterQuery('port');
   const [token, setToken] = useLocalStorage<string>('token', '');
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
+
+  const pushNotification = (notification: DashboardNotification) => {
+    setNotifications((notifications) => [...notifications, notification]);
+  };
 
   const protocol = 'http';
   const apiVersion = 'v1';
@@ -85,6 +91,8 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           isReady: isReady,
           token,
           setToken,
+          notifications,
+          pushNotification
         }}
       >
         {getLayout(<Component {...pageProps} />)}
