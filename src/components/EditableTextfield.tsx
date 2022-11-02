@@ -46,6 +46,7 @@ export default function EditableTextfield({
     setEditText(trimmed);
     setIsLoading(true);
     const error = await catchAsyncToString(onSubmitProp(trimmed));
+    console.log(error);
     setError(error);
     setIsLoading(false);
     setDisplayText(trimmed);
@@ -91,10 +92,10 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`relative flex flex-row justify-start items-center tracking-tight group ${
+      className={`relative flex flex-row justify-start items-center group ${
         type === 'heading'
-          ? 'font-semibold font-heading text-2xlarge'
-          : 'italic text-small font-medium'
+          ? 'font-semibold font-title text-2xlarge tracking-medium'
+          : 'italic text-small font-mediumtracking-tight'
       } ${containerClassName}`}
     >
       <div

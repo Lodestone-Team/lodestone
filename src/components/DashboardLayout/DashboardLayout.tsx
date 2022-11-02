@@ -88,7 +88,7 @@ export default function DashboardLayout({
           >
             <LeftNav />
           </ResizePanel>
-          <div className="min-w-0 grow">{children}</div>
+          <div className="h-full min-w-0 grow child:h-full">{children}</div>
           <ResizePanel
             direction="w"
             maxSize={500}

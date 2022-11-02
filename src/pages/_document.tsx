@@ -6,7 +6,7 @@ class MyDocument extends Document {
       <Html>
         <Head>
           <link
-            href="https://api.fontshare.com/css?f[]=chillax@1&f[]=satoshi@1,2&f[]=jet-brains-mono@1,2&display=swap"
+            href="https://api.fontshare.com/css?f[]=chillax@1&f[]=satoshi@1,2&f[]=jet-brains-mono@1,2&f[]=clash-grotesk@1&display=swap"
             rel="stylesheet"
           />
         </Head>

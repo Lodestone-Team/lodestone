@@ -10,6 +10,7 @@ import { ReactElement, ReactNode, useContext, useState } from 'react';
 import {
   axiosPutSingleValue,
   axiosWrapper,
+  catchAsyncToString,
   stateToLabelColor,
 } from 'utils/util';
 import { NextPageWithLayout } from './_app';
@@ -26,8 +27,7 @@ import { InstanceContext } from 'data/InstanceContext';
 
 const Dashboard: NextPageWithLayout = () => {
   const { address } = useContext(LodestoneContext);
-  const { selectedInstance: instance } =
-    useContext(InstanceContext);
+  const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
   const router = useRouter();
@@ -59,7 +59,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Console',
-        content: <GameConsole/>,
+        content: <GameConsole />,
       },
       {
         title: 'Settings',
@@ -118,7 +118,7 @@ const Dashboard: NextPageWithLayout = () => {
 
   return (
     <div
-      className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800 border-l-2 border-r-2 border-gray-faded/30"
+      className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800"
       key={uuid}
     >
       <div className="flex flex-col items-start h-full min-h-0 gap-2">

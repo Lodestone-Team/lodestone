@@ -8,7 +8,7 @@ export default function NotificationPanel() {
   const { notifications } = useContext(LodestoneContext);
 
   return (
-    <div className="flex flex-col w-full bg-gray-800">
+    <div className="flex flex-col w-full bg-gray-800 border-l-2 border-gray-faded/30">
       <div className="p-4 font-sans font-black tracking-tight border-b-2 border-gray-faded/30 text-large">
         Notifications
       </div>

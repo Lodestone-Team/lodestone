@@ -40,7 +40,7 @@ module.exports = {
     fontFamily: {
       'sans': ['Satoshi', ...defaultTheme.fontFamily.sans],
       'heading': ['Chillax', ...defaultTheme.fontFamily.sans],
-      'title': ['Chillax', ...defaultTheme.fontFamily.sans],
+      'title': ['Clash Grotesk', ...defaultTheme.fontFamily.sans],
       'mono': ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
@@ -55,7 +55,7 @@ module.exports = {
     },
     letterSpacing: {
       'tight': '-0.04em',
-      'medium': '-0.04em',
+      'medium': '-0.02em',
       'normal': '0',
       'wide': '0.04em',
     },
