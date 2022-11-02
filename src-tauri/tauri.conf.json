@@ -57,9 +57,11 @@
       {
         "fullscreen": false,
         "height": 600,
+        "minHeight" : 500,
         "resizable": true,
         "title": "lodestone",
-        "width": 800
+        "width": 1100,
+        "minWidth": 1000
       }
     ]
   }
