@@ -1924,7 +1924,7 @@ dependencies = [
 [[package]]
 name = "lodestone_client"
 version = "0.2.1-alpha.1"
-source = "git+https://github.com/Lodestone-Team/client?branch=alpha_0.3.0#292a62a0ef231f11782e630210f6742e06044e36"
+source = "git+https://github.com/Lodestone-Team/client?branch=alpha_0.3.0#e1dd51bb8f59f5a307a7acf550cda7287716a1b5"
 dependencies = [
  "argon2",
  "async-trait",
