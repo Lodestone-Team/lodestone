@@ -14,7 +14,7 @@ use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
 use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
-use crate::util::{rand_alphanumeric, scoped_join_win_safe};
+use crate::util::{dont_spawn_terminal, rand_alphanumeric, scoped_join_win_safe};
 
 use super::Instance;
 use log::{debug, error, info, warn};
@@ -56,24 +56,26 @@ impl TServer for Instance {
                 "bin"
             })
             .join("java");
-        match Command::new(&jre)
-            .arg(format!("-Xmx{}M", self.config.max_ram))
-            .arg(format!("-Xms{}M", self.config.min_ram))
-            .args(
-                &self
-                    .config
-                    .cmd_args
-                    .iter()
-                    .filter(|s| !s.is_empty())
-                    .collect::<Vec<&String>>(),
-            )
-            .arg("-jar")
-            .arg(&self.config.path.join("server.jar"))
-            .arg("nogui")
-            .stdout(Stdio::piped())
-            .stdin(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        match dont_spawn_terminal(
+            Command::new(&jre)
+                .arg(format!("-Xmx{}M", self.config.max_ram))
+                .arg(format!("-Xms{}M", self.config.min_ram))
+                .args(
+                    &self
+                        .config
+                        .cmd_args
+                        .iter()
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<&String>>(),
+                )
+                .arg("-jar")
+                .arg(&self.config.path.join("server.jar"))
+                .arg("nogui"),
+        )
+        .stdout(Stdio::piped())
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         {
             Ok(mut proc) => {
                 env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
