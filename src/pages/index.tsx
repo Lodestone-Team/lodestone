@@ -52,7 +52,7 @@ const Home: NextPageWithLayout = () => {
   }, [uuid]);
 
   return (
-    <div className="w-full h-full px-8 py-10 bg-gray-800 grow">
+    <div className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800">
       <h1 className="font-semibold tracking-tight text-gray-300 font-heading text-2xlarge">
         Home
       </h1>
