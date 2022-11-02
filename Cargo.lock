@@ -9,48 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
 
 [[package]]
-name = "Lodestone"
-version = "0.2.1-alpha.1"
-dependencies = [
- "argon2",
- "async-trait",
- "axum",
- "axum-auth",
- "axum-macros",
- "chrono",
- "env_logger",
- "fancy-regex",
- "fs_extra",
- "futures",
- "futures-util",
- "headers",
- "home",
- "indicatif",
- "jsonwebtoken",
- "lazy_static",
- "log",
- "mlua",
- "port_scanner",
- "rand 0.6.5",
- "rand_core 0.6.3",
- "reqwest",
- "ringbuffer",
- "safe-path",
- "sanitize-filename",
- "semver",
- "serde",
- "serde_json",
- "sysinfo",
- "tokio",
- "tokio-stream",
- "tower-http",
- "ts-rs",
- "uuid",
- "whoami",
- "zip",
-]
-
-[[package]]
 name = "adler"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -991,6 +949,48 @@ checksum = "327fa5b6a6940e4699ec49a9beae1ea4845c6bab9314e4f84ac68742139d8c53"
 dependencies = [
  "autocfg 1.1.0",
  "scopeguard",
+]
+
+[[package]]
+name = "lodestone_client"
+version = "0.2.1-alpha.1"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "axum",
+ "axum-auth",
+ "axum-macros",
+ "chrono",
+ "env_logger",
+ "fancy-regex",
+ "fs_extra",
+ "futures",
+ "futures-util",
+ "headers",
+ "home",
+ "indicatif",
+ "jsonwebtoken",
+ "lazy_static",
+ "log",
+ "mlua",
+ "port_scanner",
+ "rand 0.6.5",
+ "rand_core 0.6.3",
+ "reqwest",
+ "ringbuffer",
+ "safe-path",
+ "sanitize-filename",
+ "semver",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+ "tokio-stream",
+ "tower-http",
+ "ts-rs",
+ "uuid",
+ "whoami",
+ "zip",
 ]
 
 [[package]]
