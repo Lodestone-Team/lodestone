@@ -11,7 +11,11 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, windows-latest]
+    
+    runs-on: ${{ matrix.platform }}
     defaults:
       run:
         working-directory: ./
@@ -28,7 +32,7 @@ jobs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
       with:
-        working-directory: ./
+        key: ${{ runner.os }}-client
 
     - name: Build Backend
       run: cargo build --verbose --release
