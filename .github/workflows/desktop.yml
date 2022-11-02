@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: [ubuntu-20.04, windows-latest]
-w
+
     runs-on: ${{ matrix.platform }}
     steps:
     - name: Checkout repository
