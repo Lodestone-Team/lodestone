@@ -22,8 +22,8 @@ export default function MinecraftPerformanceCard() {
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> Performance </h1>
-      <div className="flex flex-row gap-10 mb-10">
-        <div className="w-1/2">
+      <div className="grid grid-cols-1 gap-10 mb-10 lg:grid-cols-2">
+        <div>
           <PerformanceGraph
             title="CPU Usage"
             color="#62DD76"
@@ -35,7 +35,7 @@ export default function MinecraftPerformanceCard() {
             unit="%"
           />
         </div>
-        <div className="w-1/2">
+        <div>
           <PerformanceGraph
             title="Memory Usage"
             color="#62DD76"

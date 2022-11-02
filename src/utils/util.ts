@@ -23,7 +23,7 @@ export const asyncCallWithTimeout = async (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   asyncPromise: Promise<any>,
   timeLimit: number
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> => {
   let timeoutHandle: NodeJS.Timeout;
 
@@ -73,7 +73,8 @@ export function errorToMessage(error: unknown): string {
     if (error.response && error.response.data) {
       if (error.response.data && error.response.data.inner) {
         // TODO: more runtime type checking
-        return error.response.data.toString();
+        const clientError: ClientError = new ClientError(error.response.data);
+        return clientError.toString();
       } else return `${error.code}: ${error.response.statusText}`;
     } else {
       if (error.code === 'ERR_NETWORK') return 'Network error';
@@ -81,7 +82,7 @@ export function errorToMessage(error: unknown): string {
     }
   }
   if (error === null) return '';
-  if (error instanceof Error) return error.message
+  if (error instanceof Error) return error.message;
   return `Unknown error`;
 }
 
@@ -138,29 +139,59 @@ export function parseintStrict(value: string): number {
   return parsed;
 }
 
-export function getWidth(el: HTMLElement, type: 'inner' | 'outer' | 'width' | 'full') {
-  if (type === 'inner') // .innerWidth()
+export function getWidth(
+  el: HTMLElement,
+  type: 'inner' | 'outer' | 'width' | 'full'
+) {
+  if (type === 'inner')
+    // .innerWidth()
     return el.clientWidth;
-  else if (type === 'outer') // .outerWidth()
+  else if (type === 'outer')
+    // .outerWidth()
     return el.offsetWidth;
   const s = window.getComputedStyle(el, null);
-  if (type === 'width') // .width()
-    return el.clientWidth - parseInt(s.getPropertyValue('padding-left')) - parseInt(s.getPropertyValue('padding-right'));
-  else if (type === 'full') // .outerWidth(includeMargins = true)
-    return el.offsetWidth + parseInt(s.getPropertyValue('margin-left')) + parseInt(s.getPropertyValue('margin-right'));
+  if (type === 'width')
+    // .width()
+    return (
+      el.clientWidth -
+      parseInt(s.getPropertyValue('padding-left')) -
+      parseInt(s.getPropertyValue('padding-right'))
+    );
+  else if (type === 'full')
+    // .outerWidth(includeMargins = true)
+    return (
+      el.offsetWidth +
+      parseInt(s.getPropertyValue('margin-left')) +
+      parseInt(s.getPropertyValue('margin-right'))
+    );
   throw new Error('Invalid type');
 }
 
-export function getHeight(el: HTMLElement, type: 'inner' | 'outer' | 'height' | 'full') {
-  if (type === 'inner') // .innerHeight()
+export function getHeight(
+  el: HTMLElement,
+  type: 'inner' | 'outer' | 'height' | 'full'
+) {
+  if (type === 'inner')
+    // .innerHeight()
     return el.clientHeight;
-  else if (type === 'outer') // .outerHeight()
+  else if (type === 'outer')
+    // .outerHeight()
     return el.offsetHeight;
   const s = window.getComputedStyle(el, null);
-  if (type === 'height') // .height()
-    return el.clientHeight - parseInt(s.getPropertyValue('padding-top')) - parseInt(s.getPropertyValue('padding-bottom'));
-  else if (type === 'full') // .outerHeight(includeMargins = true)
-    return el.offsetHeight + parseInt(s.getPropertyValue('margin-top')) + parseInt(s.getPropertyValue('margin-bottom'));
+  if (type === 'height')
+    // .height()
+    return (
+      el.clientHeight -
+      parseInt(s.getPropertyValue('padding-top')) -
+      parseInt(s.getPropertyValue('padding-bottom'))
+    );
+  else if (type === 'full')
+    // .outerHeight(includeMargins = true)
+    return (
+      el.offsetHeight +
+      parseInt(s.getPropertyValue('margin-top')) +
+      parseInt(s.getPropertyValue('margin-bottom'))
+    );
   throw new Error('Invalid type');
 }
 
@@ -180,10 +211,14 @@ export const formatDuration = (duration: number) => {
 // format message time for notifcations
 export const formatNotificationTime = (time_s: number) => {
   const now = new Date();
-  const time = new Date(time_s*1000);
-  if (now.getFullYear() === time.getFullYear() && now.getMonth() === time.getMonth() && now.getDate() === time.getDate()) {
+  const time = new Date(time_s * 1000);
+  if (
+    now.getFullYear() === time.getFullYear() &&
+    now.getMonth() === time.getMonth() &&
+    now.getDate() === time.getDate()
+  ) {
     return time.toLocaleTimeString('en-US');
   } else {
     return time.toLocaleString('en-US');
   }
-}
+};

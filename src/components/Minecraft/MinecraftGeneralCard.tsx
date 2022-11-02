@@ -161,7 +161,7 @@ export default function MinecraftGeneralCard() {
   return (
     <DashboardCard>
       <h1 className="font-bold text-medium"> General Settings </h1>
-      <div className="grid w-full grid-cols-2 gap-y-16 gap-x-8 child:w-full md:grid-cols-4">
+      <div className="grid w-full grid-cols-2 gap-y-16 gap-x-8 child:w-full lg:grid-cols-4">
         {portField}
         {maxPlayersField}
         {minRamField}

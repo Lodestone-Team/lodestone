@@ -3,7 +3,7 @@
 
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
-import { useInterval, useLocalStorage, useWindowSize } from 'usehooks-ts';
+import { useInterval, useLocalStorage, useSessionStorage, useWindowSize } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
 import { useClientInfo } from 'data/SystemInfo';
 import { InstanceContext } from 'data/InstanceContext';
@@ -25,6 +25,11 @@ export default function DashboardLayout({
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
   const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 200);
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
+  const [showNotifications, setShowNotifications] = useSessionStorage(
+    'showNotifications',
+    false
+  );
+  const { width, height } = useWindowSize();
 
   // called for side effects
   useEventStream();
@@ -75,7 +80,10 @@ export default function DashboardLayout({
       }}
     >
       <div className="flex flex-col h-screen">
-        <TopNav />
+        <TopNav
+          showNotifications={showNotifications}
+          setShowNotifications={setShowNotifications}
+        />
         <div className="flex flex-row w-full min-h-0 grow">
           <ResizePanel
             direction="e"
@@ -88,18 +96,30 @@ export default function DashboardLayout({
           >
             <LeftNav />
           </ResizePanel>
-          <div className="min-w-0 grow">{children}</div>
-          <ResizePanel
-            direction="w"
-            maxSize={500}
-            minSize={200}
-            size={rightNavSize}
-            validateSize={false}
-            onResize={setRightNavSize}
-            containerClassNames="min-h-0"
-          >
-            <NotificationPanel />
-          </ResizePanel>
+          <div className="h-full min-w-0 grow child:h-full">{children}</div>
+          {showNotifications &&
+            (width > 1280 ? (
+              <ResizePanel
+                direction="w"
+                maxSize={500}
+                minSize={200}
+                size={rightNavSize}
+                validateSize={false}
+                onResize={setRightNavSize}
+                containerClassNames="min-h-0"
+              >
+                <NotificationPanel />
+              </ResizePanel>
+            ) : (
+              <div
+                className="fixed right-0 h-full child:h-full"
+                style={{
+                  width: rightNavSize,
+                }}
+              >
+                <NotificationPanel />
+              </div>
+            ))}
         </div>
       </div>
     </InstanceContext.Provider>

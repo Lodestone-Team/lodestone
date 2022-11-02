@@ -10,6 +10,7 @@ import { ReactElement, ReactNode, useContext, useState } from 'react';
 import {
   axiosPutSingleValue,
   axiosWrapper,
+  catchAsyncToString,
   stateToLabelColor,
 } from 'utils/util';
 import { NextPageWithLayout } from './_app';
@@ -26,8 +27,7 @@ import { InstanceContext } from 'data/InstanceContext';
 
 const Dashboard: NextPageWithLayout = () => {
   const { address } = useContext(LodestoneContext);
-  const { selectedInstance: instance } =
-    useContext(InstanceContext);
+  const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
   const router = useRouter();
@@ -59,7 +59,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Console',
-        content: <GameConsole/>,
+        content: <GameConsole />,
       },
       {
         title: 'Settings',
@@ -118,10 +118,10 @@ const Dashboard: NextPageWithLayout = () => {
 
   return (
     <div
-      className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800 border-l-2 border-r-2 border-gray-faded/30"
+      className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800"
       key={uuid}
     >
-      <div className="flex flex-col items-start h-full min-h-0 gap-2">
+      <div className="flex flex-col items-start min-h-full gap-2">
         <div className="flex flex-row items-center min-w-0 gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
@@ -132,7 +132,7 @@ const Dashboard: NextPageWithLayout = () => {
             containerClassName="min-w-0"
           />
         </div>
-        <div className="flex flex-row items-center gap-4 -mt-2">
+        <div className="flex flex-row flex-wrap items-center gap-4 -mt-2">
           <img
             src="/assets/minecraft-vanilla.png"
             alt={`${instance.game_type} logo`}
@@ -155,7 +155,7 @@ const Dashboard: NextPageWithLayout = () => {
             />
           </Label>
           <Button
-            label="Delete (Temporary, no confirmation)"
+            label="Delete"
             disabled={!canDeleteInstance}
             onClick={() => {
               axiosWrapper({
@@ -192,7 +192,7 @@ const Dashboard: NextPageWithLayout = () => {
           selectedIndex={selectedTabIndex}
           onChange={setSelectedTabIndex}
         >
-          <Tab.List className="flex flex-row items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
+          <Tab.List className="flex flex-row flex-wrap items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
             {tabList[instance.game_type].map((tab) => (
               <Tab
                 key={tab.title}
@@ -208,10 +208,10 @@ const Dashboard: NextPageWithLayout = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="w-full grow">
+          <Tab.Panels className="flex flex-row items-stretch w-full grow">
             {tabList[instance.game_type].map((tab) => (
               <Tab.Panel
-                className="flex flex-col w-full h-full gap-8"
+                className="flex flex-col w-full gap-8"
                 key={tab.title}
               >
                 {tab.content}

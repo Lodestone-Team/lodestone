@@ -25,7 +25,7 @@ export default function LeftNav() {
   }, 1000);
 
   return (
-    <div className="flex flex-col items-center w-full px-4 pt-4 overflow-x-visible bg-gray-700">
+    <div className="flex flex-col items-center w-full px-4 pt-4 overflow-x-visible bg-gray-700 border-r-2 border-gray-faded/30">
       {/* <div className="w-full max-w-xs px-6 pb-6 mb-5 border-b border-gray-faded/30">
         <img src="/logo.svg" alt="logo" className="w-full" />
         <SystemStat
