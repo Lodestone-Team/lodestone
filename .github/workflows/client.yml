@@ -17,7 +17,7 @@ jobs:
         working-directory: ./
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install Rust toolchain 
       uses: actions-rs/toolchain@v1
@@ -34,7 +34,7 @@ jobs:
       run: cargo build --verbose --release
       
     - name: Archive production artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: Lodestone
         path: |
