@@ -37,3 +37,6 @@ next-env.d.ts
 
 # storybook-static
 /storybook-static
+
+# vscode local history
+.history
