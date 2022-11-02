@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build && next export",
-    "start": "next start",
+    "start": "next start -p 3001",
     "lint": "next lint",
     "storybook": "start-storybook -p 6006",
     "build-storybook": "build-storybook",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "tauri" : "tauri"
   },
   "dependencies": {
     "@floating-ui/react-dom": "^1.0.0",
@@ -58,6 +59,7 @@
     "@storybook/react": "^6.5.10",
     "@storybook/testing-library": "^0.0.13",
     "@svgr/webpack": "^6.3.1",
+    "@tauri-apps/cli": "^1.1.1",
     "@types/jsonwebtoken": "^8.5.9",
     "@types/node": "18.7.3",
     "@types/react": "18.0.17",
