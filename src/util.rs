@@ -294,8 +294,8 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
 }
 
 pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
-    if cfg!(windows) {
-        cmd.creation_flags(0x08000000);
-    }
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    
     cmd
 }
