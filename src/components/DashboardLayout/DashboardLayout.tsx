@@ -25,10 +25,8 @@ export default function DashboardLayout({
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
   const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 200);
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
-  const [showNotifications, setShowNotifications] = useSessionStorage(
-    'showNotifications',
-    false
-  );
+  const [showNotifications, setShowNotifications] = useState(false);
+
   const { width, height } = useWindowSize();
 
   // called for side effects
