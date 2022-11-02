@@ -26,7 +26,7 @@ jobs:
         toolchain: stable
 
     - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v1
+      uses: Swatinem/rust-cache@v2
       with:
         working-directory: ./
 
