@@ -33,7 +33,7 @@ export default function Label({
 }) {
   return (
     <span
-      className={`select-none font-bold tracking-medium rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]} ${className}`}
+      className={`select-none whitespace-nowrap font-bold tracking-medium rounded-full h-fit ${labelSizeMap[size]} ${labelColorMap[color]} ${className}`}
       {...rest}
     >
       {children}
