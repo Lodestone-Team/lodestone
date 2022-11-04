@@ -16,7 +16,7 @@ use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
 use crate::prelude::{PATH_TO_INSTANCES, get_snowflake};
-use crate::traits::InstanceInfo;
+use crate::traits::{InstanceInfo, TInstance};
 
 use crate::util::rand_alphanumeric;
 use crate::{
@@ -177,7 +177,9 @@ pub async fn create_minecraft_instance(
                             event_inner: EventInner::InstanceEvent(InstanceEvent {
                                 instance_uuid: uuid.clone(),
                                 instance_name: name.clone(),
-                                instance_event_inner: InstanceEventInner::InstanceCreationSuccess,
+                                instance_event_inner: InstanceEventInner::InstanceCreationSuccess {
+                                    instance : v.get_instance_info().await,
+                                },
                             }),
                             details: "".to_string(),
                             snowflake: get_snowflake(),
