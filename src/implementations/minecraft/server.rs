@@ -9,7 +9,7 @@ use tokio::process::Command;
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::macro_executor::LuaExecutionInstruction;
-use crate::prelude::LODESTONE_PATH;
+use crate::prelude::{LODESTONE_PATH, get_snowflake};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
@@ -287,7 +287,7 @@ impl TServer for Instance {
                                     instance_name: name.clone(),
                                 }),
                                 details: "".to_string(),
-                                timestamp: chrono::Utc::now().timestamp(),
+                                timestamp: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             });
 
@@ -313,7 +313,7 @@ impl TServer for Instance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    timestamp: chrono::Utc::now().timestamp(),
+                                    timestamp: get_snowflake(),
                                     idempotency: rand_alphanumeric(5),
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
@@ -342,7 +342,7 @@ impl TServer for Instance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    timestamp: chrono::Utc::now().timestamp(),
+                                    timestamp: get_snowflake(),
                                     idempotency: rand_alphanumeric(5),
                                 });
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {

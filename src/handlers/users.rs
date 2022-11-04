@@ -6,7 +6,7 @@ use crate::{
     events::{Event, EventInner, UserEvent, UserEventInner},
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
-    AppState,
+    AppState, prelude::get_snowflake,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
@@ -120,7 +120,7 @@ pub async fn new_user(
                 user_event_inner: UserEventInner::UserCreated,
             }),
             details: "".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: get_snowflake(),
             idempotency: rand_alphanumeric(5),
         })
         .map_err(|e| error!("Error sending event: {}", e));
@@ -163,7 +163,7 @@ pub async fn delete_user(
                 user_event_inner: UserEventInner::UserDeleted,
             }),
             details: "".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: get_snowflake(),
             idempotency: rand_alphanumeric(5),
         })
         .map_err(|e| error!("Error sending event: {}", e));
@@ -201,7 +201,7 @@ pub async fn logout(
                 user_event_inner: UserEventInner::UserLoggedOut,
             }),
             details: "".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: get_snowflake(),
             idempotency: rand_alphanumeric(5),
         })
         .map_err(|e| error!("Error sending event: {}", e));

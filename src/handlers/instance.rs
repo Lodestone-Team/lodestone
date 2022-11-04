@@ -15,7 +15,7 @@ use crate::auth::user::UserAction;
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
-use crate::prelude::PATH_TO_INSTANCES;
+use crate::prelude::{PATH_TO_INSTANCES, get_snowflake};
 use crate::traits::InstanceInfo;
 
 use crate::util::rand_alphanumeric;
@@ -180,7 +180,7 @@ pub async fn create_minecraft_instance(
                                 instance_event_inner: InstanceEventInner::InstanceCreationSuccess,
                             }),
                             details: "".to_string(),
-                            timestamp: chrono::Utc::now().timestamp(),
+                            timestamp: get_snowflake(),
                             idempotency: rand_alphanumeric(5),
                         })
                         .map_err(|e| {
@@ -198,7 +198,7 @@ pub async fn create_minecraft_instance(
                             },
                         }),
                         details: "".to_string(),
-                        timestamp: chrono::Utc::now().timestamp(),
+                        timestamp: get_snowflake(),
                         idempotency : rand_alphanumeric(5),
                     
                     }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket"));
