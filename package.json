@@ -10,7 +10,7 @@
     "storybook": "start-storybook -p 6006",
     "build-storybook": "build-storybook",
     "postinstall": "patch-package",
-    "tauri" : "tauri"
+    "tauri": "tauri"
   },
   "dependencies": {
     "@floating-ui/react-dom": "^1.0.0",

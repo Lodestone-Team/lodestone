@@ -40,7 +40,7 @@ export const useEventStream = () => {
 
     const websocket = new WebSocket(
       `ws://${address}:${
-        port ?? 3000
+        port ?? 16662
       }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
     );
 
@@ -53,7 +53,7 @@ export const useEventStream = () => {
     websocket.onmessage = (messageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const event: ClientEvent = JSON.parse(messageEvent.data);
-      const { event_inner, timestamp, idempotency } = event;
+      const { event_inner, snowflake_str, idempotency } = event;
 
       // I love match statements
       const notificationUnique = match(event_inner, {
@@ -191,7 +191,7 @@ export const useEventStream = () => {
                 ongoingDispatch({
                   type: 'update',
                   message: `Downloading ${download_name}: ${downloadedStr} of ${totalStr}`,
-                  progress: (Number(downloaded) / Number(total) / 4) * 0.75,
+                  progress: Number(downloaded) / Number(total) / 4 + 0.75,
                   // hard coded number manipulation because downloading is the 4/4th step of instance creation
                   event,
                   ongoing_key: uuid,
@@ -203,12 +203,13 @@ export const useEventStream = () => {
               console.log(
                 `Setting up ${name}: ${current}/${total_steps} (${stepName})`
               );
-              if (current === 1)
+              const done = current - 1;
+              if (done === 0)
                 ongoingDispatch({
                   type: 'add',
                   title: `Setting up ${name}`,
                   message: `${current}/${total_steps} (${stepName})`,
-                  progress: current,
+                  progress: done / total_steps,
                   event,
                   ongoing_key: uuid,
                 });
@@ -216,7 +217,7 @@ export const useEventStream = () => {
                 ongoingDispatch({
                   type: 'update',
                   message: `${name}: ${current}/${total_steps} (${stepName})`,
-                  progress: current / total_steps,
+                  progress: done / total_steps,
                   event,
                   ongoing_key: uuid,
                 });

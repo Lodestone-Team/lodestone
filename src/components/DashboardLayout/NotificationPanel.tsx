@@ -1,5 +1,7 @@
+import ProgressBar from 'components/Atoms/ProgressBar';
 import { NotificationContext } from 'data/NotificationContext';
 import { useContext } from 'react';
+import { GridLoader } from 'react-spinners';
 import { formatNotificationTime } from 'utils/util';
 
 export default function NotificationPanel() {
@@ -18,17 +20,25 @@ export default function NotificationPanel() {
         {ongoingNotifications.length > 0 ? (
           ongoingNotifications
             .map((notification) => (
-              <div
-                key={notification.key}
-                className={`justify-stretch flex flex-row items-start px-4 py-3 text-white hover:bg-gray-900`}
-              >
-                <div className="flex flex-col items-start">
-                  <span className="whitespace-nowrap text-smaller text-white/50">
-                    {formatNotificationTime(Number(notification.timestamp))}
-                    {/* TODO: make error and success messages look different */}
-                  </span>
-                  <p className="w-full text-base">{notification.title}</p>
-                  <p className="w-full text-small">{notification.message}</p>
+              <div key={notification.key}>
+                {notification.progress ? (
+                  <ProgressBar progress={notification.progress} />
+                ) : (
+                  <div className="h-1"></div>
+                )}
+                <div
+                  className={`justify-stretch flex flex-row items-center justify-between px-4 py-3 text-white hover:bg-gray-900`}
+                >
+                  <div className="flex flex-col items-start">
+                    <span className="whitespace-nowrap text-smaller text-white/50">
+                      {formatNotificationTime(Number(notification.timestamp))}
+                      {/* TODO: make error and success messages look different */}
+                    </span>
+                    <p className="w-full text-base">{notification.title}</p>
+                    <p className="w-full text-smaller">{notification.message}</p>
+                  </div>
+                  {/* TODO: fix loading animation flickering on resize */}
+                  <GridLoader size={5} margin={1} color="#E3E3E4" key={notification.key} />
                 </div>
               </div>
             ))
@@ -37,7 +47,9 @@ export default function NotificationPanel() {
           <div
             className={`justify-stretch flex flex-col items-start px-4 py-3 text-white`}
           >
-            <p className="w-full text-base">No tasks in progress at the moment!</p>
+            <p className="w-full text-base">
+              No tasks in progress at the moment!
+            </p>
           </div>
         )}
       </div>

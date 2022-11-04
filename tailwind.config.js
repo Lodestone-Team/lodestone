@@ -11,7 +11,10 @@ module.exports = {
     colors: {
       transparent: 'transparent',
       current: 'currentColor',
-      'blue': '#59B2F3',
+      'blue': {
+        DEFAULT: '#1D8EB2',
+        faded: '#3C85BA'
+      },
       'green': {
         DEFAULT: '#62DD76',
         faded: '#61AE32',

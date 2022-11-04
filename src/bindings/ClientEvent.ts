@@ -4,6 +4,7 @@ import type { EventInner } from './EventInner';
 export interface ClientEvent {
   event_inner: EventInner;
   details: string;
-  timestamp: bigint;
+  snowflake: number;
+  snowflake_str: string;
   idempotency: string;
 }

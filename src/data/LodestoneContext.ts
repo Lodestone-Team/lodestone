@@ -14,7 +14,7 @@ interface LodestoneContext {
 
 export const LodestoneContext = createContext<LodestoneContext>({
   address: 'localhost',
-  port: '3000',
+  port: '16662',
   protocol: 'http',
   apiVersion: 'v1',
   isReady: false,

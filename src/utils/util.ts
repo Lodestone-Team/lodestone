@@ -211,7 +211,7 @@ export const formatDuration = (duration: number) => {
 // format message time for notifcations
 export const formatNotificationTime = (time_s: number) => {
   const now = new Date();
-  const time = new Date(time_s * 1000);
+  const time = new Date(time_s);
   if (
     now.getFullYear() === time.getFullYear() &&
     now.getMonth() === time.getMonth() &&
@@ -242,5 +242,13 @@ export const formatBytesDownload = (
 
 // format number of bytes to human readable string
 export const formatBytes = (bytes: number, decimals = 2) => {
-  formatBytesDownload(bytes, bytes, decimals);
+  return formatBytesDownload(bytes, bytes, decimals);
+};
+
+export const LODESTONE_EPOCH = BigInt('1667530800000');
+
+// get the timestamp from a snowflake (bitint)
+export const getSnowflakeTimestamp = (snowflake_str: string) => {
+  const snowflakeBigInt = BigInt(snowflake_str);
+  return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
 };

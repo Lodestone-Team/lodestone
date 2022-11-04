@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setupWorker, rest } from 'msw';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { InstanceInfo } from 'bindings/InstanceInfo';
-import { DashboardNotification } from 'data/EventStream';
 
 const mockedInstanceInfo: InstanceInfo[] = [
   {
@@ -90,16 +89,13 @@ const Template: ComponentStory<typeof InstanceList> = () => (
   <LodestoneContext.Provider
     value={{
       address: 'example.com',
-      port: '3000',
+      port: '16662',
       protocol: 'http',
       apiVersion: 'v1',
       isReady: true,
       token: 'example-token',
       // eslint-disable-next-line @typescript-eslint/no-empty-function
       setToken: () => {},
-      notifications: [],
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      pushNotification: () => {},
     }}
   >
     <QueryClientProvider client={queryClient}>

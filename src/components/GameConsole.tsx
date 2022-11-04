@@ -100,7 +100,7 @@ export default function GameConsole() {
       >
         {consoleLog.map((line) => (
           <li
-            key={line.idempotency}
+            key={line.snowflake_str}
             className="py-[0.125rem] px-4 hover:bg-gray-800"
           >
             {line.message}

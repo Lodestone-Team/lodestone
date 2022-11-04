@@ -12,7 +12,6 @@ import { useRouterQuery } from 'utils/hooks';
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
 import { errorToMessage } from 'utils/util';
-import { DashboardNotification } from 'data/EventStream';
 import {
   NotificationContext,
   useNotificationReducer,
@@ -58,7 +57,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   useIsomorphicLayoutEffect(() => {
     if (!isReady) return;
     axios.defaults.baseURL = `${protocol}://${apiAddress}:${
-      port ?? 3000
+      port ?? 16662
     }/api/${apiVersion}`;
   }, [apiAddress, port, isReady]);
 
@@ -87,7 +86,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
       <LodestoneContext.Provider
         value={{
           address: apiAddress as string,
-          port: port ?? '3000',
+          port: port ?? '16662',
           protocol,
           apiVersion,
           isReady: isReady,

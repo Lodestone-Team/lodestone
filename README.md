@@ -127,7 +127,7 @@ This project also uses prettier and eslint, so please setup your IDE to use them
 npm install
 ```
 
-2. Starting the development server (default url is http://localhost:3000):
+2. Starting the development server (default url is http://localhost:3001):
 
 ```bash
 npm run dev

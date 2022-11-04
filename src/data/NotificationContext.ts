@@ -1,3 +1,4 @@
+import { getSnowflakeTimestamp } from './../utils/util';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { createContext, useReducer } from 'react';
 
@@ -60,7 +61,7 @@ export const useNotificationReducer = () => {
     (state: NotificationItem[], action: NotificationAction) => {
       const { message, status, event } = action;
       const key = event.idempotency;
-      const timestamp = Number(event.timestamp);
+      const timestamp = getSnowflakeTimestamp(event.snowflake_str);
       if (state.some((item) => item.key === key)) {
         console.warn('Notification with duplicate key received');
         return state;
@@ -81,7 +82,7 @@ export const useOngoingNotificationReducer = () => {
     (state: OngoingNotificationItem[], action: OngoingNotificationAction) => {
       const { message, title, progress, event, ongoing_key } = action;
       const key = ongoing_key;
-      const timestamp = Number(event.timestamp);
+      const timestamp = getSnowflakeTimestamp(event.snowflake_str);
       switch (action.type) {
         case 'add':
           if (state.some((item) => item.key === key)) {

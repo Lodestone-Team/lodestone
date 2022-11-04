@@ -33,7 +33,7 @@ export const usePerformanceStream = (uuid: string) => {
   useEffect(() => {
     const websocket = new WebSocket(
       `ws://${address}:${
-        port ?? 3000
+        port ?? 16662
       }/api/${apiVersion}/monitor/${uuid}`
     );
 

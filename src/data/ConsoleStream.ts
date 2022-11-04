@@ -1,3 +1,4 @@
+import { getSnowflakeTimestamp } from './../utils/util';
 import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -17,8 +18,8 @@ export type ConsoleStreamStatus =
 
 // simplified version of a ClientEvent with just InstanceOutput
 export type ConsoleEvent = {
-  timestamp: bigint;
-  idempotency: string;
+  timestamp: number;
+  snowflake_str: string;
   detail: string;
   uuid: string;
   name: string;
@@ -52,8 +53,8 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
   );
 
   return {
-    timestamp: event.timestamp,
-    idempotency: event.idempotency,
+    timestamp: getSnowflakeTimestamp(event.snowflake_str),
+    snowflake_str: event.snowflake_str,
     detail: event.details,
     uuid: event_inner.instance_uuid,
     name: event_inner.instance_name,
@@ -97,11 +98,10 @@ export const useConsoleStream = (uuid: string) => {
         .map(toConsoleEvent);
 
       const mergedLog = [...oldLog, ...consoleEvents];
-      // TODO: implement snowflake ids and use those instead of idempotency
       // this is slow ik
       return mergedLog.filter(
         (event, index) =>
-          mergedLog.findIndex((e) => e.idempotency === event.idempotency) ===
+          mergedLog.findIndex((e) => e.snowflake_str === event.snowflake_str) ===
           index
       );
     });
@@ -120,7 +120,7 @@ export const useConsoleStream = (uuid: string) => {
 
     const websocket = new WebSocket(
       `ws://${address}:${
-        port ?? 3000
+        port ?? 16662
       }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
     );
 
