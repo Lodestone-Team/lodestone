@@ -171,19 +171,37 @@ pub async fn create_minecraft_instance(
             )
             .await
             {
-                Ok(v) => v,
-                Err(_) => {
+                Ok(v) => {
+                    event_broadcaster
+                        .send(Event {
+                            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                instance_uuid: uuid.clone(),
+                                instance_name: name.clone(),
+                                instance_event_inner: InstanceEventInner::InstanceCreationSuccess,
+                            }),
+                            details: "".to_string(),
+                            timestamp: chrono::Utc::now().timestamp(),
+                            idempotency: rand_alphanumeric(5),
+                        })
+                        .map_err(|e| {
+                            error!("Failed to send event: {}", e);
+                        });
+                    v
+                }
+                Err(e) => {
                     event_broadcaster.send(Event {
                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                             instance_uuid: uuid.clone(),
                             instance_name : name.clone(),
-                            instance_event_inner: InstanceEventInner::InstanceCreationFailed,
+                            instance_event_inner: InstanceEventInner::InstanceCreationFailed {
+                                reason: e.detail,
+                            },
                         }),
                         details: "".to_string(),
                         timestamp: chrono::Utc::now().timestamp(),
                         idempotency : rand_alphanumeric(5),
                     
-                    }).map_err(|_|error!("Instance setup failed AND failed to communicate this result through websocket")).unwrap();
+                    }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket")).unwrap();
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
                         .map_err(|e| Error {

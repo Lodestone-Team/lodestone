@@ -15,7 +15,10 @@ pub enum InstanceEventInner {
     InstanceStopped,
     InstanceWarning,
     InstanceError,
-    InstanceCreationFailed,
+    InstanceCreationFailed {
+        reason: String,
+    },
+    InstanceCreationSuccess,
     InstanceInput {
         message: String,
     },
@@ -27,8 +30,8 @@ pub enum InstanceEventInner {
     },
     PlayerChange {
         player_list: HashSet<String>,
-        players_joined : HashSet<String>,
-        players_left : HashSet<String>,
+        players_joined: HashSet<String>,
+        players_left: HashSet<String>,
     },
 
     PlayerMessage {
