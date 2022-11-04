@@ -137,7 +137,7 @@ enum BackupInstruction {
     SetPeriod(Option<u32>),
     BackupNow,
     Pause,
-    Resume
+    Resume,
 }
 
 impl Instance {
@@ -770,7 +770,10 @@ impl Instance {
             Box::new(state_callback),
             Box::new(|_, _| Ok(())),
         )));
-        let (backup_tx, mut backup_rx) : (UnboundedSender<BackupInstruction>, UnboundedReceiver<BackupInstruction>) = tokio::sync::mpsc::unbounded_channel();
+        let (backup_tx, mut backup_rx): (
+            UnboundedSender<BackupInstruction>,
+            UnboundedReceiver<BackupInstruction>,
+        ) = tokio::sync::mpsc::unbounded_channel();
         let _backup_task = tokio::spawn({
             let backup_period = config.backup_period;
             let path_to_resources = path_to_resources.clone();
@@ -785,65 +788,70 @@ impl Instance {
                     let time = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
                     let backup_name = format!("backup-{}", time);
                     let backup_path = backup_dir.join(&backup_name);
-                    if let Err(e) = tokio::task::spawn_blocking(
-                        {
-                            let path_to_instance = path_to_instance.clone();
-                            let backup_path = backup_path.clone();
-                            let mut copy_option = fs_extra::dir::CopyOptions::new();
-                            copy_option.copy_inside = true;
+                    if let Err(e) = tokio::task::spawn_blocking({
+                        let path_to_instance = path_to_instance.clone();
+                        let backup_path = backup_path.clone();
+                        let mut copy_option = fs_extra::dir::CopyOptions::new();
+                        copy_option.copy_inside = true;
                         move || {
-                        fs_extra::dir::copy(&path_to_instance.join("world"), &backup_path, &copy_option)
-                    }}).await {
+                            fs_extra::dir::copy(
+                                &path_to_instance.join("world"),
+                                &backup_path,
+                                &copy_option,
+                            )
+                        }
+                    })
+                    .await
+                    {
                         error!("Failed to backup instance: {}", e);
                     }
-                    
                 };
                 let mut backup_period = backup_period;
                 let mut counter = 0;
                 loop {
-                   tokio::select! {
-                          instruction = backup_rx.recv() => {
-                            if instruction.is_none() {
-                                info!("Backup task exiting");
-                                break;
-                            }
-                            let instruction = instruction.unwrap();
-                            match instruction {
-                            BackupInstruction::SetPeriod(new_period) => {
-                                backup_period = new_period;
-                            },
-                            BackupInstruction::BackupNow => backup_now().await,
-                            BackupInstruction::Pause => {
-                                    loop {
-                                        if let Some(BackupInstruction::Resume) = backup_rx.recv().await {
-                                            break;
-                                        } else {
-                                            continue
-                                        }
-                                    }
-                                
-                            },
-                            BackupInstruction::Resume => {
-                                continue;
-                            },
-                            }
-                          }
-                          _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                            if let Some(period) = backup_period {
-                                if state.lock().await.get_ref() == &State::Running {
-                                    debug!("counter is {}", counter);
-                                    counter += 1;
-                                    if counter >= period {
-                                        counter = 0;
-                                        backup_now().await;
-                                    }
-                                }
-                            }
-                          }
-                   }                    
-                }
+                    tokio::select! {
+                           instruction = backup_rx.recv() => {
+                             if instruction.is_none() {
+                                 info!("Backup task exiting");
+                                 break;
+                             }
+                             let instruction = instruction.unwrap();
+                             match instruction {
+                             BackupInstruction::SetPeriod(new_period) => {
+                                 backup_period = new_period;
+                             },
+                             BackupInstruction::BackupNow => backup_now().await,
+                             BackupInstruction::Pause => {
+                                     loop {
+                                         if let Some(BackupInstruction::Resume) = backup_rx.recv().await {
+                                             break;
+                                         } else {
+                                             continue
+                                         }
+                                     }
 
-        }});
+                             },
+                             BackupInstruction::Resume => {
+                                 continue;
+                             },
+                             }
+                           }
+                           _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                             if let Some(period) = backup_period {
+                                 if state.lock().await.get_ref() == &State::Running {
+                                     debug!("counter is {}", counter);
+                                     counter += 1;
+                                     if counter >= period {
+                                         counter = 0;
+                                         backup_now().await;
+                                     }
+                                 }
+                             }
+                           }
+                    }
+                }
+            }
+        });
 
         let players_callback = {
             let event_broadcaster = event_broadcaster.clone();
@@ -858,9 +866,9 @@ impl Instance {
                             instance_uuid: uuid.clone(),
                             instance_name: name.clone(),
                             instance_event_inner: InstanceEventInner::PlayerChange {
-                                player_list : new_players.clone(),
-                                players_joined : player_diff.map(|s| s.to_owned()).collect(),
-                                players_left : HashSet::new(),
+                                player_list: new_players.clone(),
+                                players_joined: player_diff.map(|s| s.to_owned()).collect(),
+                                players_left: HashSet::new(),
                             },
                         }),
                         details: "".to_string(),
@@ -875,10 +883,9 @@ impl Instance {
                             instance_uuid: uuid.clone(),
                             instance_name: name.clone(),
                             instance_event_inner: InstanceEventInner::PlayerChange {
-                                player_list : new_players.clone(),
-                                players_joined : HashSet::new(),
-                                players_left : player_diff.map(|s| s.to_owned()).collect(),
-
+                                player_list: new_players.clone(),
+                                players_joined: HashSet::new(),
+                                players_left: player_diff.map(|s| s.to_owned()).collect(),
                             },
                         }),
                         details: "".to_string(),
@@ -912,7 +919,7 @@ impl Instance {
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             macro_executor: MacroExecutor::new(Arc::new(Mutex::new(Arc::new(mlua::Lua::new)))),
-            backup_sender : backup_tx
+            backup_sender: backup_tx,
         };
         let get_lua = instance.macro_std();
         instance
