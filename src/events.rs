@@ -87,14 +87,38 @@ pub enum EventInner {
     UserEvent(UserEvent),
     MacroEvent(MacroEvent),
 }
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[serde(rename = "ClientEvent")]
-#[ts(export)]
+#[serde(into = "ClientEvent")]
 pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
     pub snowflake: i64,
     pub idempotency: String,
+}
+
+// a type that Event will be serialized to
+// used to serialize snowflake as string
+#[derive(Serialize, Clone, Debug, TS)]
+#[ts(export)]
+struct ClientEvent {
+    pub event_inner: EventInner,
+    pub details: String,
+    pub snowflake: i64,
+    pub snowflake_str: String,
+    pub idempotency: String,
+}
+
+impl Into<ClientEvent> for Event {
+    fn into(self) -> ClientEvent {
+        ClientEvent {
+            event_inner: self.event_inner,
+            details: self.details,
+            snowflake: self.snowflake,
+            snowflake_str: self.snowflake.to_string(),
+            idempotency: self.idempotency,
+        }
+    }
 }
 
 impl Event {
