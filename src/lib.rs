@@ -423,6 +423,6 @@ pub async fn run() {
     let instances = shared_state.instances.lock().await;
     for (_, instance) in instances.iter() {
         let mut instance = instance.lock().await;
-        let _ =  instance.stop().await;
+        let _ = instance.stop().await;
     }
 }

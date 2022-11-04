@@ -209,18 +209,20 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
             .cloned()
             .collect();
 
-            dont_spawn_terminal( Command::new(&_7zip_path)
-            .arg("x")
-            .arg(&tmp_dir)
-            .arg("-aoa")
-            .arg("-ttar")
-            .arg(format!("-o{}", dest.display())))
-            .status()
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToExecute,
-                detail: "Failed to execute 7zip".to_string(),
-            })?;
+        dont_spawn_terminal(
+            Command::new(&_7zip_path)
+                .arg("x")
+                .arg(&tmp_dir)
+                .arg("-aoa")
+                .arg("-ttar")
+                .arg(format!("-o{}", dest.display())),
+        )
+        .status()
+        .await
+        .map_err(|_| Error {
+            inner: ErrorInner::FailedToExecute,
+            detail: "Failed to execute 7zip".to_string(),
+        })?;
     } else {
         before = list_dir(dest, None)
             .await
@@ -231,17 +233,19 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
             .iter()
             .cloned()
             .collect();
-            dont_spawn_terminal(Command::new(&_7zip_path)
-            .arg("x")
-            .arg(file)
-            .arg(format!("-o{}", dest.display()))
-            .arg("-aoa"))
-            .status()
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToExecute,
-                detail: "Failed to execute 7zip".to_string(),
-            })?;
+        dont_spawn_terminal(
+            Command::new(&_7zip_path)
+                .arg("x")
+                .arg(file)
+                .arg(format!("-o{}", dest.display()))
+                .arg("-aoa"),
+        )
+        .status()
+        .await
+        .map_err(|_| Error {
+            inner: ErrorInner::FailedToExecute,
+            detail: "Failed to execute 7zip".to_string(),
+        })?;
     }
     let after: HashSet<PathBuf> = list_dir(dest, None)
         .await
@@ -296,6 +300,6 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
 pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
-    
+
     cmd
 }

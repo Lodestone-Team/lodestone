@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use log::{error, info, debug};
+use log::{debug, error, info};
 use mlua::Lua;
 use tokio::{
     runtime::Builder,
