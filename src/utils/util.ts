@@ -222,3 +222,25 @@ export const formatNotificationTime = (time_s: number) => {
     return time.toLocaleString('en-US');
   }
 };
+
+// format "progress" number of bytes to human readable string
+// using unit appropriate for "total"
+export const formatBytesDownload = (
+  progress: number,
+  total: number,
+  decimals = 2
+) => {
+  if (total === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+  const i = Math.floor(Math.log(total) / Math.log(k));
+  if (i > sizes.length - 1)
+    throw new Error('The file is bigger than 1024 YB!? this should not happen');
+  return parseFloat((progress / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
+
+// format number of bytes to human readable string
+export const formatBytes = (bytes: number, decimals = 2) => {
+  formatBytesDownload(bytes, bytes, decimals);
+};

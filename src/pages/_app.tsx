@@ -13,6 +13,11 @@ import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
 import { errorToMessage } from 'utils/util';
 import { DashboardNotification } from 'data/EventStream';
+import {
+  NotificationContext,
+  useNotificationReducer,
+  useOngoingNotificationReducer,
+} from 'data/NotificationContext';
 
 config.autoAddCss = false;
 
@@ -41,11 +46,9 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const { query: address, isReady } = useRouterQuery('address');
   const { query: port } = useRouterQuery('port');
   const [token, setToken] = useLocalStorage<string>('token', '');
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
-
-  const pushNotification = (notification: DashboardNotification) => {
-    setNotifications((notifications) => [...notifications, notification]);
-  };
+  const { notifications, dispatch } = useNotificationReducer();
+  const { ongoingNotifications, ongoingDispatch } =
+    useOngoingNotificationReducer();
 
   const protocol = 'http';
   const apiVersion = 'v1';
@@ -65,7 +68,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
       return;
     }
     try {
-      const decoded = jwt.decode(token, {complete: true});
+      const decoded = jwt.decode(token, { complete: true });
       if (!decoded) throw new Error('Invalid token');
       const { exp } = decoded.payload as { exp: number };
       if (Date.now() >= exp * 1000) throw new Error('Token expired');
@@ -90,11 +93,18 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           isReady: isReady,
           token,
           setToken,
-          notifications,
-          pushNotification
         }}
       >
-        {getLayout(<Component {...pageProps} />)}
+        <NotificationContext.Provider
+          value={{
+            notifications,
+            dispatch,
+            ongoingNotifications,
+            ongoingDispatch,
+          }}
+        >
+          {getLayout(<Component {...pageProps} />)}
+        </NotificationContext.Provider>
       </LodestoneContext.Provider>
     </QueryClientProvider>
   );
