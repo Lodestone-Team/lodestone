@@ -172,7 +172,7 @@ pub async fn create_minecraft_instance(
             .await
             {
                 Ok(v) => {
-                    event_broadcaster
+                    let _ = event_broadcaster
                         .send(Event {
                             event_inner: EventInner::InstanceEvent(InstanceEvent {
                                 instance_uuid: uuid.clone(),
@@ -189,7 +189,7 @@ pub async fn create_minecraft_instance(
                     v
                 }
                 Err(e) => {
-                    event_broadcaster.send(Event {
+                    let _ = event_broadcaster.send(Event {
                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                             instance_uuid: uuid.clone(),
                             instance_name : name.clone(),
@@ -201,7 +201,7 @@ pub async fn create_minecraft_instance(
                         timestamp: chrono::Utc::now().timestamp(),
                         idempotency : rand_alphanumeric(5),
                     
-                    }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket")).unwrap();
+                    }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket"));
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
                         .map_err(|e| Error {
