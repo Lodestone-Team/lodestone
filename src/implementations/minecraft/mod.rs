@@ -162,7 +162,7 @@ impl Instance {
                 }),
             }),
             details: "".to_string(),
-            timestamp: get_snowflake(),
+            snowflake: get_snowflake(),
             idempotency: rand_alphanumeric(5),
         });
         tokio::fs::create_dir_all(&config.path)
@@ -236,7 +236,7 @@ impl Instance {
                 }),
             }),
             details: "".to_string(),
-            timestamp: get_snowflake(),
+            snowflake: get_snowflake(),
             idempotency: rand_alphanumeric(5),
         });
         let (url, jre_major_version) = get_jre_url(config.version.as_str()).await.ok_or(Error {
@@ -266,7 +266,7 @@ impl Instance {
                                 instance_event_inner: InstanceEventInner::Downloading(dl),
                             }),
                             details: "".to_string(),
-                            timestamp: get_snowflake(),
+                            snowflake: get_snowflake(),
                             idempotency: rand_alphanumeric(5),
                         });
                     }
@@ -284,7 +284,7 @@ impl Instance {
                     }),
                 }),
                 details: "".to_string(),
-                timestamp: get_snowflake(),
+                snowflake: get_snowflake(),
                 idempotency: rand_alphanumeric(5),
             });
             let unzipped_content = unzip_file(&downloaded, &path_to_runtimes.join("java")).await?;
@@ -325,7 +325,7 @@ impl Instance {
                 }),
             }),
             details: "".to_string(),
-            timestamp: get_snowflake(),
+            snowflake: get_snowflake(),
             idempotency: rand_alphanumeric(5),
         });
         match config.flavour {
@@ -355,7 +355,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::Downloading(dl),
                                 }),
                                 details: "".to_string(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             });
                         }
@@ -394,7 +394,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::Downloading(dl),
                                 }),
                                 details: "".to_string(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             });
                         }
@@ -490,7 +490,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceStarted,
                                 }),
                                 details: msg.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             msg.to_owned(),
@@ -520,7 +520,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceStopped,
                                 }),
                                 details: msg.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             msg.to_owned(),
@@ -562,7 +562,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceStopped,
                                 }),
                                 details: msg.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             msg.to_owned(),
@@ -583,7 +583,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceStopped,
                                 }),
                                 details: msg.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             msg.to_owned(),
@@ -633,7 +633,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceStopped,
                                 }),
                                 details: msg.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             msg.to_owned(),
@@ -654,7 +654,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceStarting,
                                 }),
                                 details: msg.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             msg.to_owned(),
@@ -723,7 +723,7 @@ impl Instance {
                                     instance_event_inner: InstanceEventInner::InstanceError,
                                 }),
                                 details: err_message.to_owned(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             }),
                             err_message.to_owned(),
@@ -872,7 +872,7 @@ impl Instance {
                             },
                         }),
                         details: "".to_string(),
-                        timestamp: get_snowflake(),
+                        snowflake: get_snowflake(),
                         idempotency: rand_alphanumeric(5),
                     });
                 } else if old_players.len() < new_players.len() {
@@ -889,7 +889,7 @@ impl Instance {
                             },
                         }),
                         details: "".to_string(),
-                        timestamp: get_snowflake(),
+                        snowflake: get_snowflake(),
                         idempotency: rand_alphanumeric(5),
                     });
                 }

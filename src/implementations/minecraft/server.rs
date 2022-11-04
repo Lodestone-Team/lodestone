@@ -287,7 +287,7 @@ impl TServer for Instance {
                                     instance_name: name.clone(),
                                 }),
                                 details: "".to_string(),
-                                timestamp: get_snowflake(),
+                                snowflake: get_snowflake(),
                                 idempotency: rand_alphanumeric(5),
                             });
 
@@ -313,7 +313,7 @@ impl TServer for Instance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    timestamp: get_snowflake(),
+                                    snowflake: get_snowflake(),
                                     idempotency: rand_alphanumeric(5),
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
@@ -342,7 +342,7 @@ impl TServer for Instance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    timestamp: get_snowflake(),
+                                    snowflake: get_snowflake(),
                                     idempotency: rand_alphanumeric(5),
                                 });
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {

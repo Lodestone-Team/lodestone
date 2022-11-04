@@ -180,7 +180,7 @@ pub async fn create_minecraft_instance(
                                 instance_event_inner: InstanceEventInner::InstanceCreationSuccess,
                             }),
                             details: "".to_string(),
-                            timestamp: get_snowflake(),
+                            snowflake: get_snowflake(),
                             idempotency: rand_alphanumeric(5),
                         })
                         .map_err(|e| {
@@ -198,7 +198,7 @@ pub async fn create_minecraft_instance(
                             },
                         }),
                         details: "".to_string(),
-                        timestamp: get_snowflake(),
+                        snowflake: get_snowflake(),
                         idempotency : rand_alphanumeric(5),
                     
                     }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket"));

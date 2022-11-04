@@ -93,7 +93,7 @@ pub enum EventInner {
 pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
-    pub timestamp: i64,
+    pub snowflake: i64,
     pub idempotency: String,
 }
 
