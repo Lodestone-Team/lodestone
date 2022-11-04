@@ -1924,7 +1924,7 @@ dependencies = [
 [[package]]
 name = "lodestone_client"
 version = "0.2.1-alpha.1"
-source = "git+https://github.com/Lodestone-Team/client?branch=alpha_0.3.0#e1dd51bb8f59f5a307a7acf550cda7287716a1b5"
+source = "git+https://github.com/Lodestone-Team/client?branch=alpha_0.3.0#2fbb5975bc9dc84afe6bc933d056b422418791cf"
 dependencies = [
  "argon2",
  "async-trait",
@@ -3261,8 +3261,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 [[package]]
 name = "safe-path"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "980abdd3220aa19b67ca3ea07b173ca36383f18ae48cde696d90c8af39447ffb"
+source = "git+https://github.com/Lodestone-Team/safe_path_subset#f87a38f1ffe6e8eb3c602d3602e971750cf01fbc"
 dependencies = [
  "libc",
 ]
