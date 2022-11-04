@@ -411,7 +411,7 @@ pub async fn run() {
         .layer(Extension(shared_state.clone()))
         .layer(cors);
     let app = Router::new().nest("/api/v1", api_routes);
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
     select! {
         _ = event_buffer_task => info!("Event buffer task exited"),
         _ = monitor_report_task => info!("Monitor report task exited"),
