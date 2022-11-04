@@ -1048,6 +1048,7 @@ dependencies = [
  "rand_core 0.6.4",
  "reqwest",
  "ringbuffer",
+ "rs-snowflake",
  "safe-path",
  "sanitize-filename",
  "semver",
@@ -1740,6 +1741,12 @@ checksum = "0aa778d993bd10cc64483ec8c75ce3755bd48f42886943e23d6588bc0943678d"
 dependencies = [
  "array-init",
 ]
+
+[[package]]
+name = "rs-snowflake"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e60ef3b82994702bbe4e134d98aadca4b49ed04440148985678d415c68127666"
 
 [[package]]
 name = "rustc-hash"
