@@ -5,9 +5,9 @@ use semver::{BuildMetadata, Prerelease};
 thread_local! {
     pub static VERSION: semver::Version = semver::Version {
         major: 0,
-        minor: 2,
-        patch: 1,
-        pre: Prerelease::new("alpha.1").unwrap(),
+        minor: 3,
+        patch: 0,
+        pre: Prerelease::new("").unwrap(),
         build: BuildMetadata::EMPTY,
     };
     pub static LODESTONE_PATH : PathBuf = PathBuf::from(
