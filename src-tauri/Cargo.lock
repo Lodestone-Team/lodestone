@@ -1923,8 +1923,8 @@ dependencies = [
 
 [[package]]
 name = "lodestone_client"
-version = "0.2.1-alpha.1"
-source = "git+https://github.com/Lodestone-Team/client?branch=alpha_0.3.0#2fbb5975bc9dc84afe6bc933d056b422418791cf"
+version = "0.3.0"
+source = "git+https://github.com/Lodestone-Team/client?branch=main#aeb3ba5477fab9bbd84bd775e7b6dfc029e82f76"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1949,6 +1949,7 @@ dependencies = [
  "rand_core 0.6.4",
  "reqwest",
  "ringbuffer",
+ "rs-snowflake",
  "safe-path",
  "sanitize-filename",
  "semver 1.0.14",
@@ -3221,6 +3222,12 @@ checksum = "0aa778d993bd10cc64483ec8c75ce3755bd48f42886943e23d6588bc0943678d"
 dependencies = [
  "array-init",
 ]
+
+[[package]]
+name = "rs-snowflake"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e60ef3b82994702bbe4e134d98aadca4b49ed04440148985678d415c68127666"
 
 [[package]]
 name = "rustc-hash"

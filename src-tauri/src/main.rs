@@ -3,7 +3,6 @@
     windows_subsystem = "windows"
 )]
 
-use std::thread;
 
 #[tokio::main]
 async fn main() {
