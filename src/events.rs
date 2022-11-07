@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::util::{DownloadProgress, SetupProgress};
+use crate::{util::{DownloadProgress, SetupProgress}, traits::InstanceInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -18,7 +18,9 @@ pub enum InstanceEventInner {
     InstanceCreationFailed {
         reason: String,
     },
-    InstanceCreationSuccess,
+    InstanceCreationSuccess {
+        instance : InstanceInfo
+    },
     InstanceInput {
         message: String,
     },
