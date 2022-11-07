@@ -382,14 +382,21 @@ impl TServer for Instance {
                                 }
                             }
                         }
-                        let _ = state.lock().await.update(State::Stopped);
+                        info!("Instance {} process shutdown", name);
+                        let _ = state.lock().await.transform(Box::new(|v| {
+                            *v = State::Stopped;
+                            Ok(())
+                        }));
                     }
                 });
             }
             Err(e) => {
                 env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 error!("Failed to start server, {}", e);
-                self.state.lock().await.update(State::Stopped);
+                self.state.lock().await.transform(Box::new(|v : &mut State| {
+                    *v = State::Stopped;
+                    Ok(())
+                })).unwrap();
                 return Err(Error {
                     inner: ErrorInner::FailedToExecute,
                     detail: "Failed to start server".into(),
@@ -476,7 +483,6 @@ impl TServer for Instance {
                 Ok(())
             }))
             .unwrap();
-        self.state.lock().await.update_unchecked(State::Stopped);
         Ok(())
     }
 

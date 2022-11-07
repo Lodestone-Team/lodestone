@@ -768,7 +768,26 @@ impl Instance {
         let state = Arc::new(Mutex::new(Stateful::new(
             State::Stopped,
             Box::new(state_callback),
-            Box::new(|_, _| Ok(())),
+            Box::new({
+                let instance_uuid = config.uuid.clone();
+                let instance_name = config.name.clone();
+                let event_broadcaster = event_broadcaster.clone();
+                move |_, new_state| {
+                let instance_event_inner = match new_state {
+                    State::Starting => InstanceEventInner::InstanceStarting,
+                    State::Running => InstanceEventInner::InstanceStarted,
+                    State::Stopping => InstanceEventInner::InstanceStopping,
+                    State::Stopped =>   InstanceEventInner::InstanceStopped,
+                    State::Error => InstanceEventInner::InstanceError,
+                };
+                let _ = event_broadcaster.send(Event {
+                    event_inner: EventInner::InstanceEvent(InstanceEvent { instance_uuid : instance_uuid.clone(), instance_name : instance_name.clone(), instance_event_inner }),
+                    details: "Instance state changed".to_string(),
+                    snowflake: get_snowflake(),
+                    idempotency: rand_alphanumeric(5),
+                });
+                Ok(())
+            }}),
         )));
         let (backup_tx, mut backup_rx): (
             UnboundedSender<BackupInstruction>,
