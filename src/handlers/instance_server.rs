@@ -119,19 +119,6 @@ pub async fn kill_instance(
         .await
         .kill()
         .await?;
-    state
-        .instances
-        .lock()
-        .await
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await
-        .kill()
-        .await?;
     Ok(Json(json!("ok")))
 }
 
