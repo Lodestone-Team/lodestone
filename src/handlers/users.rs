@@ -112,7 +112,7 @@ pub async fn new_user(
                 .unwrap();
         }
     });
-    state
+    let _ = state
         .event_broadcaster
         .send(Event {
             event_inner: EventInner::UserEvent(UserEvent {
@@ -155,7 +155,7 @@ pub async fn delete_user(
             }
         }))
         .unwrap();
-    state
+    let _ = state
         .event_broadcaster
         .send(Event {
             event_inner: EventInner::UserEvent(UserEvent {
@@ -193,7 +193,7 @@ pub async fn logout(
             Ok(())
         }))
         .unwrap();
-    state
+    let _ = state
         .event_broadcaster
         .send(Event {
             event_inner: EventInner::UserEvent(UserEvent {
