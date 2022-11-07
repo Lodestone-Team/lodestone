@@ -33,6 +33,9 @@ impl<T> Stateful<T> {
     pub fn get_ref(&self) -> &T {
         &self.inner
     }
+    pub fn update_unchecked(&mut self, inner: T) {
+        self.inner = inner;
+    }
 }
 
 impl<T> Stateful<T>

@@ -9,7 +9,7 @@ use tokio::process::Command;
 use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::macro_executor::LuaExecutionInstruction;
-use crate::prelude::{LODESTONE_PATH, get_snowflake};
+use crate::prelude::{get_snowflake, LODESTONE_PATH};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
@@ -475,6 +475,9 @@ impl TServer for Instance {
                 v.clear();
                 Ok(())
             }))
+            .unwrap();
+        self.state.lock().await.update_unchecked(State::Stopped);
+        Ok(())
     }
 
     async fn state(&self) -> State {
