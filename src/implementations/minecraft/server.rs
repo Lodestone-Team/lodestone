@@ -28,17 +28,23 @@ impl TServer for Instance {
 
         let prelaunch = self.path().await.join("prelaunch.lua");
         if prelaunch.exists() {
-            // read prelaunch.lua
-            let prelaunch = tokio::fs::read_to_string(prelaunch).await.unwrap();
-            // execute prelaunch.lua
-            let uuid = self.macro_executor.spawn(LuaExecutionInstruction {
-                lua: None,
-                content: prelaunch,
-                args: vec![],
-                executor: None,
-            });
-            // wait for prelaunch.lua to finish
-            let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
+
+            match tokio::fs::read_to_string(prelaunch).await {
+                Ok(script) => {
+                    let uuid = self.macro_executor.spawn(LuaExecutionInstruction {
+                        lua: None,
+                        content: script,
+                        args: vec![],
+                        executor: None,
+                    });
+                    // wait for prelaunch.lua to finish
+                    let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
+                }
+                Err(e) => {
+                    error!("Failed to read prelaunch script: {}", e);
+                }
+            }
+           
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -348,7 +354,7 @@ impl TServer for Instance {
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {
                                     match macro_instruction {
                                         MacroInstruction::Abort(macro_id) => {
-                                            macro_executor.abort_macro(&macro_id).await;
+                                            let _ = macro_executor.abort_macro(&macro_id).await;
                                         }
                                         MacroInstruction::Spawn {
                                             player_name,
