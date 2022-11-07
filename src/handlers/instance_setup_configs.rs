@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
-use axum::Router;
 use axum::routing::get;
+use axum::Router;
 use axum::{extract::Path, Json};
 
+use crate::implementations::minecraft::versions::MinecraftVersions;
 use crate::prelude::GameType;
 
 use crate::implementations::minecraft;
@@ -22,21 +23,22 @@ pub async fn get_available_flavours(Path(game_type): Path<GameType>) -> Json<Has
     }
 }
 
-pub async fn get_available_versions(
-    Path((game_type, flavour)): Path<(GameType, String)>,
-) -> Result<Json<Vec<String>>, Error> {
-    match game_type {
-        GameType::Minecraft => match flavour.as_str() {
-            "vanilla" => Ok(Json(minecraft::versions::get_vanilla_versions().await?)),
-            "fabric" => Ok(Json(minecraft::versions::get_fabric_versions().await?)),
-            _ => unimplemented!(),
-        },
-    }
+pub async fn get_minecraft_versions(
+    Path(flavour): Path<minecraft::Flavour>,
+) -> Result<Json<MinecraftVersions>, Error> {
+    Ok(Json(match flavour {
+        minecraft::Flavour::Vanilla => minecraft::versions::get_vanilla_versions().await?,
+        minecraft::Flavour::Fabric => minecraft::versions::get_fabric_versions().await?,
+        _ => unimplemented!(),
+    }))
 }
 
 pub fn get_instance_setup_config_routes() -> Router {
     Router::new()
         .route("/games", get(get_available_games))
         .route("/games/:game_type/flavours", get(get_available_flavours))
-        .route("/games/:game_type/flavours/:flavour/versions", get(get_available_versions))
+        .route(
+            "/games/minecraft/flavours/:flavour/versions",
+            get(get_minecraft_versions),
+        )
 }

@@ -2,8 +2,11 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Hash, Eq, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Hash, Eq, PartialEq, Serialize, Deserialize, Debug, TS)]
+#[serde(rename = "InstanceOperation")]
+#[ts(export)]
 pub enum Operation {
     GetMinRam,
     GetMaxRam,
@@ -45,6 +48,7 @@ impl Operation {
             Operation::GetBackupPeriod,
             Operation::SetMinRam,
             Operation::SetMaxRam,
+            Operation::SetPort,
             Operation::SetRestartOnCrash,
             Operation::SetTimeoutLastLeft,
             Operation::SetTimeoutNoActivity,
@@ -61,7 +65,9 @@ impl Operation {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, TS)]
+#[serde(rename = "InstanceManifest")]
+#[ts(export)]
 pub struct Manifest {
     pub supported_operations: HashSet<Operation>,
     pub settings: HashSet<String>,

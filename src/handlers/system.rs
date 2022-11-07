@@ -1,8 +1,10 @@
-use axum::{Json, Router, routing::get};
+use axum::{routing::get, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
-use sysinfo::{CpuExt, CpuRefreshKind, DiskExt, System, SystemExt};
+use sysinfo::{CpuExt, CpuRefreshKind, DiskExt, SystemExt};
 
 use tokio::time::sleep;
+
+use crate::AppState;
 
 // Since MemInfo is not serializable, we need to create a new struct that is serializable.
 #[derive(Serialize, Deserialize)]
@@ -11,8 +13,9 @@ pub struct MemInfo {
     free: u64,
 }
 
-pub async fn get_ram() -> Json<MemInfo> {
-    let sys = System::new_all();
+pub async fn get_ram(Extension(state): Extension<AppState>) -> Json<MemInfo> {
+    let mut sys = state.system.lock().await;
+    sys.refresh_memory();
     Json(MemInfo {
         total: sys.total_memory(),
         free: sys.free_memory(),
@@ -26,8 +29,9 @@ pub struct DiskInfo {
     free: u64,
 }
 
-pub async fn get_disk() -> Json<DiskInfo> {
-    let sys = System::new_all();
+pub async fn get_disk(Extension(state): Extension<AppState>) -> Json<DiskInfo> {
+    let mut sys = state.system.lock().await;
+    sys.refresh_disks_list();
     let disks = sys.disks();
     Json(DiskInfo {
         total: disks.iter().fold(0, |acc, v| acc + v.total_space()),
@@ -41,8 +45,8 @@ pub struct CPUInfo {
     pub cpu_load: f32,
 }
 
-pub async fn get_cpu_info() -> Json<CPUInfo> {
-    let mut sys = System::new();
+pub async fn get_cpu_info(Extension(state): Extension<AppState>) -> Json<CPUInfo> {
+    let mut sys = state.system.lock().await;
     sys.refresh_cpu_specifics(CpuRefreshKind::everything());
     sleep(tokio::time::Duration::from_millis(100)).await;
     sys.refresh_cpu();

@@ -10,14 +10,14 @@ use axum_auth::AuthBearer;
 
 use futures::{SinkExt, StreamExt};
 use log::{debug, error};
-use ringbuffer::RingBufferExt;
+use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
 use serde::Deserialize;
 use tokio::sync::{broadcast::Receiver, Mutex};
 
 use crate::{
-    events::{Event, EventInner},
-    json_store::user::User,
+    auth::user::User,
+    events::{Event, EventInner, UserEventInner},
     stateful::Stateful,
     traits::{Error, ErrorInner},
     AppState,
@@ -31,7 +31,7 @@ pub async fn get_event_buffer(
     Path(uuid): Path<String>,
 ) -> Result<Json<Vec<Event>>, Error> {
     let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
     Ok(Json(
@@ -41,9 +41,12 @@ pub async fn get_event_buffer(
             .await
             .get_ref()
             .iter()
-            .filter(|event| {
-                (event.instance_uuid == uuid || uuid == "all")
-                    && can_user_view_event(event, &requester)
+            .filter(|event| match &event.event_inner {
+                EventInner::InstanceEvent(instance_event) => {
+                    (instance_event.instance_uuid == uuid || uuid == "all")
+                        && can_user_view_event(event, &requester)
+                }
+                _ => false,
             })
             .cloned()
             .collect(),
@@ -56,7 +59,7 @@ pub async fn get_console_buffer(
     Path(uuid): Path<String>,
 ) -> Result<Json<Vec<Event>>, Error> {
     let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
     Ok(Json(
@@ -65,10 +68,15 @@ pub async fn get_console_buffer(
             .lock()
             .await
             .get_ref()
+            .get(&uuid)
+            .unwrap_or(&AllocRingBuffer::new())
             .iter()
-            .filter(|event| {
-                (event.instance_uuid == uuid || uuid == "all")
-                    && can_user_view_event(event, &requester)
+            .filter(|event| match &event.event_inner {
+                EventInner::InstanceEvent(instance_event) => {
+                    (instance_event.instance_uuid == uuid || uuid == "all")
+                        && can_user_view_event(event, &requester)
+                }
+                _ => false,
             })
             .cloned()
             .collect(),
@@ -91,8 +99,8 @@ pub async fn event_stream(
     let user = parse_bearer_token(query.token.as_str())
         .and_then(|token| try_auth(&token, users.get_ref()))
         .ok_or_else(|| Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "".to_string(),
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
         })?;
     drop(users);
     let users = state.users.clone();
@@ -114,9 +122,32 @@ async fn event_stream_ws(
     loop {
         tokio::select! {
             Ok(event) = event_receiver.recv() => {
-                if event.instance_uuid != uuid && uuid != "all" {
-                    continue;
-                }
+                match &event.event_inner {
+                    EventInner::InstanceEvent(instance_event) => {
+                        if event.is_event_console_message() {
+                            continue;
+                        }
+                        if instance_event.instance_uuid != uuid && uuid != "all" {
+                            continue;
+                        }
+
+                    },
+                    EventInner::UserEvent(user_event) => {
+                        match user_event.user_event_inner {
+                            UserEventInner::UserLoggedOut | UserEventInner::UserDeleted => {
+                                if user_event.user_id == uid {
+                                    break;
+                                }
+                            },
+                            _ => continue,
+                        }
+                    },
+                    EventInner::MacroEvent(macro_event) => {
+                        if macro_event.instance_uuid != uuid && uuid != "all" {
+                            continue;
+                        }
+                    }
+                };
                 if can_user_view_event(
                     &event,
                     match users.lock().await.get_ref().get(&uid) {
@@ -134,35 +165,13 @@ async fn event_stream_ws(
                         break;
                     }
                 }
+
             }
             Some(Ok(ws_msg)) = receiver.next() => {
                 match sender.send(ws_msg).await {
                     Ok(_) => debug!("Replied to ping"),
-                    Err(_) => break,
+                    Err(_) => {debug!("breaking"); break},
                 };
-            }
-        }
-    }
-
-    while let Ok(event) = event_receiver.recv().await {
-        if event.instance_uuid != uuid && uuid != "all" {
-            continue;
-        }
-        if can_user_view_event(
-            &event,
-            match users.lock().await.get_ref().get(&uid) {
-                Some(user) => user,
-                None => break,
-            },
-        ) {
-            if let Err(e) = sender
-                .send(axum::extract::ws::Message::Text(
-                    serde_json::to_string(&event).unwrap(),
-                ))
-                .await
-            {
-                error!("Failed to send event: {}", e);
-                break;
             }
         }
     }
@@ -180,8 +189,8 @@ pub async fn console_stream(
     let user = parse_bearer_token(query.token.as_str())
         .and_then(|token| try_auth(&token, users.get_ref()))
         .ok_or_else(|| Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "".to_string(),
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
         })?;
     drop(users);
     let users = state.users.clone();
@@ -198,32 +207,51 @@ async fn console_stream_ws(
     uuid: String,
     users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
 ) {
-    let (mut sender, mut _receiver) = stream.split();
-    while let Ok(event) = event_receiver.recv().await {
-        if event.instance_uuid != uuid && uuid != "all" {
-            continue;
-        }
-        match event.event_inner {
-            EventInner::InstanceOutput(_) => {
-                if can_user_view_event(
-                    &event,
-                    match users.lock().await.get_ref().get(&uid) {
-                        Some(user) => user,
-                        None => break,
-                    },
-                ) {
-                    if let Err(e) = sender
-                        .send(axum::extract::ws::Message::Text(
-                            serde_json::to_string(&event).unwrap(),
-                        ))
-                        .await
-                    {
-                        error!("Failed to send console out: {}", e);
-                        break;
+    let (mut sender, mut receiver) = stream.split();
+    loop {
+        tokio::select! {
+            Ok(event) = event_receiver.recv() => {
+                match &event.event_inner {
+                    EventInner::InstanceEvent(instance_event) => {
+                        if event.is_event_console_message() && (instance_event.instance_uuid == uuid || uuid == "all")
+                            && can_user_view_event(
+                                &event,
+                                match users.lock().await.get_ref().get(&uid) {
+                                    Some(user) => user,
+                                    None => break,
+                                },
+                            )
+                        {
+                            if let Err(e) = sender
+                                .send(axum::extract::ws::Message::Text(
+                                    serde_json::to_string(&event).unwrap(),
+                                ))
+                                .await
+                            {
+                                error!("Failed to send event: {}", e);
+                                break;
+                            }
+                        }
                     }
+                    EventInner::UserEvent(user_event) => {
+                        match user_event.user_event_inner {
+                            UserEventInner::UserLoggedOut | UserEventInner::UserDeleted => {
+                                if user_event.user_id == uid {
+                                    break;
+                                }
+                            },
+                            _ => {}
+                        }
+                    },
+                    EventInner::MacroEvent(_) => continue
                 }
             }
-            _ => continue,
+            Some(Ok(ws_msg)) = receiver.next() => {
+                match sender.send(ws_msg).await {
+                    Ok(_) => debug!("Replied to ping"),
+                    Err(_) => break,
+                };
+            }
         }
     }
 }

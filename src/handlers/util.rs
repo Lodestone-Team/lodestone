@@ -4,7 +4,10 @@ use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use rand_core::OsRng;
 
-use crate::{json_store::{permission::Permission, user::User}, events::{Event, EventInner}};
+use crate::{
+    auth::user::{User, UserAction},
+    events::{Event, EventInner},
+};
 
 use super::users::Claim;
 
@@ -42,29 +45,15 @@ pub fn try_auth(token: &str, users: &HashMap<String, User>) -> Option<User> {
     Some(claimed_requester.to_owned())
 }
 
-pub fn is_authorized(user: &User, instance_uuid: &str, perm: Permission) -> bool {
-    if user.is_owner {
-        return true;
-    }
-
-    match perm {
-        Permission::CanManageUser | Permission::CanAccessMacro => user.is_owner,
-        Permission::CanManagePermission => user.is_admin,
-        _ => {
-            user.is_admin
-                || user
-                    .permissions
-                    .get(&perm)
-                    .map(|p| p.contains(instance_uuid))
-                    .unwrap_or(false)
-        }
-    }
-}
-
 pub fn can_user_view_event(event: &Event, user: &User) -> bool {
-    match event.event_inner {
-        EventInner::Downloading(_) | EventInner::Setup(_) => true,
-        _ => is_authorized(user, &event.instance_uuid, Permission::CanViewInstance),
+    match &event.event_inner {
+        EventInner::InstanceEvent(event) => {
+            user.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
+        }
+        EventInner::UserEvent(_event) => user.can_perform_action(&UserAction::ManageUser),
+        EventInner::MacroEvent(macro_event) => {
+            user.can_perform_action(&UserAction::AccessMacro(macro_event.macro_uuid.clone()))
+        }
     }
 }
 

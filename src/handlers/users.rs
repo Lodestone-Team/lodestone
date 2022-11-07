@@ -1,13 +1,12 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
-    json_store::{
-        permission::Permission,
-        user::{PublicUser, User},
+    auth::{
+        permission::UserPermission,
+        user::{PublicUser, User, UserAction},
     },
+    events::{Event, EventInner, UserEvent, UserEventInner},
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
-    AppState,
+    AppState, prelude::get_snowflake,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
@@ -17,11 +16,12 @@ use axum::{
 };
 use axum_auth::{AuthBasic, AuthBearer};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use log::error;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
 
-use super::util::{hash_password, is_authorized, try_auth};
+use super::util::{hash_password, try_auth};
 #[derive(Deserialize, Serialize)]
 pub struct Claim {
     pub uid: String,
@@ -34,14 +34,9 @@ struct NewUserSchema {
     pub password: String,
 }
 
-#[derive(Deserialize, Serialize)]
-struct PermissionsUpdateSchema {
-    pub permissions: HashMap<Permission, HashSet<String>>,
-}
-
 fn create_jwt(user: &User, jwt_secret: &str) -> Result<String, Error> {
     let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(1))
+        .checked_add_signed(chrono::Duration::days(60))
         .expect("valid timestamp")
         .timestamp();
     let claim = Claim {
@@ -61,12 +56,12 @@ pub async fn new_user(
     Extension(state): Extension<AppState>,
     Json(config): Json<Value>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<LoginReply>, Error> {
     let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
-    if !is_authorized(&requester, "", Permission::CanManageUser) {
+    if !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "You are not authorized to create users".to_string(),
@@ -79,7 +74,7 @@ pub async fn new_user(
         })?;
     let hashed_psw = hash_password(&login_request.password);
     let uid = uuid::Uuid::new_v4().to_string();
-    let mut users = state.users.lock().await;
+    let users = state.users.lock().await;
     if users
         .get_ref()
         .iter()
@@ -90,27 +85,49 @@ pub async fn new_user(
             detail: "".to_string(),
         });
     }
-    users
-        .transform({
-            let uid = uid.clone();
-            Box::new(move |v| {
-                v.insert(
-                    uid.clone(),
-                    User {
-                        uid: uid.clone(),
-                        username: login_request.username.clone(),
-                        hashed_psw: hashed_psw.clone(),
-                        is_admin: false,
-                        is_owner: false,
-                        permissions: HashMap::new(),
-                        secret: rand_alphanumeric(32),
-                    },
-                );
-                Ok(())
-            })
+    let user = User {
+        uid: uid.clone(),
+        username: login_request.username.clone(),
+        hashed_psw: hashed_psw.clone(),
+        is_admin: false,
+        is_owner: false,
+        permissions: UserPermission::new(),
+        secret: rand_alphanumeric(32),
+    };
+    tokio::task::spawn({
+        let uid = uid.clone();
+        let users = state.users.clone();
+        let user = user.clone();
+        async move {
+            users
+                .lock()
+                .await
+                .transform({
+                    let uid = uid.clone();
+                    Box::new(move |v| {
+                        v.insert(uid.clone(), user.clone());
+                        Ok(())
+                    })
+                })
+                .unwrap();
+        }
+    });
+    let _ = state
+        .event_broadcaster
+        .send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id: uid.clone(),
+                user_event_inner: UserEventInner::UserCreated,
+            }),
+            details: "".to_string(),
+            snowflake: get_snowflake(),
+            idempotency: rand_alphanumeric(5),
         })
-        .unwrap();
-    Ok(Json(json!(uid)))
+        .map_err(|e| error!("Error sending event: {}", e));
+    Ok(Json(LoginReply {
+        token: create_jwt(&user, &user.secret)?,
+        user: user.into(),
+    }))
 }
 
 pub async fn delete_user(
@@ -120,59 +137,100 @@ pub async fn delete_user(
 ) -> Result<Json<Value>, Error> {
     let mut users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
-    if !is_authorized(&requester, "", Permission::CanManageUser) {
+    if !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "You are not authorized to create users".to_string(),
         });
     }
     users
+        .transform(Box::new({
+            let uid = uid.clone();
+            move |v| {
+                v.remove(&uid);
+                Ok(())
+            }
+        }))
+        .unwrap();
+    let _ = state
+        .event_broadcaster
+        .send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id: uid,
+                user_event_inner: UserEventInner::UserDeleted,
+            }),
+            details: "".to_string(),
+            snowflake: get_snowflake(),
+            idempotency: rand_alphanumeric(5),
+        })
+        .map_err(|e| error!("Error sending event: {}", e));
+    Ok(Json(json!("ok")))
+}
+
+pub async fn logout(
+    Extension(state): Extension<AppState>,
+    Path(uid): Path<String>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<String>, Error> {
+    let mut users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if requester.uid != uid && !requester.can_perform_action(&UserAction::ManageUser) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "You are not authorized to log out this user".to_string(),
+        });
+    }
+    let user_id = uid.clone();
+    users
         .transform(Box::new(move |v| {
-            v.remove(&uid);
+            v.get_mut(&uid).unwrap().secret = rand_alphanumeric(32);
             Ok(())
         }))
         .unwrap();
-    Ok(Json(json!("ok")))
+    let _ = state
+        .event_broadcaster
+        .send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id,
+                user_event_inner: UserEventInner::UserLoggedOut,
+            }),
+            details: "".to_string(),
+            snowflake: get_snowflake(),
+            idempotency: rand_alphanumeric(5),
+        })
+        .map_err(|e| error!("Error sending event: {}", e));
+    Ok(Json("ok".to_string()))
 }
 
 pub async fn update_permissions(
     Extension(state): Extension<AppState>,
     Path(uid): Path<String>,
-    Json(config): Json<Value>,
+    Json(new_permissions): Json<UserPermission>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let mut users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "".to_string(),
     })?;
-    if !is_authorized(&requester, "", Permission::CanManageUser) {
+    if !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "You are not authorized to update permissions".to_string(),
         });
     }
-    if config["uid"].is_null() {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request".to_string(),
-        });
-    }
-    let permissions_update_request: PermissionsUpdateSchema =
-        serde_json::from_value(config.clone()).map_err(|_| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request".to_string(),
-        })?;
     users.transform(Box::new(move |v| {
         let user = v.get_mut(&uid).ok_or(Error {
             inner: ErrorInner::UserNotFound,
             detail: "".to_string(),
         })?;
-        user.permissions = permissions_update_request.permissions.clone();
-        Ok(())
+        requester.update_permission(user, new_permissions.clone())
     }))?;
     Ok(Json(json!("ok")))
 }
@@ -184,8 +242,8 @@ pub async fn get_self_info(
     let users = state.users.lock().await;
     Ok(Json(
         (&try_auth(&token, users.get_ref()).ok_or(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "".to_string(),
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
         })?)
             .into(),
     ))
@@ -198,10 +256,10 @@ pub async fn get_user_info(
 ) -> Result<Json<PublicUser>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "".to_string(),
     })?;
-    if requester.uid != uid && !is_authorized(&requester, "", Permission::CanManageUser) {
+    if requester.uid != uid && !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "You are not authorized to get this user's info".to_string(),
@@ -223,10 +281,10 @@ pub async fn change_password(
     Extension(state): Extension<AppState>,
     Json(config): Json<Value>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<()>, Error> {
     let mut users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Invalid authorization".to_string(),
     })?;
     let uid = config
@@ -268,7 +326,7 @@ pub async fn change_password(
             Ok(())
         }))
         .unwrap();
-    Ok(Json(json!("ok")))
+    Ok(Json(()))
 }
 
 #[derive(Serialize, TS)]
@@ -304,7 +362,7 @@ pub async fn login(
             .is_err()
         {
             Err(Error {
-                inner: ErrorInner::PermissionDenied,
+                inner: ErrorInner::Unauthorized,
                 detail: "Invalid username or password".to_string(),
             })
         } else {
@@ -327,10 +385,10 @@ pub async fn get_all_users(
 ) -> Result<Json<Vec<PublicUser>>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
+        inner: ErrorInner::Unauthorized,
         detail: "Invalid authorization".to_string(),
     })?;
-    if !is_authorized(&requester, "", Permission::CanManageUser) {
+    if !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "You are not authorized to get all users".to_string(),
@@ -355,4 +413,5 @@ pub fn get_user_routes() -> Router {
         .route("/user/info", get(get_self_info))
         .route("/user/password", put(change_password))
         .route("/user/login", post(login))
+        .route("/user/logout/:uid", post(logout))
 }

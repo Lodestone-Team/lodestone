@@ -1,6 +1,6 @@
 [package]
-name = "Lodestone"
-version = "0.2.1-alpha.1"
+name = "lodestone_client"
+version = "0.3.0"
 edition = "2021"
 
 exclude = [
@@ -39,8 +39,8 @@ indicatif = "0.15.0"
 fs_extra = "1.2.0"
 
 sanitize-filename = "0.4.0"
-sysinfo = "0.26.2"
-rlua = "0.19.1"
+sysinfo = "0.26.5"
+mlua = { version = "0.8.4", features = ["lua54", "vendored", "async", "macros", "send"] }
 rand = "0.6.5"
 log = "0.4.17"
 env_logger = "0.9.0"
@@ -56,6 +56,9 @@ semver = {version="1.0", features = ["serde"]}
 whoami = "1.2.3"
 home = "0.5.3"
 port_scanner = "0.1.5"
+safe-path = {git = "https://github.com/Lodestone-Team/safe_path_subset"}
+rs-snowflake = "0.6.0"
+
 [dependencies.uuid]
 version = "1.1.2"
 features = [

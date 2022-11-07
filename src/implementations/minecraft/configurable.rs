@@ -7,7 +7,7 @@ use crate::traits::{self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupp
 
 use crate::traits::Error;
 
-use super::Instance;
+use super::{BackupInstruction, Instance};
 
 #[async_trait]
 impl TConfigurable for Instance {
@@ -59,20 +59,8 @@ impl TConfigurable for Instance {
         self.config.auto_start
     }
 
-    async fn restart_on_crash(&self) -> MaybeUnsupported<bool> {
-        Supported(self.config.restart_on_crash)
-    }
-
-    async fn timeout_last_left(&self) -> MaybeUnsupported<Option<u32>> {
-        Supported(self.config.timeout_last_left)
-    }
-
-    async fn timeout_no_activity(&self) -> MaybeUnsupported<Option<u32>> {
-        Supported(self.config.timeout_no_activity)
-    }
-
-    async fn start_on_connection(&self) -> MaybeUnsupported<bool> {
-        Supported(self.config.start_on_connection)
+    async fn restart_on_crash(&self) -> bool {
+        self.config.restart_on_crash
     }
 
     async fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
@@ -110,13 +98,22 @@ impl TConfigurable for Instance {
     async fn set_port(&mut self, port: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
         Supported({
             self.config.port = port;
+            match self.settings.lock().await.get_mut("server-port").ok_or_else(|| {Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Server port not found in settings. Has the instance been started at least once?".to_string(),
+            }}) {
+                Ok(port) => {
+                    *port = port.to_string()
+                }
+                Err(e) => return Some(Err(e)),
+            };
             self.write_config_to_file()
                 .await
                 .and(self.write_properties_to_file().await)
         })
     }
 
-    async fn set_cmd_argss(
+    async fn set_cmd_args(
         &mut self,
         cmd_args: Vec<String>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {
@@ -163,47 +160,15 @@ impl TConfigurable for Instance {
         })
     }
 
-    async fn set_timeout_last_left(
-        &mut self,
-        timeout_last_left: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.timeout_last_left = timeout_last_left;
-            *self.timeout_last_left.lock().await = timeout_last_left;
-            self.write_config_to_file().await
-        })
-    }
-
-    async fn set_timeout_no_activity(
-        &mut self,
-        timeout_no_activity: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            *self.timeout_no_activity.lock().await = timeout_no_activity;
-            self.config.timeout_no_activity = timeout_no_activity;
-            self.write_config_to_file().await
-        })
-    }
-
-    async fn set_start_on_connection(
-        &mut self,
-        start_on_connection: bool,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.start_on_connection = start_on_connection;
-            self.auto_start
-                .store(start_on_connection, atomic::Ordering::Relaxed);
-            self.write_config_to_file().await
-        })
-    }
-
     async fn set_backup_period(
         &mut self,
         backup_period: Option<u32>,
     ) -> MaybeUnsupported<Result<(), traits::Error>> {
         Supported({
-            *self.backup_period.lock().await = backup_period;
-            self.config.timeout_no_activity = backup_period;
+            self.config.backup_period = backup_period;
+            self.backup_sender
+                .send(BackupInstruction::SetPeriod(backup_period))
+                .unwrap();
             self.write_config_to_file().await
         })
     }

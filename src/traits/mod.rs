@@ -24,7 +24,8 @@ pub type MaybeUnsupported<T> = Option<T>;
 pub use core::option::Option::None as Unsupported;
 pub use core::option::Option::Some as Supported;
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(export)]
 pub enum ErrorInner {
     // IO errors:
     FailedToReadFileOrDir,
@@ -66,11 +67,13 @@ pub enum ErrorInner {
 
     // Macro errors:
     FailedToRun,
+    MacroNotFound,
 
     // Process errors:
     FailedToExecute,
     FailedToAcquireStdin,
     FailedToAcquireStdout,
+    FailedToAcquireStderr,
 
     // API changed
     APIChanged,
@@ -84,10 +87,12 @@ pub enum ErrorInner {
     // User errors:
     UserNotFound,
     UserAlreadyExists,
-    InvalidPassword,
+    Unauthorized,
     PermissionDenied,
 }
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, TS)]
+#[serde(rename = "ClientError")]
+#[ts(export)]
 pub struct Error {
     pub inner: ErrorInner,
     pub detail: String,
@@ -98,6 +103,8 @@ impl IntoResponse for Error {
         let (status, error_message) = match self.inner {
             ErrorInner::MalformedRequest => (StatusCode::BAD_REQUEST, json!(self).to_string()),
             ErrorInner::PermissionDenied => (StatusCode::FORBIDDEN, json!(self).to_string()),
+            ErrorInner::Unauthorized => (StatusCode::UNAUTHORIZED, json!(self).to_string()),
+            ErrorInner::FileOrDirNotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string()),
         };
         (status, error_message).into_response()
@@ -111,13 +118,19 @@ pub struct InstanceInfo {
     pub name: String,
     pub flavour: String,
     pub game_type: String,
+    pub cmd_args: Vec<String>,
     pub description: String,
     pub port: u32,
+    pub min_ram: Option<u32>,
+    pub max_ram: Option<u32>,
+    pub creation_time: i64,
+    pub path: String,
+    pub auto_start: bool,
+    pub restart_on_crash: bool,
+    pub backup_period: Option<u32>,
     pub state: State,
     pub player_count: Option<u32>,
     pub max_player_count: Option<u32>,
-    pub creation_time: i64,
-    pub path: String,
 }
 
 #[async_trait]
@@ -130,13 +143,19 @@ pub trait TInstance:
             name: self.name().await,
             flavour: self.flavour().await,
             game_type: self.game_type().await,
+            cmd_args: self.cmd_args().await,
             description: self.description().await,
             port: self.port().await,
+            min_ram: self.min_ram().await,
+            max_ram: self.max_ram().await,
+            creation_time: self.creation_time().await,
+            path: self.path().await.display().to_string(),
+            auto_start: self.auto_start().await,
+            restart_on_crash: self.restart_on_crash().await,
+            backup_period: self.backup_period().await.unwrap_or(None),
             state: self.state().await,
             player_count: self.get_player_count().await,
             max_player_count: self.get_max_player_count().await,
-            creation_time: self.creation_time().await,
-            path: self.path().await.display().to_string(),
         }
     }
 }

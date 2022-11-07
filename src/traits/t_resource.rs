@@ -1,10 +1,6 @@
-
-
 use async_trait::async_trait;
-use serde::{Serialize};
+use serde::Serialize;
 use serde_json;
-
-
 
 use super::{MaybeUnsupported, Unsupported};
 
@@ -28,20 +24,31 @@ where
 
 #[async_trait]
 pub trait TResourceManagement {
-    async fn list(&self) -> Vec<serde_json::Value> where Self: Sized {
+    async fn list(&self) -> Vec<serde_json::Value>
+    where
+        Self: Sized,
+    {
         vec![]
     }
 
-    async fn load(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> where Self: Sized {
+    async fn load(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>>
+    where
+        Self: Sized,
+    {
         Unsupported
     }
 
-    async fn unload(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> where Self: Sized {
+    async fn unload(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>>
+    where
+        Self: Sized,
+    {
         Unsupported
     }
 
-
-    async fn delete(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>> where Self: Sized {
+    async fn delete(&mut self, _resource: &str) -> MaybeUnsupported<Result<(), super::Error>>
+    where
+        Self: Sized,
+    {
         Unsupported
     }
 }

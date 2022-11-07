@@ -1,19 +1,16 @@
-use std::collections::HashSet;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::traits::{Error, ErrorInner};
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MinecraftVersions {
-    old_alpha: HashSet<String>,
-    snapshot: HashSet<String>,
-    release: HashSet<String>,
+    old_alpha: Vec<String>,
+    snapshot: Vec<String>,
+    release: Vec<String>,
 }
 
-pub async fn get_vanilla_versions() -> Result<Vec<String>, Error> {
+pub async fn get_vanilla_versions() -> Result<MinecraftVersions, Error> {
     let http = reqwest::Client::new();
     let api_changed_error = Error {
         inner: ErrorInner::APIChanged,
@@ -29,32 +26,47 @@ pub async fn get_vanilla_versions() -> Result<Vec<String>, Error> {
             })?
             .text()
             .await
-            .map_err(|_| api_changed_error)?
+            .map_err(|_| api_changed_error.clone())?
             .as_str(),
     )
-    .map_err(|_| Error {
-        inner: ErrorInner::APIChanged,
-        detail: "Mojang API changed. Please report this bug".to_string(),
-    })?;
+    .map_err(|_| api_changed_error.clone())?;
 
-    let versions = response["versions"].as_array().ok_or(Error {
-        inner: ErrorInner::APIChanged,
-        detail: "Mojang API changed. Please report this bug".to_string(),
-    })?;
+    let versions = response["versions"]
+        .as_array()
+        .ok_or(api_changed_error.clone())?;
 
-    Ok(versions
-        .iter()
-        .map(|v| v["id"].as_str().unwrap().to_string())
-        .collect())
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Version {
+        id: String,
+        r#type: String,
+    }
+
+    let mut ret = MinecraftVersions {
+        old_alpha: Vec::new(),
+        snapshot: Vec::new(),
+        release: Vec::new(),
+    };
+
+    for version in versions.iter() {
+        let version: Version =
+            serde_json::from_value(version.to_owned()).map_err(|_| api_changed_error.clone())?;
+        match version.r#type.as_str() {
+            "old_alpha" => ret.old_alpha.push(version.id),
+            "snapshot" => ret.snapshot.push(version.id),
+            "release" => ret.release.push(version.id),
+            _ => {}
+        }
+    }
+    Ok(ret)
 }
 
-pub async fn get_fabric_versions() -> Result<Vec<String>, Error> {
+pub async fn get_fabric_versions() -> Result<MinecraftVersions, Error> {
     let http = reqwest::Client::new();
     let api_changed_error = Error {
         inner: ErrorInner::APIChanged,
         detail: "Fabric API changed. Please report this bug".to_string(),
     };
-    let reponse: Value = serde_json::from_str(
+    let response: Value = serde_json::from_str(
         http.get("https://meta.fabricmc.net/v2/versions")
             .send()
             .await
@@ -72,10 +84,32 @@ pub async fn get_fabric_versions() -> Result<Vec<String>, Error> {
         detail: "Fabric API changed. Please report this bug".to_string(),
     })?;
 
-    Ok(reponse["game"]
+    let vanilla_versions = get_vanilla_versions().await?;
+    let mut ret = MinecraftVersions {
+        release: Vec::new(),
+        snapshot: Vec::new(),
+        old_alpha: Vec::new(),
+    };
+    for item in response["game"]
         .as_array()
-        .ok_or(api_changed_error)?
-        .iter()
-        .map(|v| v["version"].as_str().unwrap().to_string())
-        .collect())
+        .ok_or_else(|| api_changed_error.clone())?
+    {
+        let version_str = item["version"]
+            .as_str()
+            .ok_or_else(|| api_changed_error.clone())?;
+        if vanilla_versions.release.contains(&version_str.to_string()) {
+            ret.release.push(version_str.to_string());
+        }
+        if vanilla_versions.snapshot.contains(&version_str.to_string()) {
+            ret.snapshot.push(version_str.to_string());
+        }
+        if vanilla_versions
+            .old_alpha
+            .contains(&version_str.to_string())
+        {
+            ret.old_alpha.push(version_str.to_string());
+        }
+    }
+
+    Ok(ret)
 }

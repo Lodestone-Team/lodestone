@@ -1,21 +1,24 @@
-use axum::{Router, routing::{put, post, get}, Extension, extract::Path};
-
+use axum::{
+    extract::Path,
+    routing::{get, post, put},
+    Extension, Router,
+};
 
 use axum::Json;
 use axum_auth::AuthBearer;
 
 use serde_json::{json, Value};
 
+use crate::{
+    auth::user::UserAction,
+    traits::{Supported, Unsupported},
+};
 
-use crate::traits::{Supported, Unsupported};
-
-use super::util::{is_authorized, try_auth};
-use crate::json_store::permission::Permission::{self};
+use super::util::try_auth;
 use crate::{
     traits::{Error, ErrorInner},
     AppState,
 };
-
 
 pub async fn start_instance(
     Extension(state): Extension<AppState>,
@@ -24,10 +27,10 @@ pub async fn start_instance(
 ) -> Result<Json<Value>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::PermissionDenied,
-        detail: "".to_string(),
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
-    if !is_authorized(&requester, &uuid, Permission::CanStartInstance) {
+    if !requester.can_perform_action(&UserAction::StartInstance(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to start instance".to_string(),
@@ -56,7 +59,20 @@ pub async fn start_instance(
 pub async fn stop_instance(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::StopInstance(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to stop instance".to_string(),
+        });
+    }
+    drop(users);
     state
         .instances
         .lock()
@@ -76,7 +92,20 @@ pub async fn stop_instance(
 pub async fn kill_instance(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::StopInstance(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to kill instance".to_string(),
+        });
+    }
+    drop(users);
     state
         .instances
         .lock()
@@ -97,7 +126,20 @@ pub async fn send_command(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
     Json(command): Json<String>,
-) -> Result<Json<Value>, Error> {
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::AccessConsole(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to send command".to_string(),
+        });
+    }
+    drop(users);
     match state
         .instances
         .lock()
@@ -112,7 +154,7 @@ pub async fn send_command(
         .send_command(&command)
         .await
     {
-        Supported(v) => v.map(|_| Json(json!("ok"))),
+        Supported(v) => v.map(|_| Json(())),
         Unsupported => Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "".to_string(),
@@ -123,7 +165,20 @@ pub async fn send_command(
 pub async fn get_instance_state(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::ViewInstance(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to get instance state".to_string(),
+        });
+    }
+    drop(users);
     Ok(Json(json!(
         state
             .instances

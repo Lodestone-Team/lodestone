@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde_json::json;
 
-
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_player::TPlayerManagement;
 use crate::traits::Supported;
@@ -40,6 +39,9 @@ impl TPlayerManagement for Instance {
         &mut self,
         _max_player_count: u32,
     ) -> crate::traits::MaybeUnsupported<()> {
-        todo!()
+        self.set_field("max-players", _max_player_count.to_string())
+            .await
+            .expect("Failed to set max-players");
+        Supported(())
     }
 }

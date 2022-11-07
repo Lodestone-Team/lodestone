@@ -1,13 +1,13 @@
-use crate::AppState;
-use axum::{extract::Path, Extension, Json, Router, routing::get};
+use crate::{port_allocator::PortStatus, AppState};
+use axum::{extract::Path, routing::get, Extension, Json, Router};
 
-/// Check whether a port is in use
+/// Check the status of a port
 /// Note: this function is not cheap
-pub async fn is_port_in_use(
+pub async fn get_port_status(
     Extension(state): Extension<AppState>,
     Path(port): Path<u32>,
-) -> Json<bool> {
-    Json(state.port_allocator.lock().await.is_port_in_use(port))
+) -> Json<PortStatus> {
+    Json(state.port_allocator.lock().await.port_status(port))
 }
 
 /// Check whether a name is in use
@@ -26,6 +26,6 @@ pub async fn is_name_in_use(
 
 pub fn get_checks_routes() -> Router {
     Router::new()
-        .route("/check/port/:port", get(is_port_in_use))
+        .route("/check/port/:port", get(get_port_status))
         .route("/check/name/:name", get(is_name_in_use))
 }

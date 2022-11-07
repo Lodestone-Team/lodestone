@@ -3,22 +3,29 @@ use std::sync::Arc;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use axum::{extract::Path, Extension, Json};
-
+use axum_auth::AuthBearer;
 use futures::future::join_all;
-use log::info;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+
 use tokio::sync::Mutex;
+use ts_rs::TS;
+
+use crate::auth::user::UserAction;
+use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
-use crate::prelude::PATH_TO_INSTANCES;
-use crate::traits::InstanceInfo;
+use crate::prelude::{PATH_TO_INSTANCES, get_snowflake};
+use crate::traits::{InstanceInfo, TInstance};
 
+use crate::util::rand_alphanumeric;
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
     AppState,
 };
+
+use super::util::try_auth;
 
 pub async fn get_instance_list(
     Extension(state): Extension<AppState>,
@@ -60,7 +67,8 @@ pub async fn get_instance_info(
     ))
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
 pub struct MinecraftSetupConfigPrimitive {
     pub name: String,
     pub version: String,
@@ -103,15 +111,27 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             game_type: "minecraft".to_string(),
             uuid: uuid.clone(),
             path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, uuid[0..8].to_string()))),
+                .with(|path| path.join(format!("{}-{}", config.name, &uuid[0..8]))),
         }
     }
 }
 pub async fn create_minecraft_instance(
     Extension(state): Extension<AppState>,
     Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
-    println!("Creating minecraft instance");
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::CreateInstance) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to get instance state".to_string(),
+        });
+    }
+    drop(users);
     primitive_setup_config.name = sanitize_filename::sanitize(&primitive_setup_config.name);
     let mut setup_config: SetupConfig = primitive_setup_config.into();
     let mut name = setup_config.name.clone();
@@ -127,14 +147,14 @@ pub async fn create_minecraft_instance(
             detail: "Name must not be longer than 100 characters".to_string(),
         });
     }
-    name = format!("{}-{}", name, setup_config.uuid[0..5].to_string());
+    name = format!("{}-{}", name, &setup_config.uuid[0..5]);
     for (_, instance) in state.instances.lock().await.iter() {
         let path = instance.lock().await.path().await;
         if path == setup_config.path {
             while path == setup_config.path {
                 info!("You just hit the lottery");
                 setup_config.uuid = uuid::Uuid::new_v4().to_string();
-                name = format!("{}-{}", name, setup_config.uuid[0..5].to_string());
+                name = format!("{}-{}", name, &setup_config.uuid[0..5]);
                 setup_config.name = name.clone();
             }
         }
@@ -143,6 +163,7 @@ pub async fn create_minecraft_instance(
     let uuid = setup_config.uuid.clone();
     tokio::task::spawn({
         let uuid = uuid.clone();
+        let event_broadcaster = state.event_broadcaster.clone();
         async move {
             let minecraft_instance = match minecraft::Instance::new(
                 setup_config.clone(),
@@ -150,8 +171,39 @@ pub async fn create_minecraft_instance(
             )
             .await
             {
-                Ok(v) => v,
-                Err(_) => {
+                Ok(v) => {
+                    let _ = event_broadcaster
+                        .send(Event {
+                            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                instance_uuid: uuid.clone(),
+                                instance_name: name.clone(),
+                                instance_event_inner: InstanceEventInner::InstanceCreationSuccess {
+                                    instance : v.get_instance_info().await,
+                                },
+                            }),
+                            details: "".to_string(),
+                            snowflake: get_snowflake(),
+                            idempotency: rand_alphanumeric(5),
+                        })
+                        .map_err(|e| {
+                            error!("Failed to send event: {}", e);
+                        });
+                    v
+                }
+                Err(e) => {
+                    let _ = event_broadcaster.send(Event {
+                        event_inner: EventInner::InstanceEvent(InstanceEvent {
+                            instance_uuid: uuid.clone(),
+                            instance_name : name.clone(),
+                            instance_event_inner: InstanceEventInner::InstanceCreationFailed {
+                                reason: e.detail,
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: get_snowflake(),
+                        idempotency : rand_alphanumeric(5),
+                    
+                    }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket"));
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
                         .map_err(|e| Error {
@@ -160,7 +212,8 @@ pub async fn create_minecraft_instance(
                             "Instance creation failed. Failed to clean up instance directory: {}",
                             e
                         ),
-                        });
+                        })
+                        .unwrap();
                     return;
                 }
             };
@@ -179,7 +232,20 @@ pub async fn create_minecraft_instance(
 pub async fn delete_instance(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
-) -> Result<Json<Value>, Error> {
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::DeleteInstance) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to delete instance".to_string(),
+        });
+    }
+    drop(users);
     let mut instances = state.instances.lock().await;
     if let Some(instance) = instances.get(&uuid) {
         let instance_lock = instance.lock().await;
@@ -203,7 +269,7 @@ pub async fn delete_instance(
                 .deallocate(instance_lock.port().await);
             drop(instance_lock);
             instances.remove(&uuid);
-            Ok(Json(json!("OK")))
+            Ok(Json(()))
         }
     } else {
         Err(Error {
