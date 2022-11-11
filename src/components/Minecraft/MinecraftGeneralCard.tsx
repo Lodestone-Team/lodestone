@@ -10,6 +10,7 @@ import Dropdown from 'components/Atoms/Config/SelectBox';
 import SettingField from 'components/SettingField';
 import { useContext } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
+import { PortStatus } from 'bindings/PortStatus';
 
 export default function MinecraftGeneralCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -38,11 +39,11 @@ export default function MinecraftGeneralCard() {
       disabled={!supportedOptions.includes('SetPort')}
       validate={async (port) => {
         const numPort = parseintStrict(port);
-        const result = await axiosWrapper<boolean>({
+        const result = await axiosWrapper<PortStatus>({
           method: 'get',
           url: `/check/port/${numPort}`,
         });
-        if (result) throw new Error('Port not available');
+        if (result.is_allocated) throw new Error('Port not available');
       }}
       onSubmit={async (port) => {
         const numPort = parseintStrict(port);

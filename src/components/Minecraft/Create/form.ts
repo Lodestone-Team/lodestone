@@ -2,6 +2,7 @@ import { axiosWrapper, catchAsyncToString } from 'utils/util';
 import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
 import * as yup from 'yup';
 import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
+import { PortStatus } from 'bindings/PortStatus';
 
 export const formId = 'minecraftCreateNewInstanceForm';
 
@@ -45,11 +46,11 @@ export const initialValues: MinecraftSetupConfigPrimitiveForm = {
 };
 
 const checkPortValid = async (port: number) => {
-  const result = await axiosWrapper<boolean>({
+  const result = await axiosWrapper<PortStatus>({
     method: 'get',
     url: `/check/port/${port}`,
   });
-  if (result) throw new Error('Port is used');
+  if (result.is_allocated) throw new Error('Port is used');
 };
 
 export const validationSchema = [

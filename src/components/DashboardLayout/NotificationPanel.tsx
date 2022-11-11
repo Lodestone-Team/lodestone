@@ -1,8 +1,23 @@
 import ProgressBar from 'components/Atoms/ProgressBar';
-import { NotificationContext } from 'data/NotificationContext';
+import {
+  NotificationContext,
+  NotificationStatus,
+  OngoingState,
+} from 'data/NotificationContext';
 import { useContext } from 'react';
 import { GridLoader } from 'react-spinners';
 import { formatNotificationTime } from 'utils/util';
+import NotificationCard from './NotificationCard';
+import NotificationItem from './NotificationCard';
+
+const ongoingStateMapToNotificationType: Record<
+  OngoingState,
+  NotificationStatus
+> = {
+  ongoing: 'info',
+  done: 'success',
+  error: 'error',
+};
 
 export default function NotificationPanel() {
   const { notifications, ongoingNotifications } =
@@ -16,31 +31,18 @@ export default function NotificationPanel() {
       <div className="px-4 py-3 font-sans font-bold border-y-2 border-gray-faded/30 text-smaller">
         In Progress
       </div>
-      <div className="overflow-y-auto">
+      <div className="flex flex-col gap-2 p-4 overflow-y-auto">
         {ongoingNotifications.length > 0 ? (
           ongoingNotifications
             .map((notification) => (
-              <div key={notification.key}>
-                {notification.progress ? (
-                  <ProgressBar progress={notification.progress} />
-                ) : (
-                  <div className="h-1"></div>
-                )}
-                <div
-                  className={`justify-stretch flex flex-row items-center justify-between px-4 py-3 text-white hover:bg-gray-900`}
-                >
-                  <div className="flex flex-col items-start">
-                    <span className="whitespace-nowrap text-smaller text-white/50">
-                      {formatNotificationTime(Number(notification.timestamp))}
-                      {/* TODO: make error and success messages look different */}
-                    </span>
-                    <p className="w-full text-base">{notification.title}</p>
-                    <p className="w-full text-smaller">{notification.message}</p>
-                  </div>
-                  {/* TODO: fix loading animation flickering on resize */}
-                  <GridLoader size={5} margin={1} color="#E3E3E4" key={notification.key} />
-                </div>
-              </div>
+              <NotificationCard
+                key={notification.key}
+                type={ongoingStateMapToNotificationType[notification.state]}
+                title={notification.title}
+                message={notification.message}
+                progress={notification.progress}
+                timestamp={notification.timestamp}
+              />
             ))
             .reverse()
         ) : (
@@ -56,20 +58,16 @@ export default function NotificationPanel() {
       <div className="px-4 py-3 mt-12 font-sans font-bold border-y-2 border-gray-faded/30 text-smaller">
         Silent
       </div>
-      <div className="overflow-y-auto">
+      <div className="flex flex-col gap-2 p-4 overflow-y-auto grow">
         {notifications.length > 0 ? (
           notifications
             .map((notification) => (
-              <div
+              <NotificationCard
                 key={notification.key}
-                className={`justify-stretch flex flex-col items-start px-4 py-3 text-white hover:bg-gray-900`}
-              >
-                <span className="whitespace-nowrap text-smaller text-white/50">
-                  {formatNotificationTime(Number(notification.timestamp))}
-                  {/* TODO: make error and success messages look different */}
-                </span>
-                <p className="w-full text-base">{notification.message}</p>
-              </div>
+                type={notification.status}
+                title={notification.message}
+                timestamp={notification.timestamp}
+              />
             ))
             .reverse()
         ) : (
