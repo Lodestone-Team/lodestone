@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{util::{DownloadProgress, SetupProgress}, traits::InstanceInfo};
+use crate::prelude::get_snowflake;
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -15,12 +15,6 @@ pub enum InstanceEventInner {
     InstanceStopped,
     InstanceWarning,
     InstanceError,
-    InstanceCreationFailed {
-        reason: String,
-    },
-    InstanceCreationSuccess {
-        instance : InstanceInfo
-    },
     InstanceInput {
         message: String,
     },
@@ -40,8 +34,6 @@ pub enum InstanceEventInner {
         player: String,
         player_message: String,
     },
-    Downloading(DownloadProgress),
-    Setup(SetupProgress),
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -81,6 +73,38 @@ pub struct MacroEvent {
     pub macro_event_inner: MacroEventInner,
 }
 
+// the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub enum ProgressionEventInner {
+    ProgressionStart {
+        progression_name: String,
+        producer_id: String,
+        total: Option<u64>,
+        parent_event_id: Option<String>,
+    },
+    ProgressionUpdate {
+        progress: u64,
+        progress_message: Option<String>,
+    },
+    ProgressionEnd {
+        success: bool,
+        message: Option<String>,
+        value: Option<String>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct ProgressionEvent {
+    pub event_id: String,
+    pub progression_event_inner: ProgressionEventInner,
+}
+
+pub fn new_progression_event_id() -> String {
+    format!("PROGRESSION_{}", get_snowflake())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
@@ -88,6 +112,7 @@ pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
     MacroEvent(MacroEvent),
+    ProgressionEvent(ProgressionEvent),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -96,7 +121,6 @@ pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
     pub snowflake: i64,
-    pub idempotency: String,
 }
 
 // a type that Event will be serialized to
@@ -108,7 +132,6 @@ struct ClientEvent {
     pub details: String,
     pub snowflake: i64,
     pub snowflake_str: String,
-    pub idempotency: String,
 }
 
 impl Into<ClientEvent> for Event {
@@ -118,7 +141,6 @@ impl Into<ClientEvent> for Event {
             details: self.details,
             snowflake: self.snowflake,
             snowflake_str: self.snowflake.to_string(),
-            idempotency: self.idempotency,
         }
     }
 }

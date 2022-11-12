@@ -32,7 +32,7 @@ pub struct SetupProgress {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DownloadProgress {
-    pub total: u64,
+    pub total: Option<u64>,
     pub downloaded: u64,
     pub download_name: String,
 }
@@ -87,8 +87,8 @@ pub async fn download_file(
         });
     }
     remove_file(path.join(&file_name)).await.ok();
-    let total_size = response.content_length().unwrap_or(0);
-    let pb = ProgressBar::new(total_size);
+    let total_size = response.content_length();
+    let pb = ProgressBar::new(total_size.unwrap_or(0));
     pb.set_style(ProgressStyle::default_bar()
         .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .progress_chars("#>-"));
@@ -101,20 +101,30 @@ pub async fn download_file(
             detail: format!("Failed to create file {}", path.join(&file_name).display()),
         })?;
     let mut downloaded: u64 = 0;
+    let mut new_downloaded: u64 = 0;
+    let threshold = total_size.unwrap_or(500000) / 100;
     let mut stream = response.bytes_stream();
     while let Some(item) = stream.next().await {
         let chunk = item.expect("Error while downloading file");
-        downloaded_file
-            .write_all(&chunk)
-            .await
-            .expect("Error while writing to file");
-        downloaded += chunk.len() as u64;
-        on_download(DownloadProgress {
-            total: total_size,
-            downloaded,
-            download_name: file_name.clone(),
-        });
-        pb.set_position(downloaded as u64);
+        downloaded_file.write_all(&chunk).await.map_err(|e| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: format!(
+                "Failed to write to file {}, {}",
+                path.join(&file_name).display(),
+                e
+            ),
+        })?;
+        new_downloaded += chunk.len() as u64;
+        if (new_downloaded - downloaded) > threshold {
+            on_download(DownloadProgress {
+                total: total_size,
+                downloaded,
+                download_name: file_name.clone(),
+            });
+            downloaded = new_downloaded;
+        }
+
+        pb.set_position(new_downloaded as u64);
     }
     Ok(path.join(&file_name))
 }

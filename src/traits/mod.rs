@@ -34,6 +34,7 @@ pub enum ErrorInner {
     FailedToRemoveFileOrDir,
     FileOrDirNotFound,
     FiledOrDirAlreadyExists,
+    IOError,
 
     // Stdin/stdout errors:
     FailedToWriteStdin,

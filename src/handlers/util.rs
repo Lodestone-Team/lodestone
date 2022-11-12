@@ -54,6 +54,9 @@ pub fn can_user_view_event(event: &Event, user: &User) -> bool {
         EventInner::MacroEvent(macro_event) => {
             user.can_perform_action(&UserAction::AccessMacro(macro_event.macro_uuid.clone()))
         }
+        EventInner::ProgressionEvent(progression_event) => user.can_perform_action(
+            &UserAction::ViewInstance(progression_event.event_id.clone()),
+        ),
     }
 }
 

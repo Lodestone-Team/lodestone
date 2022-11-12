@@ -5,20 +5,21 @@ use axum::Router;
 use axum::{extract::Path, Extension, Json};
 use axum_auth::AuthBearer;
 use futures::future::join_all;
-use log::{error, info};
+use log::{info};
 use serde::{Deserialize, Serialize};
 
 use tokio::sync::Mutex;
 use ts_rs::TS;
 
 use crate::auth::user::UserAction;
-use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::events::{
+    new_progression_event_id, Event, EventInner, ProgressionEvent, ProgressionEventInner,
+};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
-use crate::prelude::{PATH_TO_INSTANCES, get_snowflake};
+use crate::prelude::{get_snowflake, PATH_TO_INSTANCES};
 use crate::traits::{InstanceInfo, TInstance};
 
-use crate::util::rand_alphanumeric;
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
@@ -134,7 +135,7 @@ pub async fn create_minecraft_instance(
     drop(users);
     primitive_setup_config.name = sanitize_filename::sanitize(&primitive_setup_config.name);
     let mut setup_config: SetupConfig = primitive_setup_config.into();
-    let mut name = setup_config.name.clone();
+    let name = setup_config.name.clone();
     if name.is_empty() {
         return Err(Error {
             inner: ErrorInner::MalformedRequest,
@@ -147,15 +148,16 @@ pub async fn create_minecraft_instance(
             detail: "Name must not be longer than 100 characters".to_string(),
         });
     }
-    name = format!("{}-{}", name, &setup_config.uuid[0..5]);
     for (_, instance) in state.instances.lock().await.iter() {
         let path = instance.lock().await.path().await;
         if path == setup_config.path {
             while path == setup_config.path {
                 info!("You just hit the lottery");
                 setup_config.uuid = uuid::Uuid::new_v4().to_string();
-                name = format!("{}-{}", name, &setup_config.uuid[0..5]);
-                setup_config.name = name.clone();
+                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid[0..5]);
+                setup_config.path = PATH_TO_INSTANCES.with(|path| {
+                    path.join(format!("{}-{}", name_with_uuid, &setup_config.uuid[0..5]))
+                });
             }
         }
     }
@@ -165,45 +167,58 @@ pub async fn create_minecraft_instance(
         let uuid = uuid.clone();
         let event_broadcaster = state.event_broadcaster.clone();
         async move {
+            let progression_event_id = new_progression_event_id();
+            let _ = event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: progression_event_id.clone(),
+                    progression_event_inner: ProgressionEventInner::ProgressionStart {
+                        progression_name: format!("Setting up Minecraft server {}", name),
+                        producer_id: uuid.clone(),
+                        total: Some(4),
+                        parent_event_id: None,
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: get_snowflake(),
+            });
             let minecraft_instance = match minecraft::Instance::new(
                 setup_config.clone(),
+                progression_event_id.clone(),
                 state.event_broadcaster.clone(),
             )
             .await
             {
                 Ok(v) => {
-                    let _ = event_broadcaster
-                        .send(Event {
-                            event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                instance_uuid: uuid.clone(),
-                                instance_name: name.clone(),
-                                instance_event_inner: InstanceEventInner::InstanceCreationSuccess {
-                                    instance : v.get_instance_info().await,
-                                },
-                            }),
-                            details: "".to_string(),
-                            snowflake: get_snowflake(),
-                            idempotency: rand_alphanumeric(5),
-                        })
-                        .map_err(|e| {
-                            error!("Failed to send event: {}", e);
-                        });
-                    v
-                }
-                Err(e) => {
                     let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: uuid.clone(),
-                            instance_name : name.clone(),
-                            instance_event_inner: InstanceEventInner::InstanceCreationFailed {
-                                reason: e.detail,
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id: progression_event_id.clone(),
+                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                                success: true,
+                                message: Some("Instance creation success".to_string()),
+                                value: Some(
+                                    serde_json::to_string(&v.get_instance_info().await)
+                                        .expect("Failed to serialize instance info"),
+                                ),
                             },
                         }),
                         details: "".to_string(),
                         snowflake: get_snowflake(),
-                        idempotency : rand_alphanumeric(5),
-                    
-                    }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket"));
+                    });
+                    v
+                }
+                Err(e) => {
+                    let _ = event_broadcaster.send(Event {
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id: progression_event_id.clone(),
+                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                                success: false,
+                                message: Some(format!("Instance creation failed: {:?}", e)),
+                                value: None,
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: get_snowflake(),
+                    });
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
                         .map_err(|e| Error {

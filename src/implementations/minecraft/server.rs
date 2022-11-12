@@ -14,7 +14,7 @@ use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
 use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
-use crate::util::{dont_spawn_terminal, rand_alphanumeric, scoped_join_win_safe};
+use crate::util::{dont_spawn_terminal, scoped_join_win_safe};
 
 use super::Instance;
 use log::{debug, error, info, warn};
@@ -28,7 +28,6 @@ impl TServer for Instance {
 
         let prelaunch = self.path().await.join("prelaunch.lua");
         if prelaunch.exists() {
-
             match tokio::fs::read_to_string(prelaunch).await {
                 Ok(script) => {
                     let uuid = self.macro_executor.spawn(LuaExecutionInstruction {
@@ -44,7 +43,6 @@ impl TServer for Instance {
                     error!("Failed to read prelaunch script: {}", e);
                 }
             }
-           
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -294,7 +292,6 @@ impl TServer for Instance {
                                 }),
                                 details: "".to_string(),
                                 snowflake: get_snowflake(),
-                                idempotency: rand_alphanumeric(5),
                             });
 
                             if parse_server_started(&line) && !did_start {
@@ -320,7 +317,6 @@ impl TServer for Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
-                                    idempotency: rand_alphanumeric(5),
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
                                     let _ = players.lock().await.transform_cmp(Box::new(
@@ -349,7 +345,6 @@ impl TServer for Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
-                                    idempotency: rand_alphanumeric(5),
                                 });
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {
                                     match macro_instruction {
@@ -399,10 +394,14 @@ impl TServer for Instance {
             Err(e) => {
                 env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 error!("Failed to start server, {}", e);
-                self.state.lock().await.transform(Box::new(|v : &mut State| {
-                    *v = State::Stopped;
-                    Ok(())
-                })).unwrap();
+                self.state
+                    .lock()
+                    .await
+                    .transform(Box::new(|v: &mut State| {
+                        *v = State::Stopped;
+                        Ok(())
+                    }))
+                    .unwrap();
                 return Err(Error {
                     inner: ErrorInner::FailedToExecute,
                     detail: "Failed to start server".into(),

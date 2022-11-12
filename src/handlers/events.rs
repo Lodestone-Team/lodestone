@@ -146,7 +146,12 @@ async fn event_stream_ws(
                         if macro_event.instance_uuid != uuid && uuid != "all" {
                             continue;
                         }
-                    }
+                    },
+                    EventInner::ProgressionEvent(progression_event) => {
+                        if progression_event.event_id != uuid && uuid != "all" {
+                            continue;
+                        }
+                    },
                 };
                 if can_user_view_event(
                     &event,
@@ -243,7 +248,8 @@ async fn console_stream_ws(
                             _ => {}
                         }
                     },
-                    EventInner::MacroEvent(_) => continue
+                    EventInner::MacroEvent(_) => continue,
+                    EventInner::ProgressionEvent(_) => continue,
                 }
             }
             Some(Ok(ws_msg)) = receiver.next() => {

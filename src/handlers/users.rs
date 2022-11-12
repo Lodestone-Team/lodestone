@@ -4,9 +4,10 @@ use crate::{
         user::{PublicUser, User, UserAction},
     },
     events::{Event, EventInner, UserEvent, UserEventInner},
+    prelude::get_snowflake,
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
-    AppState, prelude::get_snowflake,
+    AppState,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
@@ -121,7 +122,6 @@ pub async fn new_user(
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
-            idempotency: rand_alphanumeric(5),
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(LoginReply {
@@ -164,7 +164,6 @@ pub async fn delete_user(
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
-            idempotency: rand_alphanumeric(5),
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(json!("ok")))
@@ -202,7 +201,6 @@ pub async fn logout(
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
-            idempotency: rand_alphanumeric(5),
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json("ok".to_string()))
