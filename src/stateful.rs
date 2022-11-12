@@ -33,7 +33,6 @@ impl<T> Stateful<T> {
     pub fn get_ref(&self) -> &T {
         &self.inner
     }
-
 }
 
 impl<T> Stateful<T>
