@@ -37,7 +37,7 @@ use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_server::State;
 use crate::traits::{Error, ErrorInner, TInstance};
-use crate::util::{download_file, unzip_file};
+use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
 
 use self::util::{get_fabric_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
 
@@ -159,8 +159,8 @@ impl Instance {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1,
-                    progress_message: Some("Creating directories".to_string()),
+                    progress: 1.0,
+                    progress_message: Some("1/4: Creating directories".to_string()),
                 },
             }),
             details: "".to_string(),
@@ -199,8 +199,8 @@ impl Instance {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 2,
-                    progress_message: Some("Downloading Java".to_string()),
+                    progress: 1.0,
+                    progress_message: Some("2/4: Downloading JRE".to_string()),
                 },
             }),
             details: "".to_string(),
@@ -224,49 +224,32 @@ impl Instance {
                 detail: format!("Cannot get the jre version for version {}", config.version),
             }
         })?;
-        let download_progression_event_id = crate::events::new_progression_event_id();
-
         if !path_to_runtimes
             .join("java")
             .join(format!("jre{}", jre_major_version))
             .exists()
         {
-            let progression_parent_id = progression_event_id.clone();
+            let _progression_parent_id = progression_event_id.clone();
             let downloaded = download_file(
                 &url,
                 &path_to_runtimes.join("java"),
                 None,
                 {
                     let event_broadcaster = event_broadcaster.clone();
-                    let uuid = config.uuid.clone();
-                    let download_progression_event_id = download_progression_event_id.clone();
-                    let progression_parent_id = progression_parent_id.clone();
-                    let flag = Arc::new(AtomicBool::new(true));
+                    let _uuid = config.uuid.clone();
+                    let progression_event_id = progression_event_id.clone();
                     &move |dl| {
-                        if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let Some(total) = dl.total {
                             let _ = event_broadcaster.send(Event {
                                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                    event_id: download_progression_event_id.clone(),
-                                    progression_event_inner:
-                                        ProgressionEventInner::ProgressionStart {
-                                            progression_name: "Downloading Java".to_string(),
-                                            producer_id: uuid.clone(),
-                                            total: dl.total,
-                                            parent_event_id: Some(progression_parent_id.clone()),
-                                        },
-                                }),
-                                details: "".to_string(),
-                                snowflake: get_snowflake(),
-                            });
-                            flag.store(false, std::sync::atomic::Ordering::Relaxed);
-                        } else {
-                            let _ = event_broadcaster.send(Event {
-                                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                    event_id: download_progression_event_id.clone(),
+                                    event_id: progression_event_id.clone(),
                                     progression_event_inner:
                                         ProgressionEventInner::ProgressionUpdate {
-                                            progress: dl.downloaded,
-                                            progress_message: None,
+                                            progress: dl.downloaded as f64 / total as f64,
+                                            progress_message: Some(format!(
+                                                "2/4: Downloading JRE {}",
+                                                format_byte_download(dl.downloaded, total)
+                                            )),
                                         },
                                 }),
                                 details: "".to_string(),
@@ -281,7 +264,7 @@ impl Instance {
 
             let _ = event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: download_progression_event_id.clone(),
+                    event_id: progression_event_id.clone(),
                     progression_event_inner: ProgressionEventInner::ProgressionEnd {
                         success: true,
                         message: None,
@@ -294,16 +277,6 @@ impl Instance {
 
             let unzipped_content = unzip_file(&downloaded, &path_to_runtimes.join("java")).await?;
             if unzipped_content.len() != 1 {
-                // let _ = event_broadcaster.send(Event {
-                //     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                //         event_id: download_progression_event_id.clone(),
-                //         progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                //             success: false,
-                //             message : Some("The downloaded file was not a valid zip file. Please report this bug.".to_string()) },
-                //     }),
-                //     details: "".to_string(),
-                //     snowflake: get_snowflake(),
-                // });
                 return Err(Error {
                     inner: ErrorInner::APIChanged,
                     detail: format!(
@@ -334,15 +307,13 @@ impl Instance {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 3,
+                    progress: 1.0,
                     progress_message: Some("Downloading server.jar".to_string()),
                 },
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
         });
-        let progression_parent_id = progression_event_id.clone();
-        let download_progression_event_id = crate::events::new_progression_event_id();
         match config.flavour {
             Flavour::Vanilla => {
                 download_file(
@@ -353,19 +324,6 @@ impl Instance {
                                 "Cannot get the vanilla jar version for version {}",
                                 config.version
                             );
-                            // let _ = event_broadcaster.send(Event {
-                            //     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                            //         event_id: download_progression_event_id.clone(),
-                            //         progression_event_inner:
-                            //             ProgressionEventInner::ProgressionEnd {
-                            //                 success: false,
-                            //                 message: Some(error_msg.clone()),
-                            //                 value : None,
-                            //             },
-                            //     }),
-                            //     details: "".to_string(),
-                            //     snowflake: get_snowflake(),
-                            // });
                             Error {
                                 inner: ErrorInner::VersionNotFound,
                                 detail: error_msg,
@@ -376,37 +334,35 @@ impl Instance {
                     Some("server.jar"),
                     {
                         let event_broadcaster = event_broadcaster.clone();
-                        let uuid = config.uuid.clone();
-                        let flag = Arc::new(AtomicBool::new(true));
-                        let download_progression_event_id = download_progression_event_id.clone();
+                        let progression_event_id = progression_event_id.clone();
                         &move |dl| {
-                            if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            if let Some(total) = dl.total {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: download_progression_event_id.clone(),
+                                        event_id: progression_event_id.clone(),
                                         progression_event_inner:
-                                            ProgressionEventInner::ProgressionStart {
-                                                progression_name: "Downloading Vanilla server"
-                                                    .to_string(),
-                                                producer_id: uuid.clone(),
-                                                total: dl.total,
-                                                parent_event_id: Some(
-                                                    progression_parent_id.clone(),
-                                                ),
+                                            ProgressionEventInner::ProgressionUpdate {
+                                                progress: dl.step as f64 / total as f64,
+                                                progress_message: Some(format!(
+                                                    "3/4: Downloading vanilla server.jar {}",
+                                                    format_byte_download(dl.downloaded, total)
+                                                )),
                                             },
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
                                 });
-                                flag.store(false, std::sync::atomic::Ordering::Relaxed);
                             } else {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: download_progression_event_id.clone(),
+                                        event_id: progression_event_id.clone(),
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
-                                                progress: dl.downloaded,
-                                                progress_message: None,
+                                                progress: 0.0,
+                                                progress_message: Some(format!(
+                                                    "3/4: Downloading vanilla server.jar {:.1} MB",
+                                                    format_byte(dl.downloaded),
+                                                )),
                                             },
                                     }),
                                     details: "".to_string(),
@@ -432,19 +388,6 @@ impl Instance {
                             "Cannot get the fabric jar version for version {}",
                             config.version
                         );
-                        // let _ = event_broadcaster.send(Event {
-                        //     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                        //         event_id: download_progression_event_id.clone(),
-                        //         progression_event_inner:
-                        //             ProgressionEventInner::ProgressionEnd {
-                        //                 success: false,
-                        //                 message: Some(error_msg.clone()),
-                        //                 value : None,
-                        //             },
-                        //     }),
-                        //     details: "".to_string(),
-                        //     snowflake: get_snowflake(),
-                        // });
                         Error {
                             inner: ErrorInner::VersionNotFound,
                             detail: error_msg,
@@ -455,37 +398,35 @@ impl Instance {
                     Some("server.jar"),
                     {
                         let event_broadcaster = event_broadcaster.clone();
-                        let uuid = config.uuid.clone();
-                        let flag = Arc::new(AtomicBool::new(true));
-                        let download_progression_event_id = download_progression_event_id.clone();
+                        let progression_event_id = progression_event_id.clone();
                         &move |dl| {
-                            if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            if let Some(total) = dl.total {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: download_progression_event_id.clone(),
+                                        event_id: progression_event_id.clone(),
                                         progression_event_inner:
-                                            ProgressionEventInner::ProgressionStart {
-                                                progression_name: "Downloading Fabric server"
-                                                    .to_string(),
-                                                producer_id: uuid.clone(),
-                                                total: dl.total,
-                                                parent_event_id: Some(
-                                                    progression_parent_id.clone(),
-                                                ),
+                                            ProgressionEventInner::ProgressionUpdate {
+                                                progress: dl.step as f64 / total as f64,
+                                                progress_message: Some(format!(
+                                                    "3/4: Downloading Fabric server.jar {}",
+                                                    format_byte_download(dl.downloaded, total),
+                                                )),
                                             },
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
                                 });
-                                flag.store(false, std::sync::atomic::Ordering::Relaxed);
                             } else {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: download_progression_event_id.clone(),
+                                        event_id: progression_event_id.clone(),
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
-                                                progress: dl.downloaded,
-                                                progress_message: None,
+                                                progress: 0.0,
+                                                progress_message: Some(format!(
+                                                    "3/4: Downloading Fabric server.jar {}",
+                                                    format_byte(dl.downloaded),
+                                                )),
                                             },
                                     }),
                                     details: "".to_string(),
@@ -500,30 +441,14 @@ impl Instance {
             }
             Flavour::Paper => todo!(),
             Flavour::Spigot => todo!(),
-        }
-        .map_err(|e| {
-            let _ = event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: download_progression_event_id.clone(),
-                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                        success: true,
-                        message: Some(format!("Failed to download server.jar : {}", e.detail)),
-                        value: None,
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: get_snowflake(),
-            });
-            e
-        })?;
+        }?;
 
         let _ = event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: download_progression_event_id.clone(),
-                progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                    success: true,
-                    message: None,
-                    value: None,
+                event_id: progression_event_id.clone(),
+                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                    progress: 1.0,
+                    progress_message: Some("4/4: Finishing up".to_string()),
                 },
             }),
             details: "".to_string(),

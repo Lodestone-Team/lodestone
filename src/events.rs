@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::prelude::get_snowflake;
+use crate::{prelude::get_snowflake, traits::InstanceInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -72,25 +72,31 @@ pub struct MacroEvent {
     pub macro_uuid: String,
     pub macro_event_inner: MacroEventInner,
 }
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum ProgressionEndValue {
+    InstanceInfo(InstanceInfo),
+}
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
+#[serde(tag = "type")]
 pub enum ProgressionEventInner {
     ProgressionStart {
         progression_name: String,
         producer_id: String,
-        total: Option<u64>,
-        parent_event_id: Option<String>,
+        total: Option<f64>,
     },
     ProgressionUpdate {
-        progress: u64,
         progress_message: Option<String>,
+        progress: f64,
     },
     ProgressionEnd {
         success: bool,
         message: Option<String>,
-        value: Option<String>,
+        value: Option<ProgressionEndValue>,
     },
 }
 

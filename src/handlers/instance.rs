@@ -5,7 +5,7 @@ use axum::Router;
 use axum::{extract::Path, Extension, Json};
 use axum_auth::AuthBearer;
 use futures::future::join_all;
-use log::{info};
+use log::info;
 use serde::{Deserialize, Serialize};
 
 use tokio::sync::Mutex;
@@ -13,7 +13,8 @@ use ts_rs::TS;
 
 use crate::auth::user::UserAction;
 use crate::events::{
-    new_progression_event_id, Event, EventInner, ProgressionEvent, ProgressionEventInner,
+    new_progression_event_id, Event, EventInner, ProgressionEndValue, ProgressionEvent,
+    ProgressionEventInner,
 };
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
@@ -174,8 +175,7 @@ pub async fn create_minecraft_instance(
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: format!("Setting up Minecraft server {}", name),
                         producer_id: uuid.clone(),
-                        total: Some(4),
-                        parent_event_id: None,
+                        total: Some(4.0),
                     },
                 }),
                 details: "".to_string(),
@@ -195,10 +195,9 @@ pub async fn create_minecraft_instance(
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: true,
                                 message: Some("Instance creation success".to_string()),
-                                value: Some(
-                                    serde_json::to_string(&v.get_instance_info().await)
-                                        .expect("Failed to serialize instance info"),
-                                ),
+                                value: Some(ProgressionEndValue::InstanceInfo(
+                                    v.get_instance_info().await,
+                                )),
                             },
                         }),
                         details: "".to_string(),
