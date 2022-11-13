@@ -76,6 +76,7 @@ pub struct MacroEvent {
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
+#[serde(tag = "type")]
 pub enum ProgressionEventInner {
     ProgressionStart {
         progression_name: String,
