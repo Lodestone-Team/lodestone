@@ -1,7 +1,7 @@
 use axum::{
     body::Bytes,
     extract::Path,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
@@ -282,11 +282,11 @@ pub fn get_instance_fs_routes() -> Router {
         )
         .route(
             "/instance/:uuid/fs/write/*relative_path}",
-            post(write_instance_file),
+            put(write_instance_file),
         )
         .route(
             "/instance/:uuid/fs/mkdir/*relative_path}",
-            post(make_instance_directory),
+            put(make_instance_directory),
         )
         .route(
             "/instance/:uuid/fs/remove/*relative_path}",
