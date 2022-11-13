@@ -195,17 +195,6 @@ impl Instance {
                     detail: error,
                 }
             })?;
-        let _ = event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id.clone(),
-                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1.0,
-                    progress_message: "2/4: Downloading JRE".to_string(),
-                },
-            }),
-            details: "".to_string(),
-            snowflake: get_snowflake(),
-        });
 
         let (url, jre_major_version) = get_jre_url(config.version.as_str()).await.ok_or({
             // let _ = event_broadcaster.send(Event {
@@ -289,18 +278,6 @@ impl Instance {
             .await
             .unwrap();
         }
-
-        let _ = event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id.clone(),
-                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1.0,
-                    progress_message: "Downloading server.jar".to_string(),
-                },
-            }),
-            details: "".to_string(),
-            snowflake: get_snowflake(),
-        });
         match config.flavour {
             Flavour::Vanilla => {
                 download_file(
