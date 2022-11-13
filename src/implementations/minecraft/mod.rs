@@ -277,6 +277,18 @@ impl Instance {
             )
             .await
             .unwrap();
+        } else {
+            let _ = event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: progression_event_id.clone(),
+                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                        progress: 1.0,
+                        progress_message: "2/4: JRE already downloaded".to_string(),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: get_snowflake(),
+            });
         }
         match config.flavour {
             Flavour::Vanilla => {
