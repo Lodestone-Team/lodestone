@@ -208,7 +208,7 @@ export const formatDuration = (duration: number) => {
   }`;
 };
 
-// format message time for notifcations
+// format message time for notifications
 export const formatNotificationTime = (time_s: number) => {
   const now = new Date();
   const time = new Date(time_s);

@@ -1,9 +1,9 @@
 export default function ProgressBar({
-  progress,
+  progress_percent,
   className = '',
   colorClass = 'bg-blue',
 }: {
-  progress: number;
+  progress_percent: number;
   className?: string;
   colorClass?: string;
 }) {
@@ -11,7 +11,7 @@ export default function ProgressBar({
     <div className={`h-1 bg-transparent ${className}`}>
       <div
         className={`h-full ${colorClass}`}
-        style={{ width: `${progress*100}%` }}
+        style={{ width: `${progress_percent*100}%` }}
       />
     </div>
   );

@@ -1,10 +1,10 @@
-import { updateInstance } from 'data/InstanceList';
+import { addInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContext, useEffect } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
-import { match } from 'variant';
+import { match, otherwise, partial } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { formatBytes, formatBytesDownload } from 'utils/util';
 
@@ -53,7 +53,7 @@ export const useEventStream = () => {
     websocket.onmessage = (messageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const event: ClientEvent = JSON.parse(messageEvent.data);
-      const { event_inner, snowflake_str, idempotency } = event;
+      const { event_inner, snowflake_str } = event;
 
       // I love match statements
       const notificationUnique = match(event_inner, {
@@ -113,17 +113,6 @@ export const useEventStream = () => {
                 event,
               });
             },
-            InstanceCreationFailed: () => {
-              alert(
-                "Failed to create instance. This shouldn't happen, please report this to the developers."
-              );
-              ongoingDispatch({
-                type: 'error',
-                message: `Failed to create instance ${name}`,
-                event,
-                ongoing_key: uuid,
-              });
-            },
             InstanceInput: ({ message }) => {
               console.log(`Got input on ${name}: ${message}`);
             },
@@ -168,59 +157,6 @@ export const useEventStream = () => {
                 status: 'info',
                 event,
               });
-            },
-            Downloading: ({ total, downloaded, download_name }) => {
-              console.log(
-                `Downloading for ${name}: ${downloaded}/${total} (${download_name})`
-              );
-              if (!total) {
-                const downloadStr = formatBytes(Number(downloaded));
-                ongoingDispatch({
-                  type: 'update',
-                  message: `Downloading ${download_name}: ${downloadStr}`,
-                  event,
-                  ongoing_key: uuid,
-                });
-              } else {
-                const downloadedStr = formatBytesDownload(
-                  Number(downloaded),
-                  Number(total)
-                );
-                const totalStr = formatBytes(Number(total));
-
-                ongoingDispatch({
-                  type: 'update',
-                  message: `Downloading ${download_name}: ${downloadedStr} of ${totalStr}`,
-                  progress: Number(downloaded) / Number(total) / 4 + 0.75,
-                  // hard coded number manipulation because downloading is the 4/4th step of instance creation
-                  event,
-                  ongoing_key: uuid,
-                });
-              }
-            },
-            Setup: ({ current_step, total_steps }) => {
-              const [current, stepName] = current_step;
-              console.log(
-                `Setting up ${name}: ${current}/${total_steps} (${stepName})`
-              );
-              const done = current - 1;
-              if (done === 0)
-                ongoingDispatch({
-                  type: 'add',
-                  title: `Setting up ${name}`,
-                  message: `${current}/${total_steps} (${stepName})`,
-                  progress: done / total_steps,
-                  event,
-                  ongoing_key: uuid,
-                });
-              else
-                ongoingDispatch({
-                  type: 'update',
-                  message: `${name}: ${current}/${total_steps} (${stepName})`,
-                  progress: done / total_steps,
-                  event,
-                  ongoing_key: uuid,
-                });
             },
           }),
         UserEvent: ({ user_id: uid, user_event_inner: event_inner }) =>
@@ -289,11 +225,37 @@ export const useEventStream = () => {
               });
             },
           }),
+        ProgressionEvent: (progressionEvent) => {
+          ongoingDispatch({
+            event,
+            progressionEvent,
+          });
+          // check if there's a "value"
+          const inner = progressionEvent.progression_event_inner;
+
+          match(
+            inner,
+            otherwise(
+              {
+                ProgressionEnd: ({ value }) => {
+                  if (!value) return;
+                  match(value, {
+                    InstanceInfo: (instance_info) =>
+                      addInstance(instance_info, queryClient),
+                  });
+                },
+              },
+              // eslint-disable-next-line @typescript-eslint/no-empty-function
+              (_) => {}
+            )
+          );
+        },
       });
     };
 
     return () => {
       websocket.close();
     };
+    //dispatch and ongoingDispatch are left out specifically
   }, [address, apiVersion, isReady, port, queryClient, token]);
 };

@@ -12,19 +12,17 @@ export default function NotificationCard({
   type,
   title = '',
   message = '',
-  progress,
+  progress_percent,
   timestamp,
-  key,
 }: {
   type: NotificationStatus;
   title?: string;
   message?: string;
-  progress?: number; // progress in percentage
+  progress_percent?: number; // progress in percentage
   timestamp: number;
-  key: string;
 }) {
   return (
-    <div key={key} className="overflow-hidden bg-gray-900 rounded-md">
+    <div className="overflow-hidden bg-gray-900 rounded-md">
       <div
         className={`justify-stretch flex flex-row items-center justify-between px-4 py-3 text-white hover:bg-gray-900`}
       >
@@ -40,9 +38,9 @@ export default function NotificationCard({
           )}
         </div>
       </div>
-      {progress ? (
+      {progress_percent ? (
         <ProgressBar
-          progress={progress}
+          progress_percent={progress_percent}
           colorClass={NotificationTypeToColorClass[type]}
         />
       ) : (

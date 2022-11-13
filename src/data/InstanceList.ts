@@ -21,6 +21,22 @@ export const updateInstance = (
   );
 };
 
+export const addInstance = (
+  instanceInfo: InstanceInfo,
+  queryClient: QueryClient
+) => {
+  queryClient.setQueriesData(
+    ['instances', 'list'],
+    (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
+      if (!oldData) return oldData;
+      return {
+        ...oldData,
+        [instanceInfo.uuid]: instanceInfo,
+      };
+    }
+  );
+};
+
 export const deleteInstance = (
   uuid: string,
   queryClient: QueryClient

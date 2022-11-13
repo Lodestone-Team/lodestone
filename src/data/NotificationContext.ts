@@ -1,6 +1,8 @@
 import { getSnowflakeTimestamp } from './../utils/util';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { createContext, useReducer } from 'react';
+import { ProgressionEvent } from 'bindings/ProgressionEvent';
+import { match } from 'variant';
 
 export type NotificationStatus = 'error' | 'info' | 'success';
 
@@ -13,12 +15,15 @@ export type NotificationItem = {
 
 export type OngoingState = 'ongoing' | 'done' | 'error';
 
+// Invariant progress = parent
 export type OngoingNotificationItem = {
   state: OngoingState;
-  progress?: number;
+  progress: number;
+  total: number | null;
   title: string;
-  message?: string;
+  message: string | null;
   timestamp: number;
+  event_id: string;
   key: string;
 };
 
@@ -30,12 +35,8 @@ export type NotificationAction = {
 };
 
 export type OngoingNotificationAction = {
-  type: 'add' | 'update' | 'done' | 'error';
-  title?: string;
-  message?: string;
-  progress?: number;
   event: ClientEvent;
-  ongoing_key: string;
+  progressionEvent: ProgressionEvent;
 };
 
 interface NotificationContext {
@@ -60,7 +61,7 @@ export const useNotificationReducer = () => {
   const [notifications, dispatch] = useReducer(
     (state: NotificationItem[], action: NotificationAction) => {
       const { message, status, event } = action;
-      const key = event.idempotency;
+      const key = event.snowflake_str;
       const timestamp = getSnowflakeTimestamp(event.snowflake_str);
       if (state.some((item) => item.key === key)) {
         console.warn('Notification with duplicate key received');
@@ -80,71 +81,45 @@ export const useNotificationReducer = () => {
 export const useOngoingNotificationReducer = () => {
   const [ongoingNotifications, ongoingDispatch] = useReducer(
     (state: OngoingNotificationItem[], action: OngoingNotificationAction) => {
-      const { message, title, progress, event, ongoing_key } = action;
-      const key = ongoing_key;
-      const timestamp = getSnowflakeTimestamp(event.snowflake_str);
-      switch (action.type) {
-        case 'add':
-          if (state.some((item) => item.key === key)) {
-            console.warn('Notification with duplicate key received');
-            return state;
-          }
-          return [
-            ...state,
-            {
-              state: 'ongoing' as OngoingState,
-              progress,
-              message: message,
-              title: title ?? 'Working on it...',
-              timestamp,
-              key,
-            },
-          ];
-        case 'update':
-          return state.map((item) => {
-            if (item.key === key) {
-              return {
-                ...item,
-                progress: progress ?? item.progress,
-                message: message ?? item.message,
-                title: title ?? item.title,
-                timestamp,
-              };
-            }
-            return item;
+      const { snowflake_str: snowflake } = action.event;
+      const timestamp = getSnowflakeTimestamp(snowflake);
+      const event_inner = action.progressionEvent.progression_event_inner;
+      const event_id = action.progressionEvent.event_id;
+
+      match(event_inner, {
+        ProgressionStart: ({ progression_name, total }) => {
+          state.push({
+            state: 'ongoing',
+            progress: 0,
+            total,
+            title: progression_name,
+            message: null,
+            timestamp,
+            event_id,
+            key: snowflake,
           });
-        case 'done':
-          return state.map((item) => {
-            if (item.key === key) {
-              return {
-                ...item,
-                state: 'done' as OngoingState,
-                progress: 1,
-                message: message ?? item.message,
-                title: title ?? item.title,
-                timestamp,
-              };
+        },
+        ProgressionUpdate: ({ progress, progress_message }) => {
+          state.map((item) => {
+            if (item.event_id === event_id) {
+              item.progress += progress;
+              item.key = snowflake;
+              if (progress_message) item.message = progress_message;
             }
-            return item;
           });
-        case 'error':
-          return state.map((item) => {
-            if (item.key === key) {
-              return {
-                ...item,
-                state: 'error' as OngoingState,
-                progress: 1,
-                message: message ?? item.message,
-                title: title ?? item.title,
-                timestamp,
-              };
+        },
+        ProgressionEnd: ({ success, message }) => {
+          state.map((item) => {
+            if (item.event_id === event_id) {
+              item.state = success ? 'done' : 'error';
+              item.progress = item.total ?? 0;
+              item.key = snowflake;
+              if (message) item.message = message;
             }
-            return item;
           });
-        default:
-          throw new Error('Invalid action type');
-          return state;
-      }
+        },
+      });
+      return [...state];
     },
     []
   );
