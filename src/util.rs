@@ -29,8 +29,7 @@ pub struct SetupProgress {
     pub total_steps: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone)]
 pub struct DownloadProgress {
     pub total: Option<u64>,
     pub downloaded: u64,
