@@ -262,19 +262,6 @@ impl Instance {
             )
             .await?;
 
-            let _ = event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id.clone(),
-                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                        success: true,
-                        message: None,
-                        value: None,
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: get_snowflake(),
-            });
-
             let unzipped_content = unzip_file(&downloaded, &path_to_runtimes.join("java")).await?;
             if unzipped_content.len() != 1 {
                 return Err(Error {
