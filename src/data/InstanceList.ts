@@ -37,10 +37,7 @@ export const addInstance = (
   );
 };
 
-export const deleteInstance = (
-  uuid: string,
-  queryClient: QueryClient
-) => {
+export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
   queryClient.setQueriesData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
@@ -56,23 +53,21 @@ export const useInstanceList = () =>
   useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(
     ['instances', 'list'],
     () => {
-      return axios
-        .get<InstanceInfo[]>('/instance/list')
-        .then((response) => {
-          if (response.status !== 200) {
-            throw new Error('Invalid status code');
-          }
-          if (!response.data) {
-            throw new Error('Invalid response');
-          }
-          return response.data.reduce(
-            (acc, instance) => ({
-              ...acc,
-              [instance.uuid]: instance,
-            }),
-            {}
-          );
-        });
+      return axios.get<InstanceInfo[]>('/instance/list').then((response) => {
+        if (response.status !== 200) {
+          throw new Error('Invalid status code');
+        }
+        if (!response.data) {
+          throw new Error('Invalid response');
+        }
+        return response.data.reduce(
+          (acc, instance) => ({
+            ...acc,
+            [instance.uuid]: instance,
+          }),
+          {}
+        );
+      });
     },
     {
       enabled: useContext(LodestoneContext).isReady,

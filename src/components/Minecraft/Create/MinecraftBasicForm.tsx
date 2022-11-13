@@ -32,14 +32,14 @@ export default function MinecraftBasicForm() {
 
   return (
     <>
-      <h1 className="font-bold tracking-tight text-gray-300 text-larger">
+      <h1 className="text-larger font-bold tracking-tight text-gray-300">
         The Basics
       </h1>
       <p>
         Some basic information about your minecraft server.
         <br />
       </p>
-      <div className="flex flex-col gap-16 mt-10 text-left">
+      <div className="mt-10 flex flex-col gap-16 text-left">
         <SelectField
           name="flavour"
           label="Flavour"

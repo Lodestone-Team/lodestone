@@ -36,8 +36,8 @@ const Dashboard: NextPageWithLayout = () => {
 
   if (!instance || !uuid) {
     return (
-      <div className="px-12 py-10 bg-gray-800">
-        <h1 className="-ml-4 font-semibold tracking-tight text-gray-300 font-heading text-2xlarge">
+      <div className="bg-gray-800 px-12 py-10">
+        <h1 className="-ml-4 font-heading text-2xlarge font-semibold tracking-tight text-gray-300">
           Instance not found
         </h1>
       </div>
@@ -53,7 +53,7 @@ const Dashboard: NextPageWithLayout = () => {
         title: 'General',
         content: (
           <DashboardCard>
-            <h1 className="font-bold text-medium"> Placeholder </h1>
+            <h1 className="text-medium font-bold"> Placeholder </h1>
           </DashboardCard>
         ),
       },
@@ -74,7 +74,7 @@ const Dashboard: NextPageWithLayout = () => {
         title: 'Resources',
         content: (
           <DashboardCard>
-            <h1 className="font-bold text-medium"> Placeholder </h1>
+            <h1 className="text-medium font-bold"> Placeholder </h1>
           </DashboardCard>
         ),
       },
@@ -82,7 +82,7 @@ const Dashboard: NextPageWithLayout = () => {
         title: 'Macro',
         content: (
           <DashboardCard>
-            <h1 className="font-bold text-medium"> Placeholder </h1>
+            <h1 className="text-medium font-bold"> Placeholder </h1>
           </DashboardCard>
         ),
       },
@@ -118,11 +118,11 @@ const Dashboard: NextPageWithLayout = () => {
 
   return (
     <div
-      className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800"
+      className="relative h-full w-full overflow-y-auto bg-gray-800 px-12 pt-6 pb-10"
       key={uuid}
     >
-      <div className="flex flex-col items-start min-h-full gap-2">
-        <div className="flex flex-row items-center min-w-0 gap-4">
+      <div className="flex min-h-full flex-col items-start gap-2">
+        <div className="flex min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
             initialText={instance.name}
@@ -132,11 +132,11 @@ const Dashboard: NextPageWithLayout = () => {
             containerClassName="min-w-0"
           />
         </div>
-        <div className="flex flex-row flex-wrap items-center gap-4 -mt-2">
+        <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
           <img
             src="/assets/minecraft-vanilla.png"
             alt={`${instance.game_type} logo`}
-            className="w-6 h-6"
+            className="h-6 w-6"
           />
           <Label size="large" color={labelColor}>
             {instance.state}
@@ -178,7 +178,7 @@ const Dashboard: NextPageWithLayout = () => {
             }}
           />
         </div>
-        <div className="flex flex-row items-center w-full gap-2">
+        <div className="flex w-full flex-row items-center gap-2">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
             initialText={instance.description}
@@ -192,7 +192,7 @@ const Dashboard: NextPageWithLayout = () => {
           selectedIndex={selectedTabIndex}
           onChange={setSelectedTabIndex}
         >
-          <Tab.List className="flex flex-row flex-wrap items-center w-full gap-4 mb-4 border-b-2 border-gray-700">
+          <Tab.List className="mb-4 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
             {tabList[instance.game_type].map((tab) => (
               <Tab
                 key={tab.title}
@@ -208,12 +208,9 @@ const Dashboard: NextPageWithLayout = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="flex flex-row items-stretch w-full grow">
+          <Tab.Panels className="flex w-full grow flex-row items-stretch">
             {tabList[instance.game_type].map((tab) => (
-              <Tab.Panel
-                className="flex flex-col w-full gap-8"
-                key={tab.title}
-              >
+              <Tab.Panel className="flex w-full flex-col gap-8" key={tab.title}>
                 {tab.content}
               </Tab.Panel>
             ))}

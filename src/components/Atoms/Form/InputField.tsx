@@ -9,11 +9,12 @@ const inputBorderClassName =
 const inputErrorBorderClassName =
   'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
 
-const iconClassName = 'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
+const iconClassName =
+  'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;
-  type?: 'text' | 'number' | "password";
+  type?: 'text' | 'number' | 'password';
 };
 
 export default function InputField(props: InputFieldProps) {
@@ -23,9 +24,11 @@ export default function InputField(props: InputFieldProps) {
   const uiError = isError ? meta.error : '';
 
   return (
-    <div className={`flex flex-col gap-1 ${className} group relative text-base`}>
+    <div
+      className={`flex flex-col gap-1 ${className} group relative text-base`}
+    >
       {label && (
-        <label className="absolute font-medium text-gray-300 -top-6 text-small">
+        <label className="absolute -top-6 text-small font-medium text-gray-300">
           {label}:
         </label>
       )}

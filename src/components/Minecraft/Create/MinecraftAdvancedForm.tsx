@@ -4,15 +4,15 @@ import { Field } from 'formik';
 export default function MinecraftAdvancedForm() {
   return (
     <>
-      <h1 className="font-bold tracking-tight text-gray-300 text-larger">
+      <h1 className="text-larger font-bold tracking-tight text-gray-300">
         Advanced Settings
       </h1>
       <p>
         Advanced settings for your minecraft server.
         <br />
       </p>
-      <div className="flex flex-col gap-16 mt-10 text-left">
-        <div className="flex flex-row gap-8 justify-evenly">
+      <div className="mt-10 flex flex-col gap-16 text-left">
+        <div className="flex flex-row justify-evenly gap-8">
           <InputField type="number" name="min_ram" label="Minimum Ram" />
           <InputField type="number" name="max_ram" label="Maximum Ram" />
         </div>

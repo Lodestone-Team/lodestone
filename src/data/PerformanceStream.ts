@@ -32,9 +32,7 @@ export const usePerformanceStream = (uuid: string) => {
 
   useEffect(() => {
     const websocket = new WebSocket(
-      `ws://${address}:${
-        port ?? 16662
-      }/api/${apiVersion}/monitor/${uuid}`
+      `ws://${address}:${port ?? 16662}/api/${apiVersion}/monitor/${uuid}`
     );
 
     websocket.onmessage = (messageEvent) => {

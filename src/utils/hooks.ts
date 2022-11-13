@@ -77,15 +77,12 @@ export function useIntervalClock(
   }, []);
 }
 
-export function useIntervalClockSeconds(
-  callback: () => void,
-  seconds: number
-) {
+export function useIntervalClockSeconds(callback: () => void, seconds: number) {
   const delay = seconds * 1000;
   const initialDelayGen = () => {
     const now = new Date();
     return delay - (now.getTime() % delay);
-  }
+  };
   useIntervalClock(callback, delay, initialDelayGen);
 }
 

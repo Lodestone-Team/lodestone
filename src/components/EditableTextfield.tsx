@@ -80,8 +80,8 @@ export default function EditableTextfield({
     <div
       className={`absolute whitespace-nowrap text-right font-sans not-italic text-red ${
         type === 'heading'
-          ? 'text-base font-normal tracking-normal -top-[1.5em]'
-          : 'text-smaller -bottom-[1.3em]'
+          ? '-top-[1.5em] text-base font-normal tracking-normal'
+          : '-bottom-[1.3em] text-smaller'
       }`}
     >
       {error}
@@ -92,15 +92,15 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`relative flex flex-row justify-start items-center group ${
+      className={`group relative flex flex-row items-center justify-start ${
         type === 'heading'
-          ? 'font-semibold font-title text-2xlarge tracking-medium'
-          : 'italic text-small font-mediumtracking-tight'
+          ? 'font-title text-2xlarge font-semibold tracking-medium'
+          : 'font-mediumtracking-tight text-small italic'
       } ${containerClassName}`}
     >
       <div
-        className={`min-w-0 mr-[0.5ch] ${
-          error && `border-2 border-red -ml-0.5 -my-0.5`
+        className={`mr-[0.5ch] min-w-0 ${
+          error && `-my-0.5 -ml-0.5 border-2 border-red`
         } ${type === 'heading' ? 'rounded-lg' : 'rounded'}`}
       >
         {isEditing ? (
@@ -120,13 +120,13 @@ export default function EditableTextfield({
               ? 'text-gray-300 decoration-2 underline-offset-[6px]'
               : 'text-gray-500'
           } 
-          ml-[-1ch] mr-[-0.5ch] bg-transparent group-hover:text-gray-300 truncate group-hover:underline ${textClassName}`}
+          ml-[-1ch] mr-[-0.5ch] truncate bg-transparent group-hover:text-gray-300 group-hover:underline ${textClassName}`}
             onClick={() => {
               setIsEditing(true);
             }}
           >
             <span
-              className={`pl-[1ch] pr-[0.5ch] whitespace-pre tracking-tight bg-transparent`}
+              className={`whitespace-pre bg-transparent pl-[1ch] pr-[0.5ch] tracking-tight`}
             >
               {displayText ? displayText : placeholder}
             </span>
@@ -148,7 +148,7 @@ export default function EditableTextfield({
         />
       ) : (
         <FontAwesomeIcon
-          className={`text-gray-faded/30 group-hover:text-gray-500 hover:cursor-pointer ${iconSize} ${iconClassName}`}
+          className={`text-gray-faded/30 hover:cursor-pointer group-hover:text-gray-500 ${iconSize} ${iconClassName}`}
           icon={isEditing ? faFloppyDisk : faPenToSquare}
           onMouseDown={(e) => {
             if (isEditing) e.preventDefault();

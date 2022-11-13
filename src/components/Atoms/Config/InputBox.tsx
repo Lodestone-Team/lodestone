@@ -1,11 +1,6 @@
 import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString, parseintStrict } from 'utils/util';
 
@@ -111,10 +106,10 @@ export default function InputBox({
     const currentText = e.target.value;
     setValue(currentText);
     setTouched(true);
-    if (onChangeProp){
+    if (onChangeProp) {
       const error = await catchAsyncToString(onChangeProp(currentText));
-      if(error) setError(error);
-    } 
+      if (error) setError(error);
+    }
   };
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -187,9 +182,11 @@ export default function InputBox({
   }
 
   return (
-    <div className={`flex flex-col gap-1 ${className} group relative text-base`}>
+    <div
+      className={`flex flex-col gap-1 ${className} group relative text-base`}
+    >
       {label && (
-        <label className="absolute font-medium text-gray-300 -top-6 text-small">
+        <label className="absolute -top-6 text-small font-medium text-gray-300">
           {label}:
         </label>
       )}

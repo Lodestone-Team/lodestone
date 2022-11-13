@@ -3,7 +3,12 @@
 
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
-import { useInterval, useLocalStorage, useSessionStorage, useWindowSize } from 'usehooks-ts';
+import {
+  useInterval,
+  useLocalStorage,
+  useSessionStorage,
+  useWindowSize,
+} from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
 import { useClientInfo } from 'data/SystemInfo';
 import { InstanceContext } from 'data/InstanceContext';
@@ -77,12 +82,12 @@ export default function DashboardLayout({
         selectInstance: setInstance,
       }}
     >
-      <div className="flex flex-col h-screen">
+      <div className="flex h-screen flex-col">
         <TopNav
           showNotifications={showNotifications}
           setShowNotifications={setShowNotifications}
         />
-        <div className="flex flex-row w-full min-h-0 grow">
+        <div className="flex min-h-0 w-full grow flex-row">
           <ResizePanel
             direction="e"
             maxSize={500}

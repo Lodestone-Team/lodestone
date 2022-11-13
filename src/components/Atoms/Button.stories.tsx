@@ -3,32 +3,32 @@ import { ComponentStory, ComponentMeta } from '@storybook/react';
 import Button from './Button';
 
 export default {
-    title: 'Library/Button',
-    component: Button,
-    argTypes: {
-        disabled: { control: 'boolean' },
-        onClick: { table: { disable: true } },
-        className: { table: { disable: true } },
-    },
+  title: 'Library/Button',
+  component: Button,
+  argTypes: {
+    disabled: { control: 'boolean' },
+    onClick: { table: { disable: true } },
+    className: { table: { disable: true } },
+  },
 } as ComponentMeta<typeof Button>;
 
 const Template: ComponentStory<typeof Button> = (args) => <Button {...args} />;
 
 export const Default = Template.bind({});
 Default.args = {
-    label: 'Button',
+  label: 'Button',
 };
 
 export const Disabled = Template.bind({});
 Disabled.args = {
-    label: 'Button',
-    disabled: true,
+  label: 'Button',
+  disabled: true,
 };
 
 export const StartServer = Template.bind({});
 StartServer.args = {
-    label: 'Start Server',
-    onClick: () => {
-        console.log('Start Server');
-    }
+  label: 'Start Server',
+  onClick: () => {
+    console.log('Start Server');
+  },
 };

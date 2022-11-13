@@ -33,7 +33,10 @@ export default function SettingField({
   } = useGameSetting(uuid, setting);
   label = label ?? setting;
   const [value, setValue] = useState(initialSetting ?? '');
-  const can_access_instance_setting = useUserAuthorized('can_access_instance_setting', instance.uuid);
+  const can_access_instance_setting = useUserAuthorized(
+    'can_access_instance_setting',
+    instance.uuid
+  );
 
   useIsomorphicLayoutEffect(() => {
     setValue(initialSetting ?? '');

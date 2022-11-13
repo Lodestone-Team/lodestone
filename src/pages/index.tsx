@@ -52,14 +52,14 @@ const Home: NextPageWithLayout = () => {
   }, [uuid]);
 
   return (
-    <div className="relative w-full h-full px-12 pt-6 pb-10 overflow-y-auto bg-gray-800">
-      <h1 className="font-semibold tracking-tight text-gray-300 font-heading text-2xlarge">
+    <div className="relative h-full w-full overflow-y-auto bg-gray-800 px-12 pt-6 pb-10">
+      <h1 className="font-heading text-2xlarge font-semibold tracking-tight text-gray-300">
         Home
       </h1>
       <p>Display some general information here maybe</p>
       <DashboardCard>
-        <h1 className="font-bold text-medium"> Performance </h1>
-        <div className="grid grid-cols-1 gap-10 mb-10 lg:grid-cols-2">
+        <h1 className="text-medium font-bold"> Performance </h1>
+        <div className="mb-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
           <div>
             <PerformanceGraph
               title="CPU Usage"

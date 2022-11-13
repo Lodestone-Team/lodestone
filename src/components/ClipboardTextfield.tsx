@@ -27,7 +27,7 @@ export default function ClipboardTextfield({
       mouseEnterDelay={0.2}
     >
       <div
-        className={`hover:cursor-pointer select-none group ${className}`}
+        className={`group select-none hover:cursor-pointer ${className}`}
         onClick={onClickCopy}
       >
         {' '}

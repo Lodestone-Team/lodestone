@@ -43,8 +43,10 @@ export default function SelectField(props: SelectFieldProps) {
   }, [options, selectedValue]);
 
   return (
-    <div className={`flex flex-col gap-1 ${className} group relative text-base`}>
-      <label className="absolute font-medium text-gray-300 -top-6 text-small">
+    <div
+      className={`flex flex-col gap-1 ${className} group relative text-base`}
+    >
+      <label className="absolute -top-6 text-small font-medium text-gray-300">
         {label ? `${label}:` : ''}
       </label>
       <div className="relative mt-1">
@@ -103,7 +105,7 @@ export default function SelectField(props: SelectFieldProps) {
                     </span>
                     {selected && (
                       <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-accent">
-                        <FontAwesomeIcon icon={faCheck} className="w-4 h-4" />
+                        <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
                       </span>
                     )}
                   </>

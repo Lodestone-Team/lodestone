@@ -97,13 +97,13 @@ export default function InstanceCard({
 
   return (
     <div
-      className={`items-stretch text-base group flex w-fit select-none flex-col gap-y-4 rounded-xl bg-gray-800 py-4 px-6 font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900 ${
+      className={`group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900 ${
         focus ? `bg-gray-900 outline outline-2 ring-[6px] ${borderClass}` : ''
       }`}
       onClick={cardOnClick}
     >
-      <div className="flex flex-col min-w-0 grow">
-        <h1 className="text-gray-300 truncate">{name}</h1>
+      <div className="flex min-w-0 grow flex-col">
+        <h1 className="truncate text-gray-300">{name}</h1>
         <div className="flex flex-row items-center gap-x-2">
           <h1 className={`text-${stateColor} -mx-1 truncate px-1`}>
             {player_count}/{max_player_count}
@@ -125,7 +125,7 @@ export default function InstanceCard({
         <img
           src="/assets/minecraft-vanilla.png"
           alt={`${game_type} logo`}
-          className="w-8 h-8"
+          className="h-8 w-8"
         />
       </div>
     </div>

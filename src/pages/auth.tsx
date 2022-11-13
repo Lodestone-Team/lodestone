@@ -77,11 +77,11 @@ const Auth: NextPageWithLayout = () => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-gray-800">
+    <div className="flex h-screen flex-col items-center justify-center bg-gray-800">
       <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-900 px-12 py-24">
         <div className="flex flex-col items-center gap-6 text-center">
           <img src="/logo.svg" alt="logo" className="w-40" />
-          <h1 className="font-bold tracking-tight text-gray-300 text-larger">
+          <h1 className="text-larger font-bold tracking-tight text-gray-300">
             Welcome Back!
           </h1>
           <p>

@@ -34,7 +34,7 @@ export default function NotificationCard({
   timestamp: number;
 }) {
   return (
-    <div className="overflow-hidden bg-gray-900 rounded-md">
+    <div className="overflow-hidden rounded-md bg-gray-900">
       <div
         className={`flex flex-row items-center justify-start gap-4 px-4 py-3 text-white hover:bg-gray-900`}
       >
@@ -54,11 +54,11 @@ export default function NotificationCard({
         )}
         <div className="flex flex-col items-start">
           <p className="w-full text-base font-bold tracking-medium">{title}</p>
-          <p className="w-full font-medium text-small tracking-medium">
+          <p className="w-full text-small font-medium tracking-medium">
             {message}
           </p>
           {!message && (
-            <span className="font-medium whitespace-nowrap text-smaller tracking-medium text-white/50">
+            <span className="whitespace-nowrap text-smaller font-medium tracking-medium text-white/50">
               {formatNotificationTime(timestamp)}
             </span>
           )}

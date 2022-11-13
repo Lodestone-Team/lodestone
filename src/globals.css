@@ -69,7 +69,7 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(247 247 247 / 22%); 
+  background: rgb(247 247 247 / 22%);
   border-radius: 4px;
 }
 
@@ -84,7 +84,7 @@ input {
 
 /* rc-tooltip */
 .rc-tooltip-inner {
-  @apply min-h-0 px-2 py-1 tracking-tight text-gray-300 rounded shadow-none text-small;
+  @apply min-h-0 rounded px-2 py-1 text-small tracking-tight text-gray-300 shadow-none;
 }
 
 .rc-tooltip {
@@ -101,6 +101,6 @@ input.noSpin::-webkit-inner-spin-button {
 }
 
 /* Firefox */
-input.noSpin[type=number] {
+input.noSpin[type='number'] {
   -moz-appearance: textfield;
 }

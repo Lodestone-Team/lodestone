@@ -56,7 +56,7 @@ export const useCPUInfo = () => {
   );
 };
 
-export interface ClientInfo{
+export interface ClientInfo {
   version: string;
   is_setup: boolean;
   os: string;

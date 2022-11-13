@@ -84,7 +84,10 @@ export const useConsoleStream = (uuid: string) => {
     statusRef.current = newStatus;
     setStatusInner(newStatus);
   };
-  const canAccessConsole = useUserAuthorized('can_access_instance_console', uuid);
+  const canAccessConsole = useUserAuthorized(
+    'can_access_instance_console',
+    uuid
+  );
 
   const mergeConsoleLog = (newLog: ClientEvent[]) => {
     setConsoleLog((oldLog) => {
@@ -101,8 +104,9 @@ export const useConsoleStream = (uuid: string) => {
       // this is slow ik
       return mergedLog.filter(
         (event, index) =>
-          mergedLog.findIndex((e) => e.snowflake_str === event.snowflake_str) ===
-          index
+          mergedLog.findIndex(
+            (e) => e.snowflake_str === event.snowflake_str
+          ) === index
       );
     });
   };

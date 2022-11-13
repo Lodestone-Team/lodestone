@@ -53,7 +53,7 @@ export default function ToolTip({
 
   return (
     <>
-      <div ref={reference} className="w-fit h-fit" {...getReferenceProps()}>
+      <div ref={reference} className="h-fit w-fit" {...getReferenceProps()}>
         {children}
       </div>
       {open && (
@@ -64,7 +64,7 @@ export default function ToolTip({
             left: x ?? 0,
           }}
           className={
-            'text-gray-300 absolute bg-gray-500 rounded text-small p-1 leading-none select-none'
+            'absolute select-none rounded bg-gray-500 p-1 text-small leading-none text-gray-300'
           }
           {...getFloatingProps()}
         >
@@ -76,7 +76,7 @@ export default function ToolTip({
               top: arrowY ?? 0,
               left: arrowX ?? 0,
             }}
-            className={'absolute bg-gray-500 w-3 h-3 rotate-45'}
+            className={'absolute h-3 w-3 rotate-45 bg-gray-500'}
           />
         </div>
       )}

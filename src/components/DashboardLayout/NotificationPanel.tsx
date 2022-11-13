@@ -23,14 +23,14 @@ export default function NotificationPanel() {
     useContext(NotificationContext);
   console.log('notifications', ongoingNotifications);
   return (
-    <div className="flex flex-col w-full bg-gray-800 border-l-2 border-gray-faded/30">
-      <div className="p-4 font-sans font-black tracking-tight text-large">
+    <div className="flex w-full flex-col border-l-2 border-gray-faded/30 bg-gray-800">
+      <div className="p-4 font-sans text-large font-black tracking-tight">
         Notifications
       </div>
-      <div className="px-4 py-3 font-sans font-bold border-y-2 border-gray-faded/30 text-smaller">
+      <div className="border-y-2 border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
         In Progress
       </div>
-      <div className="p-4 pb-12 space-y-4 overflow-y-auto shrink-0 max-h-[50%]">
+      <div className="max-h-[50%] shrink-0 space-y-4 overflow-y-auto p-4 pb-12">
         {ongoingNotifications.length > 0 ? (
           ongoingNotifications
             .map((notification) => (
@@ -58,10 +58,10 @@ export default function NotificationPanel() {
           </div>
         )}
       </div>
-      <div className="px-4 py-3 font-sans font-bold border-y-2 border-gray-faded/30 text-smaller">
+      <div className="border-y-2 border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
         Silent
       </div>
-      <div className="p-4 space-y-4 overflow-y-auto grow">
+      <div className="grow space-y-4 overflow-y-auto p-4">
         {notifications.length > 0 ? (
           notifications
             .map((notification) => (

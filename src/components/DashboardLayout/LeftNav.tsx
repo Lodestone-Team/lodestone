@@ -25,7 +25,7 @@ export default function LeftNav() {
   }, 1000);
 
   return (
-    <div className="flex flex-col items-center w-full px-4 pt-4 overflow-x-visible bg-gray-700 border-r-2 border-gray-faded/30">
+    <div className="flex w-full flex-col items-center overflow-x-visible border-r-2 border-gray-faded/30 bg-gray-700 px-4 pt-4">
       {/* <div className="w-full max-w-xs px-6 pb-6 mb-5 border-b border-gray-faded/30">
         <img src="/logo.svg" alt="logo" className="w-full" />
         <SystemStat
@@ -39,9 +39,9 @@ export default function LeftNav() {
           value={clientInfoLoading ? '...' : formatDuration(uptime)}
         />
       </div> */}
-      <div className="flex flex-col w-full overflow-x-visible grow">
-        <div className="flex flex-row items-center justify-start w-full gap-4 mb-4 items-begin">
-          <h1 className="mr-1 font-bold tracking-tight text-large">
+      <div className="flex w-full grow flex-col overflow-x-visible">
+        <div className="items-begin mb-4 flex w-full flex-row items-center justify-start gap-4">
+          <h1 className="mr-1 text-large font-bold tracking-tight">
             Instances
           </h1>
           <Button
@@ -59,7 +59,7 @@ export default function LeftNav() {
         >
           <div className="fixed inset-0 bg-gray-800/70" />
           <div className="fixed inset-0 overflow-y-auto">
-            <div className="flex items-center justify-center min-h-full p-4 text-center">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
               <Dialog.Panel>
                 <CreateInstanceFlow
                   onComplete={() => setShowCreateInstance(false)}

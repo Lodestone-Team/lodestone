@@ -29,15 +29,15 @@ export const useUserInfo = () => {
 };
 
 // check if type is boolean
-const isPermissionGlobal = (permission: unknown) : permission is boolean => {
+const isPermissionGlobal = (permission: unknown): permission is boolean => {
   return typeof permission === 'boolean';
-}
+};
 
 // check if type is array
-const isPermissionArray = (permission: unknown) : permission is string[] => {
+const isPermissionArray = (permission: unknown): permission is string[] => {
   return Array.isArray(permission);
-}
-  
+};
+
 export const isUserAuthorized = (
   user: PublicUser | undefined,
   permission: keyof UserPermission,
@@ -52,7 +52,8 @@ export const isUserAuthorized = (
   if (isPermissionGlobal(permissionValue)) {
     return permissionValue;
   } else if (isPermissionArray(permissionValue)) {
-    if (!instanceId) throw new Error(`instanceId is required for ${permission}`);
+    if (!instanceId)
+      throw new Error(`instanceId is required for ${permission}`);
     return permissionValue.includes(instanceId);
   }
   return false;

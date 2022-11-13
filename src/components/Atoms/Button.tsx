@@ -28,7 +28,7 @@ export default function Button({
   disabled = disabled || loading;
   return (
     <button
-      className={`${className} text-base group select-none rounded-lg bg-gray-700 py-1 px-2 font-semibold leading-snug tracking-tight outline outline-1 outline-gray-faded/30 enabled:text-gray-300 enabled:hover:bg-gray-600 enabled:hover:outline-white/50 enabled:active:bg-gray-700 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue/30 disabled:text-white/50 disabled:bg-gray-800`}
+      className={`${className} group select-none rounded-lg bg-gray-700 py-1 px-2 text-base font-semibold leading-snug tracking-tight outline outline-1 outline-gray-faded/30 enabled:text-gray-300 enabled:hover:bg-gray-600 enabled:hover:outline-white/50 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue/30 enabled:active:bg-gray-700 disabled:bg-gray-800 disabled:text-white/50`}
       disabled={disabled}
       onClick={onClick}
       type={type}
@@ -39,7 +39,7 @@ export default function Button({
       {icon && (
         <FontAwesomeIcon
           icon={icon}
-          className="w-4 mr-2 text-gray-500 hover:cursor-pointer group-hover:text-gray-400"
+          className="mr-2 w-4 text-gray-500 hover:cursor-pointer group-hover:text-gray-400"
         />
       )}
       {loading ? '...' : label}

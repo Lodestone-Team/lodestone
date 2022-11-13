@@ -1,34 +1,34 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const defaultTheme = require('tailwindcss/defaultTheme')
+const defaultTheme = require('tailwindcss/defaultTheme');
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    "./src/app/**/*.{js,ts,jsx,tsx}",
-    "./src/pages/**/*.{js,ts,jsx,tsx}",
-    "./src/components/**/*.{js,ts,jsx,tsx}",
+    './src/app/**/*.{js,ts,jsx,tsx}',
+    './src/pages/**/*.{js,ts,jsx,tsx}',
+    './src/components/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     colors: {
       transparent: 'transparent',
       current: 'currentColor',
-      'blue': {
+      blue: {
         DEFAULT: '#1D8EB2',
-        faded: '#3C85BA'
+        faded: '#3C85BA',
       },
-      'green': {
+      green: {
         DEFAULT: '#62DD76',
         faded: '#61AE32',
-        accent: '#2AF588'
+        accent: '#2AF588',
       },
-      'ochre': {
+      ochre: {
         DEFAULT: '#EFB440',
-        faded: '#AE8B32'
+        faded: '#AE8B32',
       },
-      'red': {
+      red: {
         DEFAULT: '#DD6262',
-        faded: '#AE3232'
+        faded: '#AE3232',
       },
-      'gray': {
+      gray: {
         300: '#E3E3E4',
         400: '#A5A5AC',
         500: '#767A82',
@@ -36,36 +36,36 @@ module.exports = {
         700: '#36393F',
         800: '#26282C',
         900: '#1D1E21',
-        faded: '#A5A5AC'
+        faded: '#A5A5AC',
       },
-      'white': '#FFFFFF',
+      white: '#FFFFFF',
     },
     fontFamily: {
-      'sans': ['Satoshi', ...defaultTheme.fontFamily.sans],
-      'heading': ['Chillax', ...defaultTheme.fontFamily.sans],
-      'title': ['Clash Grotesk', ...defaultTheme.fontFamily.sans],
-      'mono': ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
+      sans: ['Satoshi', ...defaultTheme.fontFamily.sans],
+      heading: ['Chillax', ...defaultTheme.fontFamily.sans],
+      title: ['Clash Grotesk', ...defaultTheme.fontFamily.sans],
+      mono: ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
-      'smaller': '0.625rem',
-      'small': '0.75rem',
-      'base': '0.875rem',
-      'medium': '1rem',
-      'large': '1.25rem',
-      'larger': '1.5rem',
-      'xlarge': '1.75rem',
+      smaller: '0.625rem',
+      small: '0.75rem',
+      base: '0.875rem',
+      medium: '1rem',
+      large: '1.25rem',
+      larger: '1.5rem',
+      xlarge: '1.75rem',
       '2xlarge': '2rem',
     },
     letterSpacing: {
-      'tight': '-0.04em',
-      'medium': '-0.02em',
-      'normal': '0',
-      'wide': '0.04em',
+      tight: '-0.04em',
+      medium: '-0.02em',
+      normal: '0',
+      wide: '0.04em',
     },
   },
   plugins: [
     function ({ addVariant }) {
       addVariant('child', '& > *');
-    }
+    },
   ],
-}
+};

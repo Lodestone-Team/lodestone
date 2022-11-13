@@ -25,7 +25,6 @@ export type MinecraftSetupConfigPrimitiveForm = {
   backup_period: number | null;
 };
 
-
 export const initialValues: MinecraftSetupConfigPrimitiveForm = {
   name: '',
   version: '',
