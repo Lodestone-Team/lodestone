@@ -24,6 +24,7 @@ import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceC
 import MinecraftFileCard from 'components/Minecraft/MinecraftFileCard';
 import { useUserAuthorized } from 'data/UserInfo';
 import { InstanceContext } from 'data/InstanceContext';
+import GameIcon from 'components/Atoms/GameIcon';
 
 const Dashboard: NextPageWithLayout = () => {
   const { address } = useContext(LodestoneContext);
@@ -133,9 +134,9 @@ const Dashboard: NextPageWithLayout = () => {
           />
         </div>
         <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
-          <img
-            src="/assets/minecraft-vanilla.png"
-            alt={`${instance.game_type} logo`}
+          <GameIcon
+            game_type={instance.game_type}
+            game_flavour={instance.flavour}
             className="h-6 w-6"
           />
           <Label size="large" color={labelColor}>

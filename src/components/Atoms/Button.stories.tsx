@@ -3,7 +3,7 @@ import { ComponentStory, ComponentMeta } from '@storybook/react';
 import Button from './Button';
 
 export default {
-  title: 'Library/Button',
+  title: 'library/Button',
   component: Button,
   argTypes: {
     disabled: { control: 'boolean' },

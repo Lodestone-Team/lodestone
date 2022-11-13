@@ -6,6 +6,7 @@ import axios from 'axios';
 import { InstanceState } from 'bindings/InstanceState';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
+import GameIcon from './Atoms/GameIcon';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string } = {
@@ -52,6 +53,7 @@ export default function InstanceCard({
   focus = false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
+  flavour,
 }: InstanceCardProps) {
   const [loading, setLoading] = useState(false);
   const canViewInstance = useUserAuthorized('can_view_instance', uuid);
@@ -122,10 +124,10 @@ export default function InstanceCard({
           className="w-20 truncate"
           disabled={disabled}
         />
-        <img
-          src="/assets/minecraft-vanilla.png"
-          alt={`${game_type} logo`}
-          className="h-8 w-8"
+        <GameIcon
+          game_type={game_type}
+          game_flavour={flavour}
+          className="w-8 h-8"
         />
       </div>
     </div>
