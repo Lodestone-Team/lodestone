@@ -234,7 +234,7 @@ impl Instance {
                                     event_id: progression_event_id.clone(),
                                     progression_event_inner:
                                         ProgressionEventInner::ProgressionUpdate {
-                                            progress: dl.downloaded as f64 / total as f64,
+                                            progress: dl.step as f64 / total as f64,
                                             progress_message: format!(
                                                 "2/4: Downloading JRE {}",
                                                 format_byte_download(dl.downloaded, total)
