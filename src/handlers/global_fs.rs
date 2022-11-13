@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{
     body::Bytes,
     extract::Path,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
@@ -239,7 +239,7 @@ pub fn get_global_fs_routes() -> Router {
     Router::new()
         .route("/fs/ls/*absolute_path", get(list_files))
         .route("/fs/read/*absolute_path", get(read_file))
-        .route("/fs/write/*absolute_path", post(write_file))
-        .route("/fs/mkdir/*absolute_path", post(make_directory))
+        .route("/fs/write/*absolute_path", put(write_file))
+        .route("/fs/mkdir/*absolute_path", put(make_directory))
         .route("/fs/rm/*absolute_path", delete(remove_file))
 }
