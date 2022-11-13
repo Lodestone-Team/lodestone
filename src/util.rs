@@ -34,6 +34,7 @@ pub struct SetupProgress {
 pub struct DownloadProgress {
     pub total: Option<u64>,
     pub downloaded: u64,
+    pub step: u64,
     pub download_name: String,
 }
 pub async fn download_file(
@@ -115,10 +116,12 @@ pub async fn download_file(
             ),
         })?;
         new_downloaded += chunk.len() as u64;
-        if (new_downloaded - downloaded) > threshold {
+        let step = new_downloaded - downloaded;
+        if step > threshold {
             on_download(DownloadProgress {
                 total: total_size,
                 downloaded,
+                step,
                 download_name: file_name.clone(),
             });
             downloaded = new_downloaded;
@@ -312,4 +315,89 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
     cmd.creation_flags(0x08000000);
 
     cmd
+}
+
+pub fn format_byte_download(bytes: u64, total: u64) -> String {
+    let mut bytes = bytes as f64;
+    let mut total = total as f64;
+    let mut unit = "B";
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "KB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "MB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "GB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "TB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "PB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "EB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "ZB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "YB";
+    }
+    format!("{:.1} / {:.1} {}", bytes, total, unit)
+}
+
+pub fn format_byte(bytes: u64) -> String {
+    let mut bytes = bytes as f64;
+    let mut unit = "B";
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "KB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "MB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "GB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "TB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "PB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "EB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "ZB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "YB";
+    }
+    format!("{:.1} {}", bytes, unit)
 }
