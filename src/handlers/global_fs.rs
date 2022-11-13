@@ -22,12 +22,14 @@ use crate::{
 use super::util::try_auth;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub enum FileType {
     File,
     Directory,
     Unknown,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct File {
     pub name: String,
     pub path: String,
