@@ -90,7 +90,7 @@ pub enum ProgressionEventInner {
         total: Option<f64>,
     },
     ProgressionUpdate {
-        progress_message: Option<String>,
+        progress_message: String,
         progress: f64,
     },
     ProgressionEnd {

@@ -160,7 +160,7 @@ impl Instance {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                     progress: 1.0,
-                    progress_message: Some("1/4: Creating directories".to_string()),
+                    progress_message: "1/4: Creating directories".to_string(),
                 },
             }),
             details: "".to_string(),
@@ -200,7 +200,7 @@ impl Instance {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                     progress: 1.0,
-                    progress_message: Some("2/4: Downloading JRE".to_string()),
+                    progress_message: "2/4: Downloading JRE".to_string(),
                 },
             }),
             details: "".to_string(),
@@ -246,10 +246,10 @@ impl Instance {
                                     progression_event_inner:
                                         ProgressionEventInner::ProgressionUpdate {
                                             progress: dl.downloaded as f64 / total as f64,
-                                            progress_message: Some(format!(
+                                            progress_message: format!(
                                                 "2/4: Downloading JRE {}",
                                                 format_byte_download(dl.downloaded, total)
-                                            )),
+                                            ),
                                         },
                                 }),
                                 details: "".to_string(),
@@ -308,7 +308,7 @@ impl Instance {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                     progress: 1.0,
-                    progress_message: Some("Downloading server.jar".to_string()),
+                    progress_message: "Downloading server.jar".to_string(),
                 },
             }),
             details: "".to_string(),
@@ -343,10 +343,10 @@ impl Instance {
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: dl.step as f64 / total as f64,
-                                                progress_message: Some(format!(
+                                                progress_message: format!(
                                                     "3/4: Downloading vanilla server.jar {}",
                                                     format_byte_download(dl.downloaded, total)
-                                                )),
+                                                ),
                                             },
                                     }),
                                     details: "".to_string(),
@@ -359,10 +359,10 @@ impl Instance {
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: 0.0,
-                                                progress_message: Some(format!(
+                                                progress_message: format!(
                                                     "3/4: Downloading vanilla server.jar {:.1} MB",
                                                     format_byte(dl.downloaded),
-                                                )),
+                                                ),
                                             },
                                     }),
                                     details: "".to_string(),
@@ -407,10 +407,10 @@ impl Instance {
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: dl.step as f64 / total as f64,
-                                                progress_message: Some(format!(
+                                                progress_message: format!(
                                                     "3/4: Downloading Fabric server.jar {}",
                                                     format_byte_download(dl.downloaded, total),
-                                                )),
+                                                ),
                                             },
                                     }),
                                     details: "".to_string(),
@@ -423,10 +423,10 @@ impl Instance {
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: 0.0,
-                                                progress_message: Some(format!(
+                                                progress_message: format!(
                                                     "3/4: Downloading Fabric server.jar {}",
                                                     format_byte(dl.downloaded),
-                                                )),
+                                                ),
                                             },
                                     }),
                                     details: "".to_string(),
@@ -448,7 +448,7 @@ impl Instance {
                 event_id: progression_event_id.clone(),
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                     progress: 1.0,
-                    progress_message: Some("4/4: Finishing up".to_string()),
+                    progress_message: "4/4: Finishing up".to_string(),
                 },
             }),
             details: "".to_string(),
