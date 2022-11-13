@@ -7,6 +7,7 @@ export type ErrorInner =
   | 'FailedToRemoveFileOrDir'
   | 'FileOrDirNotFound'
   | 'FiledOrDirAlreadyExists'
+  | 'IOError'
   | 'FailedToWriteStdin'
   | 'FailedToReadStdout'
   | 'StdinNotOpen'
