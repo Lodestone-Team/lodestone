@@ -96,14 +96,13 @@ export const useOngoingNotificationReducer = () => {
             message: null,
             timestamp,
             event_id,
-            key: snowflake,
+            key: event_id,
           });
         },
         ProgressionUpdate: ({ progress, progress_message }) => {
           state.map((item) => {
             if (item.event_id === event_id) {
               item.progress += progress;
-              item.key = snowflake;
               if (progress_message) item.message = progress_message;
             }
           });
@@ -113,7 +112,6 @@ export const useOngoingNotificationReducer = () => {
             if (item.event_id === event_id) {
               item.state = success ? 'done' : 'error';
               item.progress = item.total ?? 0;
-              item.key = snowflake;
               if (message) item.message = message;
             }
           });

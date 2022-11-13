@@ -1,11 +1,23 @@
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faCircleCheck,
+  faCircleXmark,
+  faCircleNotch,
+} from '@fortawesome/free-solid-svg-icons';
 import ProgressBar from 'components/Atoms/ProgressBar';
 import { NotificationStatus } from 'data/NotificationContext';
 import { formatNotificationTime } from 'utils/util';
 
-const NotificationTypeToColorClass: Record<NotificationStatus, string> = {
+const NotificationTypeToBgColorClass: Record<NotificationStatus, string> = {
   info: 'bg-gray-500',
   success: 'bg-green',
   error: 'bg-red',
+};
+
+const NotificationTypeToFgColorClass: Record<NotificationStatus, string> = {
+  info: 'text-gray-500',
+  success: 'text-green',
+  error: 'text-red',
 };
 
 export default function NotificationCard({
@@ -24,8 +36,22 @@ export default function NotificationCard({
   return (
     <div className="overflow-hidden bg-gray-900 rounded-md">
       <div
-        className={`justify-stretch flex flex-row items-center justify-between px-4 py-3 text-white hover:bg-gray-900`}
+        className={`flex flex-row items-center justify-start gap-4 px-4 py-3 text-white hover:bg-gray-900`}
       >
+        {!!progress_percent && (
+          <FontAwesomeIcon
+            icon={
+              type === 'info'
+                ? faCircleNotch
+                : type === 'success'
+                ? faCircleCheck
+                : faCircleXmark
+            }
+            className={`${NotificationTypeToFgColorClass[type]} ${
+              type === 'info' ? 'animate-spin' : ''
+            }`}
+          />
+        )}
         <div className="flex flex-col items-start">
           <p className="w-full text-base font-bold tracking-medium">{title}</p>
           <p className="w-full font-medium text-small tracking-medium">
@@ -41,7 +67,7 @@ export default function NotificationCard({
       {progress_percent ? (
         <ProgressBar
           progress_percent={progress_percent}
-          colorClass={NotificationTypeToColorClass[type]}
+          colorClass={NotificationTypeToBgColorClass[type]}
         />
       ) : (
         <div className="h-1"></div>
