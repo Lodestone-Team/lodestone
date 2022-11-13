@@ -9,7 +9,7 @@ import { GridLoader } from 'react-spinners';
 import { formatNotificationTime } from 'utils/util';
 import NotificationCard from 'components/Atoms/NotificationCard';
 
-const ongoingStateMapToNotificationType: Record<
+const ongoingStateMapToNotificationStatus: Record<
   OngoingState,
   NotificationStatus
 > = {
@@ -36,7 +36,7 @@ export default function NotificationPanel() {
             .map((notification) => (
               <NotificationCard
                 key={notification.key}
-                type={ongoingStateMapToNotificationType[notification.state]}
+                status={ongoingStateMapToNotificationStatus[notification.state]}
                 title={notification.title}
                 message={notification.message ?? 'Loading...'}
                 progress_percent={
@@ -67,7 +67,7 @@ export default function NotificationPanel() {
             .map((notification) => (
               <NotificationCard
                 key={notification.key}
-                type={notification.status}
+                status={notification.status}
                 title={notification.message}
                 timestamp={notification.timestamp}
               />

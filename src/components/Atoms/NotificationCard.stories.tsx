@@ -24,7 +24,7 @@ const Template: ComponentStory<typeof NotificationCard> = (args) => (
 
 export const Default = Template.bind({});
 Default.args = {
-  type: 'info',
+  status: 'info',
   title: 'Dream joined "Test Instance"',
   progress_percent: undefined,
   timestamp: 1620000000000,
@@ -32,7 +32,7 @@ Default.args = {
 
 export const Success = Template.bind({});
 Success.args = {
-  type: 'success',
+  status: 'success',
   title: 'Instance "Test Instance" started',
   progress_percent: undefined,
   timestamp: 1620000000000,
@@ -40,7 +40,7 @@ Success.args = {
 
 export const Error = Template.bind({});
 Error.args = {
-  type: 'error',
+  status: 'error',
   title: 'Instance "Test Instance" crashed',
   progress_percent: undefined,
   timestamp: 1620000000000,
@@ -48,7 +48,7 @@ Error.args = {
 
 export const Progress = Template.bind({});
 Progress.args = {
-  type: 'info',
+  status: 'info',
   title: 'Setting up Minecraft Server Manhunt',
   message: '1/4 Downloading JRE',
   progress_percent: 0.25,
@@ -57,7 +57,7 @@ Progress.args = {
 
 export const ProgressSuccess = Template.bind({});
 ProgressSuccess.args = {
-  type: 'success',
+  status: 'success',
   title: 'Setting up Minecraft Server Manhunt',
   message: 'Instance Creation Success',
   progress_percent: 1,
@@ -66,7 +66,7 @@ ProgressSuccess.args = {
 
 export const ProgressError = Template.bind({});
 ProgressError.args = {
-  type: 'error',
+  status: 'error',
   title: 'Setting up Minecraft Server Manhunt',
   message: 'Instance Creation Failed',
   progress_percent: 0.5,

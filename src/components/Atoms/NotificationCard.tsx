@@ -7,27 +7,28 @@ import {
 import ProgressBar from 'components/Atoms/ProgressBar';
 import { NotificationStatus } from 'data/NotificationContext';
 import { formatNotificationTime } from 'utils/util';
+import StatusIcon from './StatusIcon';
 
-const NotificationTypeToBgColorClass: Record<NotificationStatus, string> = {
+const NotificationStatusToBgColorClass: Record<NotificationStatus, string> = {
   info: 'bg-gray-500',
   success: 'bg-green',
   error: 'bg-red',
 };
 
-const NotificationTypeToFgColorClass: Record<NotificationStatus, string> = {
+const NotificationStatusToFgColorClass: Record<NotificationStatus, string> = {
   info: 'text-gray-500',
   success: 'text-green',
   error: 'text-red',
 };
 
 export default function NotificationCard({
-  type,
+  status,
   title = '',
   message = '',
   progress_percent,
   timestamp,
 }: {
-  type: NotificationStatus;
+  status: NotificationStatus;
   title?: string;
   message?: string;
   progress_percent?: number; // progress in percentage
@@ -36,21 +37,10 @@ export default function NotificationCard({
   return (
     <div className="overflow-hidden rounded-md bg-gray-900">
       <div
-        className={`flex flex-row items-center justify-start gap-4 px-4 py-3 text-white hover:bg-gray-900`}
+        className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-white hover:bg-gray-900`}
       >
         {!!progress_percent && (
-          <FontAwesomeIcon
-            icon={
-              type === 'info'
-                ? faCircleNotch
-                : type === 'success'
-                ? faCircleCheck
-                : faCircleXmark
-            }
-            className={`${NotificationTypeToFgColorClass[type]} ${
-              type === 'info' ? 'animate-spin' : ''
-            }`}
-          />
+          <StatusIcon status={status} />
         )}
         <div className="flex flex-col items-start">
           <p className="w-full text-base font-bold tracking-medium">{title}</p>
@@ -64,10 +54,10 @@ export default function NotificationCard({
           )}
         </div>
       </div>
-      {progress_percent ? (
+      {progress_percent && status !== 'success' ? (
         <ProgressBar
           progress_percent={progress_percent}
-          colorClass={NotificationTypeToBgColorClass[type]}
+          colorClass={NotificationStatusToBgColorClass[status]}
         />
       ) : (
         <div className="h-1"></div>
