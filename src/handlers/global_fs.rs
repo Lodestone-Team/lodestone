@@ -133,7 +133,7 @@ async fn read_file(
     Ok(Json(tokio::fs::read_to_string(&path).await.map_err(
         |_| Error {
             inner: ErrorInner::FileOrDirNotFound,
-            detail: "You may only view/edit text files encoded in UTF-8.".to_string(),
+            detail: "You may only view text files encoded in UTF-8.".to_string(),
         },
     )?))
 }

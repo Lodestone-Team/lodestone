@@ -125,7 +125,7 @@ async fn read_instance_file(
     }
     tokio::fs::read_to_string(path).await.map_err(|_| Error {
         inner: ErrorInner::MalformedFile,
-        detail: "You may only view/edit text files encoded in UTF-8.".to_string(),
+        detail: "You may only view text files encoded in UTF-8.".to_string(),
     })
 }
 
@@ -164,7 +164,12 @@ async fn write_instance_file(
     if is_file_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
-            detail: "Cannot modify protected file".to_string(),
+            detail: format!(
+                "File extension {} is protected",
+                path.extension()
+                    .map(|s| s.to_str().unwrap())
+                    .unwrap_or("none")
+            ),
         });
     }
     // create the file if it doesn't exist
@@ -247,7 +252,12 @@ async fn remove_instance_file(
     if is_file_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
-            detail: "Cannot modify protected file".to_string(),
+            detail: format!(
+                "File extension {} is protected",
+                path.extension()
+                    .map(|s| s.to_str().unwrap())
+                    .unwrap_or("none")
+            ),
         });
     }
     if !path.exists() {
