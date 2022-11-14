@@ -289,7 +289,7 @@ pub fn get_instance_fs_routes() -> Router {
             put(make_instance_directory),
         )
         .route(
-            "/instance/:uuid/fs/remove/*relative_path}",
+            "/instance/:uuid/fs/rm/*relative_path}",
             delete(remove_instance_file),
         )
 }
