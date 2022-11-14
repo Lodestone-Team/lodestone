@@ -117,6 +117,24 @@ export default function MinecraftFileCard() {
       ['instance', instance.uuid, 'files', path, targetFile.path],
       edittedFileContent
     );
+
+    if (fileList) {
+      const newFileList = fileList.map((file) => {
+        if (file.path === targetFile.path) {
+          return {
+            ...file,
+            modification_time: Math.round(Date.now() / 1000),
+          };
+        }
+        return file;
+      });
+      console.log(fileList, newFileList);
+
+      queryClient.setQueriesData(
+        ['instance', instance.uuid, 'files', path],
+        newFileList
+      );
+    }
   };
 
   const deleteFile = async () => {
@@ -326,7 +344,7 @@ export default function MinecraftFileCard() {
               ))}
             </div>
           </div>
-          <div className="flex-row flex items-center justify-between gap-4 border-b border-gray-faded/30 bg-gray-900 last:border-b-0 h-[10%]">
+          <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 bg-gray-900 last:border-b-0">
             <Formik
               initialValues={{ name: '' }}
               onSubmit={async (values: { name: string }, actions: any) => {
@@ -395,7 +413,11 @@ export default function MinecraftFileCard() {
                 <InputField name="name" placeholder="New Folder" />
               </Form>
             </Formik>
-            <Button label="rm -r ." className="whitespace-nowrap" onClick={deleteDirectory} />
+            <Button
+              label="rm -r ."
+              className="whitespace-nowrap"
+              onClick={deleteDirectory}
+            />
           </div>
         </div>
         <div className="w-3/4 grow">
