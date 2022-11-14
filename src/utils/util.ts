@@ -70,7 +70,12 @@ export function isAxiosError<ResponseType>(
 
 export function errorToMessage(error: unknown): string {
   if (isAxiosError<ClientError>(error)) {
+    console.log(error);
     if (error.response && error.response.data) {
+      // if response.data is a string parse it as a JSON object
+      if (typeof error.response.data === 'string') {
+        error.response.data = JSON.parse(error.response.data);
+      }
       if (error.response.data && error.response.data.inner) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(error.response.data);
@@ -209,9 +214,10 @@ export const formatDuration = (duration: number) => {
 };
 
 // format message time for notifications
-export const formatNotificationTime = (time_s: number) => {
+export const formatNotificationTime = (time_ms: number) => {
   const now = new Date();
-  const time = new Date(time_s);
+  const time = new Date(time_ms);
+  console.log(time_ms);
   if (
     now.getFullYear() === time.getFullYear() &&
     now.getMonth() === time.getMonth() &&
@@ -220,6 +226,28 @@ export const formatNotificationTime = (time_s: number) => {
     return time.toLocaleTimeString('en-US');
   } else {
     return time.toLocaleString('en-US');
+  }
+};
+
+// format "time ago"
+export const formatTimeAgo = (time_ms: number) => {
+  const now = new Date();
+  const time = new Date(time_ms);
+  const diff = now.getTime() - time.getTime();
+  const diffDays = Math.floor(diff / (1000 * 3600 * 24));
+  const diffHours = Math.floor(diff / (1000 * 3600));
+  const diffMinutes = Math.floor(diff / (1000 * 60));
+  const diffSeconds = Math.floor(diff / 1000);
+  if (diffDays > 0) {
+    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  } else if (diffHours > 0) {
+    return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  } else if (diffMinutes > 0) {
+    return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+  } else if (diffSeconds > 0) {
+    return `${diffSeconds} second${diffSeconds > 1 ? 's' : ''} ago`;
+  } else {
+    return 'just now';
   }
 };
 

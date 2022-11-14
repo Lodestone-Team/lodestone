@@ -14,6 +14,7 @@ module.exports = {
       blue: {
         DEFAULT: '#1D8EB2',
         faded: '#3C85BA',
+        accent: '#59B2F3'
       },
       green: {
         DEFAULT: '#62DD76',

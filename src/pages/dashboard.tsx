@@ -72,6 +72,10 @@ const Dashboard: NextPageWithLayout = () => {
         ),
       },
       {
+        title: 'Files',
+        content: <MinecraftFileCard />,
+      },
+      {
         title: 'Resources',
         content: (
           <DashboardCard>
@@ -90,10 +94,6 @@ const Dashboard: NextPageWithLayout = () => {
       {
         title: 'Monitor',
         content: <MinecraftPerformanceCard />,
-      },
-      {
-        title: 'Experimental',
-        content: <MinecraftFileCard />,
       },
     ],
   };
@@ -200,7 +200,7 @@ const Dashboard: NextPageWithLayout = () => {
                 className={({ selected }) =>
                   `text-medium font-semibold tracking-tight focus-visible:outline-none ${
                     selected
-                      ? 'border-b-2 border-blue text-blue'
+                      ? 'border-b-2 border-blue-accent text-blue-accent'
                       : 'mb-0.5 text-gray-500'
                   }`
                 }
