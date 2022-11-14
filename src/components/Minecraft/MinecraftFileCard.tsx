@@ -21,7 +21,7 @@ import { useEffectOnce } from 'usehooks-ts';
 
 const fileTypeToIconMap: Record<FileType, React.ReactElement> = {
   Directory: <FontAwesomeIcon icon={faFolder} className="text-blue-accent" />,
-  File: <FontAwesomeIcon icon={faFile} className="text-gray-500" />,
+  File: <FontAwesomeIcon icon={faFile} className="text-gray-400" />,
   Unknown: (
     <FontAwesomeIcon icon={faClipboardQuestion} className="text-ochre" />
   ),
@@ -35,7 +35,11 @@ export default function MinecraftFileCard() {
   const [targetFile, setTargetFile] = useState<File | null>(null);
   const atTopLevel = path === '';
   const queryClient = useQueryClient();
-  const { data: fileList } = useQuery<File[]>(
+  const {
+    data: fileList,
+    isLoading: fileListLoading,
+    error: fileListError,
+  } = useQuery<File[], Error>(
     ['instance', instance.uuid, 'files', path],
     () => {
       return axiosWrapper<File[]>({
@@ -53,6 +57,8 @@ export default function MinecraftFileCard() {
     },
     {
       retry: false,
+      cacheTime: 0,
+      staleTime: 0,
     }
   );
 
@@ -76,6 +82,7 @@ export default function MinecraftFileCard() {
     {
       enabled: targetFile !== null,
       cacheTime: 0,
+      staleTime: 0,
       retry: false,
     }
   );
@@ -108,6 +115,31 @@ export default function MinecraftFileCard() {
     );
   };
 
+  const deleteFile = async () => {
+    if (!targetFile) throw new Error('No file selected');
+    const error = await catchAsyncToString(
+      axiosWrapper<null>({
+        method: 'delete',
+        url: `/instance/${instance.uuid}/fs/rm/${targetFile.path}`,
+      })
+    );
+    if (error) {
+      // TODO: better error display
+      alert(error);
+      return;
+    }
+    queryClient.setQueriesData(
+      [
+        'instance',
+        instance.uuid,
+        'files',
+        targetFile.path.split('/').slice(0, -1).join('/'),
+      ],
+      fileList?.filter((file) => file.path !== targetFile.path)
+    );
+    setTargetFile(null);
+  };
+
   useEffect(() => {
     // set monaco theme, just a different background color
     if (monaco) {
@@ -122,9 +154,11 @@ export default function MinecraftFileCard() {
     }
   }, [monaco]);
 
+  const showingMonaco = targetFile && !isFileLoading && !fileError;
+
   return (
-    <div className="flex h-full w-full flex-col gap-2 rounded-2xl bg-gray-900 px-10 pt-8 pb-10">
-      <p className="select-none px-2 text-medium font-medium">
+    <div className="flex h-full w-full flex-col gap-2 rounded-2xl bg-gray-900 px-10 pt-4 pb-10">
+      <p className="select-none px-2 py-2 text-medium font-medium">
         <span>
           <span
             className={
@@ -187,7 +221,22 @@ export default function MinecraftFileCard() {
                   <p className="select-none text-base font-medium">..</p>
                 </div>
               ) : null}
-              {fileList?.length == 0 && (
+
+              {fileListLoading ? (
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0">
+                  <p className="text-base font-medium text-gray-400">
+                    Loading...
+                  </p>
+                </div>
+              ) : fileListError ? (
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0">
+                  <p className="text-base font-medium text-gray-400">
+                    {fileListError.message}
+                  </p>
+                </div>
+              ) : null}
+
+              {fileList?.length === 0 && (
                 <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0">
                   <p className="text-base font-medium text-gray-400">
                     No files here...
@@ -233,45 +282,55 @@ export default function MinecraftFileCard() {
           </div>
         </div>
         <div className="w-3/4 grow">
-          {targetFile && !isFileLoading && !fileError ? (
-            <div className="h-full">
-              {/* <div className="h-[5%]">Editing {targetFile.path}</div> */}
+          <div className="h-full">
+            {showingMonaco ? (
               <Editor
-                height="95%"
+                height="90%"
                 onChange={(value) => {
                   setEdittedFileContent(value ?? '');
                 }}
                 value={edittedFileContent}
                 theme="lodestone-dark"
                 path={monacoPath}
-                className="rounded-lg overflow-hidden"
+                className="overflow-hidden rounded-lg"
               />
-              <div className="flex h-[5%] flex-row-reverse">
+            ) : (
+              <div className="flex h-[90%] w-full flex-col items-center justify-center rounded-lg bg-gray-800">
+                <FontAwesomeIcon
+                  icon={faFile}
+                  className="text-5xl text-gray-500"
+                />
+                <p className="text-xl mt-4 text-gray-400">
+                  {!targetFile
+                    ? 'Select a file to view its contents'
+                    : fileError
+                    ? fileError?.message ?? 'Unknown Error'
+                    : isFileLoading
+                    ? 'Loading...'
+                    : 'Select a file to view its contents'}
+                </p>
+              </div>
+            )}
+            {targetFile && (
+              <div className="flex h-[10%] flex-row items-center gap-2 child:my-2">
                 <Button
-                  className="mx-4"
+                  className="h-fit"
                   label={`Save ${targetFile.name}`}
                   onClick={() => saveFile()}
-                  disabled={edittedFileContent === originalFileContent}
+                  disabled={
+                    edittedFileContent === originalFileContent || !showingMonaco
+                  }
+                />
+                <div className="grow"></div>
+                <Button
+                  className="h-fit text-red"
+                  label={`Delete ${targetFile.name}`}
+                  onClick={() => deleteFile()}
+                  disabled={isFileLoading}
                 />
               </div>
-            </div>
-          ) : (
-            <div className="flex w-full flex-col items-center justify-center bg-gray-800 h-[95%]">
-              <FontAwesomeIcon
-                icon={faFile}
-                className="text-5xl text-gray-500"
-              />
-              <p className="text-xl mt-4 text-gray-400">
-                {!targetFile
-                  ? 'Select a file to view its contents'
-                  : fileError
-                  ? fileError?.message ?? 'Unknown Error'
-                  : isFileLoading
-                  ? 'Loading...'
-                  : 'Select a file to view its contents'}
-              </p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
