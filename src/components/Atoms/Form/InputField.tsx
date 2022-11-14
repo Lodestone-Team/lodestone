@@ -43,6 +43,7 @@ export default function InputField(props: InputFieldProps) {
           onBlur={field.onBlur}
           name={field.name}
           autoComplete="off-doesn't-work-but-apparently-i-do"
+          placeholder={props.placeholder}
         />
         {uiError && (
           <div

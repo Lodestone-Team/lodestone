@@ -70,7 +70,6 @@ export function isAxiosError<ResponseType>(
 
 export function errorToMessage(error: unknown): string {
   if (isAxiosError<ClientError>(error)) {
-    console.log(error);
     if (error.response && error.response.data) {
       // if response.data is a string parse it as a JSON object
       if (typeof error.response.data === 'string') {

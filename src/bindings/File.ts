@@ -4,7 +4,7 @@ import type { FileType } from './FileType';
 export interface File {
   name: string;
   path: string;
-  creation_time: bigint | null;
-  modification_time: bigint | null;
+  creation_time: number | null;
+  modification_time: number | null;
   file_type: FileType;
 }

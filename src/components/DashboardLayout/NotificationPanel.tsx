@@ -21,7 +21,6 @@ const ongoingStateMapToNotificationStatus: Record<
 export default function NotificationPanel() {
   const { notifications, ongoingNotifications } =
     useContext(NotificationContext);
-  console.log('notifications', ongoingNotifications);
   return (
     <div className="flex w-full flex-col border-l-2 border-gray-faded/30 bg-gray-800">
       <div className="p-4 font-sans text-large font-black tracking-tight">

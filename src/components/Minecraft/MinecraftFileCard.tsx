@@ -18,6 +18,8 @@ import { axiosWrapper, catchAsyncToString, formatTimeAgo } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { ClientError } from 'bindings/ClientError';
 import { useEffectOnce } from 'usehooks-ts';
+import InputField from 'components/Atoms/Form/InputField';
+import { Form, Formik } from 'formik';
 
 const fileTypeToIconMap: Record<FileType, React.ReactElement> = {
   Directory: <FontAwesomeIcon icon={faFolder} className="text-blue-accent" />,
@@ -25,6 +27,13 @@ const fileTypeToIconMap: Record<FileType, React.ReactElement> = {
   Unknown: (
     <FontAwesomeIcon icon={faClipboardQuestion} className="text-ochre" />
   ),
+};
+
+const fileSorter = (a: File, b: File) => {
+  if (a.file_type === b.file_type) {
+    return a.name.localeCompare(b.name);
+  }
+  return a.file_type.localeCompare(b.file_type);
 };
 
 export default function MinecraftFileCard() {
@@ -47,12 +56,7 @@ export default function MinecraftFileCard() {
         method: 'GET',
       }).then((response) => {
         // sort by file type, then file name
-        return response.sort((a, b) => {
-          if (a.file_type === b.file_type) {
-            return a.name.localeCompare(b.name);
-          }
-          return a.file_type.localeCompare(b.file_type);
-        });
+        return response.sort(fileSorter);
       });
     },
     {
@@ -138,6 +142,48 @@ export default function MinecraftFileCard() {
       fileList?.filter((file) => file.path !== targetFile.path)
     );
     setTargetFile(null);
+  };
+
+  const deleteDirectory = async () => {
+    const error = await catchAsyncToString(
+      axiosWrapper<null>({
+        method: 'delete',
+        url: `/instance/${instance.uuid}/fs/rm/${path}`,
+      })
+    );
+    if (error) {
+      // TODO: better error display
+      alert(error);
+      return;
+    }
+    queryClient.setQueriesData(
+      [
+        'instance',
+        instance.uuid,
+        'files',
+        path.split('/').slice(0, -1).join('/'),
+      ],
+      fileList?.filter((file) => file.path !== path)
+    );
+    setPath(path.split('/').slice(0, -1).join('/'));
+  };
+
+  const createFile = async (name: string) => {
+    return await catchAsyncToString(
+      axiosWrapper<null>({
+        method: 'put',
+        url: `/instance/${instance.uuid}/fs/write/${path}/${name}`,
+      })
+    );
+  };
+
+  const createDirectory = async (name: string) => {
+    return await catchAsyncToString(
+      axiosWrapper<null>({
+        method: 'put',
+        url: `/instance/${instance.uuid}/fs/mkdir/${path}/${name}`,
+      })
+    );
   };
 
   useEffect(() => {
@@ -279,6 +325,77 @@ export default function MinecraftFileCard() {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="flex-row flex items-center justify-between gap-4 border-b border-gray-faded/30 bg-gray-900 last:border-b-0 h-[10%]">
+            <Formik
+              initialValues={{ name: '' }}
+              onSubmit={async (values: { name: string }, actions: any) => {
+                actions.setSubmitting(true);
+                const error = await createFile(values.name);
+                if (error) {
+                  alert(error);
+                  actions.setErrors({ name: error });
+                  actions.setSubmitting(false);
+                } else {
+                  queryClient.setQueriesData(
+                    ['instance', instance.uuid, 'files', path],
+                    fileList
+                      ? [
+                          ...fileList,
+                          {
+                            name: values.name,
+                            path: `${path}/${values.name}`,
+                            file_type: 'File' as FileType,
+                            creation_time: Date.now() / 1000,
+                            modification_time: Date.now() / 1000,
+                          },
+                        ].sort(fileSorter)
+                      : undefined
+                  );
+                  actions.setSubmitting(false);
+                  actions.resetForm();
+                }
+              }}
+            >
+              <Form id="create-file-form" autoComplete="off">
+                <InputField name="name" placeholder="New File" />
+              </Form>
+            </Formik>
+            <Formik
+              initialValues={{ name: '' }}
+              onSubmit={async (values: { name: string }, actions: any) => {
+                actions.setSubmitting(true);
+                const error = await createDirectory(values.name);
+                if (error) {
+                  alert(error);
+                  actions.setErrors({ name: error });
+                  actions.setSubmitting(false);
+                } else {
+                  queryClient.setQueriesData(
+                    ['instance', instance.uuid, 'files', path],
+                    fileList
+                      ? [
+                          ...fileList,
+                          {
+                            name: values.name,
+                            path: `${path}/${values.name}`,
+                            file_type: 'Directory' as FileType,
+                            creation_time: Date.now() / 1000,
+                            modification_time: Date.now() / 1000,
+                          },
+                        ].sort(fileSorter)
+                      : undefined
+                  );
+                  actions.setSubmitting(false);
+                  actions.resetForm();
+                }
+              }}
+            >
+              <Form id="create-directory-form" autoComplete="off">
+                <InputField name="name" placeholder="New Folder" />
+              </Form>
+            </Formik>
+            <Button label="rm -r ." className="whitespace-nowrap" onClick={deleteDirectory} />
           </div>
         </div>
         <div className="w-3/4 grow">
