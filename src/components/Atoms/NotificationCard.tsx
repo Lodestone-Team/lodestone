@@ -7,7 +7,7 @@ import {
 import ProgressBar from 'components/Atoms/ProgressBar';
 import { NotificationStatus } from 'data/NotificationContext';
 import { formatNotificationTime } from 'utils/util';
-import StatusIcon from './StatusIcon';
+import LoadingStatusIcon from './LoadingStatusIcon';
 
 const NotificationStatusToBgColorClass: Record<NotificationStatus, string> = {
   info: 'bg-gray-500',
@@ -40,7 +40,7 @@ export default function NotificationCard({
         className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-white hover:bg-gray-900`}
       >
         {!!progress_percent && (
-          <StatusIcon status={status} />
+          <LoadingStatusIcon status={status} />
         )}
         <div className="flex flex-col items-start">
           <p className="w-full text-base font-bold tracking-medium">{title}</p>
