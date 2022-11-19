@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{
     body::Bytes,
     extract::Path,
-    routing::{delete, get, post, put},
+    routing::{delete, get, put},
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
@@ -228,10 +228,90 @@ async fn remove_file(
             detail: "File or directory not found".to_string(),
         });
     }
-    tokio::fs::remove_file(path).await.map_err(|e| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: format!("Failed to remove file: {}", e),
+    if path.is_file() {
+        tokio::fs::remove_file(path).await.map_err(|e| Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: format!("Failed to remove file: {}", e),
+        })?;
+    } else {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Path is not a file.".to_string(),
+        });
+    }
+    Ok(Json(()))
+}
+
+async fn remove_dir(
+    Extension(state): Extension<AppState>,
+    Path(absolute_path): Path<String>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
     })?;
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to access global files".to_string(),
+        });
+    }
+    drop(users);
+
+    let path = PathBuf::from(absolute_path);
+    if !path.exists() {
+        return Err(Error {
+            inner: ErrorInner::FileOrDirNotFound,
+            detail: "File or directory not found".to_string(),
+        });
+    }
+    if path.is_dir() {
+        tokio::fs::remove_file(path).await.map_err(|e| Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: format!("Failed to remove dir: {}", e),
+        })?;
+    } else {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Path is not a directory.".to_string(),
+        });
+    }
+    Ok(Json(()))
+}
+
+async fn new_file(
+    Extension(state): Extension<AppState>,
+    Path(absolute_path): Path<String>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to access global files".to_string(),
+        });
+    }
+    drop(users);
+
+    let path = PathBuf::from(absolute_path);
+    if path.exists() {
+        return Err(Error {
+            inner: ErrorInner::FiledOrDirAlreadyExists,
+            detail: "File already exists.".to_string(),
+        });
+    }
+
+    tokio::fs::File::create(path).await.map_err(|_| Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Failed to create file".to_string(),
+    })?;
+
     Ok(Json(()))
 }
 
@@ -242,4 +322,6 @@ pub fn get_global_fs_routes() -> Router {
         .route("/fs/write/*absolute_path", put(write_file))
         .route("/fs/mkdir/*absolute_path", put(make_directory))
         .route("/fs/rm/*absolute_path", delete(remove_file))
+        .route("/fs/rmdir/*absolute_path", delete(remove_dir))
+        .route("/fs/new/*absolute_path", put(new_file))
 }
