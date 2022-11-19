@@ -58,7 +58,7 @@ home = "0.5.3"
 port_scanner = "0.1.5"
 safe-path = {git = "https://github.com/Lodestone-Team/safe_path_subset"}
 rs-snowflake = "0.6.0"
-
+walkdir = "2.3.2"
 [dependencies.uuid]
 version = "1.1.2"
 features = [
