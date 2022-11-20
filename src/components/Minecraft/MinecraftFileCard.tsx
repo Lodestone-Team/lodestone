@@ -213,7 +213,7 @@ export default function MinecraftFileCard() {
         rules: [],
         colors: {
           'editor.background': '#26282C',
-          'editor.lineHighlightBackground': '#303338',
+          'editor.lineHighlightBackground': '#2c2e33',
         },
       });
     }
