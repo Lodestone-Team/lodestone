@@ -166,7 +166,7 @@ export default function MinecraftFileCard() {
     const error = await catchAsyncToString(
       axiosWrapper<null>({
         method: 'delete',
-        url: `/instance/${instance.uuid}/fs/rm/${path}`,
+        url: `/instance/${instance.uuid}/fs/rmdir/${path}`,
       })
     );
     if (error) {
@@ -190,7 +190,7 @@ export default function MinecraftFileCard() {
     return await catchAsyncToString(
       axiosWrapper<null>({
         method: 'put',
-        url: `/instance/${instance.uuid}/fs/write/${path}/${name}`,
+        url: `/instance/${instance.uuid}/fs/new/${path}/${name}`,
       })
     );
   };
