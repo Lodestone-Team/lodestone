@@ -221,7 +221,7 @@ export default function MinecraftFileCard() {
   const showingMonaco = targetFile && !isFileLoading && !fileError;
 
   return (
-    <div className="flex h-full w-full flex-col gap-2 rounded-2xl bg-gray-800 px-10 pt-4 pb-10 border-gray-faded/30 border">
+    <div className="flex h-full w-full flex-col gap-2">
       <p className="select-none px-2 py-2 text-medium font-medium">
         <span>
           <span
@@ -344,7 +344,7 @@ export default function MinecraftFileCard() {
               ))}
             </div>
           </div>
-          <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 bg-gray-800 last:border-b-0">
+          <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 last:border-b-0">
             <Formik
               initialValues={{ name: '' }}
               onSubmit={async (values: { name: string }, actions: any) => {
