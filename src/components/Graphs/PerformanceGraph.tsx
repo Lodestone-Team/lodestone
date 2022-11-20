@@ -152,9 +152,11 @@ export default function PerformanceGraph({
       },
       title: {
         display: true,
-        text: `${title} - ${
-          displayData[displayData.length - 1]
-        }/${displayMax}${unit}`,
+        text: title,
+        padding: {
+          top: 0,
+          bottom: 24,
+        },
       },
     },
     scales: {
@@ -205,9 +207,9 @@ export default function PerformanceGraph({
         // min: 0,
         max: displayMax,
         ticks: {
-          maxTicksLimit: 8,
+          maxTicksLimit: 5,
           padding: 10,
-          align: 'inner',
+          align: 'end',
           callback: function (val: number | string, idx: number) {
             return val + unit;
           },

@@ -216,7 +216,6 @@ export const formatDuration = (duration: number) => {
 export const formatNotificationTime = (time_ms: number) => {
   const now = new Date();
   const time = new Date(time_ms);
-  console.log(time_ms);
   if (
     now.getFullYear() === time.getFullYear() &&
     now.getMonth() === time.getMonth() &&
