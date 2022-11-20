@@ -36,6 +36,7 @@ module.exports = {
         600: '#44464B',
         700: '#36393F',
         800: '#26282C',
+        850: '#212327',
         900: '#1D1E21',
         faded: '#A5A5AC',
       },
@@ -68,5 +69,6 @@ module.exports = {
     function ({ addVariant }) {
       addVariant('child', '& > *');
     },
+    require('@tailwindcss/container-queries'),
   ],
 };

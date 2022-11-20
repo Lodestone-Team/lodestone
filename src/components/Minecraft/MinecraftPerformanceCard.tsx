@@ -22,7 +22,7 @@ export default function MinecraftPerformanceCard() {
   return (
     <DashboardCard>
       <h1 className="text-medium font-bold"> Performance </h1>
-      <div className="mb-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
+      <div className="mb-10 grid grid-cols-1 gap-10 @2xl:grid-cols-2">
         <div>
           <PerformanceGraph
             title="CPU Usage"

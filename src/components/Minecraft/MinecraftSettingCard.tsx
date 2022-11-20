@@ -48,7 +48,7 @@ export default function MinecraftSettingCard() {
   return (
     <DashboardCard>
       <h1 className="text-medium font-bold"> Game Settings </h1>
-      <div className="grid w-full grid-cols-2 gap-x-8 gap-y-16 child:w-full lg:grid-cols-4">
+      <div className="grid w-full grid-cols-2 gap-x-8 gap-y-16 child:w-full @2xl:grid-cols-4">
         {availableSettings.map((setting) => {
           return (
             <SettingField
