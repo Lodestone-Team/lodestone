@@ -431,7 +431,12 @@ export default function MinecraftFileCard() {
                 value={edittedFileContent}
                 theme="lodestone-dark"
                 path={monacoPath}
-                className="overflow-hidden rounded-lg border border-gray-faded/30"
+                className="overflow-hidden rounded-lg border border-gray-faded/30 bg-gray-800"
+                options={{
+                  padding: {
+                    top: 8,
+                  },
+                }}
               />
             ) : (
               <div className="flex h-[90%] w-full flex-col items-center justify-center rounded-lg bg-gray-800">
