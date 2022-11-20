@@ -439,23 +439,23 @@ pub fn get_instance_fs_routes() -> Router {
             get(read_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/write/*relative_path}",
+            "/instance/:uuid/fs/write/*relative_path",
             put(write_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/mkdir/*relative_path}",
+            "/instance/:uuid/fs/mkdir/*relative_path",
             put(make_instance_directory),
         )
         .route(
-            "/instance/:uuid/fs/rm/*relative_path}",
+            "/instance/:uuid/fs/rm/*relative_path",
             delete(remove_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/rmdir/*relative_path}",
+            "/instance/:uuid/fs/rmdir/*relative_path",
             delete(remove_instance_dir),
         )
         .route(
-            "/instance/:uuid/fs/new/*relative_path}",
+            "/instance/:uuid/fs/new/*relative_path",
             put(new_instance_file),
         )
 
