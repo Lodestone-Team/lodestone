@@ -160,9 +160,14 @@ export default function MinecraftGeneralCard() {
   ) : null;
 
   return (
-    <DashboardCard>
-      <h1 className="text-medium font-bold"> General Settings </h1>
-      <div className="grid w-full grid-cols-2 gap-y-16 gap-x-8 child:w-full @2xl:grid-cols-4">
+    <div className="flex flex-col @6xl:flex-row gap-4">
+      <div className="w-96">
+        <h1 className="font-black"> General Settings </h1>
+        <h2 className="font-medium text-base italic tracking-tight text-white/50">
+          Most commonly used settings for your server
+        </h2>
+      </div>
+      <div className="w-full child:w-full rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 last:child:border-b-0 last:child:rounded-b-lg first:child:rounded-t-lg">
         {portField}
         {maxPlayersField}
         {minRamField}
@@ -172,6 +177,6 @@ export default function MinecraftGeneralCard() {
         {onlineModeField}
         {pvpField}
       </div>
-    </DashboardCard>
+    </div>
   );
 }

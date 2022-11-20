@@ -73,12 +73,21 @@ export default function SelectBox({
 
   return (
     <div
-      className={`flex flex-col gap-1 ${className} group relative text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 p-4 text-base`}
     >
-      <label className="absolute -top-6 text-small font-medium text-gray-300">
-        {label}:
-      </label>
-      <div className="relative mt-1">
+      <div className={`flex flex-col`}>
+        <label className="text-small font-medium text-gray-300">{label}</label>
+        {uiError ? (
+          <p className="text-small font-medium tracking-medium text-red">
+            {uiError || 'Unknown error'}
+          </p>
+        ) : (
+          <p className="text-small font-medium tracking-medium text-white/50">
+            The {label} for the server
+          </p>
+        )}
+      </div>
+      <div className="relative w-5/12">
         <Listbox
           value={value}
           onChange={onChange}
@@ -137,14 +146,6 @@ export default function SelectBox({
             )}
           </Listbox.Options>
         </Listbox>
-        {uiError && (
-          <div
-            className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
-          `}
-          >
-            {uiError || 'Unknown error'}
-          </div>
-        )}
       </div>
     </div>
   );

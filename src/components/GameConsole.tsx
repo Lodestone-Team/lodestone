@@ -88,14 +88,14 @@ export default function GameConsole() {
     consoleInputMessage = 'Console is closed';
 
   return (
-    <div className="relative flex h-full w-full flex-col rounded-2xl border border-gray-faded/30">
+    <div className="relative flex h-full w-full flex-col rounded-2xl overflow-clip border border-gray-faded/30">
       {consoleStatusMessage && (
         <div className="absolute top-0 right-0 select-none p-4 py-1 font-mono text-small font-light tracking-tight text-gray-500 hover:text-gray-400">
           {consoleStatusMessage}
         </div>
       )}
       <ol
-        className="flex h-0 grow flex-col overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl border-b border-gray-faded/30 bg-gray-800 py-3 font-mono text-small font-light tracking-tight text-gray-300"
+        className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl border-b border-gray-faded/30 bg-gray-800 py-3 font-mono text-small font-light tracking-tight text-gray-300"
         ref={listRef}
       >
         {consoleLog.map((line) => (

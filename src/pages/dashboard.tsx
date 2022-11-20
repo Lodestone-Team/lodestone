@@ -193,7 +193,7 @@ const Dashboard: NextPageWithLayout = () => {
           selectedIndex={selectedTabIndex}
           onChange={setSelectedTabIndex}
         >
-          <Tab.List className="mb-4 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
+          <Tab.List className="mb-6 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
             {tabList[instance.game_type].map((tab) => (
               <Tab
                 key={tab.title}
@@ -211,7 +211,7 @@ const Dashboard: NextPageWithLayout = () => {
           </Tab.List>
           <Tab.Panels className="flex w-full grow flex-row items-stretch">
             {tabList[instance.game_type].map((tab) => (
-              <Tab.Panel className="flex w-full flex-col gap-8" key={tab.title}>
+              <Tab.Panel className="flex w-full flex-col gap-16" key={tab.title}>
                 {tab.content}
               </Tab.Panel>
             ))}

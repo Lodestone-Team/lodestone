@@ -183,49 +183,46 @@ export default function InputBox({
 
   return (
     <div
-      className={`flex flex-col gap-1 ${className} group relative text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 p-4 text-base`}
     >
-      {label && (
-        <label className="absolute -top-6 text-small font-medium text-gray-300">
-          {label}:
-        </label>
-      )}
-      <div className="mt-1">
-        <form
-          onSubmit={onSubmit}
-          onReset={onReset}
-          className="relative"
-          ref={formRef}
-          onKeyDown={handleKeyDown}
-          id={id}
-        >
-          <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
-            <div className="flex flex-row gap-2">{showIcons && icons}</div>
-          </div>
-          <input
-            value={value}
-            placeholder={placeholder}
-            onChange={onChange}
-            maxLength={maxLength}
-            className={`${inputClassName} ${
-              uiError ? inputErrorBorderClassName : inputBorderClassName
-            }
-            ${removeArrows && 'noSpin'}`}
-            onBlur={() => {
-              setValue(value.trim());
-            }}
-            disabled={disabled}
-          />
-        </form>
-        {uiError && (
-          <div
-            className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
-          `}
-          >
+      <div className={`flex flex-col`}>
+        <label className="text-small font-medium text-gray-300">{label}</label>
+        {uiError ? (
+          <p className="text-small font-medium tracking-medium text-red">
             {uiError || 'Unknown error'}
-          </div>
+          </p>
+        ) : (
+          <p className="text-small font-medium tracking-medium text-white/50">
+            The {label} for the server
+          </p>
         )}
       </div>
+      <form
+        onSubmit={onSubmit}
+        onReset={onReset}
+        className="relative w-5/12"
+        ref={formRef}
+        onKeyDown={handleKeyDown}
+        id={id}
+      >
+        <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
+          <div className="flex flex-row gap-2">{showIcons && icons}</div>
+        </div>
+        <input
+          value={value}
+          placeholder={placeholder}
+          onChange={onChange}
+          maxLength={maxLength}
+          className={`${inputClassName} ${
+            uiError ? inputErrorBorderClassName : inputBorderClassName
+          }
+            ${removeArrows && 'noSpin'}`}
+          onBlur={() => {
+            setValue(value.trim());
+          }}
+          disabled={disabled}
+        />
+      </form>
     </div>
   );
 }

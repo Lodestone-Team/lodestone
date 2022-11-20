@@ -25,7 +25,7 @@ export default function LeftNav() {
   }, 1000);
 
   return (
-    <div className="flex w-full flex-col items-center overflow-x-visible border-r border-gray-faded/30 bg-gray-700 px-4 pt-4">
+    <div className="flex w-full flex-col items-center border-r border-gray-faded/30 bg-gray-700 px-4 pt-4">
       {/* <div className="w-full max-w-xs px-6 pb-6 mb-5 border-b border-gray-faded/30">
         <img src="/logo.svg" alt="logo" className="w-full" />
         <SystemStat
@@ -39,7 +39,7 @@ export default function LeftNav() {
           value={clientInfoLoading ? '...' : formatDuration(uptime)}
         />
       </div> */}
-      <div className="flex w-full grow flex-col overflow-x-visible">
+      <div className="flex w-full grow flex-col">
         <div className="items-begin mb-4 flex w-full flex-row items-center justify-start gap-4">
           <h1 className="mr-1 text-large font-bold tracking-tight">
             Instances
