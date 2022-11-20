@@ -22,11 +22,11 @@ export default function NotificationPanel() {
   const { notifications, ongoingNotifications } =
     useContext(NotificationContext);
   return (
-    <div className="flex w-full flex-col border-l-2 border-gray-faded/30 bg-gray-800">
+    <div className="flex w-full flex-col border-l border-gray-faded/30 bg-gray-800">
       <div className="p-4 font-sans text-large font-black tracking-tight">
         Notifications
       </div>
-      <div className="border-y-2 border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
+      <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
         In Progress
       </div>
       <div className="max-h-[50%] shrink-0 space-y-4 overflow-y-auto p-4 pb-12">
@@ -57,7 +57,7 @@ export default function NotificationPanel() {
           </div>
         )}
       </div>
-      <div className="border-y-2 border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
+      <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
         Silent
       </div>
       <div className="grow space-y-4 overflow-y-auto p-4">

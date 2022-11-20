@@ -221,7 +221,7 @@ export default function MinecraftFileCard() {
   const showingMonaco = targetFile && !isFileLoading && !fileError;
 
   return (
-    <div className="flex h-full w-full flex-col gap-2 rounded-2xl bg-gray-900 px-10 pt-4 pb-10">
+    <div className="flex h-full w-full flex-col gap-2 rounded-2xl bg-gray-800 px-10 pt-4 pb-10 border-gray-faded/30 border">
       <p className="select-none px-2 py-2 text-medium font-medium">
         <span>
           <span
@@ -272,7 +272,7 @@ export default function MinecraftFileCard() {
               {!atTopLevel ? (
                 <div
                   key={'..'}
-                  className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0 hover:cursor-pointer hover:bg-gray-800 hover:text-blue-accent hover:underline"
+                  className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
                   onClick={() => {
                     setPath((path) => {
                       const split = path.split('/');
@@ -287,13 +287,13 @@ export default function MinecraftFileCard() {
               ) : null}
 
               {fileListLoading ? (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0">
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
                   <p className="text-base font-medium text-gray-400">
                     Loading...
                   </p>
                 </div>
               ) : fileListError ? (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0">
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
                   <p className="text-base font-medium text-gray-400">
                     {fileListError.message}
                   </p>
@@ -301,7 +301,7 @@ export default function MinecraftFileCard() {
               ) : null}
 
               {fileList?.length === 0 && (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-900 py-2 px-4 last:border-b-0">
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
                   <p className="text-base font-medium text-gray-400">
                     No files here...
                   </p>
@@ -311,10 +311,10 @@ export default function MinecraftFileCard() {
               {fileList?.map((file) => (
                 <div
                   key={file.path}
-                  className={`flex flex-row items-center gap-4 border-b border-gray-faded/30  py-2 px-4 last:border-b-0 ${
+                  className={`flex flex-row items-center gap-4 border-b border-gray-faded/30 py-2 px-4 last:border-b-0 hover:bg-gray-700 ${
                     file.name === targetFile?.name
-                      ? 'bg-blue-faded/30'
-                      : 'bg-gray-900 hover:bg-gray-800'
+                      ? 'bg-gray-750'
+                      : 'bg-gray-800'
                   }`}
                 >
                   {fileTypeToIconMap[file.file_type]}
@@ -344,7 +344,7 @@ export default function MinecraftFileCard() {
               ))}
             </div>
           </div>
-          <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 bg-gray-900 last:border-b-0">
+          <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 bg-gray-800 last:border-b-0">
             <Formik
               initialValues={{ name: '' }}
               onSubmit={async (values: { name: string }, actions: any) => {
@@ -431,7 +431,7 @@ export default function MinecraftFileCard() {
                 value={edittedFileContent}
                 theme="lodestone-dark"
                 path={monacoPath}
-                className="overflow-hidden rounded-lg"
+                className="overflow-hidden rounded-lg border border-gray-faded/30"
               />
             ) : (
               <div className="flex h-[90%] w-full flex-col items-center justify-center rounded-lg bg-gray-800">

@@ -119,7 +119,7 @@ const Dashboard: NextPageWithLayout = () => {
 
   return (
     <div
-      className="relative h-full w-full overflow-y-auto bg-gray-800 px-12 pt-6 pb-10 @container"
+      className="relative h-full w-full overflow-y-auto bg-gray-850 px-12 pt-6 pb-10 @container"
       key={uuid}
     >
       <div className="flex min-h-full flex-col items-start gap-2">

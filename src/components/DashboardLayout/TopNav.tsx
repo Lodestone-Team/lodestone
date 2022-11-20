@@ -36,7 +36,7 @@ export default function TopNav({
 
   return (
     <div
-      className="flex h-12 w-full flex-row items-center justify-end gap-4 border-b-2 border-gray-faded/30 bg-gray-700 px-4 py-2"
+      className="flex h-12 w-full flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-700 px-4 py-2"
       suppressHydrationWarning
     >
       <div className="grow">
