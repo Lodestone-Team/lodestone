@@ -963,6 +963,15 @@ impl Instance {
             .macro_executor
             .set_lua(Arc::new(move || get_lua()))
             .await;
+        let event_broadcaster = instance.event_broadcaster.clone();
+        let mut rx = instance.macro_executor.event_receiver();
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                // TODO: this is not the best way, as the timestamp is calculated when the event is send, not when it is produced
+                let _ = event_broadcaster.send(event.into());
+            }
+            debug!("Macro event receiver exited");
+        });
         instance
             .read_properties()
             .await

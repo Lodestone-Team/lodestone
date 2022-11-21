@@ -92,6 +92,17 @@ pub struct MacroEvent {
     pub macro_uuid: String,
     pub macro_event_inner: MacroEventInner,
 }
+
+impl Into<Event> for MacroEvent {
+    fn into(self) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: get_snowflake(),
+            event_inner: EventInner::MacroEvent(self),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
