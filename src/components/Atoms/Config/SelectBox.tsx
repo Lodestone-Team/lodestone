@@ -87,7 +87,7 @@ export default function SelectBox({
           </p>
         )}
       </div>
-      <div className="relative w-5/12">
+      <div className="relative w-1/2">
         <Listbox
           value={value}
           onChange={onChange}

@@ -88,7 +88,7 @@ export default function SelectBox({
           </p>
         )}
       </div>
-      <div className="relative flex w-5/12 flex-row items-center justify-end gap-4">
+      <div className="relative flex w-1/2 flex-row items-center justify-end gap-4">
         {status}
         <Switch
           checked={value}
