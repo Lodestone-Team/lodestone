@@ -152,7 +152,6 @@ const Dashboard: NextPageWithLayout = () => {
           >
             <ClipboardTextfield
               text={`${address}:${instance.port}`}
-              textToCopy={address}
             />
           </Label>
           <Button
