@@ -29,6 +29,7 @@ use ts_rs::TS;
 
 use super::util::{can_user_view_event, parse_bearer_token, try_auth};
 #[derive(Deserialize, Clone, Debug, TS)]
+#[ts(export)]
 struct EventQuery {
     pub event_levels: Option<Vec<EventLevel>>,
     pub event_types: Option<Vec<EventType>>,
