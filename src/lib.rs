@@ -55,6 +55,7 @@ pub mod prelude;
 mod stateful;
 mod traits;
 mod util;
+mod output_types;
 
 #[derive(Clone)]
 pub struct AppState {

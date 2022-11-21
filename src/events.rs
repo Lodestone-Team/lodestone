@@ -3,11 +3,13 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{prelude::get_snowflake, traits::InstanceInfo};
+use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(InstanceEventKind, derive(Serialize, Deserialize, TS))]
 pub enum InstanceEventInner {
     InstanceStarting,
     InstanceStarted,
@@ -35,6 +37,13 @@ pub enum InstanceEventInner {
         player_message: String,
     },
 }
+
+impl AsRef<InstanceEventInner> for InstanceEventInner {
+    fn as_ref(&self) -> &InstanceEventInner {
+        self
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct InstanceEvent {
@@ -45,12 +54,21 @@ pub struct InstanceEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(UserEventKind, derive(Serialize, Deserialize, TS))]
 pub enum UserEventInner {
     UserCreated,
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
 }
+
+impl AsRef<UserEventInner> for UserEventInner {
+    fn as_ref(&self) -> &UserEventInner {
+        self
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct UserEvent {
@@ -60,6 +78,8 @@ pub struct UserEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(MacroEventKind, derive(Serialize, Deserialize, TS))]
 pub enum MacroEventInner {
     MacroStarted,
     MacroStopped,
@@ -108,17 +128,33 @@ pub struct ProgressionEvent {
 }
 
 pub fn new_progression_event_id() -> String {
-    format!("PROGRESSION_{}", get_snowflake())
+    format!("PROG_{}", get_snowflake())
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(EventType, derive(Serialize, Deserialize, TS))]
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
     MacroEvent(MacroEvent),
     ProgressionEvent(ProgressionEvent),
+}
+
+impl AsRef<EventInner> for EventInner {
+    fn as_ref(&self) -> &EventInner {
+        self
+    }
+}
+
+#[test]
+fn event_type_export() {
+    let _ = EventType::export();
+    let _ = MacroEventKind::export();
+    let _ = UserEventKind::export();
+    let _ = InstanceEventKind::export();
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -128,26 +164,38 @@ pub struct Event {
     pub details: String,
     pub snowflake: i64,
 }
-
-// a type that Event will be serialized to
-// used to serialize snowflake as string
-#[derive(Serialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
-struct ClientEvent {
-    pub event_inner: EventInner,
-    pub details: String,
-    pub snowflake: i64,
-    pub snowflake_str: String,
+pub enum EventLevel {
+    Info,
+    Warning,
+    Error,
 }
 
-impl Into<ClientEvent> for Event {
-    fn into(self) -> ClientEvent {
-        ClientEvent {
-            event_inner: self.event_inner,
-            details: self.details,
-            snowflake: self.snowflake,
-            snowflake_str: self.snowflake.to_string(),
+// impl From<&EventInner> for EventType {
+//     fn from(event_inner: &EventInner) -> Self {
+//         match event_inner {
+//             EventInner::InstanceEvent(_) => EventType::InstanceEvent,
+//             EventInner::UserEvent(_) => EventType::UserEvent,
+//             EventInner::MacroEvent(_) => EventType::MacroEvent,
+//             EventInner::ProgressionEvent(_) => EventType::ProgressionEvent,
+//         }
+//     }
+// }
+
+impl From<&ClientEvent> for Event {
+    fn from(client_event: &ClientEvent) -> Event {
+        Event {
+            event_inner: client_event.event_inner.clone(),
+            details: client_event.details.clone(),
+            snowflake: client_event.snowflake.clone(),
         }
+    }
+}
+
+impl AsRef<Event> for Event {
+    fn as_ref(&self) -> &Event {
+        self
     }
 }
 
