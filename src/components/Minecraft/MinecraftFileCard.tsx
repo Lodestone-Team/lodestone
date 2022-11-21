@@ -258,7 +258,7 @@ export default function MinecraftFileCard() {
         >
           {instance.path.split(direcotrySeparator).pop()}
         </span>
-        <span className="text-gray-300"> / </span>
+        <span className="text-gray-300"> {direcotrySeparator} </span>
       </span>
 
       {path.split(direcotrySeparator).map((p, i, arr) => {
