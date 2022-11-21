@@ -19,7 +19,7 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { version = "0.5.13", features = ["headers", "ws"] }
+axum = { version = "0.5.13", features = ["headers", "ws", "multipart"] }
 axum-macros = "0.2.3"
 futures = "0.3.21"
 headers = "0.3"
