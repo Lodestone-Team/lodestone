@@ -40,7 +40,7 @@ jobs:
     - name: Archive production artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: Lodestone
+        name: ${{ runner.os }}-client
         path: |
           ./target/release/main
           ./Rocket.toml
