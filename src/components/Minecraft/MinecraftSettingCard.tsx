@@ -18,26 +18,22 @@ export default function MinecraftSettingCard() {
 
   // hand picked list of minecraft settings to be shown
   const settings = [
-    // 'gamemode',
-    // 'difficulty',
-    'white-list',
-    // 'online-mode',
-    // 'pvp',
-    'enable-command-block',
-    'allow-flight',
-    'spawn-animals',
-    'spawn-monsters',
-    'spawn-npcs',
-    'allow-nether',
-    'force-gamemode',
-    'spawn-protection',
-    'require-resource-pack',
-    'resource-pack',
-    'resource-pack-prompt',
+    ['white-list', 'Whitelist', 'toggle'],
+    ['enable-command-block', 'Command Blocks', 'toggle'],
+    ['allow-flight', 'Flight', 'toggle'],
+    ['spawn-animals', 'Spawn Animals', 'toggle'],
+    ['spawn-monsters', 'Spawn Monsters', 'toggle'],
+    ['spawn-npcs', 'Spawn NPCs', 'toggle'],
+    ['allow-nether', 'Allow Nether', 'toggle'],
+    ['force-gamemode', 'Force Gamemode', 'toggle'],
+    ['spawn-protection', 'Spawn Protection', 'number'],
+    ['require-resource-pack', 'Require Resource Pack', 'toggle'],
+    ['resource-pack', 'Resource Pack', 'text'],
+    ['resource-pack-prompt', 'Resource Pack Prompt', 'toggle'],
   ];
 
   const availableSettings = settings.filter((setting) =>
-    supportedSettings.includes(setting)
+    supportedSettings.includes(setting[0])
   );
 
   if (isLoading) {
@@ -48,8 +44,8 @@ export default function MinecraftSettingCard() {
   return (
     <div className="flex flex-col gap-4 @6xl:flex-row">
       <div className="w-[28rem]">
-        <h1 className="font-black text-large"> Advanced Settings </h1>
-        <h2 className="font-medium text-base italic tracking-tight text-white/50">
+        <h1 className="text-large font-black"> Advanced Settings </h1>
+        <h2 className="text-base font-medium italic tracking-tight text-white/50">
           Most users should not need to change these settings.
         </h2>
       </div>
@@ -58,9 +54,11 @@ export default function MinecraftSettingCard() {
           return (
             <SettingField
               instance={instance}
-              setting={setting}
-              label={setting}
-              key={setting}
+              setting={setting[0]}
+              label={setting[1]}
+              key={setting[0]}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              type={setting[2] as any}
             />
           );
         })}

@@ -20,6 +20,7 @@ module.exports = {
         DEFAULT: '#62DD76',
         faded: '#61AE32',
         accent: '#2AF588',
+        enabled: '#48F077'
       },
       ochre: {
         DEFAULT: '#EFB440',

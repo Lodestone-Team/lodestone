@@ -7,6 +7,7 @@ import Textfield from './Atoms/Config/InputBox';
 import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
+import ToggleBox from './Atoms/Config/ToggleBox';
 
 export default function SettingField({
   instance,
@@ -20,7 +21,7 @@ export default function SettingField({
   instance: InstanceInfo;
   setting: string;
   label?: string;
-  type?: 'text' | 'number' | 'dropdown';
+  type?: 'text' | 'number' | 'dropdown' | 'toggle';
   min?: number;
   max?: number;
   options?: string[];
@@ -97,6 +98,21 @@ export default function SettingField({
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
               value
+            );
+          }}
+        />
+      );
+    case 'toggle':
+      return (
+        <ToggleBox
+          label={label}
+          value={value === 'true'}
+          disabled={isLoading}
+          error={errorString}
+          onChange={async (value) => {
+            await axiosPutSingleValue<void>(
+              `/instance/${uuid}/game/${setting}`,
+              value ? 'true' : 'false'
             );
           }}
         />

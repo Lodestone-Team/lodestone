@@ -3,6 +3,7 @@ import axios from 'axios';
 import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
 import InputField from 'components/Atoms/Form/InputField';
+import RadioField from 'components/Atoms/Form/RadioField';
 import SelectField from 'components/Atoms/Form/SelectField';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { Field, useFormikContext } from 'formik';
@@ -14,7 +15,13 @@ export default function MinecraftBasicForm() {
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
     useQuery<MinecraftFlavour[]>(
       ['minecraft', 'flavours'],
-      () => axios.get('/games/minecraft/flavours').then((res) => res.data),
+      () =>
+        axios.get('/games/minecraft/flavours').then((res) => {
+          // sort by name
+          return res.data.sort((a: MinecraftFlavour, b: MinecraftFlavour) => {
+            return a.localeCompare(b);
+          });
+        }),
       { enabled: isReady }
     );
 
@@ -40,7 +47,7 @@ export default function MinecraftBasicForm() {
         <br />
       </p>
       <div className="mt-10 flex flex-col gap-16 text-left">
-        <SelectField
+        <RadioField
           name="flavour"
           label="Flavour"
           disabled={minecraftFlavoursLoading}
@@ -49,6 +56,7 @@ export default function MinecraftBasicForm() {
         <SelectField
           name="version"
           label="Version"
+          placeholder={values.flavour === '' ? 'Select a flavour first' : 'Select...'}
           disabled={minecraftVersionsLoading || !values.flavour}
           options={minecraftVersions?.release ?? []}
         />

@@ -86,7 +86,7 @@ export default function CreateMinecraftInstance({
   }
 
   return (
-    <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-900 px-12 py-24">
+    <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-12 py-24">
       <Formik
         initialValues={initialValues}
         validationSchema={currentValidationSchema}

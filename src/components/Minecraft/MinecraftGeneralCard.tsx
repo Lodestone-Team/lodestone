@@ -144,7 +144,7 @@ export default function MinecraftGeneralCard() {
       instance={instance}
       setting="online-mode"
       label='"Online Mode"'
-      type="dropdown"
+      type="toggle"
       options={['true', 'false']}
     />
   ) : null;
@@ -154,7 +154,7 @@ export default function MinecraftGeneralCard() {
       instance={instance}
       setting="pvp"
       label="PvP"
-      type="dropdown"
+      type="toggle"
       options={['true', 'false']}
     />
   ) : null;

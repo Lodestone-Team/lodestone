@@ -22,7 +22,7 @@ export type SelectFieldProps = FieldHookConfig<string> & {
 };
 
 export default function SelectField(props: SelectFieldProps) {
-  const { label, className, disabled, options, ...rest } = props;
+  const { label, className, disabled, options, placeholder, ...rest } = props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [touched, error] = at(meta, 'touched', 'error');
@@ -70,7 +70,7 @@ export default function SelectField(props: SelectFieldProps) {
               uiError === '' ? inputBorderClassName : inputErrorBorderClassName
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
           >
-            {selectedValue ? selectedValue : 'Select...'}
+            {selectedValue ? selectedValue : placeholder || "Select..."}
             <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
               <div className="flex flex-row gap-2">
                 <FontAwesomeIcon

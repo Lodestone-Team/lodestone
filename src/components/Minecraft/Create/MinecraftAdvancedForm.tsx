@@ -1,4 +1,5 @@
 import InputField from 'components/Atoms/Form/InputField';
+import RadioField from 'components/Atoms/Form/RadioField';
 import { Field } from 'formik';
 
 export default function MinecraftAdvancedForm() {
@@ -16,12 +17,16 @@ export default function MinecraftAdvancedForm() {
           <InputField type="number" name="min_ram" label="Minimum Ram" />
           <InputField type="number" name="max_ram" label="Maximum Ram" />
         </div>
-        <InputField type="text" name="cmd_args" label="Command arguments" />
-        <InputField type="text" name="auto_start" label="Auto Start" />
-        <InputField
-          type="text"
+        <InputField type="text" name="cmd_args" label="Extra command arguments" />
+        <RadioField
+          name="auto_start"
+          label="Auto Start"
+          options={['false', 'true']}
+        />
+        <RadioField
           name="restart_on_crash"
           label="Restart On Crash"
+          options={['false', 'true']}
         />
       </div>
     </>

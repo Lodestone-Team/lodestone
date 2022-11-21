@@ -66,7 +66,7 @@ export const validationSchema = [
         if (value === undefined) return false;
         return value >= 1 && value <= 65535;
       })
-      .test('port free', 'Port in use', async (value) => {
+      .test('port free', 'Port not available', async (value) => {
         if (value === undefined) return false;
         return !(await catchAsyncToString(checkPortValid(value)));
       }),
