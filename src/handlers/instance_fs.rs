@@ -162,7 +162,7 @@ async fn write_instance_file(
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if is_file_protected(&path) {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: format!(
