@@ -1,13 +1,14 @@
 import { addInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useContext, useEffect } from 'react';
+import { useCallback, useContext, useEffect, useMemo } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { match, otherwise, partial } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { formatBytes, formatBytesDownload } from 'utils/util';
 import { EventQuery } from 'bindings/EventQuery';
+import axios from 'axios';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -19,13 +20,28 @@ export const useEventStream = () => {
   const { isReady, token, address, port, apiVersion } =
     useContext(LodestoneContext);
 
-  useEffect(() => {
-    const updateInstanceState = (uuid: string, state: InstanceState) => {
+  const eventQuery: EventQuery = useMemo(
+    () => ({
+      bearer_token: token,
+      event_levels: null,
+      event_types: null,
+      instance_event_types: null,
+      user_event_types: null,
+      event_instance_ids: null,
+    }),
+    [token]
+  );
+
+  const updateInstanceState = useCallback(
+    (uuid: string, state: InstanceState) => {
       updateInstance(uuid, queryClient, (oldInfo) => {
         return { ...oldInfo, state };
       });
-    };
-    const updateInstancePlayerCount = (uuid: string, increment: number) => {
+    },
+    [queryClient]
+  );
+  const updateInstancePlayerCount = useCallback(
+    (uuid: string, increment: number) => {
       updateInstance(uuid, queryClient, (oldInfo) => {
         return {
           ...oldInfo,
@@ -34,43 +50,15 @@ export const useEventStream = () => {
             : oldInfo.player_count,
         };
       });
-    };
+    },
+    [queryClient]
+  );
 
-    if (!isReady) return;
-    if (!token) return;
-
-    const eventQuery: EventQuery = {
-      bearer_token: token,
-      event_levels: null,
-      event_types: null,
-      instance_event_types: null,
-      user_event_types: null,
-      event_instance_ids: null,
-    };
-
-    const wsAddress = `ws://${address}:${
-      port ?? 16662
-    }/api/${apiVersion}/events/all/stream?filter=${
-      JSON.stringify(eventQuery)
-    }`;
-
-    console.log(`connecting to ${wsAddress}`);
-
-    const websocket = new WebSocket(wsAddress);
-
-    // if the websocket because error, we should try to reconnect
-    websocket.onerror = (event) => {
-      console.error('websocket error', event);
-      // alert('Disconnected from server, please refresh the page to reconnect');
-    };
-
-    websocket.onmessage = (messageEvent) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const event: ClientEvent = JSON.parse(messageEvent.data);
+  const handleEvent = useCallback(
+    (event: ClientEvent) => {
       const { event_inner, snowflake_str } = event;
 
-      // I love match statements
-      const notificationUnique = match(event_inner, {
+      match(event_inner, {
         InstanceEvent: ({
           instance_event_inner: event_inner,
           instance_uuid: uuid,
@@ -148,16 +136,16 @@ export const useEventStream = () => {
                   ? `${players_joined.join(', ')} Joined ${name}`
                   : ''
               }
-              ${
-                players_left.length > 0 && players_joined.length > 0
-                  ? ' and '
-                  : ''
-              }
-              ${
-                players_left.length > 0
-                  ? `${players_left.join(', ')} Left ${name}`
-                  : ''
-              }`;
+            ${
+              players_left.length > 0 && players_joined.length > 0
+                ? ' and '
+                : ''
+            }
+            ${
+              players_left.length > 0
+                ? `${players_left.join(', ')} Left ${name}`
+                : ''
+            }`;
               dispatch({
                 message,
                 status: 'info',
@@ -265,11 +253,66 @@ export const useEventStream = () => {
           );
         },
       });
+    },
+    [
+      dispatch,
+      ongoingDispatch,
+      queryClient,
+      updateInstancePlayerCount,
+      updateInstanceState,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isReady) return;
+    if (!token) return;
+
+    const wsAddress = `ws://${address}:${
+      port ?? 16662
+    }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(eventQuery)}`;
+
+    console.log(`connecting to ${wsAddress}`);
+
+    const websocket = new WebSocket(wsAddress);
+
+    // if the websocket because error, we should try to reconnect
+    websocket.onerror = (event) => {
+      console.error('websocket error', event);
+      // alert('Disconnected from server, please refresh the page to reconnect');
+    };
+
+    websocket.onmessage = (messageEvent) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const event: ClientEvent = JSON.parse(messageEvent.data);
+      handleEvent(event);
     };
 
     return () => {
       websocket.close();
     };
-    //dispatch and ongoingDispatch are left out specifically
-  }, [address, apiVersion, isReady, port, queryClient, token]);
+  }, [
+    address,
+    apiVersion,
+    eventQuery,
+    handleEvent,
+    isReady,
+    port,
+    queryClient,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    if (!token) return;
+
+    const bufferAddress = `/events/all/buffer?filter=${JSON.stringify(
+      eventQuery
+    )}`;
+
+    axios.get<Array<ClientEvent>>(bufferAddress).then((response) => {
+      response.data.forEach((event) => {
+        handleEvent(event);
+      });
+    });
+  }, [address, apiVersion, eventQuery, handleEvent, isReady, port, token]);
 };
