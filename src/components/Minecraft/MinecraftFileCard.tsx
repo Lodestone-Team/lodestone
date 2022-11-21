@@ -1,6 +1,5 @@
-import DashboardCard from 'components/DashboardCard';
-import InstanceCard from 'components/InstanceCard';
 import Editor, { DiffEditor, useMonaco, loader } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolder,
@@ -8,7 +7,7 @@ import {
   faClipboardQuestion,
   IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { File } from 'bindings/File';
 import { InstanceContext } from 'data/InstanceContext';
@@ -17,9 +16,12 @@ import { FileType } from 'bindings/FileType';
 import { axiosWrapper, catchAsyncToString, formatTimeAgo } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { ClientError } from 'bindings/ClientError';
-import { useEffectOnce } from 'usehooks-ts';
+import { useDebounce, useEffectOnce, useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik } from 'formik';
+import ResizePanel from 'components/Atoms/ResizePanel';
+
+type Monaco = typeof monaco;
 
 const fileTypeToIconMap: Record<FileType, React.ReactElement> = {
   Directory: <FontAwesomeIcon icon={faFolder} className="text-blue-accent" />,
@@ -39,8 +41,10 @@ const fileSorter = (a: File, b: File) => {
 export default function MinecraftFileCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const monaco = useMonaco();
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
+  const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [targetFile, setTargetFile] = useState<File | null>(null);
   const atTopLevel = path === '';
   const queryClient = useQueryClient();
@@ -92,6 +96,13 @@ export default function MinecraftFileCard() {
   );
 
   const [edittedFileContent, setEdittedFileContent] = useState('');
+
+  function handleEditorDidMount(
+    editor: monaco.editor.IStandaloneCodeEditor,
+    monaco: Monaco
+  ) {
+    editorRef.current = editor;
+  }
 
   // hack to get .lodestone_config detected as json
   const monacoPath =
@@ -266,162 +277,173 @@ export default function MinecraftFileCard() {
           );
         })}
       </p>
-      <div className="flex h-full w-full flex-row gap-8">
-        <div className="flex h-full w-1/4 grow flex-col">
-          <div className="flex h-0 grow flex-col gap-2 overflow-y-auto overflow-x-hidden">
-            <div className="overflow-x-hidden rounded-lg border border-gray-faded/30">
-              {!atTopLevel ? (
-                <div
-                  key={'..'}
-                  className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
-                  onClick={() => {
-                    setPath((path) => {
-                      const split = path.split('/');
-                      split.pop();
-                      return split.join('/');
-                    });
-                    setTargetFile(null);
-                  }}
-                >
-                  <p className="select-none text-base font-medium">..</p>
-                </div>
-              ) : null}
-
-              {fileListLoading ? (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
-                  <p className="text-base font-medium text-gray-400">
-                    Loading...
-                  </p>
-                </div>
-              ) : fileListError ? (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
-                  <p className="text-base font-medium text-gray-400">
-                    {fileListError.message}
-                  </p>
-                </div>
-              ) : null}
-
-              {fileList?.length === 0 && (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
-                  <p className="text-base font-medium text-gray-400">
-                    No files here...
-                  </p>
-                </div>
-              )}
-
-              {fileList?.map((file) => (
-                <div
-                  key={file.path}
-                  className={`flex flex-row items-center gap-4 border-b border-gray-faded/30 py-2 px-4 last:border-b-0 hover:bg-gray-700 ${
-                    file.name === targetFile?.name
-                      ? 'bg-gray-750'
-                      : 'bg-gray-800'
-                  }`}
-                >
-                  {fileTypeToIconMap[file.file_type]}
-                  <p
-                    className="truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
+      <div className="flex h-full w-full flex-row">
+        <ResizePanel
+          direction="e"
+          maxSize={500}
+          minSize={200}
+          size={fileListSize}
+          validateSize={false}
+          onResize={setFileListSize}
+          resizeBarClassNames="cursor-ew-resize pl-4 pr-4"
+        >
+          <div className="flex h-full w-1/4 grow flex-col">
+            <div className="flex h-0 grow flex-col gap-2 overflow-y-auto overflow-x-hidden">
+              <div className="overflow-x-hidden rounded-lg border border-gray-faded/30">
+                {!atTopLevel ? (
+                  <div
+                    key={'..'}
+                    className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
                     onClick={() => {
-                      if (file.file_type === 'Directory') {
-                        setPath(file.path);
-                        setTargetFile(null);
-                      } else {
-                        setTargetFile(file);
-                      }
+                      setPath((path) => {
+                        const split = path.split('/');
+                        split.pop();
+                        return split.join('/');
+                      });
+                      setTargetFile(null);
                     }}
                   >
-                    {file.name}
-                  </p>
+                    <p className="select-none text-base font-medium">..</p>
+                  </div>
+                ) : null}
 
-                  <p className="grow whitespace-nowrap text-right text-base font-medium text-gray-500">
-                    {file.modification_time || file.creation_time
-                      ? formatTimeAgo(
-                          Number(file.modification_time ?? file.creation_time) *
-                            1000
-                        )
-                      : 'Unknown Time'}
-                  </p>
-                </div>
-              ))}
+                {fileListLoading ? (
+                  <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
+                    <p className="text-base font-medium text-gray-400">
+                      Loading...
+                    </p>
+                  </div>
+                ) : fileListError ? (
+                  <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
+                    <p className="text-base font-medium text-gray-400">
+                      {fileListError.message}
+                    </p>
+                  </div>
+                ) : null}
+
+                {fileList?.length === 0 && (
+                  <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
+                    <p className="text-base font-medium text-gray-400">
+                      No files here...
+                    </p>
+                  </div>
+                )}
+
+                {fileList?.map((file) => (
+                  <div
+                    key={file.path}
+                    className={`flex flex-row items-center gap-4 border-b border-gray-faded/30 py-2 px-4 last:border-b-0 hover:bg-gray-700 ${
+                      file.name === targetFile?.name
+                        ? 'bg-gray-750'
+                        : 'bg-gray-800'
+                    }`}
+                  >
+                    {fileTypeToIconMap[file.file_type]}
+                    <p
+                      className="truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
+                      onClick={() => {
+                        if (file.file_type === 'Directory') {
+                          setPath(file.path);
+                          setTargetFile(null);
+                        } else {
+                          setTargetFile(file);
+                        }
+                      }}
+                    >
+                      {file.name}
+                    </p>
+
+                    <p className="grow whitespace-nowrap text-right text-base font-medium text-gray-500">
+                      {file.modification_time || file.creation_time
+                        ? formatTimeAgo(
+                            Number(
+                              file.modification_time ?? file.creation_time
+                            ) * 1000
+                          )
+                        : 'Unknown Time'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 last:border-b-0">
+              <Formik
+                initialValues={{ name: '' }}
+                onSubmit={async (values: { name: string }, actions: any) => {
+                  actions.setSubmitting(true);
+                  const error = await createFile(values.name);
+                  if (error) {
+                    alert(error);
+                    actions.setErrors({ name: error });
+                    actions.setSubmitting(false);
+                  } else {
+                    queryClient.setQueriesData(
+                      ['instance', instance.uuid, 'files', path],
+                      fileList
+                        ? [
+                            ...fileList,
+                            {
+                              name: values.name,
+                              path: `${path}/${values.name}`,
+                              file_type: 'File' as FileType,
+                              creation_time: Date.now() / 1000,
+                              modification_time: Date.now() / 1000,
+                            },
+                          ].sort(fileSorter)
+                        : undefined
+                    );
+                    actions.setSubmitting(false);
+                    actions.resetForm();
+                  }
+                }}
+              >
+                <Form id="create-file-form" autoComplete="off">
+                  <InputField name="name" placeholder="New File" />
+                </Form>
+              </Formik>
+              <Formik
+                initialValues={{ name: '' }}
+                onSubmit={async (values: { name: string }, actions: any) => {
+                  actions.setSubmitting(true);
+                  const error = await createDirectory(values.name);
+                  if (error) {
+                    alert(error);
+                    actions.setErrors({ name: error });
+                    actions.setSubmitting(false);
+                  } else {
+                    queryClient.setQueriesData(
+                      ['instance', instance.uuid, 'files', path],
+                      fileList
+                        ? [
+                            ...fileList,
+                            {
+                              name: values.name,
+                              path: `${path}/${values.name}`,
+                              file_type: 'Directory' as FileType,
+                              creation_time: Date.now() / 1000,
+                              modification_time: Date.now() / 1000,
+                            },
+                          ].sort(fileSorter)
+                        : undefined
+                    );
+                    actions.setSubmitting(false);
+                    actions.resetForm();
+                  }
+                }}
+              >
+                <Form id="create-directory-form" autoComplete="off">
+                  <InputField name="name" placeholder="New Folder" />
+                </Form>
+              </Formik>
+              <Button
+                label="rm -r ."
+                className="whitespace-nowrap"
+                onClick={deleteDirectory}
+              />
             </div>
           </div>
-          <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 last:border-b-0">
-            <Formik
-              initialValues={{ name: '' }}
-              onSubmit={async (values: { name: string }, actions: any) => {
-                actions.setSubmitting(true);
-                const error = await createFile(values.name);
-                if (error) {
-                  alert(error);
-                  actions.setErrors({ name: error });
-                  actions.setSubmitting(false);
-                } else {
-                  queryClient.setQueriesData(
-                    ['instance', instance.uuid, 'files', path],
-                    fileList
-                      ? [
-                          ...fileList,
-                          {
-                            name: values.name,
-                            path: `${path}/${values.name}`,
-                            file_type: 'File' as FileType,
-                            creation_time: Date.now() / 1000,
-                            modification_time: Date.now() / 1000,
-                          },
-                        ].sort(fileSorter)
-                      : undefined
-                  );
-                  actions.setSubmitting(false);
-                  actions.resetForm();
-                }
-              }}
-            >
-              <Form id="create-file-form" autoComplete="off">
-                <InputField name="name" placeholder="New File" />
-              </Form>
-            </Formik>
-            <Formik
-              initialValues={{ name: '' }}
-              onSubmit={async (values: { name: string }, actions: any) => {
-                actions.setSubmitting(true);
-                const error = await createDirectory(values.name);
-                if (error) {
-                  alert(error);
-                  actions.setErrors({ name: error });
-                  actions.setSubmitting(false);
-                } else {
-                  queryClient.setQueriesData(
-                    ['instance', instance.uuid, 'files', path],
-                    fileList
-                      ? [
-                          ...fileList,
-                          {
-                            name: values.name,
-                            path: `${path}/${values.name}`,
-                            file_type: 'Directory' as FileType,
-                            creation_time: Date.now() / 1000,
-                            modification_time: Date.now() / 1000,
-                          },
-                        ].sort(fileSorter)
-                      : undefined
-                  );
-                  actions.setSubmitting(false);
-                  actions.resetForm();
-                }
-              }}
-            >
-              <Form id="create-directory-form" autoComplete="off">
-                <InputField name="name" placeholder="New Folder" />
-              </Form>
-            </Formik>
-            <Button
-              label="rm -r ."
-              className="whitespace-nowrap"
-              onClick={deleteDirectory}
-            />
-          </div>
-        </div>
-        <div className="w-3/4 grow">
+        </ResizePanel>
+        <div className="min-w-0 grow">
           <div className="h-full">
             {showingMonaco ? (
               <Editor
@@ -432,12 +454,13 @@ export default function MinecraftFileCard() {
                 value={edittedFileContent}
                 theme="lodestone-dark"
                 path={monacoPath}
-                className="overflow-hidden rounded-lg border border-gray-faded/30 bg-gray-800"
+                className="overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800"
                 options={{
                   padding: {
                     top: 8,
                   },
                 }}
+                onMount={handleEditorDidMount}
               />
             ) : (
               <div className="flex h-[90%] w-full flex-col items-center justify-center rounded-lg bg-gray-800">

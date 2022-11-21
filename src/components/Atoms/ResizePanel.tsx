@@ -7,6 +7,14 @@ const setCursor = (cursor: string) => {
   document.body.style.cursor = cursor;
 };
 
+/**
+ * ResizePanel
+ * A resizable panel that should be used inside a flex container
+ * Uses a DraggableCore component to handle the resizing
+ *
+ * To use this as a controlled component, pass in the `size` prop and the `onResize` callback
+ *
+ */
 export default function ResizePanel({
   direction,
   containerClassNames: containerClassNamesProps = '',
@@ -130,10 +138,12 @@ export default function ResizePanel({
   }
 
   const resizeBarClassNames = `bg-clip-content z-10 bg-gray-faded/30 ${
-    isHorizontal
-      ? 'cursor-ew-resize w-0 pl-1.5 pr-1.5 -ml-1.5 -mr-1.5'
-      : 'cursor-ns-resize h-0 pt-1.5 pb-1.5 -mt-1.5 -mb-1.5'
-  } ${resizeBarClassNamesProps}`;
+    resizeBarClassNamesProps
+      ? resizeBarClassNamesProps
+      : isHorizontal
+      ? 'cursor-ew-resize pl-1.5 pr-1.5 -ml-1.5 -mr-1.5'
+      : 'cursor-ns-resize pt-1.5 pb-1.5 -mt-1.5 -mb-1.5'
+  }`;
 
   const contentStyle = isHorizontal
     ? { width: size + 'px' }
