@@ -49,7 +49,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
 
       # on windows, cache installer in src-tauri/target/release/bundle/msi/lodestone-dashboard*.msi
-      # on windows cache exe in src-tauri/target/release/lodestone-desktop.exe
+      # on windows cache exe in src-tauri/target/release/lodestone-dashboard.exe
       # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone-dashboard*.deb
       # on linux, cache appimage in src-tauri/target/release/bundle/appimage/lodestone-dashboard*.AppImage
 
@@ -58,8 +58,8 @@ jobs:
         with:
           name: ${{ matrix.platform }}-tauri
           path: |
-            src-tauri/target/release/bundle/msi/lodestone-dashboard*.msi
-            src-tauri/target/release/lodestone-desktop.exe
-            src-tauri/target/release/bundle/deb/lodestone-dashboard*.deb
-            src-tauri/target/release/bundle/appimage/lodestone-dashboard*.AppImage
+            ./src-tauri/target/release/bundle/msi/lodestone-dashboard*.msi
+            ./src-tauri/target/release/lodestone-dashboard.exe
+            ./src-tauri/target/release/bundle/deb/lodestone-dashboard*.deb
+            ./src-tauri/target/release/bundle/appimage/lodestone-dashboard*.AppImage
       
