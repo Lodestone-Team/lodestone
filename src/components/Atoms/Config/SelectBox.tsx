@@ -73,10 +73,10 @@ export default function SelectBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 p-4 text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base`}
     >
       <div className={`flex flex-col`}>
-        <label className="text-small font-medium text-gray-300">{label}</label>
+        <label className="text-base font-medium text-gray-300">{label}</label>
         {uiError ? (
           <p className="text-small font-medium tracking-medium text-red">
             {uiError || 'Unknown error'}
