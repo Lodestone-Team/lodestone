@@ -5,30 +5,44 @@ import {
   faCircleNotch,
 } from '@fortawesome/free-solid-svg-icons';
 import ProgressBar from 'components/Atoms/ProgressBar';
-import { NotificationStatus } from 'data/NotificationContext';
 import { formatNotificationTime } from 'utils/util';
 import LoadingStatusIcon from './LoadingStatusIcon';
+import { EventLevel } from 'bindings/EventLevel';
+import { OngoingState } from 'data/NotificationContext';
 
-const NotificationStatusToBgColorClass: Record<NotificationStatus, string> = {
-  info: 'bg-gray-500',
-  success: 'bg-green',
-  error: 'bg-red',
-};
-
-const NotificationStatusToFgColorClass: Record<NotificationStatus, string> = {
-  info: 'text-gray-500',
-  success: 'text-green',
-  error: 'text-red',
+const NotificationLevelToBgColorClass = (
+  level: EventLevel,
+  state?: OngoingState
+) => {
+  switch (level) {
+    case 'Warning':
+      return 'bg-ochre';
+    case 'Error':
+      return 'bg-red';
+    default:
+      switch (state) {
+        case 'ongoing':
+          return 'bg-gray-500';
+        case 'done':
+          return 'bg-green';
+        case 'error':
+          return 'bg-red';
+        default:
+          return 'bg-gray-500';
+      }
+  }
 };
 
 export default function NotificationCard({
-  status,
+  level,
+  state,
   title = '',
   message = '',
   progress_percent,
   timestamp,
 }: {
-  status: NotificationStatus;
+  level: EventLevel;
+  state?: OngoingState;
   title?: string;
   message?: string;
   progress_percent?: number; // progress in percentage
@@ -39,9 +53,7 @@ export default function NotificationCard({
       <div
         className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-white hover:bg-gray-900`}
       >
-        {!!progress_percent && (
-          <LoadingStatusIcon status={status} />
-        )}
+        <LoadingStatusIcon level={level} state={state} />
         <div className="flex flex-col items-start">
           <p className="w-full text-base font-bold tracking-medium">{title}</p>
           <p className="w-full text-small font-medium tracking-medium">
@@ -54,10 +66,10 @@ export default function NotificationCard({
           )}
         </div>
       </div>
-      {progress_percent && status !== 'success' ? (
+      {state && state !== 'done' ? (
         <ProgressBar
-          progress_percent={progress_percent}
-          colorClass={NotificationStatusToBgColorClass[status]}
+          progress_percent={progress_percent ?? 0}
+          colorClass={NotificationLevelToBgColorClass(level, state)}
         />
       ) : (
         <div className="h-1"></div>

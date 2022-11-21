@@ -6,7 +6,6 @@ import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { match, otherwise, partial } from 'variant';
 import { NotificationContext } from './NotificationContext';
-import { formatBytes, formatBytesDownload } from 'utils/util';
 import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
 
@@ -69,7 +68,6 @@ export const useEventStream = () => {
               updateInstanceState(uuid, 'Starting');
               dispatch({
                 message: `Starting instance ${name}`,
-                status: 'info',
                 event,
               });
             },
@@ -77,7 +75,6 @@ export const useEventStream = () => {
               updateInstanceState(uuid, 'Running');
               dispatch({
                 message: `Instance ${name} started`,
-                status: 'info',
                 event,
               });
             },
@@ -85,7 +82,6 @@ export const useEventStream = () => {
               updateInstanceState(uuid, 'Stopping');
               dispatch({
                 message: `Stopping instance ${name}`,
-                status: 'info',
                 event,
               });
             },
@@ -93,7 +89,6 @@ export const useEventStream = () => {
               updateInstanceState(uuid, 'Stopped');
               dispatch({
                 message: `Instance ${name} stopped`,
-                status: 'info',
                 event,
               });
             },
@@ -103,7 +98,6 @@ export const useEventStream = () => {
               );
               dispatch({
                 message: `Instance ${name} encountered a warning`,
-                status: 'error',
                 event,
               });
             },
@@ -111,7 +105,6 @@ export const useEventStream = () => {
               updateInstanceState(uuid, 'Error');
               dispatch({
                 message: `Instance ${name} encountered an error`,
-                status: 'error',
                 event,
               });
             },
@@ -148,7 +141,6 @@ export const useEventStream = () => {
             }`;
               dispatch({
                 message,
-                status: 'info',
                 event,
               });
             },
@@ -156,7 +148,6 @@ export const useEventStream = () => {
               console.log(`${player} said ${player_message} on ${name}`);
               dispatch({
                 message: `${player} said ${player_message} on ${name}`,
-                status: 'info',
                 event,
               });
             },
@@ -167,7 +158,6 @@ export const useEventStream = () => {
               console.log(`User ${uid} created`);
               dispatch({
                 message: `User ${uid} created`,
-                status: 'info',
                 event,
               });
             },
@@ -175,7 +165,6 @@ export const useEventStream = () => {
               console.log(`User ${uid} deleted`);
               dispatch({
                 message: `User ${uid} deleted`,
-                status: 'info',
                 event,
               });
             },
@@ -183,7 +172,6 @@ export const useEventStream = () => {
               console.log(`User ${uid} logged in`);
               dispatch({
                 message: `User ${uid} logged in`,
-                status: 'info',
                 event,
               });
             },
@@ -191,7 +179,6 @@ export const useEventStream = () => {
               console.log(`User ${uid} logged out`);
               dispatch({
                 message: `User ${uid} logged out`,
-                status: 'info',
                 event,
               });
             },
@@ -206,7 +193,6 @@ export const useEventStream = () => {
               console.log(`Macro ${macro_id} started on ${uuid}`);
               dispatch({
                 message: `Macro ${macro_id} started on ${uuid}`,
-                status: 'info',
                 event,
               });
             },
@@ -214,7 +200,6 @@ export const useEventStream = () => {
               console.log(`Macro ${macro_id} stopped on ${uuid}`);
               dispatch({
                 message: `Macro ${macro_id} stopped on ${uuid}`,
-                status: 'info',
                 event,
               });
             },
@@ -222,7 +207,6 @@ export const useEventStream = () => {
               console.log(`Macro ${macro_id} errored on ${uuid}: ${error_msg}`);
               dispatch({
                 message: `Macro ${macro_id} errored on ${uuid}: ${error_msg}`,
-                status: 'error',
                 event,
               });
             },
@@ -270,8 +254,6 @@ export const useEventStream = () => {
     const wsAddress = `ws://${address}:${
       port ?? 16662
     }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(eventQuery)}`;
-
-    console.log(`connecting to ${wsAddress}`);
 
     const websocket = new WebSocket(wsAddress);
 

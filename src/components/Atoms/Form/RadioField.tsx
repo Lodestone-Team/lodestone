@@ -84,10 +84,10 @@ export default function RadioField(props: RadioFieldProps) {
                   className={`block h-full w-full select-none py-1 text-center ${
                     disabled
                       ? checked
-                        ? 'bg-green-enabled/40 text-white/50'
+                        ? 'bg-blue-faded/50 text-white/50'
                         : 'bg-gray-800 text-white/50'
                       : checked
-                      ? 'bg-green-enabled/50 text-white'
+                      ? 'bg-blue text-white'
                       : 'text-white/75'
                   }`}
                 >

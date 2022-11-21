@@ -3,14 +3,14 @@ import { ClientEvent } from 'bindings/ClientEvent';
 import { createContext, useReducer } from 'react';
 import { ProgressionEvent } from 'bindings/ProgressionEvent';
 import { match } from 'variant';
+import { EventLevel } from 'bindings/EventLevel';
 
-export type NotificationStatus = 'error' | 'info' | 'success';
 
 export type NotificationItem = {
-  status: NotificationStatus;
   message: string;
   timestamp: number;
   key: string;
+  level: EventLevel;
 };
 
 export type OngoingState = 'ongoing' | 'done' | 'error';
@@ -25,12 +25,12 @@ export type OngoingNotificationItem = {
   timestamp: number;
   event_id: string;
   key: string;
+  level: EventLevel;
 };
 
 // used for dispatching to the notification reducer
 export type NotificationAction = {
   message: string;
-  status: NotificationStatus;
   event: ClientEvent;
 };
 
@@ -60,8 +60,9 @@ export const NotificationContext = createContext<NotificationContext>({
 export const useNotificationReducer = () => {
   const [notifications, dispatch] = useReducer(
     (state: NotificationItem[], action: NotificationAction) => {
-      const { message, status, event } = action;
+      const { message, event } = action;
       const key = event.snowflake_str;
+      const level = event.level;
       const timestamp = getSnowflakeTimestamp(event.snowflake_str);
       if (state.some((item) => item.key === key)) {
         console.warn('Notification with duplicate key received');
@@ -69,7 +70,7 @@ export const useNotificationReducer = () => {
       }
       return [
         ...state,
-        { message, status, timestamp, key } as NotificationItem,
+        { message, timestamp, key, level } as NotificationItem,
       ];
     },
     []
@@ -85,6 +86,7 @@ export const useOngoingNotificationReducer = () => {
       const timestamp = getSnowflakeTimestamp(snowflake);
       const event_inner = action.progressionEvent.progression_event_inner;
       const event_id = action.progressionEvent.event_id;
+      const level = action.event.level;
 
       match(event_inner, {
         ProgressionStart: ({ progression_name, total }) => {
@@ -97,6 +99,7 @@ export const useOngoingNotificationReducer = () => {
             timestamp,
             event_id,
             key: event_id,
+            level,
           });
         },
         ProgressionUpdate: ({ progress, progress_message }) => {
@@ -104,6 +107,7 @@ export const useOngoingNotificationReducer = () => {
             if (item.event_id === event_id) {
               item.progress += progress;
               if (progress_message) item.message = progress_message;
+              item.level = level;
             }
           });
         },
@@ -113,6 +117,7 @@ export const useOngoingNotificationReducer = () => {
               item.state = success ? 'done' : 'error';
               item.progress = item.total ?? 0;
               if (message) item.message = message;
+              item.level = level;
             }
           });
         },
