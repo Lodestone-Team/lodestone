@@ -160,7 +160,7 @@ pub struct WebsocketQuery {
 pub async fn event_stream(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
-    Query(query): Query<EventQueryWrapper>,
+    query: Query<EventQueryWrapper>,
 ) -> Result<Response, Error> {
     let query: EventQuery = serde_json::from_str(query.filter.as_str()).map_err(|e| {
         error!("Error deserializing event query: {}", e);
@@ -175,12 +175,10 @@ pub async fn event_stream(
     })?;
     let users = state.users.lock().await;
 
-    let user = parse_bearer_token(token.as_str())
-        .and_then(|token| try_auth(&token, users.get_ref()))
-        .ok_or_else(|| Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let user = try_auth(&token, users.get_ref()).ok_or_else(|| Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
     drop(users);
     let users = state.users.clone();
     let event_receiver = state.event_broadcaster.subscribe();
