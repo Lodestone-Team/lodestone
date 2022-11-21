@@ -7,6 +7,7 @@ import { ClientEvent } from 'bindings/ClientEvent';
 import { match, otherwise, partial } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { formatBytes, formatBytesDownload } from 'utils/util';
+import { EventQuery } from 'bindings/EventQuery';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -38,11 +39,24 @@ export const useEventStream = () => {
     if (!isReady) return;
     if (!token) return;
 
-    const websocket = new WebSocket(
-      `ws://${address}:${
-        port ?? 16662
-      }/api/${apiVersion}/events/all/stream?token=Bearer ${token}`
-    );
+    const eventQuery: EventQuery = {
+      bearer_token: token,
+      event_levels: null,
+      event_types: null,
+      instance_event_types: null,
+      user_event_types: null,
+      event_instance_ids: null,
+    };
+
+    const wsAddress = `ws://${address}:${
+      port ?? 16662
+    }/api/${apiVersion}/events/all/stream?filter=${
+      JSON.stringify(eventQuery)
+    }`;
+
+    console.log(`connecting to ${wsAddress}`);
+
+    const websocket = new WebSocket(wsAddress);
 
     // if the websocket because error, we should try to reconnect
     websocket.onerror = (event) => {
