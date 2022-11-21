@@ -126,15 +126,19 @@ impl User {
                 .contains(instance_id),
             UserAction::ReadInstanceFile(instance_id) => {
                 self.is_admin
+                    || self.permissions.can_read_global_file
                     || self
                         .permissions
                         .can_read_instance_file
                         .contains(instance_id)
             }
-            UserAction::WriteInstanceFile(instance_id) => self
-                .permissions
-                .can_write_instance_file
-                .contains(instance_id),
+            UserAction::WriteInstanceFile(instance_id) => {
+                self.permissions.can_write_global_file
+                    || self
+                        .permissions
+                        .can_write_instance_file
+                        .contains(instance_id)
+            }
             UserAction::AccessMacro(instance_id) => self
                 .permissions
                 .can_access_instance_macro
