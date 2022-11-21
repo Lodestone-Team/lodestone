@@ -87,7 +87,7 @@ export default function DashboardLayout({
           showNotifications={showNotifications}
           setShowNotifications={setShowNotifications}
         />
-        <div className="flex min-h-0 w-full grow flex-row">
+        <div className="flex min-h-0 w-full grow flex-row relative">
           <ResizePanel
             direction="e"
             maxSize={500}
@@ -115,12 +115,12 @@ export default function DashboardLayout({
               </ResizePanel>
             ) : (
               <div
-                className="fixed right-0 h-full child:h-full"
+                className="absolute right-2 -top-2 h-full child:h-5/6 w-96 rounded-lg drop-shadow-lg"
                 style={{
-                  width: rightNavSize,
+                  // width: rightNavSize,
                 }}
               >
-                <NotificationPanel />
+                <NotificationPanel className="border rounded-lg" />
               </div>
             ))}
         </div>
