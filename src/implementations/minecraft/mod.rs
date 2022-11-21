@@ -1007,21 +1007,12 @@ impl Instance {
                 inner: ErrorInner::FailedToWriteFileOrDir,
                 detail: format!("failed to open properties file"),
             })?;
-
-        // let mut file = File::open(&self.path_to_properties)
-        //     .await
-        //     .map_err(|_| Error {
-        //         inner: ErrorInner::FailedToWriteFileOrDir,
-        //         detail: "Failed to open properties file".to_string(),
-        //     })?;
-        dbg!(&file);
         let mut setting_str = "".to_string();
         for (key, value) in self.settings.lock().await.iter() {
             // print the key and value separated by a =
             // println!("{}={}", key, value);
             setting_str.push_str(&format!("{}={}\n", key, value));
         }
-        dbg!(&setting_str);
         file.write_all(setting_str.as_bytes())
             .await
             .map_err(|_| Error {
