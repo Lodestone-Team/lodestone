@@ -1,12 +1,7 @@
-import ProgressBar from 'components/Atoms/ProgressBar';
 import {
   NotificationContext,
-  NotificationStatus,
-  OngoingState,
 } from 'data/NotificationContext';
 import { useContext } from 'react';
-import { GridLoader } from 'react-spinners';
-import { formatNotificationTime } from 'utils/util';
 import NotificationCard from 'components/Atoms/NotificationCard';
 
 export default function NotificationPanel() {
