@@ -45,8 +45,8 @@ pub fn try_auth(token: &str, users: &HashMap<String, User>) -> Option<User> {
     Some(claimed_requester.to_owned())
 }
 
-pub fn can_user_view_event(event: &Event, user: &User) -> bool {
-    match &event.event_inner {
+pub fn can_user_view_event(event: impl AsRef<Event>, user: &User) -> bool {
+    match &event.as_ref().event_inner {
         EventInner::InstanceEvent(event) => {
             user.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
         }
