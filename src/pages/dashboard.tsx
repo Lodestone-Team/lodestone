@@ -122,7 +122,7 @@ const Dashboard: NextPageWithLayout = () => {
       className="relative h-full overflow-y-scroll w-full bg-gray-850 px-12 pt-6 pb-10 @container flex flex-row justify-center"
       key={uuid}
     >
-      <div className="flex min-h-full h-fit max-w-7xl grow flex-col items-start gap-2">
+      <div className="flex min-h-full h-fit max-w-7xl grow flex-col items-start gap-2 w-full">
         <div className="flex min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
