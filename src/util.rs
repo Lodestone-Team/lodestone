@@ -291,9 +291,9 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     root: R,
     unsafe_path: U,
 ) -> Result<PathBuf, Error> {
-    let mut ret = safe_path::scoped_join(&root, unsafe_path).map_err(|_| Error {
+    let mut ret = safe_path::scoped_join(&root, unsafe_path).map_err(|e| Error {
         inner: ErrorInner::MalformedFile,
-        detail: "Failed to join path".to_string(),
+        detail: format!("Failed to join path: {}", e),
     })?;
     if cfg!(windows) {
         // construct a new path
