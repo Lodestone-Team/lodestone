@@ -47,3 +47,19 @@ jobs:
 
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
+
+      # on windows, cache installer in src-tauri/target/release/bundle/msi/lodestone-dashboard*.msi
+      # on windows cache exe in src-tauri/target/release/lodestone-desktop.exe
+      # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone-dashboard*.deb
+      # on linux, cache appimage in src-tauri/target/release/bundle/appimage/lodestone-dashboard*.AppImage
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.platform }}-tauri
+          path: |
+            src-tauri/target/release/bundle/msi/lodestone-dashboard*.msi
+            src-tauri/target/release/lodestone-desktop.exe
+            src-tauri/target/release/bundle/deb/lodestone-dashboard*.deb
+            src-tauri/target/release/bundle/appimage/lodestone-dashboard*.AppImage
+      
