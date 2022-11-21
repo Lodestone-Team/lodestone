@@ -1,15 +1,19 @@
 use std::path::PathBuf;
 
 use axum::{
-    body::Bytes,
-    extract::Path,
+    body::{Bytes, StreamBody},
+    extract::{Multipart, Path},
     routing::{delete, get, put},
-    Extension, Json, Router,
+    Extension, Json, Router, TypedHeader,
 };
 use axum_auth::AuthBearer;
 
+use headers::ContentType;
+use log::debug;
 use serde::{Deserialize, Serialize};
 
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
 use ts_rs::TS;
 
 use crate::{
@@ -315,6 +319,150 @@ async fn new_file(
     Ok(Json(()))
 }
 
+async fn download_file(
+    Extension(state): Extension<AppState>,
+    Path(absolute_path): Path<String>,
+    AuthBearer(token): AuthBearer,
+) -> Result<
+    (
+        TypedHeader<ContentType>,
+        StreamBody<ReaderStream<tokio::fs::File>>,
+    ),
+    Error,
+> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to access global files".to_string(),
+        });
+    }
+    drop(users);
+    let path = PathBuf::from(absolute_path);
+    if !path.exists() {
+        return Err(Error {
+            inner: ErrorInner::FileOrDirNotFound,
+            detail: "File not found".to_string(),
+        });
+    }
+    if !path.is_file() {
+        return Err(Error {
+            inner: ErrorInner::FileOrDirNotFound,
+            detail: "Path is not a file".to_string(),
+        });
+    }
+    let file = tokio::fs::File::open(&path).await.map_err(|_| Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Failed to open file".to_string(),
+    })?;
+    let content_type = match path.extension() {
+        Some(extension) => match extension.to_str().unwrap() {
+            "html" => ContentType::html(),
+            "json" => ContentType::json(),
+            "txt" => ContentType::text_utf8(),
+            "png" => ContentType::png(),
+            "jpg" => ContentType::jpeg(),
+            "jpeg" => ContentType::jpeg(),
+            _ => ContentType::octet_stream(),
+        },
+        None => ContentType::octet_stream(),
+    };
+
+    let stream = ReaderStream::new(file);
+    let body = StreamBody::new(stream);
+    Ok((TypedHeader(content_type), body))
+}
+
+async fn upload_file(
+    Extension(state): Extension<AppState>,
+    Path(absolute_path_to_dir): Path<String>,
+    AuthBearer(token): AuthBearer,
+    mut multipart: Multipart,
+) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to access global files".to_string(),
+        });
+    }
+    drop(users);
+
+    let path_to_dir = PathBuf::from(absolute_path_to_dir);
+    if path_to_dir.exists() && !path_to_dir.is_dir() {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Path is not a directory".to_string(),
+        });
+    }
+    if !path_to_dir.exists() {
+        tokio::fs::create_dir_all(&path_to_dir)
+            .await
+            .map_err(|_| Error {
+                inner: ErrorInner::FailedToCreateFileOrDir,
+                detail: "Failed to create directory".to_string(),
+            })?;
+    }
+
+    while let Ok(Some(mut field)) = multipart.next_field().await {
+        let name = field.file_name().ok_or_else(|| Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "No file name".to_string(),
+        })?;
+        let path = path_to_dir.join(name);
+        let path = if path.exists() {
+            // add a postfix to the file name
+            let mut postfix = 1;
+            // get the file name without the extension
+            let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            loop {
+                let new_path = path.with_file_name(format!(
+                    "{}_{}.{}",
+                    file_name,
+                    postfix,
+                    path.extension().unwrap().to_str().unwrap()
+                ));
+                if !new_path.exists() {
+                    break new_path;
+                }
+                postfix += 1;
+            }
+        } else {
+            path
+        };
+        let mut file = tokio::fs::File::create(&path).await.map_err(|_| Error {
+            inner: ErrorInner::FailedToCreateFileOrDir,
+            detail: "Failed to create file".to_string(),
+        })?;
+        while let Some(chunk) = field.chunk().await.map_err(|_| {
+            std::fs::remove_file(&path).ok();
+            Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "Failed to read chunk".to_string(),
+            }
+        })? {
+            debug!("Received chunk of size {}", chunk.len());
+            file.write_all(&chunk).await.map_err(|_| {
+                std::fs::remove_file(&path).ok();
+                Error {
+                    inner: ErrorInner::FailedToCreateFileOrDir,
+                    detail: "Failed to write to file".to_string(),
+                }
+            })?;
+        }
+    }
+
+    Ok(Json(()))
+}
+
 pub fn get_global_fs_routes() -> Router {
     Router::new()
         .route("/fs/ls/*absolute_path", get(list_files))
@@ -324,4 +472,6 @@ pub fn get_global_fs_routes() -> Router {
         .route("/fs/rm/*absolute_path", delete(remove_file))
         .route("/fs/rmdir/*absolute_path", delete(remove_dir))
         .route("/fs/new/*absolute_path", put(new_file))
+        .route("/fs/download/*absolute_path", get(download_file))
+        .route("/fs/upload/*absolute_path", put(upload_file))
 }
