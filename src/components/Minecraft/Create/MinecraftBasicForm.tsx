@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
+import { MinecraftVersions } from 'bindings/MinecraftVersions';
+import ComboField from 'components/Atoms/Form/ComboField';
 import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
 import SelectField from 'components/Atoms/Form/SelectField';
@@ -28,12 +30,16 @@ export default function MinecraftBasicForm() {
   const { values } = useFormikContext<MinecraftSetupConfigPrimitiveForm>();
 
   const { data: minecraftVersions, isLoading: minecraftVersionsLoading } =
-    useQuery<{ [key: string]: Array<string> }>(
+    useQuery<Array<string>>(
       ['minecraft', 'versions', values.flavour],
       () =>
         axios
-          .get(`/games/minecraft/flavours/${values.flavour}/versions`)
-          .then((res) => res.data),
+          .get<MinecraftVersions>(
+            `/games/minecraft/flavours/${values.flavour}/versions`
+          )
+          .then((res) => {
+            return [...res.data.release, ...res.data.snapshot, ...res.data.old_alpha];
+          }),
       { enabled: isReady && values.flavour !== '' }
     );
 
@@ -53,12 +59,14 @@ export default function MinecraftBasicForm() {
           disabled={minecraftFlavoursLoading}
           options={minecraftFlavours ?? []}
         />
-        <SelectField
+        <ComboField
           name="version"
           label="Version"
-          placeholder={values.flavour === '' ? 'Select a flavour first' : 'Select...'}
+          placeholder={
+            values.flavour === '' ? 'Select a flavour first' : 'Select a version'
+          }
           disabled={minecraftVersionsLoading || !values.flavour}
-          options={minecraftVersions?.release ?? []}
+          options={minecraftVersions ?? []}
         />
         <InputField
           type="number"

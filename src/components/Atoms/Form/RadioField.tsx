@@ -9,12 +9,12 @@ import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 const iconClassName =
   'w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500';
 
-export type SelectFieldProps = FieldHookConfig<string> & {
+export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;
   options: string[];
 };
 
-export default function SelectField(props: SelectFieldProps) {
+export default function RadioField(props: RadioFieldProps) {
   const { label, className, disabled, options, ...rest } = props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
