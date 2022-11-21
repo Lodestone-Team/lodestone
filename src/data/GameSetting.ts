@@ -17,6 +17,8 @@ export const useGameSetting = (uuid: string, setting: string) => {
     },
     {
       enabled: context.isReady && context.token.length > 0,
+      cacheTime: 0,
+      staleTime: 0,
     }
   );
 };

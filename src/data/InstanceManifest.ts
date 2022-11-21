@@ -15,8 +15,8 @@ export const useInstanceManifest = (uuid: string) => {
     },
     {
       enabled: isReady,
-      staleTime: Infinity,
-      cacheTime: Infinity,
+      staleTime: 0,
+      cacheTime: 0,
     }
   );
 };
