@@ -60,6 +60,7 @@ safe-path = {git = "https://github.com/Lodestone-Team/safe_path_subset"}
 rs-snowflake = "0.6.0"
 walkdir = "2.3.2"
 enum-kinds = "0.5.1"
+tokio-util = "0.7.4"
 [dependencies.uuid]
 version = "1.1.2"
 features = [

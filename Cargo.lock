@@ -1069,6 +1069,7 @@ dependencies = [
  "sysinfo",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tower-http",
  "ts-rs",
  "uuid",
