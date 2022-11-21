@@ -44,10 +44,22 @@ export default function MinecraftFileCard() {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
-  const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [targetFile, setTargetFile] = useState<File | null>(null);
-  const atTopLevel = path === '';
+  const [edittedFileContent, setEdittedFileContent] = useState('');
+  const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const queryClient = useQueryClient();
+  const atTopLevel = path === '';
+  let direcotrySeparator = '\\';
+  // assume only linux paths contain /
+  if (instance.path.includes('/'))
+    direcotrySeparator = '/';
+
+  const parentPath = (path: string) => {
+    const pathParts = path.split(direcotrySeparator);
+    pathParts.pop();
+    return pathParts.join(direcotrySeparator);
+  };
+
   const {
     data: fileList,
     isLoading: fileListLoading,
@@ -95,8 +107,6 @@ export default function MinecraftFileCard() {
     }
   );
 
-  const [edittedFileContent, setEdittedFileContent] = useState('');
-
   function handleEditorDidMount(
     editor: monaco.editor.IStandaloneCodeEditor,
     monaco: Monaco
@@ -109,6 +119,8 @@ export default function MinecraftFileCard() {
     targetFile?.name === '.lodestone_config'
       ? '.lodestone_config.json'
       : targetFile?.name;
+
+  const showingMonaco = targetFile && !isFileLoading && !fileError;
 
   const saveFile = async () => {
     if (!targetFile) throw new Error('No file selected');
@@ -166,7 +178,7 @@ export default function MinecraftFileCard() {
         'instance',
         instance.uuid,
         'files',
-        targetFile.path.split('/').slice(0, -1).join('/'),
+        parentPath(targetFile.path),
       ],
       fileList?.filter((file) => file.path !== targetFile.path)
     );
@@ -190,11 +202,11 @@ export default function MinecraftFileCard() {
         'instance',
         instance.uuid,
         'files',
-        path.split('/').slice(0, -1).join('/'),
+        parentPath(path),
       ],
       fileList?.filter((file) => file.path !== path)
     );
-    setPath(path.split('/').slice(0, -1).join('/'));
+    setPath(parentPath);
   };
 
   const createFile = async (name: string) => {
@@ -230,53 +242,53 @@ export default function MinecraftFileCard() {
     }
   }, [monaco]);
 
-  const showingMonaco = targetFile && !isFileLoading && !fileError;
+  const breadcrumb = (
+    <p className="select-none px-2 py-2 text-medium font-medium">
+      <span>
+        <span
+          className={
+            path !== ''
+              ? 'cursor-pointer text-blue-accent hover:underline'
+              : 'text-gray-300'
+          }
+          onClick={() => {
+            setPath('');
+            setTargetFile(null);
+          }}
+        >
+          {instance.path.split(direcotrySeparator).pop()}
+        </span>
+        <span className="text-gray-300"> / </span>
+      </span>
+
+      {path.split(direcotrySeparator).map((p, i, arr) => {
+        // display a breadcrumb, where each one when clicked goes to appropriate path
+        const subPath = arr.slice(0, i + 1).join(direcotrySeparator);
+        return (
+          <span key={subPath}>
+            <span
+              className={
+                i !== arr.length - 1
+                  ? 'cursor-pointer text-blue-accent hover:underline'
+                  : 'text-gray-300'
+              }
+              onClick={() => {
+                setPath(subPath);
+                setTargetFile(null);
+              }}
+            >
+              {p}
+            </span>
+            {i !== arr.length - 1 && <span className="text-gray-300"> {direcotrySeparator} </span>}
+          </span>
+        );
+      })}
+    </p>
+  );
 
   return (
     <div className="flex h-full w-full flex-col gap-2">
-      <p className="select-none px-2 py-2 text-medium font-medium">
-        <span>
-          <span
-            className={
-              path !== ''
-                ? 'cursor-pointer text-blue-accent hover:underline'
-                : 'text-gray-300'
-            }
-            onClick={() => {
-              setPath('');
-              setTargetFile(null);
-            }}
-          >
-            {instance.path.split('/').pop()}
-          </span>
-          <span className="text-gray-300"> / </span>
-        </span>
-
-        {path.split('/').map((p, i, arr) => {
-          // display a breadcrumb, where each one when clicked goes to appropriate path
-          const subPath = arr.slice(0, i + 1).join('/');
-          return (
-            <span key={subPath}>
-              <span
-                className={
-                  i !== arr.length - 1
-                    ? 'cursor-pointer text-blue-accent hover:underline'
-                    : 'text-gray-300'
-                }
-                onClick={() => {
-                  setPath(subPath);
-                  setTargetFile(null);
-                }}
-              >
-                {p}
-              </span>
-              {i !== arr.length - 1 && (
-                <span className="text-gray-300"> / </span>
-              )}
-            </span>
-          );
-        })}
-      </p>
+      {breadcrumb}
       <div className="flex h-full w-full flex-row">
         <ResizePanel
           direction="e"
@@ -295,11 +307,7 @@ export default function MinecraftFileCard() {
                     key={'..'}
                     className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
                     onClick={() => {
-                      setPath((path) => {
-                        const split = path.split('/');
-                        split.pop();
-                        return split.join('/');
-                      });
+                      setPath(parentPath);
                       setTargetFile(null);
                     }}
                   >
