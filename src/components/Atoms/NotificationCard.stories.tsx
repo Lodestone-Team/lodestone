@@ -24,15 +24,15 @@ const Template: ComponentStory<typeof NotificationCard> = (args) => (
 
 export const Default = Template.bind({});
 Default.args = {
-  status: 'info',
+  level: 'Info',
   title: 'Dream joined "Test Instance"',
   progress_percent: undefined,
   timestamp: 1620000000000,
 };
 
-export const Success = Template.bind({});
-Success.args = {
-  status: 'success',
+export const Warning = Template.bind({});
+Warning.args = {
+  level: 'Warning',
   title: 'Instance "Test Instance" started',
   progress_percent: undefined,
   timestamp: 1620000000000,
@@ -40,7 +40,7 @@ Success.args = {
 
 export const Error = Template.bind({});
 Error.args = {
-  status: 'error',
+  level: 'Error',
   title: 'Instance "Test Instance" crashed',
   progress_percent: undefined,
   timestamp: 1620000000000,
@@ -48,7 +48,8 @@ Error.args = {
 
 export const Progress = Template.bind({});
 Progress.args = {
-  status: 'info',
+  level: 'Info',
+  state: 'ongoing',
   title: 'Setting up Minecraft Server Manhunt',
   message: '1/4 Downloading JRE',
   progress_percent: 0.25,
@@ -57,7 +58,8 @@ Progress.args = {
 
 export const ProgressSuccess = Template.bind({});
 ProgressSuccess.args = {
-  status: 'success',
+  level: 'Info',
+  state: 'done',
   title: 'Setting up Minecraft Server Manhunt',
   message: 'Instance Creation Success',
   progress_percent: 1,
@@ -66,7 +68,8 @@ ProgressSuccess.args = {
 
 export const ProgressError = Template.bind({});
 ProgressError.args = {
-  status: 'error',
+  level: 'Error',
+  state: 'error',
   title: 'Setting up Minecraft Server Manhunt',
   message: 'Instance Creation Failed',
   progress_percent: 0.5,

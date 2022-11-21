@@ -75,7 +75,7 @@ export default function LoadingStatusIcon({
       />
     );
   } else {
-    switch (status) {
+    switch (level) {
       case 'Warning':
         return (
           <svg
