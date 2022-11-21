@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::atomic};
 
 use async_trait::async_trait;
+use log::debug;
 use serde_json::json;
 
 use crate::traits::{self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, Supported};
@@ -98,15 +99,13 @@ impl TConfigurable for Instance {
     async fn set_port(&mut self, port: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
         Supported({
             self.config.port = port;
-            match self.settings.lock().await.get_mut("server-port").ok_or_else(|| {Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Server port not found in settings. Has the instance been started at least once?".to_string(),
-            }}) {
-                Ok(port) => {
-                    *port = port.to_string()
-                }
-                Err(e) => return Some(Err(e)),
-            };
+
+            *self
+                .settings
+                .lock()
+                .await
+                .entry("server-port".to_string())
+                .or_insert_with(|| port.to_string()) = port.to_string();
             self.write_config_to_file()
                 .await
                 .and(self.write_properties_to_file().await)

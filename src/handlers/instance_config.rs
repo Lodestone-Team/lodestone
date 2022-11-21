@@ -81,7 +81,7 @@ pub async fn set_instance_setting(
     Path((uuid, key)): Path<(String, InstanceSetting)>,
     Json(value): Json<Value>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<String>, Error> {
+) -> Result<Json<()>, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -177,7 +177,7 @@ pub async fn set_instance_setting(
         detail: "".to_string(),
     })??;
 
-    Ok(Json("ok".to_string()))
+    Ok(Json(()))
 }
 
 pub async fn get_game_setting(

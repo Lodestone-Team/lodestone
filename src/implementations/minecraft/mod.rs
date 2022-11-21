@@ -1000,23 +1000,35 @@ impl Instance {
     }
 
     async fn write_properties_to_file(&self) -> Result<(), Error> {
-        let file = File::open(&self.path_to_properties)
+        dbg!(&self.path_to_properties);
+        // open the file in write-only mode, returns `io::Result<File>`
+        let mut file = tokio::fs::File::create(&self.path_to_properties)
             .await
             .map_err(|_| Error {
                 inner: ErrorInner::FailedToWriteFileOrDir,
-                detail: String::new(),
+                detail: format!("failed to open properties file"),
             })?;
-        let mut file_writer = tokio::io::BufWriter::new(file);
 
+        // let mut file = File::open(&self.path_to_properties)
+        //     .await
+        //     .map_err(|_| Error {
+        //         inner: ErrorInner::FailedToWriteFileOrDir,
+        //         detail: "Failed to open properties file".to_string(),
+        //     })?;
+        dbg!(&file);
+        let mut setting_str = "".to_string();
         for (key, value) in self.settings.lock().await.iter() {
-            file_writer
-                .write_all(format!("{}={}", key, value).as_bytes())
-                .await
-                .map_err(|_| Error {
-                    inner: ErrorInner::FailedToWriteFileOrDir,
-                    detail: String::new(),
-                })?;
+            // print the key and value separated by a =
+            // println!("{}={}", key, value);
+            setting_str.push_str(&format!("{}={}\n", key, value));
         }
+        dbg!(&setting_str);
+        file.write_all(setting_str.as_bytes())
+            .await
+            .map_err(|_| Error {
+                inner: ErrorInner::FailedToWriteFileOrDir,
+                detail: "Failed to write to properties file".to_string(),
+            })?;
         Ok(())
     }
 }
