@@ -513,6 +513,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "enum-kinds"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e40a16955681d469ab3da85aaa6b42ff656b3c67b52e1d8d3dd36afe97fd462"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "env_logger"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1031,6 +1042,7 @@ dependencies = [
  "axum-auth",
  "axum-macros",
  "chrono",
+ "enum-kinds",
  "env_logger",
  "fancy-regex",
  "fs_extra",
