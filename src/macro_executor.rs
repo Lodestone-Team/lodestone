@@ -137,7 +137,7 @@ impl MacroExecutor {
         *lock = new;
     }
 
-    pub fn event_stream(&self) -> broadcast::Receiver<MacroEvent> {
+    pub fn event_receiver(&self) -> broadcast::Receiver<MacroEvent> {
         self.event_broadcaster.subscribe()
     }
 
