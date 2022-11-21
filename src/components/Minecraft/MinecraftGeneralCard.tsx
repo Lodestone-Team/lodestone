@@ -33,7 +33,6 @@ export default function MinecraftGeneralCard() {
       label="Port"
       value={instance.port.toString()}
       type="number"
-      removeArrows={true}
       min={0}
       max={65535}
       disabled={!supportedOptions.includes('SetPort')}
@@ -63,7 +62,6 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={10000}
-      removeArrows={true}
       // disabled={!supportedOptions.includes('SetMaxPlayers')}
       onSubmit={async (maxPlayers) => {
         const numMaxPlayers = parseintStrict(maxPlayers);
@@ -86,7 +84,6 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={100000}
-      removeArrows={true}
       disabled={!supportedOptions.includes('SetMinRam')}
       onSubmit={async (minRam) => {
         const numMinRam = parseInt(minRam);
@@ -106,7 +103,6 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={100000}
-      removeArrows={true}
       disabled={!supportedOptions.includes('SetMaxRam')}
       onSubmit={async (maxRam) => {
         const numMaxRam = parseInt(maxRam);

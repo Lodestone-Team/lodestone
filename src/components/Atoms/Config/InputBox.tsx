@@ -205,7 +205,7 @@ export default function InputBox({
         onKeyDown={handleKeyDown}
         id={id}
       >
-        <div className="absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
+        <div className={`absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${(!removeArrows && type==="number") ? "pl-3 pr-9" : "px-3"}`}>
           <div className="flex flex-row gap-2">{showIcons && icons}</div>
         </div>
         <input
@@ -221,6 +221,7 @@ export default function InputBox({
             setValue(value.trim());
           }}
           disabled={disabled}
+          type={type}
         />
       </form>
     </div>
