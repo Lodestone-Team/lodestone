@@ -580,7 +580,7 @@ impl Instance {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                                     instance_uuid: uuid.clone(),
                                     instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStopped,
+                                    instance_event_inner: InstanceEventInner::InstanceStopping,
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
