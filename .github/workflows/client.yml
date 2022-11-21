@@ -42,5 +42,5 @@ jobs:
       with:
         name: Lodestone
         path: |
-          ./target/release/Lodestone
+          ./target/release/main
           ./Rocket.toml
