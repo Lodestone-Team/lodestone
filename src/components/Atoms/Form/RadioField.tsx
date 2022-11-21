@@ -81,13 +81,13 @@ export default function RadioField(props: RadioFieldProps) {
             >
               {({ checked }) => (
                 <span
-                  className={`block h-full w-full select-none py-1 text-center ${
+                  className={`block h-full w-full select-none py-1.5 text-center ${
                     disabled
                       ? checked
-                        ? 'bg-blue-faded/50 text-white/50'
+                        ? 'bg-blue-faded/30 text-white/50'
                         : 'bg-gray-800 text-white/50'
                       : checked
-                      ? 'bg-blue text-white'
+                      ? 'bg-[#2B4554] text-white'
                       : 'text-white/75'
                   }`}
                 >
