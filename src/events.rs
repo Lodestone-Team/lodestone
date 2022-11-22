@@ -107,7 +107,8 @@ impl Into<Event> for MacroEvent {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionEndValue {
-    InstanceInfo(InstanceInfo),
+    InstanceCreation(InstanceInfo),
+    InstanceDelete { instance_uuid: String },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
