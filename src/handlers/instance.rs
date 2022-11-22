@@ -176,6 +176,7 @@ pub async fn create_minecraft_instance(
                         progression_name: format!("Setting up Minecraft server {}", name),
                         producer_id: uuid.clone(),
                         total: Some(10.0),
+                        inner : None,
                     },
                 }),
                 details: "".to_string(),
@@ -195,7 +196,7 @@ pub async fn create_minecraft_instance(
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: true,
                                 message: Some("Instance creation success".to_string()),
-                                value: Some(ProgressionEndValue::InstanceCreation(
+                                inner: Some(ProgressionEndValue::InstanceCreation(
                                     v.get_instance_info().await,
                                 )),
                             },
@@ -212,7 +213,7 @@ pub async fn create_minecraft_instance(
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: false,
                                 message: Some(format!("Instance creation failed: {:?}", e)),
-                                value: None,
+                                inner: None,
                             },
                         }),
                         details: "".to_string(),
@@ -281,6 +282,7 @@ pub async fn delete_instance(
                         ),
                         producer_id: uuid.clone(),
                         total: Some(10.0),
+                        inner: None,
                     },
                 }),
                 details: "".to_string(),
@@ -298,7 +300,7 @@ pub async fn delete_instance(
                                     "Failed to delete .lodestone_config. Instance not deleted"
                                         .to_string(),
                                 ),
-                                value: None,
+                                inner: None,
                             },
                         }),
                         details: "".to_string(),
@@ -333,7 +335,7 @@ pub async fn delete_instance(
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
                             success: true,
                             message: Some("Deleted instance".to_string()),
-                            value: Some(ProgressionEndValue::InstanceDelete {
+                            inner: Some(ProgressionEndValue::InstanceDelete {
                                 instance_uuid: uuid.clone(),
                             }),
                         },
@@ -348,7 +350,7 @@ pub async fn delete_instance(
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
                             success: false,
                             message: Some("Could not delete some or all of instance's files".to_string()),
-                            value: None,
+                            inner: None,
                         },
                     }),
                     details: "".to_string(),

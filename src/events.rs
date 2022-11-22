@@ -111,6 +111,14 @@ pub enum ProgressionEndValue {
     InstanceDelete { instance_uuid: String },
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum ProgressionStartValue {
+    InstanceCreation { instance_uuid: String },
+    InstanceDelete { instance_uuid: String },
+}
+
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -120,6 +128,7 @@ pub enum ProgressionEventInner {
         progression_name: String,
         producer_id: String,
         total: Option<f64>,
+        inner: Option<ProgressionStartValue>,
     },
     ProgressionUpdate {
         progress_message: String,
@@ -128,7 +137,7 @@ pub enum ProgressionEventInner {
     ProgressionEnd {
         success: bool,
         message: Option<String>,
-        value: Option<ProgressionEndValue>,
+        inner: Option<ProgressionEndValue>,
     },
 }
 
