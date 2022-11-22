@@ -106,5 +106,5 @@ const Template: ComponentStory<typeof InstanceList> = () => (
 
 export const Default = Template.bind({});
 Default.args = {
-  instanceInfo: mockedInstanceInfo,
+  
 };

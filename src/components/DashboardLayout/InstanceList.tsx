@@ -7,7 +7,7 @@ export default function InstanceList({
   children,
 }: {
   className?: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   const {
     instanceList: instances,
