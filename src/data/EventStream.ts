@@ -1,4 +1,4 @@
-import { addInstance, updateInstance } from 'data/InstanceList';
+import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useContext, useEffect, useMemo } from 'react';
@@ -226,8 +226,10 @@ export const useEventStream = () => {
                 ProgressionEnd: ({ value }) => {
                   if (!value) return;
                   match(value, {
-                    InstanceInfo: (instance_info) =>
+                    InstanceCreation: (instance_info) =>
                       addInstance(instance_info, queryClient),
+                    InstanceDelete: ({ instance_uuid: uuid }) =>
+                      deleteInstance(uuid, queryClient),
                   });
                 },
               },
