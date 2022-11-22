@@ -22,7 +22,7 @@ export default function GameIcon({
       icon = game_icons[game_type][game_flavour];
   return (
     <img
-      src={game_icons[game_type][game_flavour]}
+      src={unknown_icon}
       alt={game_type}
       className={`${className}`}
     />
