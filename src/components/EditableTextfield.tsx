@@ -94,7 +94,7 @@ export default function EditableTextfield({
     <div
       className={`group relative flex flex-row items-center justify-start ${
         type === 'heading'
-          ? 'font-title text-2xlarge font-semibold tracking-medium'
+          ? 'font-title text-2xlarge font-[550] tracking-medium'
           : 'font-mediumtracking-tight text-small italic'
       } ${containerClassName}`}
     >
