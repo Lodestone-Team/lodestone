@@ -156,7 +156,7 @@ export default function MinecraftGeneralCard() {
   ) : null;
 
   return (
-    <div className="flex flex-col @6xl:flex-row gap-4">
+    <div className="flex flex-col @4xl:flex-row gap-4">
       <div className="w-[28rem]">
         <h1 className="font-black text-large"> General Settings </h1>
         <h2 className="font-medium text-base italic tracking-tight text-white/50">

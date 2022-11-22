@@ -42,7 +42,7 @@ export default function MinecraftSettingCard() {
   }
 
   return (
-    <div className="flex flex-col gap-4 @6xl:flex-row">
+    <div className="flex flex-col gap-4 @4xl:flex-row">
       <div className="w-[28rem]">
         <h1 className="text-large font-black"> Advanced Settings </h1>
         <h2 className="text-base font-medium italic tracking-tight text-white/50">

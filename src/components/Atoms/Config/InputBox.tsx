@@ -200,7 +200,7 @@ export default function InputBox({
       <form
         onSubmit={onSubmit}
         onReset={onReset}
-        className="relative w-1/2"
+        className="relative w-5/12"
         ref={formRef}
         onKeyDown={handleKeyDown}
         id={id}
