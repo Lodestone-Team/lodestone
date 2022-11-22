@@ -175,7 +175,7 @@ pub async fn create_minecraft_instance(
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: format!("Setting up Minecraft server {}", name),
                         producer_id: uuid.clone(),
-                        total: Some(4.0),
+                        total: Some(10.0),
                     },
                 }),
                 details: "".to_string(),
@@ -195,7 +195,7 @@ pub async fn create_minecraft_instance(
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: true,
                                 message: Some("Instance creation success".to_string()),
-                                value: Some(ProgressionEndValue::InstanceInfo(
+                                value: Some(ProgressionEndValue::InstanceCreation(
                                     v.get_instance_info().await,
                                 )),
                             },
@@ -269,12 +269,55 @@ pub async fn delete_instance(
                 detail: "Instance is running, cannot remove".to_string(),
             })
         } else {
-            tokio::fs::remove_dir_all(instance_lock.path().await)
+            let progression_id = new_progression_event_id();
+            let event_broadcaster = state.event_broadcaster.clone();
+            let _ = event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: progression_id.clone(),
+                    progression_event_inner: ProgressionEventInner::ProgressionStart {
+                        progression_name: format!(
+                            "Deleting instance {}",
+                            instance_lock.name().await
+                        ),
+                        producer_id: uuid.clone(),
+                        total: Some(10.0),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: get_snowflake(),
+            });
+            tokio::fs::remove_file(instance_lock.path().await.join(".lodestone_config"))
+                .await
+                .map_err(|e| {
+                    let _ = event_broadcaster.send(Event {
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id: new_progression_event_id(),
+                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                                success: false,
+                                message: Some(
+                                    "Failed to delete .lodestone_config. Instance not deleted"
+                                        .to_string(),
+                                ),
+                                value: None,
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: get_snowflake(),
+                    });
+                    Error {
+                        inner: ErrorInner::FailedToRemoveFileOrDir,
+                        detail: format!(
+                            "Failed to remove .lodestone_config: {}. Instance not deleted",
+                            e
+                        ),
+                    }
+                })?;
+            let res = tokio::fs::remove_dir_all(instance_lock.path().await)
                 .await
                 .map_err(|e| Error {
                     inner: ErrorInner::FailedToRemoveFileOrDir,
-                    detail: format!("Could not remove instance: {}", e),
-                })?;
+                    detail: format!("Could not remove file for instance: {}", e),
+                });
 
             state
                 .port_allocator
@@ -283,7 +326,36 @@ pub async fn delete_instance(
                 .deallocate(instance_lock.port().await);
             drop(instance_lock);
             instances.remove(&uuid);
-            Ok(Json(()))
+            if let Ok(_) = res {
+                let _ = event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id: progression_id.clone(),
+                        progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                            success: true,
+                            message: Some("Deleted instance".to_string()),
+                            value: Some(ProgressionEndValue::InstanceDelete {
+                                instance_uuid: uuid.clone(),
+                            }),
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                });
+            } else {
+                let _ = event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id: progression_id.clone(),
+                        progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                            success: false,
+                            message: Some("Could not delete some or all of instance's files".to_string()),
+                            value: None,
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                });
+            }
+            res.map(|_| Json(()))
         }
     } else {
         Err(Error {

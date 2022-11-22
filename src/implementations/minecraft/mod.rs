@@ -233,7 +233,7 @@ impl Instance {
                                     event_id: progression_event_id.clone(),
                                     progression_event_inner:
                                         ProgressionEventInner::ProgressionUpdate {
-                                            progress: dl.step as f64 / total as f64,
+                                            progress: (dl.step as f64 / total as f64) * 4.0,
                                             progress_message: format!(
                                                 "2/4: Downloading JRE {}",
                                                 format_byte_download(dl.downloaded, total)
@@ -281,7 +281,7 @@ impl Instance {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id.clone(),
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 1.0,
+                        progress: 4.0,
                         progress_message: "2/4: JRE already downloaded".to_string(),
                     },
                 }),
@@ -317,7 +317,7 @@ impl Instance {
                                         event_id: progression_event_id.clone(),
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
-                                                progress: dl.step as f64 / total as f64,
+                                                progress: (dl.step as f64 / total as f64) * 5.0,
                                                 progress_message: format!(
                                                     "3/4: Downloading vanilla server.jar {}",
                                                     format_byte_download(dl.downloaded, total)
@@ -381,7 +381,7 @@ impl Instance {
                                         event_id: progression_event_id.clone(),
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
-                                                progress: dl.step as f64 / total as f64,
+                                                progress: (dl.step as f64 / total as f64) * 5.0,
                                                 progress_message: format!(
                                                     "3/4: Downloading Fabric server.jar {}",
                                                     format_byte_download(dl.downloaded, total),
