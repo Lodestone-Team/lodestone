@@ -58,8 +58,8 @@ input {
 
 /* custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -69,8 +69,17 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(247 247 247 / 22%);
+  background-color: rgb(247 247 247 / 0%);
   border-radius: 4px;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+  -webkit-transition: opacity 0.2s ease, background-color 0.2s ease;
+  -o-transition: opacity 0.2s ease, background-color 0.2s ease;
+  -moz-transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(247 247 247 / 10%);
+  opacity: 0.5;
 }
 
 ::-webkit-scrollbar-corner {

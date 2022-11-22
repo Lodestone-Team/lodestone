@@ -39,8 +39,7 @@ export default function DashboardLayout({
   useClientInfo();
 
   useEffect(() => {
-    if (uuid && instances && uuid in instances)
-      setInstanceState(instances[uuid]);
+    if (uuid && instances && uuid in instances) instances[uuid];
     else setInstanceState(null);
   }, [instances, uuid]);
 
@@ -87,19 +86,17 @@ export default function DashboardLayout({
           showNotifications={showNotifications}
           setShowNotifications={setShowNotifications}
         />
-        <div className="flex min-h-0 w-full grow flex-row relative">
-          <ResizePanel
-            direction="e"
-            maxSize={500}
-            minSize={200}
-            size={leftNavSize}
-            validateSize={false}
-            onResize={setLeftNavSize}
-            containerClassNames="min-h-0"
-          >
-            <LeftNav />
-          </ResizePanel>
-          <div className="h-full min-w-0 grow child:h-full">{children}</div>
+        <div className="relative flex min-h-0 w-full grow flex-row bg-gray-850">
+          <div className="flex grow flex-row justify-center gap-[1vw]">
+            <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
+              <div className="max-w-[16rem] h-full child:h-full">
+                <LeftNav />
+              </div>
+            </div>
+            <div className="h-full min-w-0 grow basis-[1024px] child:h-full">
+              <div className="max-w-[1024px]">{children}</div>
+            </div>
+          </div>
           {showNotifications &&
             (width > 1280 ? (
               <ResizePanel
@@ -115,12 +112,14 @@ export default function DashboardLayout({
               </ResizePanel>
             ) : (
               <div
-                className="absolute right-2 -top-2 h-full child:h-5/6 w-96 rounded-lg drop-shadow-lg"
-                style={{
-                  // width: rightNavSize,
-                }}
+                className="absolute right-2 -top-2 h-full w-96 rounded-lg drop-shadow-lg child:h-5/6"
+                style={
+                  {
+                    // width: rightNavSize,
+                  }
+                }
               >
-                <NotificationPanel className="border rounded-lg" />
+                <NotificationPanel className="rounded-lg border" />
               </div>
             ))}
         </div>

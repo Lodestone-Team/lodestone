@@ -2,7 +2,13 @@ import InstanceCard from 'components/InstanceCard';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext } from 'react';
 
-export default function InstanceList() {
+export default function InstanceList({
+  className = "",
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
   const {
     instanceList: instances,
     selectedInstance,
@@ -10,7 +16,7 @@ export default function InstanceList() {
   } = useContext(InstanceContext);
 
   return (
-    <div className="gap -mx-1.5 flex h-0 grow flex-col gap-y-4 overflow-y-auto px-1.5 pt-1.5 pb-3 child:w-full">
+    <div className={`gap -mx-1.5 flex h-0 grow flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}>
       {instances &&
         Object.values(instances).map((instance) => (
           <InstanceCard
@@ -22,6 +28,7 @@ export default function InstanceList() {
             {...instance}
           />
         ))}
+        {children}
     </div>
   );
 }

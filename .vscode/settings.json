@@ -11,5 +11,6 @@
     "javascriptreact",
     "typescript",
     "typescriptreact"
-  ]
+  ],
+  "liveServer.settings.port": 5521
 }

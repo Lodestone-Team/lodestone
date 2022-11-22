@@ -88,7 +88,7 @@ export default function GameConsole() {
     consoleInputMessage = 'Console is closed';
 
   return (
-    <div className="relative flex h-full w-full flex-col rounded-lg overflow-clip border border-gray-faded/30">
+    <div className="relative flex h-full w-full flex-col rounded-lg border border-gray-faded/30">
       {consoleStatusMessage && (
         <div className="absolute top-0 right-0 select-none p-4 py-1 font-mono text-small font-light tracking-tight text-gray-500 hover:text-gray-400">
           {consoleStatusMessage}

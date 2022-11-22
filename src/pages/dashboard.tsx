@@ -37,7 +37,7 @@ const Dashboard: NextPageWithLayout = () => {
 
   if (!instance || !uuid) {
     return (
-      <div className="bg-gray-800 px-12 py-10">
+      <div className="px-12 py-10">
         <h1 className="-ml-4 font-heading text-2xlarge font-semibold tracking-tight text-gray-300">
           Instance not found
         </h1>
@@ -119,10 +119,10 @@ const Dashboard: NextPageWithLayout = () => {
 
   return (
     <div
-      className="relative h-full overflow-y-scroll w-full bg-gray-850 px-12 pt-6 pb-10 @container flex flex-row justify-center"
+      className="relative h-full overflow-y-scroll w-full px-4 pt-8 pb-10 @container flex flex-row justify-center"
       key={uuid}
     >
-      <div className="flex min-h-full h-fit max-w-5xl grow flex-col items-start gap-2 w-full">
+      <div className="flex min-h-full h-fit grow flex-col items-start gap-2 w-full">
         <div className="flex min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
