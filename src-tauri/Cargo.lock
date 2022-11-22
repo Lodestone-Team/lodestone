@@ -197,6 +197,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "serde",
@@ -934,6 +935,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9852635589dc9f9ea1b6fe9f05b50ef208c85c834a562f0c6abb1c475736ec2b"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "enum-kinds"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e40a16955681d469ab3da85aaa6b42ff656b3c67b52e1d8d3dd36afe97fd462"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1928,8 +1940,8 @@ dependencies = [
 
 [[package]]
 name = "lodestone_client"
-version = "0.3.0"
-source = "git+https://github.com/Lodestone-Team/client?branch=main#7e5d815d733fb972beccd34807016f3ca2f8ff73"
+version = "0.4.0"
+source = "git+https://github.com/Lodestone-Team/client?branch=0.4.0#5365c8a7afca90316a45105a2721a1e1075efad0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1937,6 +1949,7 @@ dependencies = [
  "axum-auth",
  "axum-macros",
  "chrono",
+ "enum-kinds",
  "env_logger",
  "fancy-regex",
  "fs_extra",
@@ -1963,9 +1976,11 @@ dependencies = [
  "sysinfo",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tower-http",
  "ts-rs",
  "uuid 1.2.2",
+ "walkdir",
  "whoami",
  "zip",
 ]
@@ -2178,6 +2193,24 @@ dependencies = [
  "quote",
  "regex",
  "syn",
+]
+
+[[package]]
+name = "multer"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ed4198ce7a4cbd2a57af78d28c6fbb57d81ac5f1d6ad79ac6c5587419cbdf22"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http",
+ "httparse",
+ "log",
+ "memchr",
+ "mime",
+ "spin 0.9.4",
+ "version_check",
 ]
 
 [[package]]
@@ -3212,7 +3245,7 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin",
+ "spin 0.5.2",
  "untrusted",
  "web-sys",
  "winapi",
@@ -3645,6 +3678,12 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spin"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f6002a767bff9e83f8eeecf883ecb8011875a21ae8da43bffb817a57e78cc09"
 
 [[package]]
 name = "stable_deref_trait"
