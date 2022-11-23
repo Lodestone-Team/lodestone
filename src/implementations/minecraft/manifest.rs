@@ -5,10 +5,10 @@ use crate::traits::{
     t_manifest::{Manifest, Operation, TManifest},
 };
 
-use super::Instance;
+use super::MinecraftInstance;
 
 #[async_trait]
-impl TManifest for Instance {
+impl TManifest for MinecraftInstance {
     async fn get_manifest(&self) -> Manifest {
         Manifest {
             supported_operations: Operation::all(),

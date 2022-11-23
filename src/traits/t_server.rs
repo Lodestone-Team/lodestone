@@ -58,12 +58,18 @@ impl ToString for State {
     }
 }
 
+use crate::traits::GameInstance;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TServer {
-    async fn start(&mut self, caused_by : CausedBy) -> Result<(), super::Error>;
-    async fn stop(&mut self, caused_by : CausedBy) -> Result<(), super::Error>;
-    async fn kill(&mut self, caused_by : CausedBy) -> Result<(), super::Error>;
+    async fn start(&mut self, caused_by: CausedBy) -> Result<(), super::Error>;
+    async fn stop(&mut self, caused_by: CausedBy) -> Result<(), super::Error>;
+    async fn kill(&mut self, caused_by: CausedBy) -> Result<(), super::Error>;
     async fn state(&self) -> State;
-    async fn send_command(&mut self, command: &str, caused_by : CausedBy) -> MaybeUnsupported<Result<(), super::Error>>;
+    async fn send_command(
+        &mut self,
+        command: &str,
+        caused_by: CausedBy,
+    ) -> MaybeUnsupported<Result<(), super::Error>>;
     async fn monitor(&self) -> MonitorReport;
 }

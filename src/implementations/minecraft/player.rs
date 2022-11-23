@@ -5,10 +5,10 @@ use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_player::TPlayerManagement;
 use crate::traits::Supported;
 
-use super::Instance;
+use super::MinecraftInstance;
 
 #[async_trait]
-impl TPlayerManagement for Instance {
+impl TPlayerManagement for MinecraftInstance {
     async fn get_player_count(&self) -> crate::traits::MaybeUnsupported<u32> {
         Supported(self.players.lock().await.get_ref().len() as u32)
     }

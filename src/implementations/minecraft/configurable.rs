@@ -7,10 +7,10 @@ use crate::traits::{self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupp
 
 use crate::traits::Error;
 
-use super::{BackupInstruction, Instance};
+use super::{BackupInstruction, MinecraftInstance};
 
 #[async_trait]
-impl TConfigurable for Instance {
+impl TConfigurable for MinecraftInstance {
     async fn uuid(&self) -> String {
         self.config.uuid.clone()
     }

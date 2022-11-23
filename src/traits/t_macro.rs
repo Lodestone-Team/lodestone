@@ -2,7 +2,9 @@ use async_trait::async_trait;
 
 use super::MaybeUnsupported;
 
+use crate::traits::GameInstance;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TMacro {
     async fn get_macro_list(&self) -> Vec<String>;
     async fn delete_macro(&mut self, name: &str) -> Result<(), super::Error>;

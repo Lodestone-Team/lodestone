@@ -35,6 +35,21 @@ pub fn get_snowflake() -> i64 {
     SNOWFLAKE_GENERATOR.lock().unwrap().real_time_generate()
 }
 
+use crate::minecraft::MinecraftInstance;
+#[enum_dispatch::enum_dispatch(
+    TInstance,
+    TConfigurable,
+    TMacro,
+    TPlayerManagement,
+    TResourceManagement,
+    TServer,
+    TManifest
+)]
+#[derive(Clone)]
+pub enum GameInstance {
+    MinecraftInstance,
+}
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum GameType {
     Minecraft,

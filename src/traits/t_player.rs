@@ -3,7 +3,9 @@ use serde_json;
 
 use super::{MaybeUnsupported, Unsupported};
 
+use crate::traits::GameInstance;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TPlayerManagement: Sync + Send {
     async fn get_player_count(&self) -> MaybeUnsupported<u32> {
         Unsupported

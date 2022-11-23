@@ -1,7 +1,7 @@
 use axum::{extract::Path, routing::get, Extension, Json, Router};
 
 use crate::{
-    traits::{t_manifest::Manifest, Error, ErrorInner},
+    traits::{t_manifest::Manifest, t_manifest::TManifest, Error, ErrorInner},
     AppState,
 };
 
@@ -19,8 +19,6 @@ pub async fn get_instance_manifest(
                 inner: ErrorInner::InstanceNotFound,
                 detail: "".to_string(),
             })?
-            .lock()
-            .await
             .get_manifest()
             .await,
     ))

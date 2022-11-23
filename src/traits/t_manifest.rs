@@ -73,7 +73,9 @@ pub struct Manifest {
     pub settings: HashSet<String>,
 }
 
+use crate::traits::GameInstance;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TManifest {
     async fn get_manifest(&self) -> Manifest;
 }

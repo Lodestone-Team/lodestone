@@ -22,7 +22,9 @@ where
     runtime: Vec<T>,
 }
 
+use crate::traits::GameInstance;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TResourceManagement {
     async fn list(&self) -> Vec<serde_json::Value>
     where

@@ -6,9 +6,11 @@ pub use serde::{Deserialize, Serialize};
 pub use serde_json;
 use serde_json::Value;
 
+use crate::traits::GameInstance;
+use crate::traits::MinecraftInstance;
 use crate::traits::{MaybeUnsupported, Unsupported};
-
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TConfigurable: Sync + Send {
     // getters
     async fn uuid(&self) -> String;

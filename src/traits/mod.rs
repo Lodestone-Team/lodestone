@@ -133,10 +133,20 @@ pub struct InstanceInfo {
     pub player_count: Option<u32>,
     pub max_player_count: Option<u32>,
 }
-
+use crate::minecraft::MinecraftInstance;
+use crate::prelude::GameInstance;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TInstance:
-    TConfigurable + TMacro + TPlayerManagement + TResourceManagement + TServer + TManifest + Sync + Send
+    TConfigurable
+    + TMacro
+    + TPlayerManagement
+    + TResourceManagement
+    + TServer
+    + TManifest
+    + Sync
+    + Send
+    + Clone
 {
     async fn get_instance_info(&self) -> InstanceInfo {
         InstanceInfo {

@@ -35,7 +35,7 @@ pub async fn get_vanilla_versions() -> Result<MinecraftVersions, Error> {
 
     let versions = response["versions"]
         .as_array()
-        .ok_or(api_changed_error.clone())?;
+        .ok_or_else(|| api_changed_error.clone())?;
 
     #[derive(Serialize, Deserialize, Debug)]
     struct Version {

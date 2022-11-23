@@ -39,10 +39,13 @@ pub async fn setup_owner(
                 .users
                 .lock()
                 .await
-                .transform(Box::new(move |users| -> Result<(), Error> {
-                    users.insert(uid.clone(), owner.clone());
-                    Ok(())
-                }), ())
+                .transform(
+                    Box::new(move |users| -> Result<(), Error> {
+                        users.insert(uid.clone(), owner.clone());
+                        Ok(())
+                    }),
+                    (),
+                )
                 .unwrap();
             info!("Owner password: {}", owner_psw);
             Ok(Json(()))

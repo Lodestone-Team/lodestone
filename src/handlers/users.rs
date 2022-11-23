@@ -95,10 +95,6 @@ pub async fn new_user(
         permissions: UserPermission::new(),
         secret: rand_alphanumeric(32),
     };
-    let caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
-    };
     tokio::task::spawn({
         let uid = uid.clone();
         let users = state.users.clone();
@@ -159,7 +155,7 @@ pub async fn delete_user(
         });
     }
 
-    let caused_by = CausedBy::User {
+    let _caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
@@ -177,7 +173,7 @@ pub async fn delete_user(
         .unwrap();
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
+        user_name: requester.username,
     };
     let _ = state
         .event_broadcaster
@@ -211,7 +207,7 @@ pub async fn logout(
         });
     }
     let user_id = uid.clone();
-    let caused_by = CausedBy::User {
+    let _caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
@@ -226,7 +222,7 @@ pub async fn logout(
         .unwrap();
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
+        user_name: requester.username,
     };
     let _ = state
         .event_broadcaster
@@ -260,7 +256,7 @@ pub async fn update_permissions(
             detail: "You are not authorized to update permissions".to_string(),
         });
     }
-    let caused_by = CausedBy::User {
+    let _caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
@@ -359,9 +355,9 @@ pub async fn change_password(
             detail: "Invalid request, field new_psw must be a string".to_string(),
         })?
         .to_string();
-    let caused_by = CausedBy::User {
+    let _caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
+        user_name: requester.username,
     };
     users
         .transform(

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::routing::{delete, get, post};
 use axum::Router;
 use axum::{extract::Path, Extension, Json};
@@ -8,18 +6,17 @@ use futures::future::join_all;
 use log::info;
 use serde::{Deserialize, Serialize};
 
-use tokio::sync::Mutex;
 use ts_rs::TS;
 
 use crate::auth::user::UserAction;
 use crate::events::{
-    new_progression_event_id, Event, EventInner, ProgressionEndValue, ProgressionEvent,
-    ProgressionEventInner, ProgressionStartValue, CausedBy,
+    new_progression_event_id, CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent,
+    ProgressionEventInner, ProgressionStartValue,
 };
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
 use crate::prelude::{get_snowflake, PATH_TO_INSTANCES};
-use crate::traits::{InstanceInfo, TInstance};
+use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
 use crate::{
     implementations::minecraft,
@@ -35,7 +32,6 @@ pub async fn get_instance_list(
     let mut list_of_configs: Vec<InstanceInfo> = join_all(state.instances.lock().await.iter().map(
         |(_, instance)| async move {
             // want id, name, playercount, maxplayer count, port, state and type
-            let instance = instance.lock().await;
             instance.get_instance_info().await
         },
     ))
@@ -62,8 +58,6 @@ pub async fn get_instance_info(
                 inner: ErrorInner::InstanceNotFound,
                 detail: "".to_string(),
             })?
-            .lock()
-            .await
             .get_instance_info()
             .await,
     ))
@@ -150,7 +144,7 @@ pub async fn create_minecraft_instance(
         });
     }
     for (_, instance) in state.instances.lock().await.iter() {
-        let path = instance.lock().await.path().await;
+        let path = instance.path().await;
         if path == setup_config.path {
             while path == setup_config.path {
                 info!("You just hit the lottery");
@@ -169,10 +163,10 @@ pub async fn create_minecraft_instance(
         let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
         let port = setup_config.port;
-        let flavour = setup_config.flavour.clone();
+        let flavour = setup_config.flavour;
         let caused_by = CausedBy::User {
-            user_id : requester.uid.clone(),
-            user_name : requester.username.clone(),
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
         };
         async move {
             let progression_event_id = new_progression_event_id();
@@ -195,7 +189,7 @@ pub async fn create_minecraft_instance(
                 snowflake: get_snowflake(),
                 caused_by: caused_by.clone(),
             });
-            let minecraft_instance = match minecraft::Instance::new(
+            let minecraft_instance = match minecraft::MinecraftInstance::new(
                 setup_config.clone(),
                 progression_event_id.clone(),
                 state.event_broadcaster.clone(),
@@ -253,7 +247,7 @@ pub async fn create_minecraft_instance(
                 .instances
                 .lock()
                 .await
-                .insert(uuid.clone(), Arc::new(Mutex::new(minecraft_instance)));
+                .insert(uuid.clone(), minecraft_instance.into());
         }
     });
     Ok(Json(uuid))
@@ -278,12 +272,11 @@ pub async fn delete_instance(
     drop(users);
     let mut instances = state.instances.lock().await;
     let caused_by = CausedBy::User {
-        user_id : requester.uid.clone(),
-        user_name : requester.username.clone(),
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
     };
     if let Some(instance) = instances.get(&uuid) {
-        let instance_lock = instance.lock().await;
-        if !(instance_lock.state().await == State::Stopped) {
+        if !(instance.state().await == State::Stopped) {
             Err(Error {
                 inner: ErrorInner::InstanceStarted,
                 detail: "Instance is running, cannot remove".to_string(),
@@ -295,10 +288,7 @@ pub async fn delete_instance(
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_id.clone(),
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
-                        progression_name: format!(
-                            "Deleting instance {}",
-                            instance_lock.name().await
-                        ),
+                        progression_name: format!("Deleting instance {}", instance.name().await),
                         producer_id: uuid.clone(),
                         total: Some(10.0),
                         inner: None,
@@ -308,7 +298,7 @@ pub async fn delete_instance(
                 snowflake: get_snowflake(),
                 caused_by: caused_by.clone(),
             });
-            tokio::fs::remove_file(instance_lock.path().await.join(".lodestone_config"))
+            tokio::fs::remove_file(instance.path().await.join(".lodestone_config"))
                 .await
                 .map_err(|e| {
                     let _ = event_broadcaster.send(Event {
@@ -335,7 +325,7 @@ pub async fn delete_instance(
                         ),
                     }
                 })?;
-            let res = tokio::fs::remove_dir_all(instance_lock.path().await)
+            let res = tokio::fs::remove_dir_all(instance.path().await)
                 .await
                 .map_err(|e| Error {
                     inner: ErrorInner::FailedToRemoveFileOrDir,
@@ -346,10 +336,9 @@ pub async fn delete_instance(
                 .port_allocator
                 .lock()
                 .await
-                .deallocate(instance_lock.port().await);
-            drop(instance_lock);
+                .deallocate(instance.port().await);
             instances.remove(&uuid);
-            if let Ok(_) = res {
+            if res.is_ok() {
                 let _ = event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                         event_id: progression_id.clone(),

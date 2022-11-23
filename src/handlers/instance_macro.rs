@@ -6,7 +6,7 @@ use axum_macros::debug_handler;
 use crate::{
     auth::user::UserAction,
     handlers::util::try_auth,
-    traits::{Error, ErrorInner},
+    traits::{t_macro::TMacro, Error, ErrorInner},
     AppState,
 };
 #[debug_handler]
@@ -28,12 +28,11 @@ async fn run_macro(
         });
     }
     drop(users);
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
+    let mut instances = state.instances.lock().await;
+    let instance = instances.get_mut(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
         detail: "".to_string(),
     })?;
-    let mut instance = instance.lock().await;
     instance
         .run_macro(&macro_name, args, None)
         .await

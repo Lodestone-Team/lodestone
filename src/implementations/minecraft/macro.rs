@@ -12,9 +12,9 @@ use crate::{
     util::{list_dir, scoped_join_win_safe},
 };
 
-use super::Instance;
+use super::MinecraftInstance;
 
-impl Instance {
+impl MinecraftInstance {
     pub fn macro_std(&self) -> Arc<dyn Fn() -> Lua + Sync + Send> {
         Arc::new({
             let stdin = self.stdin.clone();
@@ -258,7 +258,7 @@ impl Instance {
 }
 
 #[async_trait]
-impl TMacro for Instance {
+impl TMacro for MinecraftInstance {
     async fn get_macro_list(&self) -> Vec<String> {
         list_dir(&self.path_to_macros, Some(true))
             .await

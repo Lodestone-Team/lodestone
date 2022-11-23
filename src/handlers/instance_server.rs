@@ -11,12 +11,13 @@ use serde_json::{json, Value};
 
 use crate::{
     auth::user::UserAction,
-    traits::{Supported, Unsupported}, events::CausedBy,
+    events::CausedBy,
+    traits::{Supported, Unsupported},
 };
 
 use super::util::try_auth;
 use crate::{
-    traits::{Error, ErrorInner},
+    traits::{t_configurable::TConfigurable, t_server::TServer, Error, ErrorInner},
     AppState,
 };
 
@@ -37,19 +38,15 @@ pub async fn start_instance(
         });
     }
     let caused_by = CausedBy::User {
-        user_id : requester.uid.clone(),
-        user_name : requester.username.clone(),
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
     };
     drop(users);
-    let instance_list = state.instances.lock().await;
-    let mut instance = instance_list
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let mut instance_list = state.instances.lock().await;
+    let instance = instance_list.get_mut(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     if !port_scanner::local_port_available(instance.port().await as u16) {
         return Err(Error {
             inner: ErrorInner::PortInUse,
@@ -77,21 +74,19 @@ pub async fn stop_instance(
         });
     }
     let caused_by = CausedBy::User {
-        user_id : requester.uid.clone(),
-        user_name : requester.username.clone(),
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
     };
     drop(users);
     state
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .stop(caused_by)
         .await?;
     Ok(Json(json!("ok")))
@@ -114,21 +109,19 @@ pub async fn kill_instance(
         });
     }
     let caused_by = CausedBy::User {
-        user_id : requester.uid.clone(),
-        user_name : requester.username.clone(),
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
     };
     drop(users);
     state
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .kill(caused_by)
         .await?;
     Ok(Json(json!("ok")))
@@ -152,21 +145,19 @@ pub async fn send_command(
         });
     }
     let caused_by = CausedBy::User {
-        user_id : requester.uid.clone(),
-        user_name : requester.username.clone(),
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
     };
     drop(users);
     match state
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .send_command(&command, caused_by)
         .await
     {
@@ -205,8 +196,6 @@ pub async fn get_instance_state(
                 inner: ErrorInner::InstanceNotFound,
                 detail: "".to_string(),
             })?
-            .lock()
-            .await
             .state()
             .await
     )))

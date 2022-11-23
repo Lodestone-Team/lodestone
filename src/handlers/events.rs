@@ -12,8 +12,8 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
+use crate::events::InstanceEventKind;
 use crate::events::UserEventKind;
-use crate::events::{CausedBy, InstanceEventKind};
 use crate::{events::EventType, output_types::ClientEvent};
 
 use crate::{
@@ -202,7 +202,7 @@ async fn event_stream_ws(
                 if event.is_event_console_message() {
                     continue;
                 }
-                if query.filter(ClientEvent::from(event.clone())) && can_user_view_event(&event, &users.lock().await.get_ref().get(&uid).unwrap()) {
+                if query.filter(ClientEvent::from(event.clone())) && can_user_view_event(&event, users.lock().await.get_ref().get(&uid).unwrap()) {
                     if let Err(e) = sender.send(axum::extract::ws::Message::Text(serde_json::to_string(&event).unwrap())).await {
                         error!("Error sending event to websocket: {}", e);
                         break;

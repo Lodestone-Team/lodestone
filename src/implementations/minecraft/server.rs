@@ -16,12 +16,12 @@ use crate::traits::t_server::{MonitorReport, State, TServer};
 use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
 use crate::util::{dont_spawn_terminal, scoped_join_win_safe};
 
-use super::Instance;
+use super::MinecraftInstance;
 use log::{debug, error, info, warn};
 use tokio::task;
 
 #[async_trait::async_trait]
-impl TServer for Instance {
+impl TServer for MinecraftInstance {
     async fn start(&mut self, cause_by: CausedBy) -> Result<(), Error> {
         self.state.lock().await.update(State::Starting, cause_by)?;
         env::set_current_dir(&self.config.path).unwrap();
@@ -114,7 +114,7 @@ impl TServer for Instance {
                         detail: "Failed to take stderr during startup".to_string(),
                     }
                 })?;
-                self.process = Some(proc);
+                *self.process.lock().await = Some(proc);
                 task::spawn({
                     use fancy_regex::Regex;
                     use lazy_static::lazy_static;
@@ -468,6 +468,8 @@ impl TServer for Instance {
             });
         }
         self.process
+            .lock()
+            .await
             .as_mut()
             .ok_or_else(|| {
                 error!(
@@ -568,7 +570,7 @@ impl TServer for Instance {
         })
     }
     async fn monitor(&self) -> MonitorReport {
-        if let Some(pid) = self.process.as_ref().and_then(|p| p.id()) {
+        if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
             let mut sys = self.system.lock().await;
             sys.refresh_process(Pid::from_u32(pid));
             let proc = (*sys).process(Pid::from_u32(pid));

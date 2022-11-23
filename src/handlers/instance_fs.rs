@@ -14,7 +14,7 @@ use walkdir::WalkDir;
 
 use crate::{
     auth::user::UserAction,
-    traits::{Error, ErrorInner},
+    traits::{t_configurable::TConfigurable, Error, ErrorInner},
     util::{list_dir, scoped_join_win_safe},
     AppState,
 };
@@ -62,16 +62,11 @@ async fn list_instance_files(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if !path.exists() {
@@ -118,16 +113,11 @@ async fn read_instance_file(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     if !path.exists() || !path.is_file() {
@@ -161,16 +151,11 @@ async fn write_instance_file(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -211,16 +196,11 @@ async fn make_instance_directory(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // create the file if it doesn't exist
@@ -249,16 +229,11 @@ async fn remove_instance_file(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -311,16 +286,11 @@ async fn remove_instance_dir(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -355,20 +325,18 @@ async fn remove_instance_dir(
                     detail: "Failed to read directory while scanning for protected files"
                         .to_string(),
                 })?;
-                if entry.file_type().is_file() {
-                    if is_file_protected(&entry.path()) {
-                        return Err(Error {
-                            inner: ErrorInner::PermissionDenied,
-                            detail: format!(
-                                "File extension {} is protected",
-                                entry
-                                    .path()
-                                    .extension()
-                                    .map(|s| s.to_str().unwrap())
-                                    .unwrap_or("none")
-                            ),
-                        });
-                    }
+                if entry.file_type().is_file() && is_file_protected(entry.path()) {
+                    return Err(Error {
+                        inner: ErrorInner::PermissionDenied,
+                        detail: format!(
+                            "File extension {} is protected",
+                            entry
+                                .path()
+                                .extension()
+                                .map(|s| s.to_str().unwrap())
+                                .unwrap_or("none")
+                        ),
+                    });
                 }
             }
             tokio::fs::remove_dir_all(path).await.map_err(|_| Error {
@@ -403,16 +371,11 @@ async fn new_instance_file(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -464,16 +427,11 @@ async fn download_instance_file(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if !path.exists() {
@@ -529,16 +487,11 @@ async fn upload_instance_file(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     let root = instance.path().await;
-    drop(instance);
     drop(instances);
     let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
     if path_to_dir.exists() && !path_to_dir.is_dir() {
@@ -561,7 +514,7 @@ async fn upload_instance_file(
             inner: ErrorInner::MalformedRequest,
             detail: "No file name".to_string(),
         })?;
-        let name = sanitize_filename::sanitize(&name);
+        let name = sanitize_filename::sanitize(name);
         let path = scoped_join_win_safe(&root, &name)?;
         // if the file has a protected extension, or no extension, deny
         if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {

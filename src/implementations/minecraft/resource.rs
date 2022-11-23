@@ -2,10 +2,10 @@ use async_trait::async_trait;
 
 use crate::traits::t_resource::TResourceManagement;
 
-use super::Instance;
+use super::MinecraftInstance;
 
 #[async_trait]
-impl TResourceManagement for Instance {
+impl TResourceManagement for MinecraftInstance {
     async fn list(&self) -> Vec<serde_json::Value> {
         todo!()
     }

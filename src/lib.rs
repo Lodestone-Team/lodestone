@@ -20,6 +20,7 @@ use events::{CausedBy, Event};
 use implementations::minecraft;
 use log::{debug, error, info, warn};
 use port_allocator::PortAllocator;
+use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 use serde_json::Value;
@@ -42,7 +43,7 @@ use tokio::{
     },
 };
 use tower_http::cors::{Any, CorsLayer};
-use traits::{t_configurable::TConfigurable, t_server::MonitorReport, TInstance};
+use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use util::list_dir;
 use uuid::Uuid;
 mod auth;
@@ -59,7 +60,7 @@ mod util;
 
 #[derive(Clone)]
 pub struct AppState {
-    instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
+    instances: Arc<Mutex<HashMap<String, GameInstance>>>,
     users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<Event>>>>,
@@ -77,8 +78,8 @@ pub struct AppState {
 async fn restore_instances(
     lodestone_path: &Path,
     event_broadcaster: &Sender<Event>,
-) -> HashMap<String, Arc<Mutex<dyn TInstance>>> {
-    let mut ret: HashMap<String, Arc<Mutex<dyn TInstance>>> = HashMap::new();
+) -> HashMap<String, GameInstance> {
+    let mut ret: HashMap<String, GameInstance> = HashMap::new();
 
     for instance_future in list_dir(&lodestone_path.join("instances"), Some(true))
         .await
@@ -108,7 +109,7 @@ async fn restore_instances(
                         "Restoring Minecraft instance {}",
                         config["name"].as_str().unwrap()
                     );
-                    minecraft::Instance::restore(
+                    minecraft::MinecraftInstance::restore(
                         serde_json::from_value(config).unwrap(),
                         event_broadcaster.clone(),
                     )
@@ -118,10 +119,7 @@ async fn restore_instances(
         })
     {
         let instance = instance_future.await;
-        ret.insert(
-            instance.uuid().await.to_string(),
-            Arc::new(Mutex::new(instance)),
-        );
+        ret.insert(instance.uuid().await.to_string(), instance.into());
     }
     ret
 }
@@ -258,9 +256,8 @@ pub async fn run() {
     } else {
         None
     };
-    let instances = restore_instances(&lodestone_path, &tx).await;
-    for instance in instances.values() {
-        let mut instance = instance.lock().await;
+    let mut instances = restore_instances(&lodestone_path, &tx).await;
+    for (_, instance) in instances.iter_mut() {
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
             if let Err(e) = instance.start(CausedBy::System).await {
@@ -274,7 +271,6 @@ pub async fn run() {
     }
     let mut allocated_ports = HashSet::new();
     for (_, instance) in instances.iter() {
-        let instance = instance.lock().await;
         allocated_ports.insert(instance.port().await);
     }
     let shared_state = AppState {
@@ -337,7 +333,7 @@ pub async fn run() {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             loop {
                 for (uuid, instance) in instances.lock().await.iter() {
-                    let report = instance.lock().await.monitor().await;
+                    let report = instance.monitor().await;
                     monitor_buffer
                         .lock()
                         .await
@@ -391,9 +387,8 @@ pub async fn run() {
         _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
     }
     // cleanup
-    let instances = shared_state.instances.lock().await;
-    for (_, instance) in instances.iter() {
-        let mut instance = instance.lock().await;
+    let mut instances = shared_state.instances.lock().await;
+    for (_, instance) in instances.iter_mut() {
         let _ = instance.stop(CausedBy::System).await;
     }
 }

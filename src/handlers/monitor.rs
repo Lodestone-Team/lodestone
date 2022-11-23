@@ -12,7 +12,8 @@ use ringbuffer::{AllocRingBuffer, RingBufferExt};
 use tokio::sync::Mutex;
 
 use crate::{
-    traits::{t_server::MonitorReport, Error, ErrorInner, TInstance},
+    prelude::GameInstance,
+    traits::{t_server::MonitorReport, t_server::TServer, Error, ErrorInner},
     AppState,
 };
 
@@ -31,14 +32,20 @@ pub async fn monitor(
             detail: "Instance not found".to_string(),
         })?
         .to_owned();
-    Ok(ws
-        .on_upgrade(move |stream| monitor_ws(stream, state.monitor_buffer.clone(), instance, uuid)))
+    Ok(ws.on_upgrade(move |stream| {
+        monitor_ws(
+            stream,
+            state.monitor_buffer.clone(),
+            instance.to_owned(),
+            uuid,
+        )
+    }))
 }
 
 async fn monitor_ws(
     stream: WebSocket,
     monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
-    instance: Arc<Mutex<dyn TInstance>>,
+    instance: GameInstance,
     uuid: String,
 ) {
     let (mut tx, mut rx) = stream.split();
@@ -59,7 +66,7 @@ async fn monitor_ws(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                let monitor = instance.lock().await.monitor().await;
+                let monitor = instance.monitor().await;
                 if let Err(e) = tx
                     .send(axum::extract::ws::Message::Text(
                         serde_json::to_string(&monitor).unwrap(),

@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::traits::{Supported, Unsupported};
 use crate::{
-    traits::{Error, ErrorInner},
+    traits::{t_player::TPlayerManagement, Error, ErrorInner},
     AppState,
 };
 
@@ -20,8 +20,6 @@ pub async fn get_player_count(
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .get_player_count()
         .await
     {
@@ -46,8 +44,6 @@ pub async fn get_max_player_count(
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .get_max_player_count()
         .await
     {
@@ -68,13 +64,11 @@ pub async fn set_max_player_count(
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .set_max_player_count(count)
         .await
     {
@@ -94,13 +88,11 @@ pub async fn get_player_list(
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .get_player_list()
         .await
     {

@@ -108,7 +108,8 @@ pub struct RestoreConfig {
     pub has_started: bool,
 }
 
-pub struct Instance {
+#[derive(Clone)]
+pub struct MinecraftInstance {
     config: RestoreConfig,
     state: Arc<Mutex<Stateful<State, CausedBy>>>,
     event_broadcaster: Sender<Event>,
@@ -125,7 +126,7 @@ pub struct Instance {
     auto_start: Arc<AtomicBool>,
     restart_on_crash: Arc<AtomicBool>,
     backup_period: Option<u32>,
-    process: Option<Child>,
+    process: Arc<Mutex<Option<Child>>>,
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players: Arc<Mutex<Stateful<HashSet<String>, CausedBy>>>,
@@ -142,12 +143,12 @@ enum BackupInstruction {
     Resume,
 }
 
-impl Instance {
+impl MinecraftInstance {
     pub async fn new(
         config: SetupConfig,
         progression_event_id: String,
         event_broadcaster: Sender<Event>,
-    ) -> Result<Instance, Error> {
+    ) -> Result<MinecraftInstance, Error> {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_eula = config.path.join("eula.txt");
         let path_to_macros = config.path.join("macros");
@@ -473,10 +474,13 @@ impl Instance {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!("failed to write to config {}", &path_to_config.display()),
         })?;
-        Ok(Instance::restore(restore_config, event_broadcaster).await)
+        Ok(MinecraftInstance::restore(restore_config, event_broadcaster).await)
     }
 
-    pub async fn restore(config: RestoreConfig, event_broadcaster: Sender<Event>) -> Instance {
+    pub async fn restore(
+        config: RestoreConfig,
+        event_broadcaster: Sender<Event>,
+    ) -> MinecraftInstance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
         let path_to_resources = config.path.join("resources");
@@ -804,7 +808,7 @@ impl Instance {
                 let instance_uuid = config.uuid.clone();
                 let instance_name = config.name.clone();
                 let event_broadcaster = event_broadcaster.clone();
-                move |_, new_state, caused_by : &CausedBy| {
+                move |_, new_state, caused_by: &CausedBy| {
                     let instance_event_inner = match new_state {
                         State::Starting => InstanceEventInner::InstanceStarting,
                         State::Running => InstanceEventInner::InstanceStarted,
@@ -913,7 +917,9 @@ impl Instance {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
             let name = config.name.clone();
-            move |old_players: &HashSet<String>, new_players: &HashSet<String>, _cause: &CausedBy| {
+            move |old_players: &HashSet<String>,
+                  new_players: &HashSet<String>,
+                  _cause: &CausedBy| {
                 if old_players.len() > new_players.len() {
                     let player_diff = old_players.difference(new_players);
                     // debug!("[{}] Detected player joined: {}", name, player_diff.last().unwrap());
@@ -953,7 +959,7 @@ impl Instance {
             }
         };
 
-        let mut instance = Instance {
+        let mut instance = MinecraftInstance {
             state,
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
@@ -965,7 +971,7 @@ impl Instance {
             path_to_resources,
             event_broadcaster,
             path_to_runtimes,
-            process: None,
+            process: Arc::new(Mutex::new(None)),
             players: Arc::new(Mutex::new(Stateful::new(
                 HashSet::new(),
                 Box::new(players_callback.clone()),
@@ -1033,7 +1039,7 @@ impl Instance {
             .await
             .map_err(|_| Error {
                 inner: ErrorInner::FailedToWriteFileOrDir,
-                detail: format!("failed to open properties file"),
+                detail: "failed to open properties file".to_string(),
             })?;
         let mut setting_str = "".to_string();
         for (key, value) in self.settings.lock().await.iter() {
@@ -1051,4 +1057,4 @@ impl Instance {
     }
 }
 
-impl TInstance for Instance {}
+impl TInstance for MinecraftInstance {}

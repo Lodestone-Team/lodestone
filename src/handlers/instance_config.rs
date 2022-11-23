@@ -6,7 +6,7 @@ use ts_rs::TS;
 
 use crate::{
     auth::user::UserAction,
-    traits::{Error, ErrorInner},
+    traits::{t_configurable::TConfigurable, Error, ErrorInner},
     AppState,
 };
 
@@ -19,7 +19,7 @@ pub enum InstanceSetting {
     Uuid,
     Name,
     Flavour,
-    GameType,
+    ServerInstance,
     CmdArgs,
     Description,
     Port,
@@ -50,19 +50,15 @@ pub async fn get_instance_setting(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     Ok(Json(match key {
         InstanceSetting::Uuid => json!(instance.uuid().await),
         InstanceSetting::Name => json!(instance.name().await),
         InstanceSetting::Flavour => json!(instance.flavour().await),
-        InstanceSetting::GameType => json!(instance.game_type().await),
+        InstanceSetting::ServerInstance => json!(instance.game_type().await),
         InstanceSetting::CmdArgs => json!(instance.cmd_args().await),
         InstanceSetting::Description => json!(instance.description().await),
         InstanceSetting::Port => json!(instance.port().await),
@@ -94,15 +90,11 @@ pub async fn set_instance_setting(
         });
     }
     drop(users);
-    let instances = state.instances.lock().await;
-    let mut instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let mut instances = state.instances.lock().await;
+    let instance = instances.get_mut(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
 
     match value {
         Value::Null => match key {
@@ -198,14 +190,10 @@ pub async fn get_game_setting(
     }
     drop(users);
     let instances = state.instances.lock().await;
-    let instance = instances
-        .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
-        })?
-        .lock()
-        .await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
     Ok(Json(instance.get_field(&key).await?))
 }
 
@@ -231,13 +219,11 @@ pub async fn set_game_setting(
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .set_field(&key, value)
         .await?;
     Ok(Json(()))

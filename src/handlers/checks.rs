@@ -1,6 +1,6 @@
+use crate::traits::t_configurable::TConfigurable;
 use crate::{port_allocator::PortStatus, AppState};
 use axum::{extract::Path, routing::get, Extension, Json, Router};
-
 /// Check the status of a port
 /// Note: this function is not cheap
 pub async fn get_port_status(
@@ -17,7 +17,7 @@ pub async fn is_name_in_use(
     Path(name): Path<String>,
 ) -> Json<bool> {
     for (_, instance) in state.instances.lock().await.iter() {
-        if instance.lock().await.name().await == name {
+        if instance.name().await == name {
             return Json(true);
         }
     }
