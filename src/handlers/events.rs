@@ -12,8 +12,8 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
-use crate::events::InstanceEventKind;
 use crate::events::UserEventKind;
+use crate::events::{CausedBy, InstanceEventKind};
 use crate::{events::EventType, output_types::ClientEvent};
 
 use crate::{
@@ -112,7 +112,6 @@ pub async fn get_event_buffer(
             .events_buffer
             .lock()
             .await
-            .get_ref()
             .iter()
             .filter(|event| {
                 query.filter(ClientEvent::from(*event)) && can_user_view_event(*event, &requester)
@@ -136,7 +135,6 @@ pub async fn get_console_buffer(
             .console_out_buffer
             .lock()
             .await
-            .get_ref()
             .get(&uuid)
             .unwrap_or(&AllocRingBuffer::new())
             .iter()
@@ -195,7 +193,7 @@ async fn event_stream_ws(
     mut event_receiver: Receiver<Event>,
     query: EventQuery,
     uid: String,
-    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
+    users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
     loop {
@@ -249,7 +247,7 @@ async fn console_stream_ws(
     mut event_receiver: Receiver<Event>,
     uid: String,
     uuid: String,
-    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
+    users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
     loop {

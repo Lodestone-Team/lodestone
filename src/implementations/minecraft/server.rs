@@ -6,7 +6,7 @@ use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::macro_executor::LuaExecutionInstruction;
 use crate::prelude::{get_snowflake, LODESTONE_PATH};
@@ -22,8 +22,8 @@ use tokio::task;
 
 #[async_trait::async_trait]
 impl TServer for Instance {
-    async fn start(&mut self) -> Result<(), Error> {
-        self.state.lock().await.update(State::Starting)?;
+    async fn start(&mut self, cause_by: CausedBy) -> Result<(), Error> {
+        self.state.lock().await.update(State::Starting, cause_by)?;
         env::set_current_dir(&self.config.path).unwrap();
 
         let prelaunch = self.path().await.join("prelaunch.lua");
@@ -292,6 +292,7 @@ impl TServer for Instance {
                                 }),
                                 details: "".to_string(),
                                 snowflake: get_snowflake(),
+                                caused_by: CausedBy::System,
                             });
 
                             if parse_server_started(&line) && !did_start {
@@ -299,7 +300,7 @@ impl TServer for Instance {
                                 state
                                     .lock()
                                     .await
-                                    .update(State::Running)
+                                    .update(State::Running, CausedBy::System)
                                     .expect("Failed to update state");
                                 *settings.lock().await =
                                     read_properties_from_path(&path_to_properties)
@@ -317,21 +318,24 @@ impl TServer for Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
+                                    caused_by: CausedBy::System,
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
-                                    let _ = players.lock().await.transform_cmp(Box::new(
-                                        move |this: &mut HashSet<String>| {
+                                    let _ = players.lock().await.transform_cmp(
+                                        Box::new(move |this: &mut HashSet<String>| {
                                             this.insert(player_name.clone());
                                             Ok(())
-                                        },
-                                    ));
+                                        }),
+                                        CausedBy::System,
+                                    );
                                 } else if let Some(player_name) = parse_player_left(&system_msg) {
-                                    let _ = players.lock().await.transform_cmp(Box::new(
-                                        move |this: &mut HashSet<String>| {
+                                    let _ = players.lock().await.transform_cmp(
+                                        Box::new(move |this: &mut HashSet<String>| {
                                             this.remove(&player_name);
                                             Ok(())
-                                        },
-                                    ));
+                                        }),
+                                        CausedBy::System,
+                                    );
                                 }
                             } else if let Some((player, msg)) = parse_player_msg(&line) {
                                 let _ = event_broadcaster.send(Event {
@@ -345,6 +349,7 @@ impl TServer for Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
+                                    caused_by: CausedBy::System,
                                 });
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {
                                     match macro_instruction {
@@ -384,10 +389,13 @@ impl TServer for Instance {
                             }
                         }
                         info!("Instance {} process shutdown", name);
-                        let _ = state.lock().await.transform(Box::new(|v| {
-                            *v = State::Stopped;
-                            Ok(())
-                        }));
+                        let _ = state.lock().await.transform(
+                            Box::new(|v| {
+                                *v = State::Stopped;
+                                Ok(())
+                            }),
+                            CausedBy::Unknown,
+                        );
                     }
                 });
             }
@@ -397,10 +405,13 @@ impl TServer for Instance {
                 self.state
                     .lock()
                     .await
-                    .transform(Box::new(|v: &mut State| {
-                        *v = State::Stopped;
-                        Ok(())
-                    }))
+                    .transform(
+                        Box::new(|v: &mut State| {
+                            *v = State::Stopped;
+                            Ok(())
+                        }),
+                        CausedBy::System,
+                    )
                     .unwrap();
                 return Err(Error {
                     inner: ErrorInner::FailedToExecute,
@@ -412,8 +423,8 @@ impl TServer for Instance {
         self.write_config_to_file().await?;
         Ok(())
     }
-    async fn stop(&mut self) -> Result<(), Error> {
-        self.state.lock().await.update(State::Stopping)?;
+    async fn stop(&mut self, cause_by: CausedBy) -> Result<(), Error> {
+        self.state.lock().await.update(State::Stopping, cause_by)?;
         let name = self.config.name.clone();
         let _uuid = self.config.uuid.clone();
         self.stdin
@@ -440,15 +451,15 @@ impl TServer for Instance {
                     detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
-        self.players
-            .lock()
-            .await
-            .transform(Box::new(|v: &mut HashSet<String>| {
+        self.players.lock().await.transform(
+            Box::new(|v: &mut HashSet<String>| {
                 v.clear();
                 Ok(())
-            }))
+            }),
+            CausedBy::System,
+        )
     }
-    async fn kill(&mut self) -> Result<(), crate::traits::Error> {
+    async fn kill(&mut self, cause_by: CausedBy) -> Result<(), crate::traits::Error> {
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", self.config.name.clone());
             return Err(Error {
@@ -480,13 +491,27 @@ impl TServer for Instance {
                     detail: "Failed to kill instance, instance already existed".to_string(),
                 }
             })?;
+        self.state
+            .lock()
+            .await
+            .transform(
+                Box::new(|v: &mut State| {
+                    *v = State::Stopped;
+                    Ok(())
+                }),
+                cause_by,
+            )
+            .unwrap();
         self.players
             .lock()
             .await
-            .transform(Box::new(|v: &mut HashSet<String>| {
-                v.clear();
-                Ok(())
-            }))
+            .transform(
+                Box::new(|v: &mut HashSet<String>| {
+                    v.clear();
+                    Ok(())
+                }),
+                CausedBy::System,
+            )
             .unwrap();
         Ok(())
     }
@@ -495,7 +520,11 @@ impl TServer for Instance {
         self.state.lock().await.get()
     }
 
-    async fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), Error>> {
+    async fn send_command(
+        &mut self,
+        command: &str,
+        cause_by: CausedBy,
+    ) -> MaybeUnsupported<Result<(), Error>> {
         Supported(if self.state().await == State::Stopped {
             Err(Error {
                 inner: ErrorInner::InstanceStopped,
@@ -508,7 +537,7 @@ impl TServer for Instance {
                         self.state
                             .lock()
                             .await
-                            .update(State::Stopping)
+                            .update(State::Stopping, cause_by)
                             .expect("Failed to update state")
                     }
                     stdin.write_all(format!("{}\n", command).as_bytes()).await

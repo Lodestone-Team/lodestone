@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use crate::{
     auth::user::UserAction,
-    traits::{Supported, Unsupported},
+    traits::{Supported, Unsupported}, events::CausedBy,
 };
 
 use super::util::try_auth;
@@ -36,6 +36,10 @@ pub async fn start_instance(
             detail: "Not authorized to start instance".to_string(),
         });
     }
+    let caused_by = CausedBy::User {
+        user_id : requester.uid.clone(),
+        user_name : requester.username.clone(),
+    };
     drop(users);
     let instance_list = state.instances.lock().await;
     let mut instance = instance_list
@@ -52,7 +56,7 @@ pub async fn start_instance(
             detail: format!("Port {} is already in use", instance.port().await),
         });
     }
-    instance.start().await?;
+    instance.start(caused_by).await?;
     Ok(Json(json!("ok")))
 }
 
@@ -72,6 +76,10 @@ pub async fn stop_instance(
             detail: "Not authorized to stop instance".to_string(),
         });
     }
+    let caused_by = CausedBy::User {
+        user_id : requester.uid.clone(),
+        user_name : requester.username.clone(),
+    };
     drop(users);
     state
         .instances
@@ -84,7 +92,7 @@ pub async fn stop_instance(
         })?
         .lock()
         .await
-        .stop()
+        .stop(caused_by)
         .await?;
     Ok(Json(json!("ok")))
 }
@@ -105,6 +113,10 @@ pub async fn kill_instance(
             detail: "Not authorized to kill instance".to_string(),
         });
     }
+    let caused_by = CausedBy::User {
+        user_id : requester.uid.clone(),
+        user_name : requester.username.clone(),
+    };
     drop(users);
     state
         .instances
@@ -117,7 +129,7 @@ pub async fn kill_instance(
         })?
         .lock()
         .await
-        .kill()
+        .kill(caused_by)
         .await?;
     Ok(Json(json!("ok")))
 }
@@ -139,6 +151,10 @@ pub async fn send_command(
             detail: "Not authorized to send command".to_string(),
         });
     }
+    let caused_by = CausedBy::User {
+        user_id : requester.uid.clone(),
+        user_name : requester.username.clone(),
+    };
     drop(users);
     match state
         .instances
@@ -151,7 +167,7 @@ pub async fn send_command(
         })?
         .lock()
         .await
-        .send_command(&command)
+        .send_command(&command, caused_by)
         .await
     {
         Supported(v) => v.map(|_| Json(())),

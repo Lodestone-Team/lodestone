@@ -16,7 +16,7 @@ use crate::{
 };
 use auth::user::User;
 use axum::{Extension, Router};
-use events::Event;
+use events::{CausedBy, Event};
 use implementations::minecraft;
 use log::{debug, error, info, warn};
 use port_allocator::PortAllocator;
@@ -50,19 +50,19 @@ mod events;
 mod handlers;
 mod implementations;
 pub mod macro_executor;
+mod output_types;
 mod port_allocator;
 pub mod prelude;
 mod stateful;
 mod traits;
 mod util;
-mod output_types;
 
 #[derive(Clone)]
 pub struct AppState {
     instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
-    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
-    events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
-    console_out_buffer: Arc<Mutex<Stateful<HashMap<String, AllocRingBuffer<Event>>>>>,
+    users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
+    events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
+    console_out_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<Event>>>>,
     monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
     event_broadcaster: Sender<Event>,
     is_setup: Arc<AtomicBool>,
@@ -225,7 +225,7 @@ pub async fn run() {
     let stateful_users = Stateful::new(
         restore_users(&PATH_TO_USERS.with(|v| v.to_owned())).await,
         {
-            Box::new(move |users, _| {
+            Box::new(move |users, _, _| {
                 serde_json::to_writer(
                     std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
                     users,
@@ -235,7 +235,7 @@ pub async fn run() {
             })
         },
         {
-            Box::new(move |users, _| {
+            Box::new(move |users, _, _| {
                 serde_json::to_writer(
                     std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
                     users,
@@ -244,24 +244,6 @@ pub async fn run() {
                 Ok(())
             })
         },
-    );
-
-    let stateful_event_buffer = Stateful::new(
-        AllocRingBuffer::with_capacity(512),
-        Box::new(|_, _| Ok(())),
-        Box::new(|_event_buffer, _| {
-            // todo: write to persistent storage
-            Ok(())
-        }),
-    );
-
-    let stateful_console_out_buffer = Stateful::new(
-        HashMap::new(),
-        Box::new(|_, _| Ok(())),
-        Box::new(|_event_buffer, _| {
-            // todo: write to persistent storage
-            Ok(())
-        }),
     );
 
     let first_time_setup_key = if !stateful_users
@@ -281,7 +263,7 @@ pub async fn run() {
         let mut instance = instance.lock().await;
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
-            if let Err(e) = instance.start().await {
+            if let Err(e) = instance.start(CausedBy::System).await {
                 error!(
                     "Failed to start instance {}: {:?}",
                     instance.name().await,
@@ -298,8 +280,8 @@ pub async fn run() {
     let shared_state = AppState {
         instances: Arc::new(Mutex::new(instances)),
         users: Arc::new(Mutex::new(stateful_users)),
-        events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
-        console_out_buffer: Arc::new(Mutex::new(stateful_console_out_buffer)),
+        events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
+        console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
         is_setup: Arc::new(AtomicBool::new(false)),
@@ -338,23 +320,11 @@ pub async fn run() {
                     console_out_buffer
                         .lock()
                         .await
-                        .transform(Box::new(move |buffer| -> Result<(), Error> {
-                            buffer
-                                .entry(event.get_instance_uuid().unwrap())
-                                .or_insert_with(|| AllocRingBuffer::with_capacity(512))
-                                .push(event.clone());
-                            Ok(())
-                        }))
-                        .unwrap();
+                        .entry(event.get_instance_uuid().unwrap())
+                        .or_insert_with(|| AllocRingBuffer::with_capacity(512))
+                        .push(event.clone());
                 } else {
-                    event_buffer
-                        .lock()
-                        .await
-                        .transform(Box::new(move |buffer| -> Result<(), Error> {
-                            buffer.push(event.clone());
-                            Ok(())
-                        }))
-                        .unwrap();
+                    event_buffer.lock().await.push(event.clone());
                 }
             }
         }
@@ -424,6 +394,6 @@ pub async fn run() {
     let instances = shared_state.instances.lock().await;
     for (_, instance) in instances.iter() {
         let mut instance = instance.lock().await;
-        let _ = instance.stop().await;
+        let _ = instance.stop(CausedBy::System).await;
     }
 }

@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceInfo, implementations::minecraft};
+use crate::{
+    implementations::minecraft, output_types::ClientEvent, prelude::get_snowflake,
+    traits::InstanceInfo,
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -98,7 +101,10 @@ impl Into<Event> for MacroEvent {
         Event {
             details: "".to_string(),
             snowflake: get_snowflake(),
-            event_inner: EventInner::MacroEvent(self),
+            event_inner: EventInner::MacroEvent(self.clone()),
+            caused_by: CausedBy::Macro {
+                macro_uuid: self.macro_uuid,
+            },
         }
     }
 }
@@ -184,6 +190,16 @@ fn event_type_export() {
     let _ = UserEventKind::export();
     let _ = InstanceEventKind::export();
 }
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum CausedBy {
+    User { user_id: String, user_name: String },
+    Instance { instance_uuid: String },
+    Macro { macro_uuid: String },
+    System,
+    Unknown,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[serde(into = "ClientEvent")]
@@ -191,6 +207,7 @@ pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
     pub snowflake: i64,
+    pub caused_by: CausedBy,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
@@ -217,6 +234,7 @@ impl From<&ClientEvent> for Event {
             event_inner: client_event.event_inner.clone(),
             details: client_event.details.clone(),
             snowflake: client_event.snowflake.clone(),
+            caused_by: client_event.caused_by.clone(),
         }
     }
 }

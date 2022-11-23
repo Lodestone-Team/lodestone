@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use ts_rs::TS;
 
+use crate::events::CausedBy;
+
 use super::MaybeUnsupported;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -58,10 +60,10 @@ impl ToString for State {
 
 #[async_trait]
 pub trait TServer {
-    async fn start(&mut self) -> Result<(), super::Error>;
-    async fn stop(&mut self) -> Result<(), super::Error>;
-    async fn kill(&mut self) -> Result<(), super::Error>;
+    async fn start(&mut self, caused_by : CausedBy) -> Result<(), super::Error>;
+    async fn stop(&mut self, caused_by : CausedBy) -> Result<(), super::Error>;
+    async fn kill(&mut self, caused_by : CausedBy) -> Result<(), super::Error>;
     async fn state(&self) -> State;
-    async fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), super::Error>>;
+    async fn send_command(&mut self, command: &str, caused_by : CausedBy) -> MaybeUnsupported<Result<(), super::Error>>;
     async fn monitor(&self) -> MonitorReport;
 }

@@ -3,7 +3,7 @@ use crate::{
         permission::UserPermission,
         user::{PublicUser, User, UserAction},
     },
-    events::{Event, EventInner, UserEvent, UserEventInner},
+    events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     prelude::get_snowflake,
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
@@ -95,6 +95,10 @@ pub async fn new_user(
         permissions: UserPermission::new(),
         secret: rand_alphanumeric(32),
     };
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     tokio::task::spawn({
         let uid = uid.clone();
         let users = state.users.clone();
@@ -103,16 +107,23 @@ pub async fn new_user(
             users
                 .lock()
                 .await
-                .transform({
-                    let uid = uid.clone();
-                    Box::new(move |v| {
-                        v.insert(uid.clone(), user.clone());
-                        Ok(())
-                    })
-                })
+                .transform(
+                    {
+                        let uid = uid.clone();
+                        Box::new(move |v| {
+                            v.insert(uid.clone(), user.clone());
+                            Ok(())
+                        })
+                    },
+                    (),
+                )
                 .unwrap();
         }
     });
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     let _ = state
         .event_broadcaster
         .send(Event {
@@ -122,6 +133,7 @@ pub async fn new_user(
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
+            caused_by,
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(LoginReply {
@@ -146,15 +158,27 @@ pub async fn delete_user(
             detail: "You are not authorized to create users".to_string(),
         });
     }
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     users
-        .transform(Box::new({
-            let uid = uid.clone();
-            move |v| {
-                v.remove(&uid);
-                Ok(())
-            }
-        }))
+        .transform(
+            Box::new({
+                let uid = uid.clone();
+                move |v| {
+                    v.remove(&uid);
+                    Ok(())
+                }
+            }),
+            (),
+        )
         .unwrap();
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     let _ = state
         .event_broadcaster
         .send(Event {
@@ -164,6 +188,7 @@ pub async fn delete_user(
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
+            caused_by,
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(json!("ok")))
@@ -186,12 +211,23 @@ pub async fn logout(
         });
     }
     let user_id = uid.clone();
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     users
-        .transform(Box::new(move |v| {
-            v.get_mut(&uid).unwrap().secret = rand_alphanumeric(32);
-            Ok(())
-        }))
+        .transform(
+            Box::new(move |v| {
+                v.get_mut(&uid).unwrap().secret = rand_alphanumeric(32);
+                Ok(())
+            }),
+            (),
+        )
         .unwrap();
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     let _ = state
         .event_broadcaster
         .send(Event {
@@ -201,6 +237,7 @@ pub async fn logout(
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
+            caused_by,
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json("ok".to_string()))
@@ -223,13 +260,20 @@ pub async fn update_permissions(
             detail: "You are not authorized to update permissions".to_string(),
         });
     }
-    users.transform(Box::new(move |v| {
-        let user = v.get_mut(&uid).ok_or(Error {
-            inner: ErrorInner::UserNotFound,
-            detail: "".to_string(),
-        })?;
-        requester.update_permission(user, new_permissions.clone())
-    }))?;
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
+    users.transform(
+        Box::new(move |v| {
+            let user = v.get_mut(&uid).ok_or(Error {
+                inner: ErrorInner::UserNotFound,
+                detail: "".to_string(),
+            })?;
+            requester.update_permission(user, new_permissions.clone())
+        }),
+        (),
+    )?;
     Ok(Json(json!("ok")))
 }
 
@@ -315,14 +359,21 @@ pub async fn change_password(
             detail: "Invalid request, field new_psw must be a string".to_string(),
         })?
         .to_string();
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     users
-        .transform(Box::new(move |users| {
-            let user = users.get_mut(&uid).unwrap();
-            let hashed_psw = hash_password(&new_psw);
-            user.hashed_psw = hashed_psw;
-            user.secret = rand_alphanumeric(32);
-            Ok(())
-        }))
+        .transform(
+            Box::new(move |users| {
+                let user = users.get_mut(&uid).unwrap();
+                let hashed_psw = hash_password(&new_psw);
+                user.hashed_psw = hashed_psw;
+                user.secret = rand_alphanumeric(32);
+                Ok(())
+            }),
+            (),
+        )
         .unwrap();
     Ok(Json(()))
 }

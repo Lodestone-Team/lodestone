@@ -27,7 +27,8 @@ use tokio::{self};
 use ts_rs::TS;
 
 use crate::events::{
-    Event, EventInner, InstanceEvent, InstanceEventInner, ProgressionEvent, ProgressionEventInner,
+    CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner, ProgressionEvent,
+    ProgressionEventInner,
 };
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::{get_snowflake, PATH_TO_BINARIES};
@@ -109,7 +110,7 @@ pub struct RestoreConfig {
 
 pub struct Instance {
     config: RestoreConfig,
-    state: Arc<Mutex<Stateful<State>>>,
+    state: Arc<Mutex<Stateful<State, CausedBy>>>,
     event_broadcaster: Sender<Event>,
     // file paths
     path_to_config: PathBuf,
@@ -127,7 +128,7 @@ pub struct Instance {
     process: Option<Child>,
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
-    players: Arc<Mutex<Stateful<HashSet<String>>>>,
+    players: Arc<Mutex<Stateful<HashSet<String>, CausedBy>>>,
     settings: Arc<Mutex<HashMap<String, String>>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
@@ -164,6 +165,7 @@ impl Instance {
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
+            caused_by: CausedBy::Unknown,
         });
         tokio::fs::create_dir_all(&config.path)
             .await
@@ -242,6 +244,7 @@ impl Instance {
                                 }),
                                 details: "".to_string(),
                                 snowflake: get_snowflake(),
+                                caused_by: CausedBy::Unknown,
                             });
                         }
                     }
@@ -287,6 +290,7 @@ impl Instance {
                 }),
                 details: "".to_string(),
                 snowflake: get_snowflake(),
+                caused_by: CausedBy::Unknown,
             });
         }
         match config.flavour {
@@ -326,6 +330,7 @@ impl Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
+                                    caused_by: CausedBy::Unknown,
                                 });
                             } else {
                                 let _ = event_broadcaster.send(Event {
@@ -342,6 +347,7 @@ impl Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
+                                    caused_by: CausedBy::Unknown,
                                 });
                             }
                         }
@@ -390,6 +396,7 @@ impl Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
+                                    caused_by: CausedBy::Unknown,
                                 });
                             } else {
                                 let _ = event_broadcaster.send(Event {
@@ -406,6 +413,7 @@ impl Instance {
                                     }),
                                     details: "".to_string(),
                                     snowflake: get_snowflake(),
+                                    caused_by: CausedBy::Unknown,
                                 });
                             }
                         }
@@ -428,6 +436,7 @@ impl Instance {
             }),
             details: "".to_string(),
             snowflake: get_snowflake(),
+            caused_by: CausedBy::Unknown,
         });
 
         let restore_config = RestoreConfig {
@@ -477,7 +486,7 @@ impl Instance {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
             let name = config.name.clone();
-            move |old_state: &State, new_state: &State| -> Result<(), Error> {
+            move |old_state: &State, new_state: &State, caused_by: &CausedBy| -> Result<(), Error> {
                 debug!(
                     "[{}] Transitioning from {} to {}",
                     name,
@@ -514,6 +523,7 @@ impl Instance {
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             msg.to_owned(),
                             Box::new(|| info!("[{}] {}", &name, msg.to_owned())),
@@ -543,6 +553,7 @@ impl Instance {
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
@@ -584,6 +595,7 @@ impl Instance {
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             msg.to_owned(),
                             Box::new(|| info!("[{}] {}", &name, msg.to_owned())),
@@ -604,6 +616,7 @@ impl Instance {
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             msg.to_owned(),
                             Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
@@ -653,6 +666,7 @@ impl Instance {
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             msg.to_owned(),
                             Box::new({
@@ -673,6 +687,7 @@ impl Instance {
                                 }),
                                 details: msg.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             msg.to_owned(),
                             Box::new({
@@ -741,6 +756,7 @@ impl Instance {
                                 }),
                                 details: err_message.to_owned(),
                                 snowflake: get_snowflake(),
+                                caused_by: caused_by.to_owned(),
                             }),
                             err_message.to_owned(),
                             Box::new({
@@ -788,7 +804,7 @@ impl Instance {
                 let instance_uuid = config.uuid.clone();
                 let instance_name = config.name.clone();
                 let event_broadcaster = event_broadcaster.clone();
-                move |_, new_state| {
+                move |_, new_state, caused_by : &CausedBy| {
                     let instance_event_inner = match new_state {
                         State::Starting => InstanceEventInner::InstanceStarting,
                         State::Running => InstanceEventInner::InstanceStarted,
@@ -804,6 +820,7 @@ impl Instance {
                         }),
                         details: "Instance state changed".to_string(),
                         snowflake: get_snowflake(),
+                        caused_by: caused_by.to_owned(),
                     });
                     Ok(())
                 }
@@ -896,7 +913,7 @@ impl Instance {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
             let name = config.name.clone();
-            move |old_players: &HashSet<String>, new_players: &HashSet<String>| {
+            move |old_players: &HashSet<String>, new_players: &HashSet<String>, _cause: &CausedBy| {
                 if old_players.len() > new_players.len() {
                     let player_diff = old_players.difference(new_players);
                     // debug!("[{}] Detected player joined: {}", name, player_diff.last().unwrap());
@@ -912,6 +929,7 @@ impl Instance {
                         }),
                         details: "".to_string(),
                         snowflake: get_snowflake(),
+                        caused_by: CausedBy::Unknown,
                     });
                 } else if old_players.len() < new_players.len() {
                     let player_diff = new_players.difference(old_players);
@@ -928,6 +946,7 @@ impl Instance {
                         }),
                         details: "".to_string(),
                         snowflake: get_snowflake(),
+                        caused_by: CausedBy::Unknown,
                     });
                 }
                 Ok(())

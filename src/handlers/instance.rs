@@ -14,7 +14,7 @@ use ts_rs::TS;
 use crate::auth::user::UserAction;
 use crate::events::{
     new_progression_event_id, Event, EventInner, ProgressionEndValue, ProgressionEvent,
-    ProgressionEventInner, ProgressionStartValue,
+    ProgressionEventInner, ProgressionStartValue, CausedBy,
 };
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
@@ -170,6 +170,10 @@ pub async fn create_minecraft_instance(
         let event_broadcaster = state.event_broadcaster.clone();
         let port = setup_config.port;
         let flavour = setup_config.flavour.clone();
+        let caused_by = CausedBy::User {
+            user_id : requester.uid.clone(),
+            user_name : requester.username.clone(),
+        };
         async move {
             let progression_event_id = new_progression_event_id();
             let _ = event_broadcaster.send(Event {
@@ -189,6 +193,7 @@ pub async fn create_minecraft_instance(
                 }),
                 details: "".to_string(),
                 snowflake: get_snowflake(),
+                caused_by: caused_by.clone(),
             });
             let minecraft_instance = match minecraft::Instance::new(
                 setup_config.clone(),
@@ -211,6 +216,7 @@ pub async fn create_minecraft_instance(
                         }),
                         details: "".to_string(),
                         snowflake: get_snowflake(),
+                        caused_by: caused_by.clone(),
                     });
                     v
                 }
@@ -226,6 +232,7 @@ pub async fn create_minecraft_instance(
                         }),
                         details: "".to_string(),
                         snowflake: get_snowflake(),
+                        caused_by: caused_by.clone(),
                     });
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
@@ -270,6 +277,10 @@ pub async fn delete_instance(
     }
     drop(users);
     let mut instances = state.instances.lock().await;
+    let caused_by = CausedBy::User {
+        user_id : requester.uid.clone(),
+        user_name : requester.username.clone(),
+    };
     if let Some(instance) = instances.get(&uuid) {
         let instance_lock = instance.lock().await;
         if !(instance_lock.state().await == State::Stopped) {
@@ -295,6 +306,7 @@ pub async fn delete_instance(
                 }),
                 details: "".to_string(),
                 snowflake: get_snowflake(),
+                caused_by: caused_by.clone(),
             });
             tokio::fs::remove_file(instance_lock.path().await.join(".lodestone_config"))
                 .await
@@ -313,6 +325,7 @@ pub async fn delete_instance(
                         }),
                         details: "".to_string(),
                         snowflake: get_snowflake(),
+                        caused_by: caused_by.clone(),
                     });
                     Error {
                         inner: ErrorInner::FailedToRemoveFileOrDir,
@@ -350,6 +363,7 @@ pub async fn delete_instance(
                     }),
                     details: "".to_string(),
                     snowflake: get_snowflake(),
+                    caused_by: caused_by.clone(),
                 });
             } else {
                 let _ = event_broadcaster.send(Event {
@@ -365,6 +379,7 @@ pub async fn delete_instance(
                     }),
                     details: "".to_string(),
                     snowflake: get_snowflake(),
+                    caused_by: caused_by.clone(),
                 });
             }
             res.map(|_| Json(()))

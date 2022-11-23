@@ -1,7 +1,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::events::{Event, EventInner, EventLevel, InstanceEventInner, MacroEventInner, ProgressionEventInner};
+use crate::events::{Event, EventInner, EventLevel, InstanceEventInner, MacroEventInner, ProgressionEventInner, CausedBy};
 
 #[derive(Serialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -11,6 +11,8 @@ pub struct ClientEvent {
     pub snowflake: i64,
     pub snowflake_str: String,
     pub level: EventLevel,
+    pub caused_by: CausedBy,
+
 }
 
 impl From<&Event> for ClientEvent {
@@ -45,6 +47,7 @@ impl From<&Event> for ClientEvent {
             snowflake: event.snowflake,
             snowflake_str: event.snowflake.to_string(),
             level,
+            caused_by: event.caused_by.clone(),
         }
     }
 }
