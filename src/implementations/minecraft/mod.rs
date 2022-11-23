@@ -116,7 +116,7 @@ pub struct Instance {
     path_to_properties: PathBuf,
 
     // directory paths
-    pub path_to_macros: PathBuf,
+    path_to_macros: PathBuf,
     path_to_resources: PathBuf,
     path_to_runtimes: PathBuf,
 
