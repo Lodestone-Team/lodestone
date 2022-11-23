@@ -46,23 +46,21 @@ use crate::minecraft::MinecraftInstance;
     TManifest
 )]
 #[derive(Clone)]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(GameInstanceKind, derive(Hash))]
 pub enum GameInstance {
     MinecraftInstance,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub enum GameType {
-    Minecraft,
-}
 
-impl<'de> serde::Deserialize<'de> for GameType {
+impl<'de> serde::Deserialize<'de> for GameInstanceKind {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         match s.to_lowercase().as_str() {
-            "minecraft" => Ok(GameType::Minecraft),
+            "minecraft" => Ok(GameInstanceKind::MinecraftInstance),
             _ => Err(serde::de::Error::custom(format!(
                 "Unknown game type: {}",
                 s
@@ -70,21 +68,21 @@ impl<'de> serde::Deserialize<'de> for GameType {
         }
     }
 }
-impl serde::Serialize for GameType {
+impl serde::Serialize for GameInstanceKind {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match self {
-            GameType::Minecraft => serializer.serialize_str("minecraft"),
+            GameInstanceKind::MinecraftInstance => serializer.serialize_str("minecraft"),
         }
     }
 }
 
-impl ToString for GameType {
+impl ToString for GameInstanceKind {
     fn to_string(&self) -> String {
         match self {
-            GameType::Minecraft => "minecraft".to_string(),
+            GameInstanceKind::MinecraftInstance => "minecraft".to_string(),
         }
     }
 }
