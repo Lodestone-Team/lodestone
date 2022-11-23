@@ -209,7 +209,7 @@ pub struct Event {
     pub snowflake: i64,
     pub caused_by: CausedBy,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq, Eq)]
 #[ts(export)]
 pub enum EventLevel {
     Info,
@@ -233,7 +233,7 @@ impl From<&ClientEvent> for Event {
         Event {
             event_inner: client_event.event_inner.clone(),
             details: client_event.details.clone(),
-            snowflake: client_event.snowflake.clone(),
+            snowflake: client_event.snowflake,
             caused_by: client_event.caused_by.clone(),
         }
     }

@@ -6,7 +6,7 @@ pub struct Stateful<T, A> {
     on_transform: Box<dyn Fn(&T, &T, &A) -> Result<(), Error> + Send + Sync>,
 }
 
-impl<T,A> Stateful<T,A> {
+impl<T, A> Stateful<T, A> {
     pub fn new(
         inner: T,
         on_update: Box<dyn Fn(&T, &T, &A) -> Result<(), Error> + Send + Sync>,
@@ -18,7 +18,7 @@ impl<T,A> Stateful<T,A> {
             on_transform,
         }
     }
-    pub fn update(&mut self, inner: T, aux : A) -> Result<(), Error> {
+    pub fn update(&mut self, inner: T, aux: A) -> Result<(), Error> {
         (self.on_update)(&self.inner, &inner, &aux)?;
         self.inner = inner;
         Ok(())
@@ -26,7 +26,7 @@ impl<T,A> Stateful<T,A> {
     pub fn transform(
         &mut self,
         mut update: Box<dyn FnMut(&mut T) -> Result<(), Error>>,
-        aux : A
+        aux: A,
     ) -> Result<(), Error> {
         update(&mut self.inner)?;
         (self.on_transform)(&self.inner, &self.inner, &aux)
@@ -46,7 +46,7 @@ where
     pub fn transform_cmp(
         &mut self,
         mut update: Box<dyn FnMut(&mut T) -> Result<(), Error>>,
-        aux : A
+        aux: A,
     ) -> Result<(), Error> {
         let old = self.inner.clone();
         update(&mut self.inner)?;
