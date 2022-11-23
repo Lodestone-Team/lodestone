@@ -14,7 +14,7 @@ use ts_rs::TS;
 use crate::auth::user::UserAction;
 use crate::events::{
     new_progression_event_id, Event, EventInner, ProgressionEndValue, ProgressionEvent,
-    ProgressionEventInner,
+    ProgressionEventInner, ProgressionStartValue,
 };
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
@@ -166,7 +166,10 @@ pub async fn create_minecraft_instance(
     let uuid = setup_config.uuid.clone();
     tokio::task::spawn({
         let uuid = uuid.clone();
+        let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
+        let port = setup_config.port;
+        let flavour = setup_config.flavour.clone();
         async move {
             let progression_event_id = new_progression_event_id();
             let _ = event_broadcaster.send(Event {
@@ -176,7 +179,12 @@ pub async fn create_minecraft_instance(
                         progression_name: format!("Setting up Minecraft server {}", name),
                         producer_id: uuid.clone(),
                         total: Some(10.0),
-                        inner : None,
+                        inner: Some(ProgressionStartValue::InstanceCreation {
+                            instance_uuid: uuid.clone(),
+                            instance_name: instance_name.clone(),
+                            port,
+                            flavour,
+                        }),
                     },
                 }),
                 details: "".to_string(),
@@ -349,7 +357,9 @@ pub async fn delete_instance(
                         event_id: progression_id.clone(),
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
                             success: false,
-                            message: Some("Could not delete some or all of instance's files".to_string()),
+                            message: Some(
+                                "Could not delete some or all of instance's files".to_string(),
+                            ),
                             inner: None,
                         },
                     }),

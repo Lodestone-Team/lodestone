@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceInfo};
+use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceInfo, implementations::minecraft};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -115,8 +115,15 @@ pub enum ProgressionEndValue {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionStartValue {
-    InstanceCreation { instance_uuid: String },
-    InstanceDelete { instance_uuid: String },
+    InstanceCreation {
+        instance_uuid: String,
+        instance_name: String,
+        port: u32,
+        flavour: minecraft::Flavour,
+    },
+    InstanceDelete {
+        instance_uuid: String,
+    },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
