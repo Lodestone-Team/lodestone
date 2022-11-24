@@ -42,6 +42,7 @@ impl From<&Event> for ClientEvent {
                     }
                 }
             },
+            EventInner::FSEvent(_) => EventLevel::Info,
         };
         ClientEvent {
             event_inner: event.event_inner.clone(),

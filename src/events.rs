@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -153,6 +153,38 @@ pub enum ProgressionEventInner {
         inner: Option<ProgressionEndValue>,
     },
 }
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub enum FSOperation {
+    Read,
+    Write,
+    Create,
+    Delete,
+    Upload,
+    Download,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub enum FSTarget {
+    File(PathBuf),
+    Directory(PathBuf),
+}
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct FSEvent {
+    pub operation: FSOperation,
+    pub target: FSTarget,
+}
+
+pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by : CausedBy) -> Event {
+    Event {
+        details: "".to_string(),
+        snowflake: get_snowflake(),
+        event_inner: EventInner::FSEvent(FSEvent { operation, target }),
+        caused_by,
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -174,6 +206,7 @@ pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
     MacroEvent(MacroEvent),
+    FSEvent(FSEvent),
     ProgressionEvent(ProgressionEvent),
 }
 

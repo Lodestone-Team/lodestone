@@ -18,6 +18,7 @@ use ts_rs::TS;
 
 use crate::{
     auth::user::UserAction,
+    events::{new_fs_event, CausedBy, FSOperation, FSTarget},
     traits::{Error, ErrorInner},
     util::list_dir,
     AppState,
@@ -97,23 +98,27 @@ async fn list_files(
             detail: "Path is not a directory".to_string(),
         });
     }
-    Ok(Json(
-        list_dir(&path, None)
-            .await?
-            .iter()
-            .map(|p| {
-                let r: File = p.as_path().into();
-                r
-            })
-            .collect(),
-    ))
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+    let ret : Vec<File> = list_dir(&path, None).await?.iter().map(|p| {
+        let r: File = p.as_path().into();
+        r
+    }).collect();
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Read,
+        FSTarget::Directory(path),
+        caused_by,
+    ));
+    Ok(Json(ret))
 }
 
 async fn read_file(
     Extension(state): Extension<AppState>,
     Path(absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<String>, Error> {
+) -> Result<String, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -134,12 +139,20 @@ async fn read_file(
             detail: "File not found".to_string(),
         });
     }
-    Ok(Json(tokio::fs::read_to_string(&path).await.map_err(
-        |_| Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "You may only view text files encoded in UTF-8.".to_string(),
-        },
-    )?))
+    let ret = tokio::fs::read_to_string(&path).await.map_err(|_| Error {
+        inner: ErrorInner::FileOrDirNotFound,
+        detail: "You may only view text files encoded in UTF-8.".to_string(),
+    })?;
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Read,
+        FSTarget::File(path),
+        caused_by,
+    ));
+    Ok(ret)
 }
 
 async fn write_file(
@@ -168,10 +181,20 @@ async fn write_file(
             detail: "File not found".to_string(),
         });
     }
-    tokio::fs::write(path, body).await.map_err(|e| Error {
+    tokio::fs::write(&path, body).await.map_err(|e| Error {
         inner: ErrorInner::MalformedRequest,
         detail: format!("Error writing file: {}", e),
     })?;
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Write,
+        FSTarget::File(path),
+        caused_by,
+    ));
     Ok(Json(()))
 }
 
@@ -200,10 +223,20 @@ async fn make_directory(
             detail: "File or directory already exists".to_string(),
         });
     }
-    tokio::fs::create_dir(path).await.map_err(|e| Error {
+    tokio::fs::create_dir(&path).await.map_err(|e| Error {
         inner: ErrorInner::MalformedRequest,
         detail: format!("Failed to create directory: {}", e),
     })?;
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Create,
+        FSTarget::Directory(path),
+        caused_by,
+    ));
     Ok(Json(()))
 }
 
@@ -233,7 +266,7 @@ async fn remove_file(
         });
     }
     if path.is_file() {
-        tokio::fs::remove_file(path).await.map_err(|e| Error {
+        tokio::fs::remove_file(&path).await.map_err(|e| Error {
             inner: ErrorInner::MalformedRequest,
             detail: format!("Failed to remove file: {}", e),
         })?;
@@ -243,6 +276,15 @@ async fn remove_file(
             detail: "Path is not a file.".to_string(),
         });
     }
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Delete,
+        FSTarget::File(path),
+        caused_by,
+    ));
     Ok(Json(()))
 }
 
@@ -272,7 +314,7 @@ async fn remove_dir(
         });
     }
     if path.is_dir() {
-        tokio::fs::remove_file(path).await.map_err(|e| Error {
+        tokio::fs::remove_file(&path).await.map_err(|e| Error {
             inner: ErrorInner::MalformedRequest,
             detail: format!("Failed to remove dir: {}", e),
         })?;
@@ -282,6 +324,17 @@ async fn remove_dir(
             detail: "Path is not a directory.".to_string(),
         });
     }
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Delete,
+        FSTarget::Directory(path),
+        caused_by,
+    ));
+
     Ok(Json(()))
 }
 
@@ -311,10 +364,20 @@ async fn new_file(
         });
     }
 
-    tokio::fs::File::create(path).await.map_err(|_| Error {
+    tokio::fs::File::create(&path).await.map_err(|_| Error {
         inner: ErrorInner::MalformedRequest,
         detail: "Failed to create file".to_string(),
     })?;
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username.clone(),
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Create,
+        FSTarget::File(path),
+        caused_by,
+    ));
 
     Ok(Json(()))
 }
@@ -374,6 +437,15 @@ async fn download_file(
 
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username.clone(),
+    };
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Download,
+        FSTarget::File(path),
+        caused_by,
+    ));
     Ok((TypedHeader(content_type), body))
 }
 
@@ -458,6 +530,15 @@ async fn upload_file(
                 }
             })?;
         }
+        let caused_by = CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        };
+        let _ = state.event_broadcaster.send(new_fs_event(
+            FSOperation::Upload,
+            FSTarget::File(path),
+            caused_by,
+        ));
     }
 
     Ok(Json(()))

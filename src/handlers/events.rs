@@ -287,6 +287,7 @@ async fn console_stream_ws(
                     },
                     EventInner::MacroEvent(_) => continue,
                     EventInner::ProgressionEvent(_) => continue,
+                    EventInner::FSEvent(_) => continue,
                 }
             }
             Some(Ok(ws_msg)) = receiver.next() => {

@@ -51,6 +51,7 @@ pub fn can_user_view_event(event: impl AsRef<Event>, user: &User) -> bool {
             user.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
         }
         EventInner::UserEvent(_event) => user.can_perform_action(&UserAction::ManageUser),
+        EventInner::FSEvent(_) => user.can_perform_action(&UserAction::ManageUser),
         EventInner::MacroEvent(macro_event) => {
             user.can_perform_action(&UserAction::AccessMacro(macro_event.macro_uuid.clone()))
         }
