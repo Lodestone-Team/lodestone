@@ -37,10 +37,17 @@ const Dashboard: NextPageWithLayout = () => {
 
   if (!instance || !uuid) {
     return (
-      <div className="px-12 py-10">
-        <h1 className="-ml-4 font-heading text-2xlarge font-semibold tracking-tight text-gray-300">
-          Instance not found
-        </h1>
+      <div
+        className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container"
+        key={uuid}
+      >
+        <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
+          <div className="flex min-w-0 flex-row items-center gap-4">
+            <h1 className="truncate whitespace-pre dashboard-instance-heading">
+              Instance not found
+            </h1>
+          </div>
+        </div>
       </div>
     );
   }
@@ -118,11 +125,13 @@ const Dashboard: NextPageWithLayout = () => {
   };
 
   return (
+    // used to possibly center the content
     <div
-      className="relative h-full overflow-y-scroll w-full px-4 pt-8 pb-10 @container flex flex-row justify-center"
+      className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container"
       key={uuid}
     >
-      <div className="flex min-h-full h-fit grow flex-col items-start gap-2 w-full">
+      {/* main content container */}
+      <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
         <div className="flex min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
@@ -150,9 +159,7 @@ const Dashboard: NextPageWithLayout = () => {
             color="gray"
             className="flex flex-row items-center gap-3"
           >
-            <ClipboardTextfield
-              text={`${address}:${instance.port}`}
-            />
+            <ClipboardTextfield text={`${address}:${instance.port}`} />
           </Label>
           <Button
             label="Delete"
@@ -210,7 +217,10 @@ const Dashboard: NextPageWithLayout = () => {
           </Tab.List>
           <Tab.Panels className="flex w-full grow flex-row items-stretch">
             {tabList[instance.game_type].map((tab) => (
-              <Tab.Panel className="flex w-full flex-col gap-16" key={tab.title}>
+              <Tab.Panel
+                className="flex w-full flex-col gap-16"
+                key={tab.title}
+              >
                 {tab.content}
               </Tab.Panel>
             ))}

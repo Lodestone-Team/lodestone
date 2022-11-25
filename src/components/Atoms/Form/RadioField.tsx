@@ -6,9 +6,6 @@ import { RadioGroup } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
-const iconClassName =
-  'w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500';
-
 export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;
   options: string[];
@@ -20,7 +17,7 @@ export default function RadioField(props: RadioFieldProps) {
   const { value: selectedValue } = field;
   const [touched, error] = at(meta, 'touched', 'error');
   const isError = touched && error && true;
-  const uiError = isError ? error : '';
+  const errorText = isError ? error : '';
 
   // reset the field value if the options change
   useEffect(() => {
@@ -65,23 +62,13 @@ export default function RadioField(props: RadioFieldProps) {
             <RadioGroup.Option
               value={option}
               key={option}
-              className={`w-full overflow-clip bg-gray-900 text-left font-medium leading-snug tracking-tight outline outline-1 first:rounded-l-md last:rounded-r-md focus-visible:ring-4 ${
-                disabled
-                  ? 'bg-gray-800 text-white/50'
-                  : 'cursor-pointer text-gray-300 hover:bg-gray-800'
-              } ${
-                uiError === ''
-                  ? `outline-gray-faded/30 ${
-                      disabled || 'focus-visible:ring-blue/30'
-                    } invalid:outline-red invalid:focus-visible:outline-red`
-                  : `outline-red focus-visible:outline-red ${
-                      disabled || 'focus-visible:ring-red-faded/30'
-                    }`
-              }`}
+              className={`input-base w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md
+              ${disabled ? 'disabled' : 'enabled cursor-pointer'}
+              ${isError ? 'border-error' : 'border-normal'}`}
             >
               {({ checked }) => (
                 <span
-                  className={`block h-full w-full select-none py-1.5 text-center ${
+                  className={`block h-full w-full select-none py-1.5 px-3 text-center ${
                     disabled
                       ? checked
                         ? 'bg-blue-faded/30 text-white/50'
@@ -97,12 +84,12 @@ export default function RadioField(props: RadioFieldProps) {
             </RadioGroup.Option>
           ))}
         </RadioGroup>
-        {uiError && (
+        {errorText && (
           <div
             className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
           `}
           >
-            {uiError || 'Unknown error'}
+            {errorText || 'Unknown error'}
           </div>
         )}
       </div>

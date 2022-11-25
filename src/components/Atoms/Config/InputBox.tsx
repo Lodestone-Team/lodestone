@@ -5,15 +5,6 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString, parseintStrict } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
-const inputClassName =
-  'w-full appearance-none bg-gray-900 py-1.5 px-3 rounded-md outline outline-1 enabled:text-gray-300 tracking-tight leading-snug font-medium focus-visible:ring-4  disabled:text-white/50 disabled:bg-gray-800';
-const inputBorderClassName =
-  'outline-gray-faded/30 enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
-const inputErrorBorderClassName =
-  'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
-
-const iconClassName =
-  'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
 
 export type InputBoxType = 'text' | 'number';
 
@@ -142,7 +133,7 @@ export default function InputBox({
       formRef.current?.reset();
   };
 
-  const uiError = errorProp || error;
+  const errorText = errorProp || error;
 
   let icons = [];
 
@@ -150,7 +141,7 @@ export default function InputBox({
     icons.push(
       <FontAwesomeIcon
         icon={faFloppyDisk}
-        className={iconClassName}
+        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
         onClick={() => formRef.current?.requestSubmit()}
         key="save"
       />
@@ -158,7 +149,7 @@ export default function InputBox({
     icons.push(
       <FontAwesomeIcon
         icon={faRotateRight}
-        className={iconClassName}
+        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
         onClick={() => formRef.current?.reset()}
         key="reset"
       />
@@ -187,9 +178,9 @@ export default function InputBox({
     >
       <div className={`flex flex-col`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
-        {uiError ? (
+        {errorText ? (
           <p className="text-small font-medium tracking-medium text-red">
-            {uiError || 'Unknown error'}
+            {errorText || 'Unknown error'}
           </p>
         ) : (
           <p className="text-small font-medium tracking-medium text-white/50">
@@ -205,7 +196,11 @@ export default function InputBox({
         onKeyDown={handleKeyDown}
         id={id}
       >
-        <div className={`absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${(!removeArrows && type==="number") ? "pl-3 pr-9" : "px-3"}`}>
+        <div
+          className={`absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
+            !removeArrows && type === 'number' ? 'pl-3 pr-9' : 'px-3'
+          }`}
+        >
           <div className="flex flex-row gap-2">{showIcons && icons}</div>
         </div>
         <input
@@ -213,8 +208,8 @@ export default function InputBox({
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
-          className={`${inputClassName} ${
-            uiError ? inputErrorBorderClassName : inputBorderClassName
+          className={`input-base w-full ${
+            errorText ? 'border-error' : 'border-normal'
           }
             ${removeArrows && 'noSpin'}`}
           onBlur={() => {

@@ -94,8 +94,8 @@ export default function EditableTextfield({
     <div
       className={`group relative flex flex-row items-center justify-start ${
         type === 'heading'
-          ? 'font-title text-2xlarge font-[550] tracking-medium'
-          : 'font-mediumtracking-tight text-small italic'
+          ? 'dashboard-instance-heading'
+          : 'font-medium tracking-tight text-small italic'
       } ${containerClassName}`}
     >
       <div
@@ -105,7 +105,7 @@ export default function EditableTextfield({
       >
         {isEditing ? (
           <AutoGrowInput
-            textClassName={`focus:outline-none tracking-tight bg-transparent text-gray-300 ${textClassName}`}
+            textClassName={`focus:outline-none bg-transparent text-gray-300 ${textClassName}`}
             value={editText}
             onChange={onEdit}
             onBlur={onCancel}
@@ -126,7 +126,7 @@ export default function EditableTextfield({
             }}
           >
             <span
-              className={`whitespace-pre bg-transparent pl-[1ch] pr-[0.5ch] tracking-tight`}
+              className={`whitespace-pre bg-transparent pl-[1ch] pr-[0.5ch]`}
             >
               {displayText ? displayText : placeholder}
             </span>
