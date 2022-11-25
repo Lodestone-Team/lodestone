@@ -239,13 +239,21 @@ export const useEventStream = () => {
           );
         },
         FSEvent: ({ operation, target }) => {
-          console.log(`FS ${operation} on ${target}`);
-          // TODO: flush this out
-          dispatch({
-            message: `FS ${operation} on ${target}`,
-            event,
+          match(target, {
+            File: ({path}) => {
+              dispatch({
+                message: `FS ${operation} on ${path}`,
+                event,
+              });
+            },
+            Directory: ({path}) => {
+              dispatch({
+                message: `FS ${operation} on ${path}`,
+                event,
+              });
+            },
           });
-        }
+        },
       });
     },
     [
