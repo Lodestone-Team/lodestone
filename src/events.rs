@@ -165,7 +165,7 @@ pub enum FSOperation {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[serde(tag = "type")]
+#[serde(tag = "type", content = "path")]
 #[ts(export)]
 pub enum FSTarget {
     File(PathBuf),
