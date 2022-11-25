@@ -223,9 +223,9 @@ export const useEventStream = () => {
             inner,
             otherwise(
               {
-                ProgressionEnd: ({ value }) => {
-                  if (!value) return;
-                  match(value, {
+                ProgressionEnd: ({ inner }) => {
+                  if (!inner) return;
+                  match(inner, {
                     InstanceCreation: (instance_info) =>
                       addInstance(instance_info, queryClient),
                     InstanceDelete: ({ instance_uuid: uuid }) =>
@@ -238,6 +238,14 @@ export const useEventStream = () => {
             )
           );
         },
+        FSEvent: ({ operation, target }) => {
+          console.log(`FS ${operation} on ${target}`);
+          // TODO: flush this out
+          dispatch({
+            message: `FS ${operation} on ${target}`,
+            event,
+          });
+        }
       });
     },
     [
