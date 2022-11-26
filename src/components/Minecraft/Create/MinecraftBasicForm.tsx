@@ -42,7 +42,6 @@ export default function MinecraftBasicForm() {
           }),
       { enabled: isReady && values.flavour !== '' }
     );
-
   return (
     <>
       <h1 className="text-larger font-bold tracking-tight text-gray-300">
@@ -56,7 +55,7 @@ export default function MinecraftBasicForm() {
         <RadioField
           name="flavour"
           label="Flavour"
-          disabled={minecraftFlavoursLoading}
+          loading={minecraftFlavoursLoading}
           options={minecraftFlavours ?? []}
         />
         <ComboField
@@ -65,7 +64,8 @@ export default function MinecraftBasicForm() {
           placeholder={
             values.flavour === '' ? 'Select a flavour first' : 'Select a version'
           }
-          disabled={minecraftVersionsLoading || !values.flavour}
+          disabled={!values.flavour}
+          loading={minecraftVersionsLoading}
           options={minecraftVersions ?? []}
         />
         <InputField

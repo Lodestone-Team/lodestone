@@ -4,21 +4,26 @@ import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Combobox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import BeatLoader from 'react-spinners/BeatLoader';
 import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
+  loading?: boolean;
   options: string[];
 };
 
 export default function ComboField(props: ComboFieldProps) {
-  const { label, className, disabled, options, placeholder, ...rest } = props;
+  const { label, className, disabled, options, placeholder, loading, ...rest } =
+    props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
   const [touched, error] = at(meta, 'touched', 'error');
   const isError = touched && error && true;
   const errorText = isError ? error : '';
+  const disabledVisual = disabled || loading;
+  const loadingVisual = loading && !disabled;
 
   // reset the field value if the options change
   useEffect(() => {
@@ -39,6 +44,29 @@ export default function ComboField(props: ComboFieldProps) {
       : options.filter((option) => {
           return option.toLowerCase().includes(query.toLowerCase());
         });
+
+  const icon = loadingVisual ? (
+    <BeatLoader
+      key="loading"
+      size="0.25rem"
+      cssOverride={{
+        width: '2rem',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        margin: `0 -0.5rem`,
+      }}
+      color="#6b7280"
+    />
+  ) : (
+    <FontAwesomeIcon
+      key="icon"
+      icon={faAngleDown}
+      className={`w-4 text-gray-faded/30 ${
+        disabledVisual || 'group-hover:cursor-pointer group-hover:text-gray-500'
+      }`}
+    />
+  );
 
   return (
     <div
@@ -61,7 +89,7 @@ export default function ComboField(props: ComboFieldProps) {
             };
             field.onChange(event);
           }}
-          disabled={disabled}
+          disabled={disabledVisual}
         >
           <Combobox.Input
             className={`input-base group min-h-[1em] w-full py-1.5 px-3 ${
@@ -71,14 +99,7 @@ export default function ComboField(props: ComboFieldProps) {
             placeholder={placeholder}
           />
           <Combobox.Button className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
-            <FontAwesomeIcon
-              key="icon"
-              icon={faAngleDown}
-              className={`w-4 text-gray-faded/30 ${
-                disabled ||
-                'group-hover:cursor-pointer group-hover:text-gray-500'
-              }`}
-            />
+            {icon}
           </Combobox.Button>
           <Combobox.Options
             className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto py-1 shadow-md`}

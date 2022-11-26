@@ -4,20 +4,25 @@ import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Listbox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import BeatLoader from 'react-spinners/BeatLoader';
 import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 export type SelectFieldProps = FieldHookConfig<string> & {
   label?: string;
+  loading?: boolean;
   options: string[];
 };
 
 export default function SelectField(props: SelectFieldProps) {
-  const { label, className, disabled, options, placeholder, ...rest } = props;
+  const { label, className, disabled, options, placeholder, loading, ...rest } =
+    props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [touched, error] = at(meta, 'touched', 'error');
   const isError = touched && error && true;
   const errorText = isError ? error : '';
+  const disabledVisual = disabled || loading;
+  const loadingVisual = loading && !disabled;
 
   // reset the field value if the options change
   useEffect(() => {
@@ -31,6 +36,27 @@ export default function SelectField(props: SelectFieldProps) {
       console.log('resetting field value');
     }
   }, [options, selectedValue]);
+
+  const icon = loadingVisual ? (
+    <BeatLoader
+      key="loading"
+      size="0.25rem"
+      cssOverride={{
+        width: '2rem',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        margin: `0 -0.5rem`,
+      }}
+      color="#6b7280"
+    />
+  ) : (
+    <FontAwesomeIcon
+      key="icon"
+      icon={faAngleDown}
+      className="w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500"
+    />
+  );
 
   return (
     <div
@@ -53,7 +79,7 @@ export default function SelectField(props: SelectFieldProps) {
             };
             field.onChange(event);
           }}
-          disabled={disabled}
+          disabled={disabledVisual}
         >
           <Listbox.Button
             className={`input-base group min-h-[1em] ${
@@ -62,13 +88,7 @@ export default function SelectField(props: SelectFieldProps) {
           >
             {selectedValue ? selectedValue : placeholder || 'Select...'}
             <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
-              <div className="flex flex-row gap-2">
-                <FontAwesomeIcon
-                  key="icon"
-                  icon={faAngleDown}
-                  className="w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500"
-                />
-              </div>
+              <div className="flex flex-row gap-2">{icon}</div>
             </div>
           </Listbox.Button>
           <Listbox.Options
