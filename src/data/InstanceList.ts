@@ -49,6 +49,7 @@ export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
   );
 };
 
+// instance list sorted by creation time
 export const useInstanceList = () =>
   useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(
     ['instances', 'list'],

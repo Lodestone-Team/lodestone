@@ -1,3 +1,4 @@
+import { ProgressionStartValue } from './../bindings/ProgressionStartValue';
 import { getSnowflakeTimestamp } from './../utils/util';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { createContext, useReducer } from 'react';
@@ -26,6 +27,7 @@ export type OngoingNotificationItem = {
   event_id: string;
   key: string;
   level: EventLevel;
+  start_value: ProgressionStartValue | null;
 };
 
 // used for dispatching to the notification reducer
@@ -89,7 +91,7 @@ export const useOngoingNotificationReducer = () => {
       const level = action.event.level;
 
       match(event_inner, {
-        ProgressionStart: ({ progression_name, total }) => {
+        ProgressionStart: ({ progression_name, total, inner }) => {
           state.push({
             state: 'ongoing',
             progress: 0,
@@ -100,6 +102,7 @@ export const useOngoingNotificationReducer = () => {
             event_id,
             key: event_id,
             level,
+            start_value: inner,
           });
         },
         ProgressionUpdate: ({ progress, progress_message }) => {

@@ -7,38 +7,39 @@ import {
 import { EventLevel } from 'bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 
-const NotificationLevelToFgColorClass = (
-  level: EventLevel,
-  state?: OngoingState
-) => {
-  switch (level) {
-    case 'Warning':
-      return 'text-ochre';
-    case 'Error':
-      return 'text-red';
-    default:
-      switch (state) {
-        case 'ongoing':
-          return 'text-gray-500';
-        case 'done':
-          return 'text-green';
-        case 'error':
-          return 'text-red';
-        default:
-          return 'text-gray-500';
-      }
-  }
-};
-
 export default function LoadingStatusIcon({
   level,
   state,
-  className = '',
+  className = 'h-5',
+  bright = false,
 }: {
   level: EventLevel;
   state?: OngoingState;
   className?: string;
+  bright?: boolean;
 }) {
+  const NotificationLevelToFgColorClass = (
+    level: EventLevel,
+    state?: OngoingState
+  ) => {
+    switch (level) {
+      case 'Warning':
+        return 'text-ochre';
+      case 'Error':
+        return 'text-red';
+      default:
+        switch (state) {
+          case 'done':
+            return 'text-green';
+          case 'error':
+            return 'text-red';
+          case 'ongoing':
+          default:
+            return bright ? 'text-gray-300' : 'text-gray-500';
+        }
+    }
+  };
+
   const fgColorClass = NotificationLevelToFgColorClass(level, state);
   if (state) {
     if (state === 'ongoing')
@@ -49,7 +50,7 @@ export default function LoadingStatusIcon({
           role="img"
           focusable="false"
           aria-hidden="true"
-          className={`svg-inline--fa h-5 animate-spin ${fgColorClass} ${className}`}
+          className={`svg-inline--fa animate-spin ${fgColorClass} ${className}`}
         >
           <g clipPath="url(#clip0_1614_2092)">
             <path
@@ -71,7 +72,7 @@ export default function LoadingStatusIcon({
     return (
       <FontAwesomeIcon
         icon={state === 'done' ? faCircleCheck : faCircleXmark}
-        className={`h-5 ${fgColorClass} ${className}`}
+        className={`${fgColorClass} ${className}`}
       />
     );
   } else {
@@ -84,7 +85,7 @@ export default function LoadingStatusIcon({
             role="img"
             focusable="false"
             aria-hidden="true"
-            className={`svg-inline--fa h-5 ${fgColorClass} ${className}`}
+            className={`svg-inline--fa ${fgColorClass} ${className}`}
           >
             <g clipPath="url(#clip0_1499_2030)">
               <path
@@ -115,7 +116,7 @@ export default function LoadingStatusIcon({
         return (
           <FontAwesomeIcon
             icon={faCircleXmark}
-            className={`h-5 ${fgColorClass} ${className}`}
+            className={`${fgColorClass} ${className}`}
           />
         );
       default:
@@ -126,7 +127,7 @@ export default function LoadingStatusIcon({
             role="img"
             focusable="false"
             aria-hidden="true"
-            className={`svg-inline--fa h-5 ${fgColorClass} ${className}`}
+            className={`svg-inline--fa ${fgColorClass} ${className}`}
           >
             <g clipPath="url(#clip0_1499_2024)">
               <path
