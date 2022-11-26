@@ -231,6 +231,8 @@ export const useEventStream = () => {
                         {
                           InstanceCreation: (instance_info) =>
                             addInstance(instance_info, queryClient),
+                          InstanceDelete: ({ instance_uuid: uuid }) =>
+                            deleteInstance(uuid, queryClient),
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => {}
@@ -243,8 +245,8 @@ export const useEventStream = () => {
                       inner,
                       otherwise(
                         {
-                          InstanceDelete: ({ instance_uuid: uuid }) =>
-                            deleteInstance(uuid, queryClient),
+                          // InstanceDelete: ({ instance_uuid: uuid }) =>
+                          //   deleteInstance(uuid, queryClient),
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => {}
