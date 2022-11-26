@@ -54,7 +54,7 @@ export const useEventStream = () => {
   );
 
   const handleEvent = useCallback(
-    (event: ClientEvent) => {
+    (event: ClientEvent, fresh: boolean) => {
       const { event_inner, snowflake_str } = event;
 
       match(event_inner, {
@@ -129,16 +129,16 @@ export const useEventStream = () => {
                   ? `${players_joined.join(', ')} Joined ${name}`
                   : ''
               }
-            ${
-              players_left.length > 0 && players_joined.length > 0
-                ? ' and '
-                : ''
-            }
-            ${
-              players_left.length > 0
-                ? `${players_left.join(', ')} Left ${name}`
-                : ''
-            }`;
+              ${
+                players_left.length > 0 && players_joined.length > 0
+                  ? ' and '
+                  : ''
+              }
+              ${
+                players_left.length > 0
+                  ? `${players_left.join(', ')} Left ${name}`
+                  : ''
+              }`;
               dispatch({
                 message,
                 event,
@@ -218,35 +218,55 @@ export const useEventStream = () => {
           });
           // check if there's a "value"
           const inner = progressionEvent.progression_event_inner;
-
-          match(
-            inner,
-            otherwise(
-              {
-                ProgressionEnd: ({ inner }) => {
-                  if (!inner) return;
-                  match(inner, {
-                    InstanceCreation: (instance_info) =>
-                      addInstance(instance_info, queryClient),
-                    InstanceDelete: ({ instance_uuid: uuid }) =>
-                      deleteInstance(uuid, queryClient),
-                  });
+          if (fresh) {
+            match(
+              inner,
+              otherwise(
+                {
+                  ProgressionEnd: ({ inner }) => {
+                    if (!inner) return;
+                    match(
+                      inner,
+                      otherwise(
+                        {
+                          InstanceCreation: (instance_info) =>
+                            addInstance(instance_info, queryClient),
+                        },
+                        // eslint-disable-next-line @typescript-eslint/no-empty-function
+                        (_) => {}
+                      )
+                    );
+                  },
+                  ProgressionStart: ({ inner }) => {
+                    if (!inner) return;
+                    match(
+                      inner,
+                      otherwise(
+                        {
+                          InstanceDelete: ({ instance_uuid: uuid }) =>
+                            deleteInstance(uuid, queryClient),
+                        },
+                        // eslint-disable-next-line @typescript-eslint/no-empty-function
+                        (_) => {}
+                      )
+                    );
+                  },
                 },
-              },
-              // eslint-disable-next-line @typescript-eslint/no-empty-function
-              (_) => {}
-            )
-          );
+                // eslint-disable-next-line @typescript-eslint/no-empty-function
+                (_) => {}
+              )
+            );
+          }
         },
         FSEvent: ({ operation, target }) => {
           match(target, {
-            File: ({path}) => {
+            File: ({ path }) => {
               dispatch({
                 message: `FS ${operation} on ${path}`,
                 event,
               });
             },
-            Directory: ({path}) => {
+            Directory: ({ path }) => {
               dispatch({
                 message: `FS ${operation} on ${path}`,
                 event,
@@ -284,7 +304,7 @@ export const useEventStream = () => {
     websocket.onmessage = (messageEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const event: ClientEvent = JSON.parse(messageEvent.data);
-      handleEvent(event);
+      handleEvent(event, true);
     };
 
     return () => {
@@ -311,7 +331,7 @@ export const useEventStream = () => {
 
     axios.get<Array<ClientEvent>>(bufferAddress).then((response) => {
       response.data.forEach((event) => {
-        handleEvent(event);
+        handleEvent(event, false);
       });
     });
   }, [address, apiVersion, eventQuery, handleEvent, isReady, port, token]);
