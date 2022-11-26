@@ -13,6 +13,7 @@ export const updateInstance = (
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;
+      if (!oldData[uuid]) return oldData;
       return {
         ...oldData,
         [uuid]: updater(oldData[uuid]),

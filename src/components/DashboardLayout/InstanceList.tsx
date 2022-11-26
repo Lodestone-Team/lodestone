@@ -19,12 +19,7 @@ export default function InstanceList({
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
 
-  const InstanceCreations = ongoingNotifications.filter((notification) => {
-    return (
-      notification.start_value &&
-      notification.start_value.type === 'InstanceCreation'
-    );
-  });
+  console.log(instances)
 
   return (
     <div

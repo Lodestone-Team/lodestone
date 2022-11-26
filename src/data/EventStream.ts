@@ -65,28 +65,28 @@ export const useEventStream = () => {
         }) =>
           match(event_inner, {
             InstanceStarting: () => {
-              updateInstanceState(uuid, 'Starting');
+              if (fresh) updateInstanceState(uuid, 'Starting');
               dispatch({
                 message: `Starting instance ${name}`,
                 event,
               });
             },
             InstanceStarted: () => {
-              updateInstanceState(uuid, 'Running');
+              if (fresh) updateInstanceState(uuid, 'Running');
               dispatch({
                 message: `Instance ${name} started`,
                 event,
               });
             },
             InstanceStopping: () => {
-              updateInstanceState(uuid, 'Stopping');
+              if (fresh) updateInstanceState(uuid, 'Stopping');
               dispatch({
                 message: `Stopping instance ${name}`,
                 event,
               });
             },
             InstanceStopped: () => {
-              updateInstanceState(uuid, 'Stopped');
+              if (fresh) updateInstanceState(uuid, 'Stopped');
               dispatch({
                 message: `Instance ${name} stopped`,
                 event,
@@ -102,7 +102,7 @@ export const useEventStream = () => {
               });
             },
             InstanceError: () => {
-              updateInstanceState(uuid, 'Error');
+              if (fresh) updateInstanceState(uuid, 'Error');
               dispatch({
                 message: `Instance ${name} encountered an error`,
                 event,
