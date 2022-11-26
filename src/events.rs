@@ -125,7 +125,8 @@ pub enum ProgressionStartValue {
         instance_uuid: String,
         instance_name: String,
         port: u32,
-        flavour: minecraft::Flavour,
+        flavour: String,
+        game_type: String,
     },
     InstanceDelete {
         instance_uuid: String,
