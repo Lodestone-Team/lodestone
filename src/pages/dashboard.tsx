@@ -58,18 +58,6 @@ const Dashboard: NextPageWithLayout = () => {
   const tabList = {
     minecraft: [
       {
-        title: 'General',
-        content: (
-          <DashboardCard>
-            <h1 className="text-medium font-bold"> Placeholder </h1>
-          </DashboardCard>
-        ),
-      },
-      {
-        title: 'Console',
-        content: <GameConsole />,
-      },
-      {
         title: 'Settings',
         content: (
           <>
@@ -79,8 +67,20 @@ const Dashboard: NextPageWithLayout = () => {
         ),
       },
       {
+        title: 'Console',
+        content: <GameConsole />,
+      },
+      {
         title: 'Files',
         content: <MinecraftFileCard />,
+      },
+      {
+        title: 'Overview',
+        content: (
+          <DashboardCard>
+            <h1 className="text-medium font-bold"> Placeholder </h1>
+          </DashboardCard>
+        ),
       },
       {
         title: 'Resources',
