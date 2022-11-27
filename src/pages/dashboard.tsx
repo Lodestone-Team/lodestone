@@ -21,7 +21,7 @@ import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
-import MinecraftFileCard from 'components/Minecraft/MinecraftFileCard';
+import FileViewer from 'components/FileViewer';
 import { useUserAuthorized } from 'data/UserInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
@@ -72,7 +72,7 @@ const Dashboard: NextPageWithLayout = () => {
       },
       {
         title: 'Files',
-        content: <MinecraftFileCard />,
+        content: <FileViewer />,
       },
       {
         title: 'Overview',

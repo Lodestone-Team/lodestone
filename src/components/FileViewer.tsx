@@ -38,7 +38,7 @@ const fileSorter = (a: File, b: File) => {
   return a.file_type.localeCompare(b.file_type);
 };
 
-export default function MinecraftFileCard() {
+export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const monaco = useMonaco();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
