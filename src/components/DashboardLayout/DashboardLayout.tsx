@@ -93,7 +93,7 @@ export default function DashboardLayout({
         <div className="relative flex min-h-0 w-full grow flex-row bg-gray-850">
           <div className="flex grow flex-row justify-center gap-[1vw]">
             <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
-              <div className="h-full max-w-[16rem] child:h-full">
+              <div className="h-full w-[16rem] max-w-[16rem] child:h-full">
                 <LeftNav />
               </div>
             </div>
