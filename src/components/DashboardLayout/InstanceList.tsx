@@ -19,8 +19,6 @@ export default function InstanceList({
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
 
-  console.log(instances)
-
   return (
     <div
       className={`gap -mx-1.5 flex h-0 grow flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
