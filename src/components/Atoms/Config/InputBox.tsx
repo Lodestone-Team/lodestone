@@ -84,7 +84,8 @@ export default function InputBox({
 
   // set touch to false when the value changes
   useEffect(() => {
-    setTouched(initialValue !== value);
+    setTouched(initialValue != value);
+    console.log(initialValue, value);
     if (initialValue === value) setError('');
   }, [initialValue, value]);
 

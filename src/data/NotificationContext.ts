@@ -3,12 +3,13 @@ import { getSnowflakeTimestamp } from './../utils/util';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { createContext, useReducer } from 'react';
 import { ProgressionEvent } from 'bindings/ProgressionEvent';
-import { match } from 'variant';
+import { fields, match, variant, VariantOf } from 'variant';
 import { EventLevel } from 'bindings/EventLevel';
 
-
 export type NotificationItem = {
+  title: string;
   message: string;
+  description: string | null;
   timestamp: number;
   key: string;
   level: EventLevel;
@@ -30,15 +31,21 @@ export type OngoingNotificationItem = {
   start_value: ProgressionStartValue | null;
 };
 
-// used for dispatching to the notification reducer
-export type NotificationAction = {
-  message: string;
-  event: ClientEvent;
-};
+export const NotificationAction = variant({
+  add: fields<{
+    title: string;
+    message?: string;
+    event: ClientEvent;
+  }>(),
+  clear: {},
+});
+
+export type NotificationAction = VariantOf<typeof NotificationAction>;
 
 export type OngoingNotificationAction = {
   event: ClientEvent;
   progressionEvent: ProgressionEvent;
+  dispatch: React.Dispatch<NotificationAction>;
 };
 
 interface NotificationContext {
@@ -61,20 +68,22 @@ export const NotificationContext = createContext<NotificationContext>({
 
 export const useNotificationReducer = () => {
   const [notifications, dispatch] = useReducer(
-    (state: NotificationItem[], action: NotificationAction) => {
-      const { message, event } = action;
-      const key = event.snowflake_str;
-      const level = event.level;
-      const timestamp = getSnowflakeTimestamp(event.snowflake_str);
-      if (state.some((item) => item.key === key)) {
-        console.warn('Notification with duplicate key received');
-        return state;
-      }
-      return [
-        ...state,
-        { message, timestamp, key, level } as NotificationItem,
-      ];
-    },
+    (state: NotificationItem[], action: NotificationAction) =>
+      match(action, {
+        add: ({ title, message, event }) => {
+          const { snowflake_str: key, level } = event;
+          const timestamp = getSnowflakeTimestamp(event.snowflake_str);
+          if (state.some((item) => item.key === key)) {
+            console.warn('Notification with duplicate key received');
+            return state;
+          }
+          return [
+            ...state,
+            { title, timestamp, message, key, level } as NotificationItem,
+          ];
+        },
+        clear: () => [],
+      }),
     []
   );
 
@@ -89,43 +98,58 @@ export const useOngoingNotificationReducer = () => {
       const event_inner = action.progressionEvent.progression_event_inner;
       const event_id = action.progressionEvent.event_id;
       const level = action.event.level;
+      const dispatch = action.dispatch;
 
-      match(event_inner, {
+      return match(event_inner, {
         ProgressionStart: ({ progression_name, total, inner }) => {
-          state.push({
-            state: 'ongoing',
-            progress: 0,
-            total,
-            title: progression_name,
-            message: null,
-            timestamp,
-            event_id,
-            key: event_id,
-            level,
-            start_value: inner,
-          });
+          return [
+            ...state,
+            {
+              state: 'ongoing',
+              progress: 0,
+              total,
+              title: progression_name,
+              message: null,
+              timestamp,
+              event_id,
+              key: event_id,
+              level,
+              start_value: inner,
+            } as OngoingNotificationItem,
+          ]
         },
         ProgressionUpdate: ({ progress, progress_message }) => {
-          state.map((item) => {
+          const newState = [...state];
+          newState.map((item) => {
             if (item.event_id === event_id) {
               item.progress += progress;
               if (progress_message) item.message = progress_message;
               item.level = level;
             }
           });
+          return newState;
         },
         ProgressionEnd: ({ success, message }) => {
-          state.map((item) => {
-            if (item.event_id === event_id) {
-              item.state = success ? 'done' : 'error';
-              item.progress = item.total ?? 0;
-              if (message) item.message = message;
-              item.level = level;
-            }
+          const item = state.find((item) => item.event_id === event_id);
+          if (!item) return state;
+          dispatch({
+            type: 'add',
+            title: item.title,
+            message: message || item.message || '',
+            event: action.event,
           });
+          // remove from ongoing
+          return [...state.filter((item) => item.event_id !== event_id)];
+          // state.map((item) => {
+          //   if (item.event_id === event_id) {
+          //     item.state = success ? 'done' : 'error';
+          //     item.progress = item.total ?? 0;
+          //     if (message) item.message = message;
+          //     item.level = level;
+          //   }
+          // });
         },
       });
-      return [...state];
     },
     []
   );

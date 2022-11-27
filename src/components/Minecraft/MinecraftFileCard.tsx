@@ -467,6 +467,10 @@ export default function MinecraftFileCard() {
                   padding: {
                     top: 8,
                   },
+                  minimap: {
+                    enabled: false,
+                  },
+                  lineNumbersMinChars: 3,
                 }}
                 onMount={handleEditorDidMount}
               />

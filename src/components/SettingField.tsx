@@ -43,6 +43,8 @@ export default function SettingField({
     setValue(initialSetting ?? '');
   }, [initialSetting]);
 
+  console.log("value in settingfield" + value);
+
   const errorString = errorToMessage(error);
 
   switch (type) {
@@ -64,8 +66,6 @@ export default function SettingField({
         />
       );
     case 'number':
-      const numValue = parseInt(value);
-
       return (
         <Textfield
           label={label}
@@ -80,6 +80,9 @@ export default function SettingField({
               `/instance/${uuid}/game/${setting}`,
               value
             );
+            // print type of value
+            console.log(typeof value);
+            setValue(value);
           }}
         />
       );

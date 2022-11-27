@@ -13,12 +13,38 @@ export default function NotificationPanel({
     <div
       className={`flex w-full flex-col border-l border-gray-faded/30 bg-gray-800 ${className}`}
     >
-      <div className="border-b border-gray-faded/30 p-4 font-sans text-large font-black tracking-tight">
+      <div className="p-4 font-sans text-large font-black tracking-tight">
         Notifications
       </div>
-      {/* <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
-        Silent
-      </div> */}
+      {ongoingNotifications.length > 0 && (
+        <>
+          <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
+            In progress
+          </div>
+          <div className="space-y-4 overflow-y-auto p-4">
+            {ongoingNotifications
+              .map((notification) => (
+                <NotificationCard
+                  key={notification.key}
+                  level={notification.level}
+                  state={notification.state}
+                  title={notification.title}
+                  message={notification.message ?? 'Loading...'}
+                  progress_percent={
+                    notification.total
+                      ? notification.progress / notification.total
+                      : undefined
+                  }
+                  timestamp={notification.timestamp}
+                />
+              ))
+              .reverse()}
+          </div>
+        </>
+      )}
+      <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
+        Notifications
+      </div>
       <div className="grow basis-1 space-y-4 overflow-y-auto p-4">
         {notifications.length > 0 ? (
           notifications
@@ -26,7 +52,8 @@ export default function NotificationPanel({
               <NotificationCard
                 key={notification.key}
                 level={notification.level}
-                title={notification.message}
+                title={notification.title}
+                message={notification.message}
                 timestamp={notification.timestamp}
               />
             ))

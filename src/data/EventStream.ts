@@ -67,29 +67,33 @@ export const useEventStream = () => {
             InstanceStarting: () => {
               if (fresh) updateInstanceState(uuid, 'Starting');
               dispatch({
-                message: `Starting instance ${name}`,
+                title: `Starting instance ${name}`,
                 event,
+                type: 'add',
               });
             },
             InstanceStarted: () => {
               if (fresh) updateInstanceState(uuid, 'Running');
               dispatch({
-                message: `Instance ${name} started`,
+                title: `Instance ${name} started`,
                 event,
+                type: 'add',
               });
             },
             InstanceStopping: () => {
               if (fresh) updateInstanceState(uuid, 'Stopping');
               dispatch({
-                message: `Stopping instance ${name}`,
+                title: `Stopping instance ${name}`,
                 event,
+                type: 'add',
               });
             },
             InstanceStopped: () => {
               if (fresh) updateInstanceState(uuid, 'Stopped');
               dispatch({
-                message: `Instance ${name} stopped`,
+                title: `Instance ${name} stopped`,
                 event,
+                type: 'add',
               });
             },
             InstanceWarning: () => {
@@ -97,15 +101,17 @@ export const useEventStream = () => {
                 "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
               );
               dispatch({
-                message: `Instance ${name} encountered a warning`,
+                title: `Instance ${name} encountered a warning`,
                 event,
+                type: 'add',
               });
             },
             InstanceError: () => {
               if (fresh) updateInstanceState(uuid, 'Error');
               dispatch({
-                message: `Instance ${name} encountered an error`,
+                title: `Instance ${name} encountered an error`,
                 event,
+                type: 'add',
               });
             },
             InstanceInput: ({ message }) => {
@@ -124,7 +130,7 @@ export const useEventStream = () => {
               console.log(`${players_left} left ${name}`);
               updateInstancePlayerCount(uuid, players_joined.length);
               updateInstancePlayerCount(uuid, -players_left.length);
-              const message = `${
+              const title = `${
                 players_joined.length > 0
                   ? `${players_joined.join(', ')} Joined ${name}`
                   : ''
@@ -140,15 +146,17 @@ export const useEventStream = () => {
                   : ''
               }`;
               dispatch({
-                message,
+                title,
                 event,
+                type: 'add',
               });
             },
             PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
               dispatch({
-                message: `${player} said ${player_message} on ${name}`,
+                title: `${player} said ${player_message} on ${name}`,
                 event,
+                type: 'add',
               });
             },
           }),
@@ -157,29 +165,33 @@ export const useEventStream = () => {
             UserCreated: () => {
               console.log(`User ${uid} created`);
               dispatch({
-                message: `User ${uid} created`,
+                title: `User ${uid} created`,
                 event,
+                type: 'add',
               });
             },
             UserDeleted: () => {
               console.log(`User ${uid} deleted`);
               dispatch({
-                message: `User ${uid} deleted`,
+                title: `User ${uid} deleted`,
                 event,
+                type: 'add',
               });
             },
             UserLoggedIn: () => {
               console.log(`User ${uid} logged in`);
               dispatch({
-                message: `User ${uid} logged in`,
+                title: `User ${uid} logged in`,
                 event,
+                type: 'add',
               });
             },
             UserLoggedOut: () => {
               console.log(`User ${uid} logged out`);
               dispatch({
-                message: `User ${uid} logged out`,
+                title: `User ${uid} logged out`,
                 event,
+                type: 'add',
               });
             },
           }),
@@ -192,22 +204,25 @@ export const useEventStream = () => {
             MacroStarted: () => {
               console.log(`Macro ${macro_id} started on ${uuid}`);
               dispatch({
-                message: `Macro ${macro_id} started on ${uuid}`,
+                title: `Macro ${macro_id} started on ${uuid}`,
                 event,
+                type: 'add',
               });
             },
             MacroStopped: () => {
               console.log(`Macro ${macro_id} stopped on ${uuid}`);
               dispatch({
-                message: `Macro ${macro_id} stopped on ${uuid}`,
+                title: `Macro ${macro_id} stopped on ${uuid}`,
                 event,
+                type: 'add',
               });
             },
             MacroErrored: ({ error_msg }) => {
               console.log(`Macro ${macro_id} errored on ${uuid}: ${error_msg}`);
               dispatch({
-                message: `Macro ${macro_id} errored on ${uuid}: ${error_msg}`,
+                title: `Macro ${macro_id} errored on ${uuid}: ${error_msg}`,
                 event,
+                type: 'add',
               });
             },
           }),
@@ -215,6 +230,7 @@ export const useEventStream = () => {
           ongoingDispatch({
             event,
             progressionEvent,
+            dispatch,
           });
           // check if there's a "value"
           const inner = progressionEvent.progression_event_inner;
@@ -223,7 +239,7 @@ export const useEventStream = () => {
               inner,
               otherwise(
                 {
-                  ProgressionEnd: ({ inner }) => {
+                  ProgressionEnd: ({ inner, message }) => {
                     if (!inner) return;
                     match(
                       inner,
@@ -261,20 +277,23 @@ export const useEventStream = () => {
           }
         },
         FSEvent: ({ operation, target }) => {
-          match(target, {
-            File: ({ path }) => {
-              dispatch({
-                message: `FS ${operation} on ${path}`,
-                event,
-              });
-            },
-            Directory: ({ path }) => {
-              dispatch({
-                message: `FS ${operation} on ${path}`,
-                event,
-              });
-            },
-          });
+          console.log(`FS ${operation} on ${target}`);
+          // match(target, {
+          //   File: ({ path }) => {
+          //     dispatch({
+          //       title: `FS ${operation} on ${path}`,
+          //       event,
+          //       type: 'add',
+          //     });
+          //   },
+          //   Directory: ({ path }) => {
+          //     dispatch({
+          //       title: `FS ${operation} on ${path}`,
+          //       event,
+          //       type: 'add',
+          //     });
+          //   },
+          // });
         },
       });
     },
@@ -290,6 +309,20 @@ export const useEventStream = () => {
   useEffect(() => {
     if (!isReady) return;
     if (!token) return;
+
+    dispatch({
+      type: 'clear',
+    });
+
+    const bufferAddress = `/events/all/buffer?filter=${JSON.stringify(
+      eventQuery
+    )}`;
+
+    axios.get<Array<ClientEvent>>(bufferAddress).then((response) => {
+      response.data.forEach((event) => {
+        handleEvent(event, false);
+      });
+    });
 
     const wsAddress = `ws://${address}:${
       port ?? 16662
@@ -322,19 +355,4 @@ export const useEventStream = () => {
     queryClient,
     token,
   ]);
-
-  useEffect(() => {
-    if (!isReady) return;
-    if (!token) return;
-
-    const bufferAddress = `/events/all/buffer?filter=${JSON.stringify(
-      eventQuery
-    )}`;
-
-    axios.get<Array<ClientEvent>>(bufferAddress).then((response) => {
-      response.data.forEach((event) => {
-        handleEvent(event, false);
-      });
-    });
-  }, [address, apiVersion, eventQuery, handleEvent, isReady, port, token]);
 };
