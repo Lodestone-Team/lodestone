@@ -62,6 +62,7 @@ walkdir = "2.3.2"
 enum-kinds = "0.5.1"
 tokio-util = "0.7.4"
 enum_dispatch = "0.3.8"
+rcon = {version = "0.6.0", features = ["rt-tokio"]}
 [dependencies.uuid]
 version = "1.1.2"
 features = [
