@@ -28,7 +28,7 @@ use stateful::Stateful;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
@@ -73,6 +73,7 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_allocator: Arc<Mutex<PortAllocator>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
+    download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
 }
 
 async fn restore_instances(
@@ -289,6 +290,7 @@ pub async fn run() {
         port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
+        download_urls: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let event_buffer_task = {

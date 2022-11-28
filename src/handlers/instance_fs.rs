@@ -1,22 +1,19 @@
 use axum::{
-    body::{Bytes, StreamBody},
+    body::Bytes,
     extract::{Multipart, Path},
-    response::TypedHeader,
     routing::{delete, get, put},
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
-use headers::ContentType;
 use log::debug;
 use tokio::io::AsyncWriteExt;
-use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
 use crate::{
     auth::user::UserAction,
     events::{new_fs_event, CausedBy, FSOperation, FSTarget},
     traits::{t_configurable::TConfigurable, Error, ErrorInner},
-    util::{list_dir, scoped_join_win_safe},
+    util::{list_dir, rand_alphanumeric, scoped_join_win_safe},
     AppState,
 };
 
@@ -483,13 +480,7 @@ async fn download_instance_file(
     Extension(state): Extension<AppState>,
     Path((uuid, relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
-) -> Result<
-    (
-        TypedHeader<ContentType>,
-        StreamBody<ReaderStream<tokio::fs::File>>,
-    ),
-    Error,
-> {
+) -> Result<String, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -522,25 +513,14 @@ async fn download_instance_file(
             detail: "Path is not a file".to_string(),
         });
     }
-    let file = tokio::fs::File::open(&path).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Failed to open file".to_string(),
-    })?;
-    let content_type = match path.extension() {
-        Some(extension) => match extension.to_str().unwrap() {
-            "html" => ContentType::html(),
-            "json" => ContentType::json(),
-            "txt" => ContentType::text_utf8(),
-            "png" => ContentType::png(),
-            "jpg" => ContentType::jpeg(),
-            "jpeg" => ContentType::jpeg(),
-            _ => ContentType::octet_stream(),
-        },
-        None => ContentType::octet_stream(),
-    };
+    let key = rand_alphanumeric(32);
+    state
+        .download_urls
+        .lock()
+        .await
+        .insert(key.clone(), path.clone());
 
-    let stream = ReaderStream::new(file);
-    let body = StreamBody::new(stream);
+    state.download_urls.lock().await.get(&key).unwrap();
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -551,7 +531,7 @@ async fn download_instance_file(
         FSTarget::File(path),
         caused_by,
     ));
-    Ok((TypedHeader(content_type), body))
+    Ok(key)
 }
 
 async fn upload_instance_file(

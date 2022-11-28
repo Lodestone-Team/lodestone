@@ -20,7 +20,7 @@ use crate::{
     auth::user::UserAction,
     events::{new_fs_event, CausedBy, FSOperation, FSTarget},
     traits::{Error, ErrorInner},
-    util::list_dir,
+    util::{list_dir, rand_alphanumeric},
     AppState,
 };
 
@@ -390,13 +390,7 @@ async fn download_file(
     Extension(state): Extension<AppState>,
     Path(absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
-) -> Result<
-    (
-        TypedHeader<ContentType>,
-        StreamBody<ReaderStream<tokio::fs::File>>,
-    ),
-    Error,
-> {
+) -> Result<String, Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -422,25 +416,8 @@ async fn download_file(
             detail: "Path is not a file".to_string(),
         });
     }
-    let file = tokio::fs::File::open(&path).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Failed to open file".to_string(),
-    })?;
-    let content_type = match path.extension() {
-        Some(extension) => match extension.to_str().unwrap() {
-            "html" => ContentType::html(),
-            "json" => ContentType::json(),
-            "txt" => ContentType::text_utf8(),
-            "png" => ContentType::png(),
-            "jpg" => ContentType::jpeg(),
-            "jpeg" => ContentType::jpeg(),
-            _ => ContentType::octet_stream(),
-        },
-        None => ContentType::octet_stream(),
-    };
-
-    let stream = ReaderStream::new(file);
-    let body = StreamBody::new(stream);
+    let key = rand_alphanumeric(32);
+    state.download_urls.lock().await.insert(key.clone(), path.clone());
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username.clone(),
@@ -450,7 +427,7 @@ async fn download_file(
         FSTarget::File(path),
         caused_by,
     ));
-    Ok((TypedHeader(content_type), body))
+    Ok(key)
 }
 
 async fn upload_file(
@@ -548,6 +525,45 @@ async fn upload_file(
     Ok(Json(()))
 }
 
+async fn download(
+    Extension(state): Extension<AppState>,
+    Path(key): Path<String>,
+) -> Result<
+    (
+        TypedHeader<ContentType>,
+        StreamBody<ReaderStream<tokio::fs::File>>,
+    ),
+    Error,
+> {
+    dbg!(&key);
+    if let Some(path) = state.download_urls.lock().await.get(&key) {
+        let file = tokio::fs::File::open(&path).await.map_err(|_| Error {
+            inner: ErrorInner::IOError,
+            detail: "Failed to open file".to_string(),
+        })?;
+        let content_type = match path.extension() {
+            Some(extension) => match extension.to_str().unwrap() {
+                "html" => ContentType::html(),
+                "json" => ContentType::json(),
+                "txt" => ContentType::text_utf8(),
+                "png" => ContentType::png(),
+                "jpg" => ContentType::jpeg(),
+                "jpeg" => ContentType::jpeg(),
+                _ => ContentType::octet_stream(),
+            },
+            None => ContentType::octet_stream(),
+        };
+        let stream = ReaderStream::new(file);
+        let body = StreamBody::new(stream);
+        Ok((TypedHeader(content_type), body))
+    } else {
+        Err(Error {
+            inner: ErrorInner::NotFound,
+            detail: "File not found with the given key".to_string(),
+        })
+    }
+}
+
 pub fn get_global_fs_routes() -> Router {
     Router::new()
         .route("/fs/ls/*absolute_path", get(list_files))
@@ -559,4 +575,5 @@ pub fn get_global_fs_routes() -> Router {
         .route("/fs/new/*absolute_path", put(new_file))
         .route("/fs/download/*absolute_path", get(download_file))
         .route("/fs/upload/*absolute_path", put(upload_file))
+        .route("/file/:key", get(download))
 }
