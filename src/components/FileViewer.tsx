@@ -16,7 +16,7 @@ import { FileType } from 'bindings/FileType';
 import { axiosWrapper, catchAsyncToString, formatTimeAgo } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { ClientError } from 'bindings/ClientError';
-import { useDebounce, useEffectOnce, useLocalStorage } from 'usehooks-ts';
+import { useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
@@ -51,8 +51,7 @@ export default function FileViewer() {
   const atTopLevel = path === '';
   let direcotrySeparator = '\\';
   // assume only linux paths contain /
-  if (instance.path.includes('/'))
-    direcotrySeparator = '/';
+  if (instance.path.includes('/')) direcotrySeparator = '/';
 
   const parentPath = (path: string) => {
     const pathParts = path.split(direcotrySeparator);
@@ -174,12 +173,7 @@ export default function FileViewer() {
       return;
     }
     queryClient.setQueriesData(
-      [
-        'instance',
-        instance.uuid,
-        'files',
-        parentPath(targetFile.path),
-      ],
+      ['instance', instance.uuid, 'files', parentPath(targetFile.path)],
       fileList?.filter((file) => file.path !== targetFile.path)
     );
     setTargetFile(null);
@@ -198,12 +192,7 @@ export default function FileViewer() {
       return;
     }
     queryClient.setQueriesData(
-      [
-        'instance',
-        instance.uuid,
-        'files',
-        parentPath(path),
-      ],
+      ['instance', instance.uuid, 'files', parentPath(path)],
       fileList?.filter((file) => file.path !== path)
     );
     setPath(parentPath);
@@ -243,7 +232,7 @@ export default function FileViewer() {
   }, [monaco]);
 
   const breadcrumb = (
-    <p className="select-none px-2 py-2 text-medium font-medium">
+    <p className="grow select-none px-2 py-2 text-base font-medium">
       <span>
         <span
           className={
@@ -279,7 +268,9 @@ export default function FileViewer() {
             >
               {p}
             </span>
-            {i !== arr.length - 1 && <span className="text-gray-300"> {direcotrySeparator} </span>}
+            {i !== arr.length - 1 && (
+              <span className="text-gray-300"> {direcotrySeparator} </span>
+            )}
           </span>
         );
       })}
@@ -288,8 +279,99 @@ export default function FileViewer() {
 
   return (
     <div className="flex h-full w-full flex-col gap-2">
-      {breadcrumb}
-      <div className="flex h-full w-full flex-row">
+      <div className="flex flex-row items-center justify-between gap-4">
+        <Formik
+          initialValues={{ name: '' }}
+          onSubmit={async (values: { name: string }, actions: any) => {
+            actions.setSubmitting(true);
+            const error = await createFile(values.name);
+            if (error) {
+              alert(error);
+              actions.setErrors({ name: error });
+              actions.setSubmitting(false);
+            } else {
+              queryClient.setQueriesData(
+                ['instance', instance.uuid, 'files', path],
+                fileList
+                  ? [
+                      ...fileList,
+                      {
+                        name: values.name,
+                        path: `${path}/${values.name}`,
+                        file_type: 'File' as FileType,
+                        creation_time: Date.now() / 1000,
+                        modification_time: Date.now() / 1000,
+                      },
+                    ].sort(fileSorter)
+                  : undefined
+              );
+              actions.setSubmitting(false);
+              actions.resetForm();
+            }
+          }}
+        >
+          <Form id="create-file-form" autoComplete="off">
+            <InputField name="name" placeholder="New File" />
+          </Form>
+        </Formik>
+        <Formik
+          initialValues={{ name: '' }}
+          onSubmit={async (values: { name: string }, actions: any) => {
+            actions.setSubmitting(true);
+            const error = await createDirectory(values.name);
+            if (error) {
+              alert(error);
+              actions.setErrors({ name: error });
+              actions.setSubmitting(false);
+            } else {
+              queryClient.setQueriesData(
+                ['instance', instance.uuid, 'files', path],
+                fileList
+                  ? [
+                      ...fileList,
+                      {
+                        name: values.name,
+                        path: `${path}/${values.name}`,
+                        file_type: 'Directory' as FileType,
+                        creation_time: Date.now() / 1000,
+                        modification_time: Date.now() / 1000,
+                      },
+                    ].sort(fileSorter)
+                  : undefined
+              );
+              actions.setSubmitting(false);
+              actions.resetForm();
+            }
+          }}
+        >
+          <Form id="create-directory-form" autoComplete="off">
+            <InputField name="name" placeholder="New Folder" />
+          </Form>
+        </Formik>
+        <Button
+          label="rm -r ."
+          className="whitespace-nowrap"
+          onClick={deleteDirectory}
+        />
+        {breadcrumb}
+        <Button
+          className="h-fit"
+          label={`Save file`}
+          onClick={() => saveFile()}
+          disabled={
+            !targetFile ||
+            edittedFileContent === originalFileContent ||
+            !showingMonaco
+          }
+        />
+        <Button
+          className="h-fit text-red"
+          label={`Delete file`}
+          onClick={() => deleteFile()}
+          disabled={isFileLoading || !targetFile}
+        />
+      </div>
+      <div className="flex h-full w-full flex-row border-gray-faded/30 rounded-lg border overflow-clip bg-gray-800">
         <ResizePanel
           direction="e"
           maxSize={500}
@@ -297,157 +379,79 @@ export default function FileViewer() {
           size={fileListSize}
           validateSize={false}
           onResize={setFileListSize}
-          resizeBarClassNames="cursor-ew-resize pl-4 pr-4"
+          containerClassNames='border-r border-gray-faded/30'
         >
-          <div className="flex h-full w-1/4 grow flex-col">
-            <div className="flex h-0 grow flex-col gap-2 overflow-y-auto overflow-x-hidden">
-              <div className="overflow-x-hidden rounded-lg border border-gray-faded/30">
-                {!atTopLevel ? (
-                  <div
-                    key={'..'}
-                    className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
+          <div className="flex h-full grow flex-col w-full">
+            <div className="flex h-0 grow flex-col overflow-y-auto overflow-x-hidden">
+              {!atTopLevel ? (
+                <div
+                  key={'..'}
+                  className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
+                  onClick={() => {
+                    setPath(parentPath);
+                    setTargetFile(null);
+                  }}
+                >
+                  <p className="select-none text-base font-medium">..</p>
+                </div>
+              ) : null}
+
+              {fileListLoading ? (
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4">
+                  <p className="text-base font-medium text-gray-400">
+                    Loading...
+                  </p>
+                </div>
+              ) : fileListError ? (
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4">
+                  <p className="text-base font-medium text-gray-400">
+                    {fileListError.message}
+                  </p>
+                </div>
+              ) : null}
+
+              {fileList?.length === 0 && (
+                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4">
+                  <p className="text-base font-medium text-gray-400">
+                    No files here...
+                  </p>
+                </div>
+              )}
+
+              {fileList?.map((file) => (
+                <div
+                  key={file.path}
+                  className={`flex flex-row items-center gap-4 border-b border-gray-faded/30 py-2 px-4 hover:bg-gray-700 ${
+                    file.name === targetFile?.name
+                      ? 'bg-gray-750'
+                      : 'bg-gray-800'
+                  }`}
+                >
+                  {fileTypeToIconMap[file.file_type]}
+                  <p
+                    className="truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
                     onClick={() => {
-                      setPath(parentPath);
-                      setTargetFile(null);
+                      if (file.file_type === 'Directory') {
+                        setPath(file.path);
+                        setTargetFile(null);
+                      } else {
+                        setTargetFile(file);
+                      }
                     }}
                   >
-                    <p className="select-none text-base font-medium">..</p>
-                  </div>
-                ) : null}
+                    {file.name}
+                  </p>
 
-                {fileListLoading ? (
-                  <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
-                    <p className="text-base font-medium text-gray-400">
-                      Loading...
-                    </p>
-                  </div>
-                ) : fileListError ? (
-                  <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
-                    <p className="text-base font-medium text-gray-400">
-                      {fileListError.message}
-                    </p>
-                  </div>
-                ) : null}
-
-                {fileList?.length === 0 && (
-                  <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 last:border-b-0">
-                    <p className="text-base font-medium text-gray-400">
-                      No files here...
-                    </p>
-                  </div>
-                )}
-
-                {fileList?.map((file) => (
-                  <div
-                    key={file.path}
-                    className={`flex flex-row items-center gap-4 border-b border-gray-faded/30 py-2 px-4 last:border-b-0 hover:bg-gray-700 ${
-                      file.name === targetFile?.name
-                        ? 'bg-gray-750'
-                        : 'bg-gray-800'
-                    }`}
-                  >
-                    {fileTypeToIconMap[file.file_type]}
-                    <p
-                      className="truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
-                      onClick={() => {
-                        if (file.file_type === 'Directory') {
-                          setPath(file.path);
-                          setTargetFile(null);
-                        } else {
-                          setTargetFile(file);
-                        }
-                      }}
-                    >
-                      {file.name}
-                    </p>
-
-                    <p className="grow whitespace-nowrap text-right text-base font-medium text-gray-500">
-                      {file.modification_time || file.creation_time
-                        ? formatTimeAgo(
-                            Number(
-                              file.modification_time ?? file.creation_time
-                            ) * 1000
-                          )
-                        : 'Unknown Time'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="flex h-[10%] flex-row items-center justify-between gap-4 border-b border-gray-faded/30 last:border-b-0">
-              <Formik
-                initialValues={{ name: '' }}
-                onSubmit={async (values: { name: string }, actions: any) => {
-                  actions.setSubmitting(true);
-                  const error = await createFile(values.name);
-                  if (error) {
-                    alert(error);
-                    actions.setErrors({ name: error });
-                    actions.setSubmitting(false);
-                  } else {
-                    queryClient.setQueriesData(
-                      ['instance', instance.uuid, 'files', path],
-                      fileList
-                        ? [
-                            ...fileList,
-                            {
-                              name: values.name,
-                              path: `${path}/${values.name}`,
-                              file_type: 'File' as FileType,
-                              creation_time: Date.now() / 1000,
-                              modification_time: Date.now() / 1000,
-                            },
-                          ].sort(fileSorter)
-                        : undefined
-                    );
-                    actions.setSubmitting(false);
-                    actions.resetForm();
-                  }
-                }}
-              >
-                <Form id="create-file-form" autoComplete="off">
-                  <InputField name="name" placeholder="New File" />
-                </Form>
-              </Formik>
-              <Formik
-                initialValues={{ name: '' }}
-                onSubmit={async (values: { name: string }, actions: any) => {
-                  actions.setSubmitting(true);
-                  const error = await createDirectory(values.name);
-                  if (error) {
-                    alert(error);
-                    actions.setErrors({ name: error });
-                    actions.setSubmitting(false);
-                  } else {
-                    queryClient.setQueriesData(
-                      ['instance', instance.uuid, 'files', path],
-                      fileList
-                        ? [
-                            ...fileList,
-                            {
-                              name: values.name,
-                              path: `${path}/${values.name}`,
-                              file_type: 'Directory' as FileType,
-                              creation_time: Date.now() / 1000,
-                              modification_time: Date.now() / 1000,
-                            },
-                          ].sort(fileSorter)
-                        : undefined
-                    );
-                    actions.setSubmitting(false);
-                    actions.resetForm();
-                  }
-                }}
-              >
-                <Form id="create-directory-form" autoComplete="off">
-                  <InputField name="name" placeholder="New Folder" />
-                </Form>
-              </Formik>
-              <Button
-                label="rm -r ."
-                className="whitespace-nowrap"
-                onClick={deleteDirectory}
-              />
+                  <p className="grow whitespace-nowrap text-right text-base font-medium text-gray-500">
+                    {file.modification_time || file.creation_time
+                      ? formatTimeAgo(
+                          Number(file.modification_time ?? file.creation_time) *
+                            1000
+                        )
+                      : 'Unknown Time'}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </ResizePanel>
@@ -455,14 +459,14 @@ export default function FileViewer() {
           <div className="h-full">
             {showingMonaco ? (
               <Editor
-                height="90%"
+                height="100%"
                 onChange={(value) => {
                   setEdittedFileContent(value ?? '');
                 }}
                 value={edittedFileContent}
                 theme="lodestone-dark"
                 path={monacoPath}
-                className="overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800"
+                className="overflow-clip bg-gray-800"
                 options={{
                   padding: {
                     top: 8,
@@ -475,7 +479,7 @@ export default function FileViewer() {
                 onMount={handleEditorDidMount}
               />
             ) : (
-              <div className="flex h-[90%] w-full flex-col items-center justify-center rounded-lg bg-gray-800">
+              <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800">
                 <FontAwesomeIcon
                   icon={faFile}
                   className="text-5xl text-gray-500"
@@ -489,25 +493,6 @@ export default function FileViewer() {
                     ? 'Loading...'
                     : 'Select a file to view its contents'}
                 </p>
-              </div>
-            )}
-            {targetFile && (
-              <div className="flex h-[10%] flex-row items-center gap-2 child:my-2">
-                <Button
-                  className="h-fit"
-                  label={`Save ${targetFile.name}`}
-                  onClick={() => saveFile()}
-                  disabled={
-                    edittedFileContent === originalFileContent || !showingMonaco
-                  }
-                />
-                <div className="grow"></div>
-                <Button
-                  className="h-fit text-red"
-                  label={`Delete ${targetFile.name}`}
-                  onClick={() => deleteFile()}
-                  disabled={isFileLoading}
-                />
               </div>
             )}
           </div>
