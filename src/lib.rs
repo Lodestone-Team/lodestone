@@ -195,7 +195,6 @@ pub async fn run() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
         .format_module_path(false)
-        // .format_timestamp(None)
         .format_target(false)
         .init();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());

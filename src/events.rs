@@ -177,7 +177,7 @@ pub struct FSEvent {
     pub target: FSTarget,
 }
 
-pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by : CausedBy) -> Event {
+pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedBy) -> Event {
     Event {
         details: "".to_string(),
         snowflake: get_snowflake(),

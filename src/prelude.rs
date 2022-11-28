@@ -45,13 +45,11 @@ use crate::minecraft::MinecraftInstance;
     TServer,
     TManifest
 )]
-#[derive(Clone)]
-#[derive(enum_kinds::EnumKind)]
+#[derive(Clone, enum_kinds::EnumKind)]
 #[enum_kind(GameInstanceKind, derive(Hash))]
 pub enum GameInstance {
     MinecraftInstance,
 }
-
 
 impl<'de> serde::Deserialize<'de> for GameInstanceKind {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

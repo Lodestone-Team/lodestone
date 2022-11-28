@@ -102,10 +102,14 @@ async fn list_files(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let ret : Vec<File> = list_dir(&path, None).await?.iter().map(|p| {
-        let r: File = p.as_path().into();
-        r
-    }).collect();
+    let ret: Vec<File> = list_dir(&path, None)
+        .await?
+        .iter()
+        .map(|p| {
+            let r: File = p.as_path().into();
+            r
+        })
+        .collect();
     let _ = state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::Directory(path),

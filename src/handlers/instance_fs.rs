@@ -535,7 +535,7 @@ async fn download_instance_file(
 
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
-    
+
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,

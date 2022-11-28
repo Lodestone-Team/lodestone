@@ -14,7 +14,9 @@ pub async fn get_available_games() -> Json<HashSet<GameInstanceKind>> {
     Json(HashSet::from([GameInstanceKind::MinecraftInstance]))
 }
 
-pub async fn get_available_flavours(Path(game_type): Path<GameInstanceKind>) -> Json<HashSet<String>> {
+pub async fn get_available_flavours(
+    Path(game_type): Path<GameInstanceKind>,
+) -> Json<HashSet<String>> {
     match game_type {
         GameInstanceKind::MinecraftInstance => Json(HashSet::from([
             minecraft::Flavour::Vanilla.to_string(),
