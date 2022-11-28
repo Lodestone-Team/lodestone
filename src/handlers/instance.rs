@@ -325,19 +325,21 @@ pub async fn delete_instance(
                         ),
                     }
                 })?;
-            let res = tokio::fs::remove_dir_all(instance.path().await)
+            state
+                .port_allocator
+                .lock()
+                .await
+                .deallocate(instance.port().await);
+            let instance_path = instance.path().await.clone();
+            instances.remove(&uuid);
+            drop(instances);
+            let res = tokio::fs::remove_dir_all(instance_path)
                 .await
                 .map_err(|e| Error {
                     inner: ErrorInner::FailedToRemoveFileOrDir,
                     detail: format!("Could not remove file for instance: {}", e),
                 });
 
-            state
-                .port_allocator
-                .lock()
-                .await
-                .deallocate(instance.port().await);
-            instances.remove(&uuid);
             if res.is_ok() {
                 let _ = event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
