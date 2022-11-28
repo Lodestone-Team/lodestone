@@ -75,6 +75,15 @@ export function errorToMessage(error: unknown): string {
       if (typeof error.response.data === 'string') {
         error.response.data = JSON.parse(error.response.data);
       }
+      // if response.data is a blob parse it as a JSON object
+      if (error.response.data instanceof Blob) {
+        const reader = new FileReader();
+        reader.readAsText(error.response.data);
+        // reader.onload = () => {
+        //   error.response.data = JSON.parse(reader.result as string);
+        // };
+      }
+      console.log(error.response.data)
       if (error.response.data && error.response.data.inner) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(error.response.data);
