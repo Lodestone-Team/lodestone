@@ -90,6 +90,9 @@ pub enum ErrorInner {
     UserAlreadyExists,
     Unauthorized,
     PermissionDenied,
+
+    // Generic error
+    NotFound,
 }
 #[derive(Debug, Serialize, Clone, TS)]
 #[serde(rename = "ClientError")]
@@ -106,6 +109,7 @@ impl IntoResponse for Error {
             ErrorInner::PermissionDenied => (StatusCode::FORBIDDEN, json!(self).to_string()),
             ErrorInner::Unauthorized => (StatusCode::UNAUTHORIZED, json!(self).to_string()),
             ErrorInner::FileOrDirNotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
+            ErrorInner::NotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string()),
         };
         (status, error_message).into_response()
