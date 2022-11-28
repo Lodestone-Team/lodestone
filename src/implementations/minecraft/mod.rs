@@ -133,6 +133,7 @@ pub struct MinecraftInstance {
     settings: Arc<Mutex<HashMap<String, String>>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
+    rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -982,6 +983,7 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             macro_executor: MacroExecutor::new(Arc::new(Mutex::new(Arc::new(mlua::Lua::new)))),
             backup_sender: backup_tx,
+            rcon_conn: Arc::new(Mutex::new(None)),
         };
         let get_lua = instance.macro_std();
         instance

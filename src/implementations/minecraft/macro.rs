@@ -22,6 +22,7 @@ impl MinecraftInstance {
             let uuid = self.config.uuid.clone();
             let event_broadcaster = self.event_broadcaster.clone();
             let macro_executor = self.macro_executor.clone();
+            let rcon_conn = self.rcon_conn.clone();
             move || {
                 let lua = Lua::new();
                 let await_event = lua
@@ -96,6 +97,26 @@ impl MinecraftInstance {
                         }
                     })
                     .unwrap();
+
+                let send_rcon = lua
+                    .create_async_function({
+                        let rcon_conn = rcon_conn.clone();
+                        move |_, cmd: String| {
+                            let rcon_conn = rcon_conn.clone();
+                            async move {
+                                let mut rcon_conn = rcon_conn.lock().await;
+                                match rcon_conn.as_mut() {
+                                    Some(rcon_conn) => Ok(rcon_conn.cmd(&cmd).await.ok()),
+                                    None => {
+                                        error!("Failed to send rcon, rcon is not available");
+                                        Ok(None)
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .unwrap();
+
                 let log_info = lua.create_async_function({
                     let stdin = stdin.clone();
                     move |_, msg: String| {
@@ -242,6 +263,7 @@ impl MinecraftInstance {
                     .set("sleep_and_block", sleep_and_block)
                     .unwrap();
                 lua.globals().set("send_stdin", send_stdin).unwrap();
+                lua.globals().set("send_rcon", send_rcon).unwrap();
                 lua.globals().set("log_info", log_info).unwrap();
                 lua.globals().set("log_warn", log_warn).unwrap();
                 lua.globals().set("log_err", log_err).unwrap();
@@ -250,7 +272,6 @@ impl MinecraftInstance {
                 lua.globals().set("abort_task", abort_task).unwrap();
                 lua.globals().set("await_task", await_task).unwrap();
                 lua.globals().set("INSTANCE_PATH", path.clone()).unwrap();
-
                 lua
             }
         })

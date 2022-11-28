@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::process::Stdio;
+use std::time::Duration;
 
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -60,6 +61,7 @@ impl TServer for MinecraftInstance {
                 "bin"
             })
             .join("java");
+
         match dont_spawn_terminal(
             Command::new(&jre)
                 .arg(format!("-Xmx{}M", self.config.max_ram))
@@ -128,6 +130,7 @@ impl TServer for MinecraftInstance {
                     let players = self.players.clone();
                     let macro_executor = self.macro_executor.clone();
                     let path_to_macros = self.path_to_macros.clone();
+                    let self = self.clone();
                     async move {
                         fn parse_system_msg(msg: &str) -> Option<String> {
                             lazy_static! {
@@ -306,6 +309,39 @@ impl TServer for MinecraftInstance {
                                     read_properties_from_path(&path_to_properties)
                                         .await
                                         .expect("Failed to read properties");
+                                if let (Ok(Ok(true)), Ok(rcon_psw), Ok(Ok(rcon_port))) = (
+                                    self.get_field("enable-rcon").await.map(|v| v.parse()),
+                                    self.get_field("rcon.password").await,
+                                    self.get_field("rcon.port").await.map(|v| v.parse::<u32>()),
+                                ) {
+                                    let max_retry = 3;
+                                    for i in 0..max_retry {
+                                        let rcon =
+                                            <rcon::Connection<tokio::net::TcpStream>>::builder()
+                                                .enable_minecraft_quirks(true)
+                                                .connect(
+                                                    &format!("localhost:{}", rcon_port),
+                                                    &rcon_psw,
+                                                )
+                                                .await
+                                                .map_err(|e| {
+                                                    warn!(
+                                                    "Failed to connect to RCON: {}, retry {}/{}",
+                                                    e, i, max_retry
+                                                );
+                                                    e
+                                                });
+                                        if rcon.is_ok() {
+                                            info!("Connected to RCON");
+                                            *self.rcon_conn.lock().await = rcon.ok();
+                                            break;
+                                        }
+                                        tokio::time::sleep(Duration::from_secs(2_u64.pow(i))).await;
+                                    }
+                                } else {
+                                    warn!("RCON is not enabled, skipping");
+                                    *self.rcon_conn.lock().await = None;
+                                }
                             }
                             if let Some(system_msg) = parse_system_msg(&line) {
                                 let _ = event_broadcaster.send(Event {
