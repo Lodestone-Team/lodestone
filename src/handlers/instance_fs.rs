@@ -342,7 +342,13 @@ async fn remove_instance_dir(
     })?;
     let root = instance.path().await;
     drop(instances);
-    let path = scoped_join_win_safe(root, relative_path)?;
+    let path = scoped_join_win_safe(&root, relative_path)?;
+    if path == root {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Cannot delete instance root".to_string(),
+        });
+    }
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
         return Err(Error {
