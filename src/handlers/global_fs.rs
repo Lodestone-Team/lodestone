@@ -536,7 +536,7 @@ async fn download(
     Path(key): Path<String>,
 ) -> Result<
     (
-        [(HeaderName, String); 2],
+        [(HeaderName, String); 3],
         StreamBody<ReaderStream<tokio::fs::File>>,
     ),
     Error,
@@ -562,6 +562,14 @@ async fn download(
                         .unwrap_or("unknown".to_string())
                 ),
             ),
+            if let Some(metadata) = file.metadata().await.ok() {
+                (http::header::CONTENT_LENGTH, metadata.len().to_string())
+            } else {
+                // if we can't get the file size, we just don't set the header
+                // but the rust compiler enforces array length to be known at compile time
+                // so we just set a dummy header
+                (http::header::ACCEPT_LANGUAGE, "*".to_string())
+            },
         ];
         let stream = ReaderStream::new(file);
         let body = StreamBody::new(stream);
