@@ -10,6 +10,7 @@ const Button = forwardRef(
       label,
       disabled = false,
       loading = false,
+      active,
       variant = 'contained',
       align = 'center',
       color = 'gray',
@@ -25,6 +26,7 @@ const Button = forwardRef(
       label: string;
       disabled?: boolean;
       loading?: boolean;
+      active?: boolean;
       variant?: 'contained' | 'outlined' | 'text';
       align?: 'start' | 'center' | 'end';
       color?: 'gray' | 'red';
@@ -38,6 +40,7 @@ const Button = forwardRef(
     },
     ref: React.Ref<HTMLButtonElement>
   ) => {
+    const hover = active ? '' : 'hover:';
     return (
       <button
         className={classNames(
@@ -52,13 +55,13 @@ const Button = forwardRef(
           }[color],
           variant === 'contained' &&
             {
-              gray: 'bg-gray-700 enabled:hover:bg-gray-600',
-              red: 'bg-red-faded/30 enabled:hover:bg-red-faded/40 enabled:active:bg-red-faded/30',
+              gray: `bg-gray-700 ${hover}enabled:bg-gray-600`,
+              red: `bg-red-faded/30 ${hover}enabled:bg-red-faded/40 enabled:active:bg-red-faded/30`,
             }[color],
           variant === 'text' &&
-            'bg-transparent enabled:hover:bg-gray-faded/20 enabled:active:bg-gray-faded/30',
+            `bg-transparent ${hover}enabled:bg-gray-faded/20 enabled:active:bg-gray-faded/30`,
           variant !== 'text' &&
-            'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
+            `outline outline-1 outline-gray-faded/30 ${hover}enabled:outline-white/50`,
           className
         )}
         disabled={disabled || loading}

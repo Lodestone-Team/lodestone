@@ -299,8 +299,11 @@ export default function FileViewer() {
     <div className="flex h-full w-full flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
         <Menu as="div" className="relative inline-block text-left">
-          <Menu.Button as={Button} label="Add/Remove" iconRight={faCaretDown}>
-          </Menu.Button>
+          <Menu.Button
+            as={Button}
+            label="Add/Remove"
+            iconRight={faCaretDown}
+          ></Menu.Button>
 
           <Transition
             as={Fragment}
@@ -398,7 +401,7 @@ export default function FileViewer() {
               </div> */}
               <div className="p-2">
                 <Menu.Item>
-                  {({ active }) => (
+                  {({ active, disabled }) => (
                     <Button
                       label="Delete directory"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
@@ -407,11 +410,13 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       color="red"
+                      disabled={disabled}
+                      active={active}
                     />
                   )}
                 </Menu.Item>
-                <Menu.Item>
-                  {({ active }) => (
+                <Menu.Item disabled={isFileLoading || !targetFile}>
+                  {({ active, disabled }) => (
                     <Button
                       className="w-full whitespace-nowrap py-1.5 font-normal"
                       label={`Delete file`}
@@ -420,7 +425,8 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       color="red"
-                      disabled={isFileLoading || !targetFile}
+                      disabled={disabled}
+                      active={active}
                     />
                   )}
                 </Menu.Item>
