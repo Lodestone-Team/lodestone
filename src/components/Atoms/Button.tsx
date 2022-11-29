@@ -55,13 +55,13 @@ const Button = forwardRef(
           }[color],
           variant === 'contained' &&
             {
-              gray: `bg-gray-700 ${hover}enabled:bg-gray-600`,
-              red: `bg-red-faded/30 ${hover}enabled:bg-red-faded/40 enabled:active:bg-red-faded/30`,
+              gray: `bg-gray-700 enabled:${hover}bg-gray-600`,
+              red: `bg-red-faded/30 enabled:${hover}bg-red-faded/40 enabled:active:bg-red-faded/30`,
             }[color],
           variant === 'text' &&
-            `bg-transparent ${hover}enabled:bg-gray-faded/20 enabled:active:bg-gray-faded/30`,
+            `bg-transparent enabled:${hover}bg-gray-faded/20 enabled:active:bg-gray-faded/30`,
           variant !== 'text' &&
-            `outline outline-1 outline-gray-faded/30 ${hover}enabled:outline-white/50`,
+            `outline outline-1 outline-gray-faded/30 enabled:${hover}outline-white/50`,
           className
         )}
         disabled={disabled || loading}

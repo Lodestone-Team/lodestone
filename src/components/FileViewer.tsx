@@ -221,10 +221,13 @@ export default function FileViewer() {
 
   const downloadFile = async () => {
     if (!targetFile) throw new Error('No file selected');
-    // TODO: new temporary download link
-    const downloadUrl =
-      axios.defaults.baseURL +
-      `/instance/${instance.uuid}/fs/download/${targetFile.path}`;
+    // first we fetch a download token
+    const tokenResponse = await axiosWrapper<string>({
+      method: 'get',
+      url: `/instance/${instance.uuid}/fs/download/${targetFile.path}`,
+    });
+    console.log(tokenResponse);
+    const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
     window.open(downloadUrl, '_blank');
   };
 
@@ -466,11 +469,11 @@ export default function FileViewer() {
           containerClassNames="border-r border-gray-faded/30"
         >
           <div className="flex h-full w-full grow flex-col">
-            <div className="flex h-0 grow flex-col overflow-y-auto overflow-x-hidden">
+            <div className="flex h-0 grow flex-col overflow-y-auto overflow-x-hidden child:border-b child:border-gray-faded/30">
               {!atTopLevel ? (
                 <div
                   key={'..'}
-                  className="group flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
+                  className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
                   onClick={() => {
                     setPath(parentPath);
                     setTargetFile(null);
@@ -481,13 +484,13 @@ export default function FileViewer() {
               ) : null}
 
               {fileListLoading ? (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4">
+                <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
                   <p className="text-base font-medium text-gray-400">
                     Loading...
                   </p>
                 </div>
               ) : fileListError ? (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4">
+                <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
                   <p className="text-base font-medium text-gray-400">
                     {fileListError.message}
                   </p>
@@ -495,7 +498,7 @@ export default function FileViewer() {
               ) : null}
 
               {fileList?.length === 0 && (
-                <div className="flex flex-row items-center gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 px-4">
+                <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
                   <p className="text-base font-medium text-gray-400">
                     No files here...
                   </p>
@@ -505,7 +508,7 @@ export default function FileViewer() {
               {fileList?.map((file) => (
                 <div
                   key={file.path}
-                  className={`flex flex-row items-center gap-4 border-b border-gray-faded/30 py-2 px-4 hover:bg-gray-700 ${
+                  className={`flex flex-row items-center gap-4 py-2 px-4 hover:bg-gray-700 ${
                     file.name === targetFile?.name
                       ? 'bg-gray-750'
                       : 'bg-gray-800'
