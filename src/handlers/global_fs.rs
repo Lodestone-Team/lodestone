@@ -9,7 +9,6 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 
-use futures::{Future, Stream};
 use headers::{HeaderMap, HeaderName};
 use log::debug;
 use reqwest::header::CONTENT_LENGTH;
@@ -22,8 +21,8 @@ use ts_rs::TS;
 use crate::{
     auth::user::UserAction,
     events::{
-        new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEvent,
-        ProgressionEventInner, new_progression_event_id,
+        new_fs_event, new_progression_event_id, CausedBy, Event, EventInner, FSOperation, FSTarget,
+        ProgressionEvent, ProgressionEventInner,
     },
     prelude::get_snowflake,
     traits::{Error, ErrorInner},
@@ -483,11 +482,33 @@ async fn upload_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<f64>().ok());
 
+    let event_id = new_progression_event_id();
+    let _ = state.event_broadcaster.send(Event {
+        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+            event_id: event_id.clone(),
+            progression_event_inner: ProgressionEventInner::ProgressionStart {
+                progression_name: "Uploading files".to_string(),
+                producer_id: "".to_string(),
+                total,
+                inner: None,
+            },
+        }),
+        details: "".to_string(),
+        snowflake: get_snowflake(),
+        caused_by: CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        },
+    });
+
     while let Ok(Some(mut field)) = multipart.next_field().await {
-        let name = field.file_name().ok_or_else(|| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "No file name".to_string(),
-        })?.to_owned();
+        let name = field
+            .file_name()
+            .ok_or_else(|| Error {
+                inner: ErrorInner::MalformedRequest,
+                detail: "No file name".to_string(),
+            })?
+            .to_owned();
         let path = path_to_dir.join(&name);
         let path = if path.exists() {
             // add a postfix to the file name
@@ -513,24 +534,7 @@ async fn upload_file(
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: "Failed to create file".to_string(),
         })?;
-        let event_id = new_progression_event_id();
-        let _ = state.event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: event_id.clone(),
-                progression_event_inner: ProgressionEventInner::ProgressionStart {
-                    progression_name: format!("Uploading {}", name),
-                    producer_id: "".to_string(),
-                    total,
-                    inner: None,
-                },
-            }),
-            details: "".to_string(),
-            snowflake: get_snowflake(),
-            caused_by: CausedBy::User {
-                user_id: requester.uid.clone(),
-                user_name: requester.username.clone(),
-            },
-        });
+
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
             let _ = state.event_broadcaster.send(Event {

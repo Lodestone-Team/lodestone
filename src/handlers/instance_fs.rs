@@ -582,11 +582,28 @@ async fn upload_instance_file(
             })?;
     }
 
+    let event_id = new_progression_event_id();
     let total = headers
         .get(CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<f64>().ok());
-
+    let _ = state.event_broadcaster.send(Event {
+        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+            event_id: event_id.clone(),
+            progression_event_inner: ProgressionEventInner::ProgressionStart {
+                progression_name: format!("Uploading files"),
+                producer_id: "".to_string(),
+                total,
+                inner: None,
+            },
+        }),
+        details: "".to_string(),
+        snowflake: get_snowflake(),
+        caused_by: CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        },
+    });
     while let Ok(Some(mut field)) = multipart.next_field().await {
         let name = field.file_name().ok_or_else(|| Error {
             inner: ErrorInner::MalformedRequest,
@@ -630,24 +647,7 @@ async fn upload_instance_file(
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: "Failed to create file".to_string(),
         })?;
-        let event_id = new_progression_event_id();
-        let _ = state.event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: event_id.clone(),
-                progression_event_inner: ProgressionEventInner::ProgressionStart {
-                    progression_name: format!("Uploading {}", name),
-                    producer_id: "".to_string(),
-                    total,
-                    inner: None,
-                },
-            }),
-            details: "".to_string(),
-            snowflake: get_snowflake(),
-            caused_by: CausedBy::User {
-                user_id: requester.uid.clone(),
-                user_name: requester.username.clone(),
-            },
-        });
+
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
             let _ = state.event_broadcaster.send(Event {
