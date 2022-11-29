@@ -16,9 +16,51 @@ body {
   box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
+/* Tailwind custom classes */
+@layer components {
+  .dashboard-instance-heading {
+    @apply font-title text-2xlarge font-[550] tracking-medium;
+  }
+
+  /* Input is really annoying because some elements are true form elements 
+   * and can use enabled:, disabled:, invalid:, etc.
+   * But some elements are not form elements and can't use those.
+   * So I have to use a custom class to style them.
+   * I don't like this, but I don't know how to fix it.
+   *
+   * Also we don't have scss/sass/less so we can't use nesting.
+   */
+
+  .input-base {
+    @apply appearance-none rounded-md bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50;
+  }
+
+  .input-base.disabled {
+    @apply bg-gray-800 text-white/50;
+  }
+
+  .input-base.border-normal {
+    @apply outline-gray-faded/30 invalid:outline-red invalid:focus-visible:outline-red enabled:focus-visible:ring-blue/30;
+  }
+
+  .input-base.border-error {
+    @apply outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30;
+  }
+
+  .input-base.enabled {
+    @apply text-gray-300;
+  }
+
+  .input-base.enabled.border-normal {
+    @apply focus-visible:ring-blue/30;
+  }
+
+  .input-base.enabled.border-error {
+    @apply focus-visible:ring-red-faded/30;
+  }
+
+  .button-base {
+    @apply rounded py-1 px-2 text-base font-semibold leading-5 tracking-tight enabled:focus-visible:ring-4;
   }
 }
 
@@ -114,50 +156,8 @@ input.noSpin[type='number'] {
   -moz-appearance: textfield;
 }
 
-/* Tailwind custom classes */
-@layer components {
-  .dashboard-instance-heading {
-    @apply font-title text-2xlarge font-[550] tracking-medium;
-  }
-
-  /* Input is really annoying because some elements are true form elements 
-   * and can use enabled:, disabled:, invalid:, etc.
-   * But some elements are not form elements and can't use those.
-   * So I have to use a custom class to style them.
-   * I don't like this, but I don't know how to fix it.
-   *
-   * Also we don't have scss/sass/less so we can't use nesting.
-   */
-
-  .input-base {
-    @apply appearance-none rounded-md bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50;
-  }
-
-  .input-base.disabled {
-    @apply bg-gray-800 text-white/50;
-  }
-
-  .input-base.border-normal {
-    @apply outline-gray-faded/30 invalid:outline-red invalid:focus-visible:outline-red enabled:focus-visible:ring-blue/30;
-  }
-
-  .input-base.border-error {
-    @apply outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30;
-  }
-
-  .input-base.enabled {
-    @apply text-gray-300;
-  }
-
-  .input-base.enabled.border-normal {
-    @apply focus-visible:ring-blue/30;
-  }
-
-  .input-base.enabled.border-error {
-    @apply focus-visible:ring-red-faded/30;
-  }
-
-  .button-base {
-    @apply rounded py-1 px-2 text-base font-semibold leading-5 tracking-tight enabled:focus-visible:ring-4;
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: dark;
   }
 }
