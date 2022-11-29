@@ -23,6 +23,7 @@ import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Menu, Transition } from '@headlessui/react';
+import { faSquare } from '@fortawesome/free-regular-svg-icons';
 
 type Monaco = typeof monaco;
 
@@ -514,6 +515,7 @@ export default function FileViewer() {
                       : 'bg-gray-800'
                   }`}
                 >
+                  <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
                   {fileTypeToIconMap[file.file_type]}
                   <p
                     className="truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
