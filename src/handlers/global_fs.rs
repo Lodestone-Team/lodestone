@@ -582,22 +582,7 @@ async fn upload_file(
                 }
             })?;
         }
-        let _ = state.event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: event_id.clone(),
-                progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                    success: true,
-                    message: Some("Upload complete".to_string()),
-                    inner: None,
-                },
-            }),
-            details: "".to_string(),
-            snowflake: get_snowflake(),
-            caused_by: CausedBy::User {
-                user_id: requester.uid.clone(),
-                user_name: requester.username.clone(),
-            },
-        });
+
         let caused_by = CausedBy::User {
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),
@@ -608,6 +593,22 @@ async fn upload_file(
             caused_by,
         ));
     }
+    let _ = state.event_broadcaster.send(Event {
+        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+            event_id: event_id.clone(),
+            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                success: true,
+                message: Some("Upload complete".to_string()),
+                inner: None,
+            },
+        }),
+        details: "".to_string(),
+        snowflake: get_snowflake(),
+        caused_by: CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        },
+    });
 
     Ok(Json(()))
 }
