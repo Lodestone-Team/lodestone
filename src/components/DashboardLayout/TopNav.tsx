@@ -4,8 +4,9 @@ import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
 import { useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
-import { faBell, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { faBell, faCog, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import Avatar from 'boring-avatars';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -56,7 +57,42 @@ export default function TopNav({
           }}
         />
       </div>
+      <FontAwesomeIcon
+        icon={faCog}
+        className={`w-4 select-none hover:cursor-pointer ${
+          showNotifications
+            ? 'text-white hover:text-white/75'
+            : 'text-gray-faded/50 hover:text-white/75'
+        }`}
+        onClick={() => {
+          router.push(
+            {
+              pathname: '/settings/',
+              query: {
+                ...router.query,
+                uuid: undefined,
+              },
+            },
+            undefined,
+            { shallow: true }
+          );
+        }}
+      />
+      <FontAwesomeIcon
+        icon={faBell}
+        className={`w-4 select-none hover:cursor-pointer ${
+          showNotifications
+            ? 'text-white hover:text-white/75'
+            : 'text-gray-faded/50 hover:text-white/75'
+        }`}
+        onClick={() => {
+          setShowNotifications(!showNotifications);
+        }}
+      />
       <div className="flex flex-row items-center gap-2">
+        {userState == 'logged-in' && (
+          <Avatar size={20} name={user?.uid} variant="bauhaus" />
+        )}
         <p className="font-medium text-gray-300">
           {userState === 'logged-in' && user
             ? `Hi, ${user.username}`
@@ -84,17 +120,6 @@ export default function TopNav({
             : 'text-white/50 hover:text-white/75'
         }`}
       /> */}
-      <FontAwesomeIcon
-        icon={faBell}
-        className={`w-4 select-none hover:cursor-pointer ${
-          showNotifications
-            ? 'text-white hover:text-white/75'
-            : 'text-white/50 hover:text-white/75'
-        }`}
-        onClick={() => {
-          setShowNotifications(!showNotifications);
-        }}
-      />
     </div>
   );
 }
