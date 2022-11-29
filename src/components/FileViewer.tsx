@@ -247,6 +247,10 @@ export default function FileViewer() {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 0,
+        onUploadProgress: (progressEvent) => {
+          console.log(progressEvent);
+        },
       })
     );
     if (error) {
@@ -254,7 +258,12 @@ export default function FileViewer() {
       alert(error);
       return;
     }
-    queryClient.invalidateQueries(['instance', instance.uuid, 'fileList', path]);
+    queryClient.invalidateQueries([
+      'instance',
+      instance.uuid,
+      'fileList',
+      path,
+    ]);
   };
 
   const chooseFilesToUpload = async () => {
@@ -273,7 +282,7 @@ export default function FileViewer() {
     return new Promise<FileList | null>((resolve) => {
       input.onchange = () => {
         resolve(input.files);
-      }
+      };
     });
   };
 
@@ -296,8 +305,9 @@ export default function FileViewer() {
   console.log('editted content', edittedFileContent);
 
   const breadcrumb = (
-    <p className="grow select-none text-base font-medium">
-      <span>
+    <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 whitespace-nowrap text-base font-medium">
+      <p className="truncate">
+        {/* instance name */}
         <span
           className={
             path !== '' || targetFile
@@ -311,37 +321,39 @@ export default function FileViewer() {
         >
           {instance.path.split(direcotrySeparator).pop()}
         </span>
-        <span className="text-gray-300"> {direcotrySeparator} </span>
-      </span>
 
-      {path.split(direcotrySeparator).map((p, i, arr) => {
-        // display a breadcrumb, where each one when clicked goes to appropriate path
-        const subPath = arr.slice(0, i + 1).join(direcotrySeparator);
-        return (
-          <span key={subPath}>
-            <span
-              className={
-                i !== arr.length - 1
-                  ? 'cursor-pointer text-blue-accent hover:underline'
-                  : 'text-gray-300'
-              }
-              onClick={() => {
-                setPath(subPath);
-                setTargetFile(null);
-              }}
-            >
-              {p}
-            </span>
-            {i !== arr.length - 1 && (
-              <span className="text-gray-300"> {direcotrySeparator} </span>
-            )}
-          </span>
-        );
-      })}
-      <span>
-        <span className="text-gray-300">{targetFile?.name}</span>
-      </span>
-    </p>
+        {/* path */}
+        {path &&
+          path.split(direcotrySeparator).map((p, i, arr) => {
+            // display a breadcrumb, where each one when clicked goes to appropriate path
+            const subPath = arr.slice(0, i + 1).join(direcotrySeparator);
+            return (
+              <span key={subPath}>
+                <span className="text-gray-300"> {direcotrySeparator} </span>
+                <span
+                  className={
+                    i !== arr.length - 1 || targetFile
+                      ? 'cursor-pointer text-blue-accent hover:underline'
+                      : 'text-gray-300'
+                  }
+                  onClick={() => {
+                    setPath(subPath);
+                    setTargetFile(null);
+                  }}
+                >
+                  {p}
+                </span>
+              </span>
+            );
+          })}
+      </p>
+
+      {/* file name */}
+      <p className="truncate text-gray-300">
+        <span className="text-gray-300"> {direcotrySeparator} </span>
+        {targetFile?.name}
+      </p>
+    </div>
   );
 
   return (

@@ -55,8 +55,6 @@ export default function InstanceLoadingCard({
   const borderClass = 'outline-gray-300 ring-gray-500';
   const actionMessage = 'Start';
 
-  console.log(progress_percent);
-
   return (
     <div
       className={`group relative flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight ${
