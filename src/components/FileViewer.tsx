@@ -356,6 +356,82 @@ export default function FileViewer() {
     </div>
   );
 
+  const fileTree = (
+    <div className="flex h-full w-full grow flex-col @container/file-tree">
+      <div className="flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-y-auto overflow-x-hidden">
+        {!atTopLevel ? (
+          <div
+            key={'..'}
+            className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
+            onClick={() => {
+              setPath(parentPath);
+              setTargetFile(null);
+            }}
+          >
+            <p className="select-none text-base font-medium">..</p>
+          </div>
+        ) : null}
+
+        {fileListLoading ? (
+          <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
+            <p className="text-base font-medium text-gray-400">Loading...</p>
+          </div>
+        ) : fileListError ? (
+          <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
+            <p className="text-base font-medium text-gray-400">
+              {fileListError.message}
+            </p>
+          </div>
+        ) : null}
+
+        {fileList?.length === 0 && (
+          <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
+            <p className="text-base font-medium text-gray-400">
+              No files here...
+            </p>
+          </div>
+        )}
+
+        {fileList?.map((file) => (
+          <div
+            key={file.path}
+            className={`flex flex-row items-center gap-4 py-2 px-4 hover:bg-gray-700 ${
+              file.name === targetFile?.name ? 'bg-gray-750' : 'bg-gray-800'
+            }`}
+          >
+            <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
+            {fileTypeToIconMap[file.file_type]}
+            <p
+              className="grow truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
+              onClick={() => {
+                if (file.file_type === 'Directory') {
+                  setPath(file.path);
+                  setTargetFile(null);
+                } else {
+                  setTargetFile(file);
+                }
+              }}
+            >
+              {file.name}
+            </p>
+
+            <p className="min-w-[10ch] whitespace-nowrap text-right text-base font-medium text-gray-500 @xs:inline hidden">
+              {file.modification_time || file.creation_time
+                ? formatTimeAgo(
+                    Number(file.modification_time ?? file.creation_time) * 1000
+                  )
+                : 'Unknown Time'}
+            </p>
+          </div>
+        ))}
+        <div
+          onClick={() => setTargetFile(null)}
+          className="min-h-[25%] grow"
+        ></div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full w-full flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
@@ -375,7 +451,7 @@ export default function FileViewer() {
             leaveFrom="opacity-100 translate-y-0"
             leaveTo="opacity-0 -translate-y-1"
           >
-            <Menu.Items className="absolute left-0 z-10 mt-2 w-48 origin-top-left divide-y divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-700 drop-shadow-md">
+            <Menu.Items className="absolute -left-0.5 z-10 mt-2 w-48 origin-top-left divide-y divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800 drop-shadow-md">
               {/* <div className="p-1">
                 <Menu.Item>
                   {({ active }) => (
@@ -522,7 +598,7 @@ export default function FileViewer() {
           disabled={!targetFile}
         />
       </div>
-      <div className="flex h-full w-full flex-row overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+      <div className="flex h-full w-full flex-row overflow-clip rounded-lg border border-gray-faded/30 divide-x divide-gray-faded/30 bg-gray-800">
         <ResizePanel
           direction="e"
           maxSize={500}
@@ -530,125 +606,53 @@ export default function FileViewer() {
           size={fileListSize}
           validateSize={false}
           onResize={setFileListSize}
-          containerClassNames="border-r border-gray-faded/30"
+          containerClassNames="grow"
+          grow={!targetFile}
         >
-          <div className="flex h-full w-full grow flex-col">
-            <div className="flex h-0 grow flex-col overflow-y-auto overflow-x-hidden child:border-b child:border-gray-faded/30">
-              {!atTopLevel ? (
-                <div
-                  key={'..'}
-                  className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
-                  onClick={() => {
-                    setPath(parentPath);
-                    setTargetFile(null);
+          {fileTree}
+        </ResizePanel>
+        {targetFile && (
+          <div className="min-w-0 grow">
+            <div className="h-full">
+              {showingMonaco ? (
+                <Editor
+                  height="100%"
+                  onChange={(value) => {
+                    setEdittedFileContent(value ?? '');
                   }}
-                >
-                  <p className="select-none text-base font-medium">..</p>
-                </div>
-              ) : null}
-
-              {fileListLoading ? (
-                <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
-                  <p className="text-base font-medium text-gray-400">
-                    Loading...
-                  </p>
-                </div>
-              ) : fileListError ? (
-                <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
-                  <p className="text-base font-medium text-gray-400">
-                    {fileListError.message}
-                  </p>
-                </div>
-              ) : null}
-
-              {fileList?.length === 0 && (
-                <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
-                  <p className="text-base font-medium text-gray-400">
-                    No files here...
+                  value={edittedFileContent}
+                  theme="lodestone-dark"
+                  path={monacoPath}
+                  className="overflow-clip bg-gray-800"
+                  options={{
+                    padding: {
+                      top: 8,
+                    },
+                    minimap: {
+                      enabled: false,
+                    },
+                    lineNumbersMinChars: 3,
+                  }}
+                  onMount={handleEditorDidMount}
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800">
+                  <FontAwesomeIcon
+                    icon={faFile}
+                    className="text-5xl text-gray-500"
+                  />
+                  <p className="text-xl mt-4 text-gray-400">
+                    {fileError
+                      ? fileError?.message ?? 'Unknown Error'
+                      : isFileLoading
+                      ? 'Loading...'
+                      : 'Select a file to view its contents'}
                   </p>
                 </div>
               )}
-
-              {fileList?.map((file) => (
-                <div
-                  key={file.path}
-                  className={`flex flex-row items-center gap-4 py-2 px-4 hover:bg-gray-700 ${
-                    file.name === targetFile?.name
-                      ? 'bg-gray-750'
-                      : 'bg-gray-800'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
-                  {fileTypeToIconMap[file.file_type]}
-                  <p
-                    className="truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
-                    onClick={() => {
-                      if (file.file_type === 'Directory') {
-                        setPath(file.path);
-                        setTargetFile(null);
-                      } else {
-                        setTargetFile(file);
-                      }
-                    }}
-                  >
-                    {file.name}
-                  </p>
-
-                  <p className="grow whitespace-nowrap text-right text-base font-medium text-gray-500">
-                    {file.modification_time || file.creation_time
-                      ? formatTimeAgo(
-                          Number(file.modification_time ?? file.creation_time) *
-                            1000
-                        )
-                      : 'Unknown Time'}
-                  </p>
-                </div>
-              ))}
             </div>
           </div>
-        </ResizePanel>
-        <div className="min-w-0 grow">
-          <div className="h-full">
-            {showingMonaco ? (
-              <Editor
-                height="100%"
-                onChange={(value) => {
-                  setEdittedFileContent(value ?? '');
-                }}
-                value={edittedFileContent}
-                theme="lodestone-dark"
-                path={monacoPath}
-                className="overflow-clip bg-gray-800"
-                options={{
-                  padding: {
-                    top: 8,
-                  },
-                  minimap: {
-                    enabled: false,
-                  },
-                  lineNumbersMinChars: 3,
-                }}
-                onMount={handleEditorDidMount}
-              />
-            ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800">
-                <FontAwesomeIcon
-                  icon={faFile}
-                  className="text-5xl text-gray-500"
-                />
-                <p className="text-xl mt-4 text-gray-400">
-                  {!targetFile
-                    ? 'Select a file to view its contents'
-                    : fileError
-                    ? fileError?.message ?? 'Unknown Error'
-                    : isFileLoading
-                    ? 'Loading...'
-                    : 'Select a file to view its contents'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

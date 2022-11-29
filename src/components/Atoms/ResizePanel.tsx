@@ -18,23 +18,27 @@ const setCursor = (cursor: string) => {
 export default function ResizePanel({
   direction,
   containerClassNames: containerClassNamesProps = '',
+  contentClassNames: contentClassNamesProps = '',
   resizeBarClassNames: resizeBarClassNamesProps = '',
   children,
   style,
   size: initialSize,
   minSize: minSizeProps = 0,
   maxSize = Infinity,
+  grow = false,
   validateSize: shouldValidateSize = true,
   onResize,
 }: {
   direction: 'n' | 's' | 'e' | 'w';
   containerClassNames?: string;
+  contentClassNames?: string;
   resizeBarClassNames?: string;
   children: React.ReactNode;
   style?: React.CSSProperties;
   size: number;
   minSize?: number;
   maxSize?: number;
+  grow?: boolean;
   validateSize?: boolean;
   onResize?: (size: number) => void;
 }) {
@@ -52,6 +56,7 @@ export default function ResizePanel({
 
   const validateSize = () => {
     if (!shouldValidateSize) return;
+    if (grow) return;
     const content = contentRef.current;
     const wrapper = wrapperRef.current;
     if (!content || !wrapper) return;
@@ -132,7 +137,7 @@ export default function ResizePanel({
 
   // eslint-disable-next-line prefer-const
   let containerStyle = { ...style } || ({} as React.CSSProperties);
-  if (size !== 0) {
+  if (size !== 0 && !grow) {
     containerStyle.flexGrow = 0;
     containerStyle[isHorizontal ? 'width' : 'height'] = 'auto';
   }
@@ -158,7 +163,7 @@ export default function ResizePanel({
       key="content"
       ref={contentRef}
       className={contentClassName}
-      style={contentStyle}
+      style={grow ? {} : contentStyle}
     >
       {children}
     </div>,
@@ -181,9 +186,9 @@ export default function ResizePanel({
       className={containerClassNames}
       style={containerStyle}
     >
-      {direction === 'w' || direction === 'n' ? handle : null}
+      {(direction === 'w' || direction === 'n') && !grow ? handle : null}
       {content}
-      {direction === 'e' || direction === 's' ? handle : null}
+      {(direction === 'e' || direction === 's') && !grow ? handle : null}
     </div>
   );
 }
