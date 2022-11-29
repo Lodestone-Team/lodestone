@@ -40,4 +40,5 @@ export type ErrorInner =
   | 'UserNotFound'
   | 'UserAlreadyExists'
   | 'Unauthorized'
-  | 'PermissionDenied';
+  | 'PermissionDenied'
+  | 'NotFound';

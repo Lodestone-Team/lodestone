@@ -9,10 +9,11 @@ import {
   faDownload,
   faTrashCan,
   faCaretDown,
+  faUpload,
 } from '@fortawesome/free-solid-svg-icons';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { File } from 'bindings/File';
+import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import axios from 'axios';
 import { FileType } from 'bindings/FileType';
@@ -35,7 +36,7 @@ const fileTypeToIconMap: Record<FileType, React.ReactElement> = {
   ),
 };
 
-const fileSorter = (a: File, b: File) => {
+const fileSorter = (a: ClientFile, b: ClientFile) => {
   if (a.file_type === b.file_type) {
     return a.name.localeCompare(b.name);
   }
@@ -48,7 +49,7 @@ export default function FileViewer() {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
-  const [targetFile, setTargetFile] = useState<File | null>(null);
+  const [targetFile, setTargetFile] = useState<ClientFile | null>(null);
   const [edittedFileContent, setEdittedFileContent] = useState('');
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const queryClient = useQueryClient();
@@ -67,10 +68,10 @@ export default function FileViewer() {
     data: fileList,
     isLoading: fileListLoading,
     error: fileListError,
-  } = useQuery<File[], Error>(
+  } = useQuery<ClientFile[], Error>(
     ['instance', instance.uuid, 'fileList', path],
     () => {
-      return axiosWrapper<File[]>({
+      return axiosWrapper<ClientFile[]>({
         url: `/instance/${instance.uuid}/fs/ls/${path}`,
         method: 'GET',
       }).then((response) => {
@@ -230,6 +231,50 @@ export default function FileViewer() {
     console.log(tokenResponse);
     const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
     window.open(downloadUrl, '_blank');
+  };
+
+  const uploadFiles = async (file: Array<File>) => {
+    // upload all files using multipart form data
+    const formData = new FormData();
+    file.forEach((f) => {
+      formData.append('file', f);
+    });
+    const error = await catchAsyncToString(
+      axiosWrapper<null>({
+        method: 'put',
+        url: `/instance/${instance.uuid}/fs/upload/${path}`,
+        data: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+    );
+    if (error) {
+      // TODO: better error display
+      alert(error);
+      return;
+    }
+    queryClient.invalidateQueries(['instance', instance.uuid, 'fileList', path]);
+  };
+
+  const chooseFilesToUpload = async () => {
+    const files = await chooseFiles();
+    if (!files) return;
+    // convert FileList to Array
+    const fileArray = Array.from(files);
+    await uploadFiles(fileArray);
+  };
+
+  const chooseFiles = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.click();
+    return new Promise<FileList | null>((resolve) => {
+      input.onchange = () => {
+        resolve(input.files);
+      }
+    });
   };
 
   useEffect(() => {
@@ -450,6 +495,12 @@ export default function FileViewer() {
             edittedFileContent === originalFileContent ||
             !showingMonaco
           }
+        />
+        <Button
+          className="h-fit"
+          label="Upload"
+          icon={faUpload}
+          onClick={chooseFilesToUpload}
         />
         <Button
           className="h-fit"
