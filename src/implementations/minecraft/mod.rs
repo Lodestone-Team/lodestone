@@ -182,17 +182,6 @@ impl MinecraftInstance {
             .map_err(|e| {
                 let error = format!("IO Error: {}", e);
                 error!("{}", error);
-                // let _ = event_broadcaster.send(Event {
-                //     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                //         event_id: progression_event_id.clone(),
-                //         progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                //             success: false,
-                //             message: Some(error.clone()),
-                //         },
-                //     }),
-                //     details: "".to_string(),
-                //     snowflake: get_snowflake(),
-                // });
                 Error {
                     inner: ErrorInner::IOError,
                     detail: error,
@@ -487,6 +476,12 @@ impl MinecraftInstance {
         let path_to_resources = config.path.join("resources");
         let path_to_properties = config.path.join("server.properties");
         let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+        // if the properties file doesn't exist, create it
+        if !path_to_properties.exists() {
+            tokio::fs::write(&path_to_properties, format!("server-port={}", config.port))
+                .await
+                .expect("failed to write to server.properties");
+        };
         let state_callback = {
             let event_broadcaster = event_broadcaster.clone();
             let uuid = config.uuid.clone();
