@@ -35,6 +35,7 @@ pub enum FileType {
     Unknown,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename = "ClientFile")]
 #[ts(export)]
 pub struct File {
     pub name: String,
