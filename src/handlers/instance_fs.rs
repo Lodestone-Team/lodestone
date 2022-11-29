@@ -5,13 +5,19 @@ use axum::{
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
+use headers::HeaderMap;
 use log::debug;
+use reqwest::header::CONTENT_LENGTH;
 use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
 use crate::{
     auth::user::UserAction,
-    events::{new_fs_event, CausedBy, FSOperation, FSTarget},
+    events::{
+        new_fs_event, new_progression_event_id, CausedBy, Event, EventInner, FSOperation, FSTarget,
+        ProgressionEvent, ProgressionEventInner,
+    },
+    prelude::get_snowflake,
     traits::{t_configurable::TConfigurable, Error, ErrorInner},
     util::{list_dir, rand_alphanumeric, scoped_join_win_safe},
     AppState,
@@ -537,6 +543,7 @@ async fn download_instance_file(
 async fn upload_instance_file(
     Extension(state): Extension<AppState>,
     Path((uuid, relative_path)): Path<(String, String)>,
+    headers: HeaderMap,
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
 ) -> Result<Json<()>, Error> {
@@ -575,6 +582,11 @@ async fn upload_instance_file(
             })?;
     }
 
+    let total = headers
+        .get(CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<f64>().ok());
+
     while let Ok(Some(mut field)) = multipart.next_field().await {
         let name = field.file_name().ok_or_else(|| Error {
             inner: ErrorInner::MalformedRequest,
@@ -594,23 +606,6 @@ async fn upload_instance_file(
                 ),
             });
         }
-
-        // if the file is more than 2GB, deny
-
-        // if let Some(size_hint) = field.size_hint().1 {
-        //     if size_hint > 2_000_000_000 {
-        //         return Err(Error {
-        //             inner: ErrorInner::MalformedRequest,
-        //             detail: "File too large".to_string(),
-        //         });
-        //     }
-        // } else {
-        //     return Err(Error {
-        //         inner: ErrorInner::MalformedRequest,
-        //         detail: "Cannot determine the file size".to_string(),
-        //     });
-        // }
-
         let path = if path.exists() {
             // add a postfix to the file name
             let mut postfix = 1;
@@ -635,22 +630,103 @@ async fn upload_instance_file(
             inner: ErrorInner::FailedToCreateFileOrDir,
             detail: "Failed to create file".to_string(),
         })?;
-        while let Some(chunk) = field.chunk().await.map_err(|_| {
+        let event_id = new_progression_event_id();
+        let _ = state.event_broadcaster.send(Event {
+            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                event_id: event_id.clone(),
+                progression_event_inner: ProgressionEventInner::ProgressionStart {
+                    progression_name: format!("Uploading {}", name),
+                    producer_id: "".to_string(),
+                    total,
+                    inner: None,
+                },
+            }),
+            details: "".to_string(),
+            snowflake: get_snowflake(),
+            caused_by: CausedBy::User {
+                user_id: requester.uid.clone(),
+                user_name: requester.username.clone(),
+            },
+        });
+        while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
+            let _ = state.event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: event_id.clone(),
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: false,
+                        message: Some(e.to_string()),
+                        inner: None,
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: get_snowflake(),
+                caused_by: CausedBy::User {
+                    user_id: requester.uid.clone(),
+                    user_name: requester.username.clone(),
+                },
+            });
             Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "Failed to read chunk".to_string(),
             }
         })? {
+            let _ = state.event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: event_id.clone(),
+                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                        progress_message: format!("Uploading {}", name),
+                        progress: chunk.len() as f64,
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: get_snowflake(),
+                caused_by: CausedBy::User {
+                    user_id: requester.uid.clone(),
+                    user_name: requester.username.clone(),
+                },
+            });
             debug!("Received chunk of size {}", chunk.len());
-            file.write_all(&chunk).await.map_err(|_| {
+            file.write_all(&chunk).await.map_err(|e| {
                 std::fs::remove_file(&path).ok();
+                let _ = state.event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id: event_id.clone(),
+                        progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                            success: false,
+                            message: Some(e.to_string()),
+                            inner: None,
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                    caused_by: CausedBy::User {
+                        user_id: requester.uid.clone(),
+                        user_name: requester.username.clone(),
+                    },
+                });
                 Error {
                     inner: ErrorInner::FailedToCreateFileOrDir,
                     detail: "Failed to write to file".to_string(),
                 }
             })?;
         }
+        let _ = state.event_broadcaster.send(Event {
+            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                event_id: event_id.clone(),
+                progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                    success: true,
+                    message: Some("Upload complete".to_string()),
+                    inner: None,
+                },
+            }),
+            details: "".to_string(),
+            snowflake: get_snowflake(),
+            caused_by: CausedBy::User {
+                user_id: requester.uid.clone(),
+                user_name: requester.username.clone(),
+            },
+        });
 
         let caused_by = CausedBy::User {
             user_id: requester.uid.clone(),
