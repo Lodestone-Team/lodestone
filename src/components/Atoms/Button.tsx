@@ -1,6 +1,7 @@
 import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { DOMAttributes, forwardRef } from 'react';
+import classNames from 'classnames';
 
 // A styled button component
 const Button = forwardRef(
@@ -9,10 +10,14 @@ const Button = forwardRef(
       label,
       disabled = false,
       loading = false,
+      variant = 'contained',
+      align = 'center',
+      color = 'gray',
       className,
       onClick,
       type = 'button',
       icon,
+      iconRight,
       form,
       value,
       ...props
@@ -20,8 +25,12 @@ const Button = forwardRef(
       label: string;
       disabled?: boolean;
       loading?: boolean;
+      variant?: 'contained' | 'outlined' | 'text';
+      align?: 'start' | 'center' | 'end';
+      color?: 'gray' | 'red';
       className?: string;
       icon?: IconDefinition;
+      iconRight?: IconDefinition;
       form?: string;
       value?: string;
       onClick?: DOMAttributes<HTMLButtonElement>['onClick'];
@@ -29,11 +38,30 @@ const Button = forwardRef(
     },
     ref: React.Ref<HTMLButtonElement>
   ) => {
-    disabled = disabled || loading;
     return (
       <button
-        className={`${className} button-base group flex select-none flex-row flex-nowrap items-center justify-center gap-2`}
-        disabled={disabled}
+        className={classNames(
+          `button-base group flex select-none flex-row flex-nowrap items-center gap-1 justify-${align}`,
+          {
+            gray: 'text-gray-300 disabled:text-white/50',
+            red: 'text-red disabled:text-red/50',
+          }[color],
+          {
+            gray: 'enabled:focus-visible:ring-blue/30',
+            red: 'enabled:focus-visible:ring-red-faded/30',
+          }[color],
+          variant === 'contained' &&
+            {
+              gray: 'bg-gray-700 enabled:hover:bg-gray-600',
+              red: 'bg-red-faded/30 enabled:hover:bg-red-faded/40 enabled:active:bg-red-faded/30',
+            }[color],
+          variant === 'text' &&
+            'bg-transparent enabled:hover:bg-gray-faded/20 enabled:active:bg-gray-faded/30',
+          variant !== 'text' &&
+            'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
+          className
+        )}
+        disabled={disabled || loading}
         onClick={onClick}
         type={type}
         form={form}
@@ -41,13 +69,9 @@ const Button = forwardRef(
         ref={ref}
         {...props}
       >
-        {icon && (
-          <FontAwesomeIcon
-            icon={icon}
-            className="w-4 text-gray-500 enabled:hover:cursor-pointer enabled:group-hover:text-gray-400"
-          />
-        )}
+        {icon && <FontAwesomeIcon icon={icon} className="w-4" />}
         {loading ? '...' : label}
+        {iconRight && <FontAwesomeIcon icon={iconRight} className="w-4" />}
       </button>
     );
   }

@@ -27,6 +27,7 @@
     "axios": "^0.27.2",
     "babel-plugin-macros": "^3.1.0",
     "chart.js": "^3.9.1",
+    "classnames": "^2.3.2",
     "formik": "^2.2.9",
     "i": "^0.3.7",
     "jsonwebtoken": "^8.5.1",

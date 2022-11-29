@@ -1,11 +1,10 @@
-import Editor, { DiffEditor, useMonaco, loader } from '@monaco-editor/react';
+import Editor, { useMonaco } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolder,
   faFile,
   faClipboardQuestion,
-  IconDefinition,
   faFloppyDisk,
   faDownload,
   faTrashCan,
@@ -15,16 +14,15 @@ import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { File } from 'bindings/File';
 import { InstanceContext } from 'data/InstanceContext';
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 import { FileType } from 'bindings/FileType';
 import { axiosWrapper, catchAsyncToString, formatTimeAgo } from 'utils/util';
 import Button from 'components/Atoms/Button';
-import { ClientError } from 'bindings/ClientError';
 import { useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
-import { Popover, Transition } from '@headlessui/react';
+import { Menu, Transition } from '@headlessui/react';
 
 type Monaco = typeof monaco;
 
@@ -300,107 +298,136 @@ export default function FileViewer() {
   return (
     <div className="flex h-full w-full flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
-        <Popover className="relative">
-          <Popover.Button className="button-base flex flex-row items-center justify-between gap-2">
-            Add/Remove
-            <FontAwesomeIcon icon={faCaretDown} className="" />
-          </Popover.Button>
+        <Menu as="div" className="relative inline-block text-left">
+          <Menu.Button as={Button} label="Add/Remove" iconRight={faCaretDown}>
+          </Menu.Button>
 
           <Transition
             as={Fragment}
-            enter="transition ease-out duration-100"
+            enter="transition ease-out duration-200"
             enterFrom="opacity-0 -translate-y-1"
-            enterTo="opacity-100 translate-y-2"
-            leave="transition ease-in duration-100"
-            leaveFrom="opacity-100 translate-y-2"
+            enterTo="opacity-100 translate-y-0"
+            leave="transition ease-in duration-150"
+            leaveFrom="opacity-100 translate-y-0"
             leaveTo="opacity-0 -translate-y-1"
           >
-            <Popover.Panel className="absolute z-10 translate-y-2 -translate-x-1 drop-shadow-md">
-              <div className="flex w-36 flex-col gap-2 rounded-md border border-gray-faded/30 bg-gray-750 p-2">
-                <Formik
-                  initialValues={{ name: '' }}
-                  onSubmit={async (values: { name: string }, actions: any) => {
-                    actions.setSubmitting(true);
-                    const error = await createFile(values.name);
-                    if (error) {
-                      alert(error);
-                      actions.setErrors({ name: error });
-                      actions.setSubmitting(false);
-                    } else {
-                      queryClient.setQueriesData(
-                        ['instance', instance.uuid, 'fileList', path],
-                        fileList
-                          ? [
-                              ...fileList,
-                              {
-                                name: values.name,
-                                path: `${path}/${values.name}`,
-                                file_type: 'File' as FileType,
-                                creation_time: Date.now() / 1000,
-                                modification_time: Date.now() / 1000,
-                              },
-                            ].sort(fileSorter)
-                          : undefined
-                      );
-                      actions.setSubmitting(false);
-                      actions.resetForm();
-                    }
-                  }}
-                >
-                  <Form id="create-file-form" autoComplete="off">
-                    <InputField name="name" placeholder="New File" />
-                  </Form>
-                </Formik>
-                <Formik
-                  initialValues={{ name: '' }}
-                  onSubmit={async (values: { name: string }, actions: any) => {
-                    actions.setSubmitting(true);
-                    const error = await createDirectory(values.name);
-                    if (error) {
-                      alert(error);
-                      actions.setErrors({ name: error });
-                      actions.setSubmitting(false);
-                    } else {
-                      queryClient.setQueriesData(
-                        ['instance', instance.uuid, 'fileList', path],
-                        fileList
-                          ? [
-                              ...fileList,
-                              {
-                                name: values.name,
-                                path: `${path}/${values.name}`,
-                                file_type: 'Directory' as FileType,
-                                creation_time: Date.now() / 1000,
-                                modification_time: Date.now() / 1000,
-                              },
-                            ].sort(fileSorter)
-                          : undefined
-                      );
-                      actions.setSubmitting(false);
-                      actions.resetForm();
-                    }
-                  }}
-                >
-                  <Form id="create-directory-form" autoComplete="off">
-                    <InputField name="name" placeholder="New Folder" />
-                  </Form>
-                </Formik>
-                <Button
-                  label="rm -r ."
-                  className="whitespace-nowrap"
-                  onClick={deleteDirectory}
-                />
-                <Button
-                  className="h-fit whitespace-nowrap text-red"
-                  label={`Delete file`}
-                  icon={faTrashCan}
-                  onClick={() => deleteFile()}
-                  disabled={isFileLoading || !targetFile}
-                />
+            <Menu.Items className="absolute left-0 z-10 mt-2 w-48 origin-top-left divide-y divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-700 drop-shadow-md">
+              {/* <div className="p-1">
+                <Menu.Item>
+                  {({ active }) => (
+                    <Formik
+                      initialValues={{ name: '' }}
+                      onSubmit={async (
+                        values: { name: string },
+                        actions: any
+                      ) => {
+                        actions.setSubmitting(true);
+                        const error = await createFile(values.name);
+                        if (error) {
+                          alert(error);
+                          actions.setErrors({ name: error });
+                          actions.setSubmitting(false);
+                        } else {
+                          queryClient.setQueriesData(
+                            ['instance', instance.uuid, 'fileList', path],
+                            fileList
+                              ? [
+                                  ...fileList,
+                                  {
+                                    name: values.name,
+                                    path: `${path}/${values.name}`,
+                                    file_type: 'File' as FileType,
+                                    creation_time: Date.now() / 1000,
+                                    modification_time: Date.now() / 1000,
+                                  },
+                                ].sort(fileSorter)
+                              : undefined
+                          );
+                          actions.setSubmitting(false);
+                          actions.resetForm();
+                        }
+                      }}
+                    >
+                      <Form id="create-file-form" autoComplete="off">
+                        <InputField name="name" placeholder="New File" />
+                      </Form>
+                    </Formik>
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active }) => (
+                    <Formik
+                      initialValues={{ name: '' }}
+                      onSubmit={async (
+                        values: { name: string },
+                        actions: any
+                      ) => {
+                        actions.setSubmitting(true);
+                        const error = await createDirectory(values.name);
+                        if (error) {
+                          alert(error);
+                          actions.setErrors({ name: error });
+                          actions.setSubmitting(false);
+                        } else {
+                          queryClient.setQueriesData(
+                            ['instance', instance.uuid, 'fileList', path],
+                            fileList
+                              ? [
+                                  ...fileList,
+                                  {
+                                    name: values.name,
+                                    path: `${path}/${values.name}`,
+                                    file_type: 'Directory' as FileType,
+                                    creation_time: Date.now() / 1000,
+                                    modification_time: Date.now() / 1000,
+                                  },
+                                ].sort(fileSorter)
+                              : undefined
+                          );
+                          actions.setSubmitting(false);
+                          actions.resetForm();
+                        }
+                      }}
+                    >
+                      <Form id="create-directory-form" autoComplete="off">
+                        <InputField name="name" placeholder="New Folder" />
+                      </Form>
+                    </Formik>
+                  )}
+                </Menu.Item>
+              </div> */}
+              <div className="p-2">
+                <Menu.Item>
+                  {({ active }) => (
+                    <Button
+                      label="Delete directory"
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={deleteDirectory}
+                      icon={faTrashCan}
+                      variant="text"
+                      align="start"
+                      color="red"
+                    />
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active }) => (
+                    <Button
+                      className="w-full whitespace-nowrap py-1.5 font-normal"
+                      label={`Delete file`}
+                      icon={faTrashCan}
+                      onClick={() => deleteFile()}
+                      variant="text"
+                      align="start"
+                      color="red"
+                      disabled={isFileLoading || !targetFile}
+                    />
+                  )}
+                </Menu.Item>
               </div>
-            </Popover.Panel>
+            </Menu.Items>
           </Transition>
-        </Popover>
+        </Menu>
 
         {breadcrumb}
         <Button
