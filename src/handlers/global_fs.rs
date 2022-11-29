@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use axum::{
     body::{Bytes, StreamBody},
     extract::{Multipart, Path},
+    http,
     routing::{delete, get, put},
-    Extension, Json, Router, TypedHeader,
+    Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
 
-use headers::ContentType;
+use headers::HeaderName;
 use log::debug;
 use serde::{Deserialize, Serialize};
 
@@ -417,7 +418,11 @@ async fn download_file(
         });
     }
     let key = rand_alphanumeric(32);
-    state.download_urls.lock().await.insert(key.clone(), path.clone());
+    state
+        .download_urls
+        .lock()
+        .await
+        .insert(key.clone(), path.clone());
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username.clone(),
@@ -530,32 +535,36 @@ async fn download(
     Path(key): Path<String>,
 ) -> Result<
     (
-        TypedHeader<ContentType>,
+        [(HeaderName, String); 2],
         StreamBody<ReaderStream<tokio::fs::File>>,
     ),
     Error,
 > {
-    dbg!(&key);
     if let Some(path) = state.download_urls.lock().await.get(&key) {
         let file = tokio::fs::File::open(&path).await.map_err(|_| Error {
             inner: ErrorInner::IOError,
             detail: "Failed to open file".to_string(),
         })?;
-        let content_type = match path.extension() {
-            Some(extension) => match extension.to_str().unwrap() {
-                "html" => ContentType::html(),
-                "json" => ContentType::json(),
-                "txt" => ContentType::text_utf8(),
-                "png" => ContentType::png(),
-                "jpg" => ContentType::jpeg(),
-                "jpeg" => ContentType::jpeg(),
-                _ => ContentType::octet_stream(),
-            },
-            None => ContentType::octet_stream(),
-        };
+
+        let headers = [
+            (
+                http::header::CONTENT_DISPOSITION,
+                "application/octet-stream".to_string(),
+            ),
+            (
+                http::header::CONTENT_DISPOSITION,
+                format!(
+                    "attachment; filename=\"{}\"",
+                    path.file_name()
+                        .map(|s| s.to_str().map(|s| s.to_string()))
+                        .flatten()
+                        .unwrap_or("unknown".to_string())
+                ),
+            ),
+        ];
         let stream = ReaderStream::new(file);
         let body = StreamBody::new(stream);
-        Ok((TypedHeader(content_type), body))
+        Ok((headers, body))
     } else {
         Err(Error {
             inner: ErrorInner::NotFound,
