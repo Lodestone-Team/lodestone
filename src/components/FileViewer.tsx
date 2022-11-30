@@ -13,6 +13,8 @@ import {
   faFilePen,
   faFolderPlus,
   faAngleDown,
+  faFileCirclePlus,
+  faPlus,
 } from '@fortawesome/free-solid-svg-icons';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -29,6 +31,7 @@ import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { faSquare } from '@fortawesome/free-regular-svg-icons';
 import clsx from 'clsx';
+import * as yup from 'yup';
 
 type Monaco = typeof monaco;
 
@@ -471,6 +474,9 @@ export default function FileViewer() {
             <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
               <Formik
                 initialValues={{ name: '' }}
+                validationSchema={yup.object({
+                  name: yup.string().required('Required'),
+                })}
                 onSubmit={async (values: { name: string }, actions: any) => {
                   actions.setSubmitting(true);
                   const error = await createFile(values.name);
@@ -513,7 +519,78 @@ export default function FileViewer() {
                       />
                       <Button
                         type="submit"
-                        label="Create"
+                        label="Create file"
+                        loading={isSubmitting}
+                      />
+                    </div>
+                  </Form>
+                )}
+              </Formik>
+            </div>
+          </Dialog.Panel>
+        </div>
+      </div>
+    </Dialog>
+  );
+
+  const createFolderModal = (
+    <Dialog
+      open={createFolderModalOpen}
+      onClose={() => setCreateFolderModalOpen(false)}
+    >
+      <div className="fixed inset-0 bg-[#000]/80" />
+      <div className="fixed inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center p-4 text-center">
+          <Dialog.Panel>
+            <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+              <Formik
+                initialValues={{ name: '' }}
+                validationSchema={yup.object({
+                  name: yup.string().required('Required'),
+                })}
+                onSubmit={async (values: { name: string }, actions: any) => {
+                  actions.setSubmitting(true);
+                  const error = await createDirectory(values.name);
+                  if (error) {
+                    actions.setErrors({ name: error });
+                    actions.setSubmitting(false);
+                  } else {
+                    queryClient.setQueriesData(
+                      ['instance', instance.uuid, 'fileList', path],
+                      fileList
+                        ? [
+                            ...fileList,
+                            {
+                              name: values.name,
+                              path: `${path}/${values.name}`,
+                              file_type: 'Directory' as FileType,
+                              creation_time: Date.now() / 1000,
+                              modification_time: Date.now() / 1000,
+                            },
+                          ].sort(fileSorter)
+                        : undefined
+                    );
+                    actions.setSubmitting(false);
+                    actions.resetForm();
+                    setCreateFolderModalOpen(false);
+                  }
+                }}
+              >
+                {({ isSubmitting }) => (
+                  <Form
+                    id="create-folder-form"
+                    autoComplete="off"
+                    className="flex flex-col items-stretch gap-8 text-center"
+                  >
+                    <InputField name="name" label="Name your folder" />
+                    <div className="flex flex-row justify-between">
+                      <Button
+                        onClick={() => setCreateFolderModalOpen(false)}
+                        label="Cancel"
+                      />
+                      <Button
+                        type="submit"
+                        label="Create folder"
                         loading={isSubmitting}
                       />
                     </div>
@@ -531,6 +608,7 @@ export default function FileViewer() {
     <div className="flex h-full w-full flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
         {createFileModal}
+        {createFolderModal}
         <Menu as="div" className="relative inline-block text-left">
           <Menu.Button
             as={Button}
@@ -554,6 +632,21 @@ export default function FileViewer() {
                       label="Create new file"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
                       onClick={() => setCreateFileModalOpen(true)}
+                      icon={faPlus}
+                      variant="text"
+                      align="start"
+                      size="slim"
+                      disabled={disabled}
+                      active={active}
+                    />
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active, disabled }) => (
+                    <Button
+                      label="Create new folder"
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={() => setCreateFolderModalOpen(true)}
                       icon={faFolderPlus}
                       variant="text"
                       align="start"
@@ -563,47 +656,6 @@ export default function FileViewer() {
                     />
                   )}
                 </Menu.Item>
-                {/* <Menu.Item>
-                  {({ active }) => (
-                    <Formik
-                      initialValues={{ name: '' }}
-                      onSubmit={async (
-                        values: { name: string },
-                        actions: any
-                      ) => {
-                        actions.setSubmitting(true);
-                        const error = await createDirectory(values.name);
-                        if (error) {
-                          alert(error);
-                          actions.setErrors({ name: error });
-                          actions.setSubmitting(false);
-                        } else {
-                          queryClient.setQueriesData(
-                            ['instance', instance.uuid, 'fileList', path],
-                            fileList
-                              ? [
-                                  ...fileList,
-                                  {
-                                    name: values.name,
-                                    path: `${path}/${values.name}`,
-                                    file_type: 'Directory' as FileType,
-                                    creation_time: Date.now() / 1000,
-                                    modification_time: Date.now() / 1000,
-                                  },
-                                ].sort(fileSorter)
-                              : undefined
-                          );
-                          actions.setSubmitting(false);
-                          actions.resetForm();
-                        }
-                      }}
-                    >
-                      <Form id="create-directory-form" autoComplete="off">
-                        <InputField name="name" placeholder="New Folder" />
-                      </Form>
-                    </Formik>
-                  )}
-                </Menu.Item> */}
               </div>
               <div className="p-1">
                 <Menu.Item>
