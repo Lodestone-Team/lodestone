@@ -18,6 +18,7 @@ const Button = forwardRef(
       className,
       onClick,
       type = 'button',
+      iconComponent,
       icon,
       iconRight,
       form,
@@ -33,6 +34,7 @@ const Button = forwardRef(
       color?: 'gray' | 'red';
       size?: 'slim' | 'medium' | 'large';
       className?: string;
+      iconComponent?: React.ReactNode;
       icon?: IconDefinition;
       iconRight?: IconDefinition;
       form?: string;
@@ -80,6 +82,7 @@ const Button = forwardRef(
         ref={ref}
         {...props}
       >
+        {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4" />}
         {loading ? '...' : label}
         {iconRight && <FontAwesomeIcon icon={iconRight} className="w-4" />}

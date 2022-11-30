@@ -246,6 +246,26 @@ export default function FileViewer() {
 
   /* UI */
 
+  const fileCheckIcon = (
+    <svg
+      viewBox="0 0 512 512"
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      focusable="false"
+      aria-hidden="true"
+      className={`svg-inline--fa`}
+    >
+      <path
+        d="M453.8 149.8L304 0V99.8C304 127.4 326.4 149.8 354 149.8H453.8Z"
+        fill="currentColor"
+      />
+      <path
+        d="M306 197.8C278.4 197.8 256 175.4 256 147.8V0H106C79.6002 0 58.2002 21.4 58.2002 47.8V464.1C58.2002 490.5 79.6002 511.9 106 511.9H406C432.4 511.9 453.8 490.5 453.8 464.1V197.8H306ZM383.8 354.9C383.8 368.2 373.1 378.9 359.8 378.9H280V458.7C280 472 269.3 482.7 256 482.7C242.7 482.7 232 472 232 458.7V378.9H152.2C138.9 378.9 128.2 368.2 128.2 354.9C128.2 341.6 138.9 330.9 152.2 330.9H232V251.1C232 237.8 242.7 227.1 256 227.1C269.3 227.1 280 237.8 280 251.1V330.9H359.8C373 330.9 383.8 341.7 383.8 354.9Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+
   const breadcrumb = (
     <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 whitespace-nowrap text-base font-medium">
       <p className="truncate">
@@ -593,17 +613,16 @@ export default function FileViewer() {
             leaveTo="opacity-0 -translate-y-1"
           >
             <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
-              <div className="p-1">
+              <div className="py-2 px-1.5">
                 <Menu.Item>
                   {({ active, disabled }) => (
                     <Button
-                      label="Create new file"
+                      label="New file"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
                       onClick={() => setCreateFileModalOpen(true)}
-                      icon={faPlus}
+                      iconComponent={fileCheckIcon}
                       variant="text"
                       align="start"
-                      size="slim"
                       disabled={disabled}
                       active={active}
                     />
@@ -612,18 +631,19 @@ export default function FileViewer() {
                 <Menu.Item>
                   {({ active, disabled }) => (
                     <Button
-                      label="Create new folder"
+                      label="New folder"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
                       onClick={() => setCreateFolderModalOpen(true)}
                       icon={faFolderPlus}
                       variant="text"
                       align="start"
-                      size="slim"
                       disabled={disabled}
                       active={active}
                     />
                   )}
                 </Menu.Item>
+              </div>
+              <div className="py-2 px-1.5">
                 <Menu.Item>
                   {({ active, disabled }) => (
                     <Button
@@ -644,40 +664,37 @@ export default function FileViewer() {
                       icon={faListCheck}
                       variant="text"
                       align="start"
-                      size="slim"
                       disabled={disabled}
                       active={active}
-                    />
+                    />  
                   )}
                 </Menu.Item>
                 <Menu.Item disabled={tickedFiles.length === 0}>
                   {({ active, disabled }) => (
                     <Button
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
-                      label="Download files"
+                      label="Download selected"
                       icon={faDownload}
                       onClick={downloadTickedFiles}
                       variant="text"
                       align="start"
-                      size="slim"
                       disabled={disabled}
                       active={active}
                     />
                   )}
                 </Menu.Item>
               </div>
-              <div className="p-1">
+              <div className="py-2 px-1.5">
                 <Menu.Item disabled={tickedFiles.length === 0}>
                   {({ active, disabled }) => (
                     <Button
-                      label="Delete files"
+                      label="Delete selected"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
                       onClick={deleteTickedFiles}
                       icon={faTrashCan}
                       variant="text"
                       align="start"
                       color="red"
-                      size="slim"
                       disabled={disabled}
                       active={active}
                     />
