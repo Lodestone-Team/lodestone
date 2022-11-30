@@ -74,12 +74,12 @@ const useFileList = (uuid: string, path: string) =>
     }
   );
 
-const useFileContent = (uuid: string, targetFile: ClientFile | null) =>
+const useFileContent = (uuid: string, file: ClientFile | null) =>
   useQuery<string, Error>(
-    ['instance', uuid, 'fileContent', targetFile?.path],
+    ['instance', uuid, 'fileContent', file?.path],
     () => {
       return axiosWrapper<string>({
-        url: `/instance/${uuid}/fs/read/${targetFile?.path}`,
+        url: `/instance/${uuid}/fs/read/${file?.path}`,
         method: 'GET',
         transformResponse: (data) => data,
       }).then((response) => {
@@ -87,7 +87,7 @@ const useFileContent = (uuid: string, targetFile: ClientFile | null) =>
       });
     },
     {
-      enabled: targetFile !== null,
+      enabled: file !== null,
       cacheTime: 0,
       staleTime: 0,
       retry: false,
@@ -100,7 +100,7 @@ export default function FileViewer() {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
-  const [targetFile, setTargetFile] = useState<ClientFile | null>(null);
+  const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [fileContent, setfileContent] = useState('');
   const fileContentRef = useRef<string>();
   fileContentRef.current = fileContent;
@@ -131,7 +131,7 @@ export default function FileViewer() {
     data: originalFileContent,
     isLoading: isFileLoading,
     error: fileError,
-  } = useFileContent(instance.uuid, targetFile);
+  } = useFileContent(instance.uuid, openedFile);
 
   useEffect(() => {
     setfileContent(originalFileContent || '');
@@ -139,7 +139,7 @@ export default function FileViewer() {
 
   useEffect(() => {
     setfileContent('');
-  }, [targetFile]);
+  }, [openedFile]);
 
   /* Monaco */
 
@@ -150,12 +150,12 @@ export default function FileViewer() {
     editorRef.current = editor;
     // add ctrl+s save
     if (!instance) return;
-    if (!targetFile) return;
+    if (!openedFile) return;
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
       saveInstanceFile(
         instance.uuid,
         path,
-        targetFile,
+        openedFile,
         fileContentRef.current || '',
         queryClient
       )
@@ -164,11 +164,11 @@ export default function FileViewer() {
 
   // hack to get .lodestone_config detected as json
   const monacoPath =
-    targetFile?.name === '.lodestone_config'
+    openedFile?.name === '.lodestone_config'
       ? '.lodestone_config.json'
-      : targetFile?.name;
+      : openedFile?.name;
 
-  const showingMonaco = targetFile && !isFileLoading && !fileError;
+  const showingMonaco = openedFile && !isFileLoading && !fileError;
 
   useEffect(() => {
     // set monaco theme, just a different background color
@@ -188,11 +188,11 @@ export default function FileViewer() {
   /* Helper functions */
 
   const deleteFile = async () => {
-    if (!targetFile) throw new Error('No file selected');
+    if (!openedFile) throw new Error('No file selected');
     const error = await catchAsyncToString(
       axiosWrapper<null>({
         method: 'delete',
-        url: `/instance/${instance.uuid}/fs/rm/${targetFile.path}`,
+        url: `/instance/${instance.uuid}/fs/rm/${openedFile.path}`,
       })
     );
     if (error) {
@@ -201,10 +201,10 @@ export default function FileViewer() {
       return;
     }
     queryClient.setQueriesData(
-      ['instance', instance.uuid, 'fileList', parentPath(targetFile.path)],
-      fileList?.filter((file) => file.path !== targetFile.path)
+      ['instance', instance.uuid, 'fileList', parentPath(openedFile.path)],
+      fileList?.filter((file) => file.path !== openedFile.path)
     );
-    setTargetFile(null);
+    setOpenedFile(null);
   };
 
   const deleteDirectory = async () => {
@@ -246,11 +246,11 @@ export default function FileViewer() {
   };
 
   const downloadFile = async () => {
-    if (!targetFile) throw new Error('No file selected');
+    if (!openedFile) throw new Error('No file selected');
     // first we fetch a download token
     const tokenResponse = await axiosWrapper<string>({
       method: 'get',
-      url: `/instance/${instance.uuid}/fs/download/${targetFile.path}`,
+      url: `/instance/${instance.uuid}/fs/download/${openedFile.path}`,
     });
     console.log(tokenResponse);
     const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
@@ -318,13 +318,13 @@ export default function FileViewer() {
         {/* instance name */}
         <span
           className={
-            path !== '' || targetFile
+            path !== '' || openedFile
               ? 'cursor-pointer text-blue-accent hover:underline'
               : 'text-gray-300'
           }
           onClick={() => {
             setPath('');
-            setTargetFile(null);
+            setOpenedFile(null);
           }}
         >
           {instance.path.split(direcotrySeparator).pop()}
@@ -340,13 +340,13 @@ export default function FileViewer() {
                 <span className="text-gray-300"> {direcotrySeparator} </span>
                 <span
                   className={
-                    i !== arr.length - 1 || targetFile
+                    i !== arr.length - 1 || openedFile
                       ? 'cursor-pointer text-blue-accent hover:underline'
                       : 'text-gray-300'
                   }
                   onClick={() => {
                     setPath(subPath);
-                    setTargetFile(null);
+                    setOpenedFile(null);
                   }}
                 >
                   {p}
@@ -359,7 +359,7 @@ export default function FileViewer() {
       {/* file name */}
       <p className="truncate text-gray-300">
         <span className="text-gray-300"> {direcotrySeparator} </span>
-        {targetFile?.name}
+        {openedFile?.name}
       </p>
     </div>
   );
@@ -371,8 +371,8 @@ export default function FileViewer() {
     <div
       key={file.path}
       className={clsx(fileTreeEntryClassName, 'hover:bg-gray-700', {
-        'bg-gray-700': targetFile?.path === file.path,
-        'bg-gray-800': targetFile?.path !== file.path,
+        'bg-gray-700': openedFile?.path === file.path,
+        'bg-gray-800': openedFile?.path !== file.path,
       })}
     >
       <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
@@ -382,9 +382,9 @@ export default function FileViewer() {
         onClick={() => {
           if (file.file_type === 'Directory') {
             setPath(file.path);
-            setTargetFile(null);
+            setOpenedFile(null);
           } else {
-            setTargetFile(file);
+            setOpenedFile(file);
           }
         }}
       >
@@ -409,7 +409,7 @@ export default function FileViewer() {
             className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
             onClick={() => {
               setPath(parentPath);
-              setTargetFile(null);
+              setOpenedFile(null);
             }}
           >
             <p className="select-none text-base font-medium">..</p>
@@ -437,7 +437,7 @@ export default function FileViewer() {
         )}
         {fileList?.map(fileTreeEntry)}
         <div
-          onClick={() => setTargetFile(null)}
+          onClick={() => setOpenedFile(null)}
           className="min-h-[25%] grow"
         ></div>
       </div>
@@ -656,7 +656,7 @@ export default function FileViewer() {
                     />
                   )}
                 </Menu.Item>
-                <Menu.Item disabled={isFileLoading || !targetFile}>
+                <Menu.Item disabled={isFileLoading || !openedFile}>
                   {({ active, disabled }) => (
                     <Button
                       className="w-full whitespace-nowrap py-1.5 font-normal"
@@ -686,13 +686,13 @@ export default function FileViewer() {
             saveInstanceFile(
               instance.uuid,
               path,
-              targetFile as any, //force ignore "null" possibility
+              openedFile as any, //force ignore "null" possibility
               fileContent,
               queryClient
             )
           }
           disabled={
-            !targetFile ||
+            !openedFile ||
             fileContent === originalFileContent ||
             !showingMonaco
           }
@@ -708,7 +708,7 @@ export default function FileViewer() {
           label="Download"
           icon={faDownload}
           onClick={downloadFile}
-          disabled={!targetFile}
+          disabled={!openedFile}
         />
       </div>
       <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
@@ -720,11 +720,11 @@ export default function FileViewer() {
           validateSize={false}
           onResize={setFileListSize}
           containerClassNames="grow"
-          grow={!targetFile}
+          grow={!openedFile}
         >
           {fileTree}
         </ResizePanel>
-        {targetFile && (
+        {openedFile && (
           <div className="min-w-0 grow">
             <div className="h-full">
               {showingMonaco ? (
