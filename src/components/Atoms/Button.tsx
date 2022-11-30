@@ -1,7 +1,7 @@
 import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { DOMAttributes, forwardRef } from 'react';
-import classNames from 'classnames';
+import clsx from 'clsx';
 
 // A styled button component
 const Button = forwardRef(
@@ -43,7 +43,7 @@ const Button = forwardRef(
     const hover = active ? '' : 'hover:';
     return (
       <button
-        className={classNames(
+        className={clsx(
           `button-base group flex select-none flex-row flex-nowrap items-center gap-1 justify-${align}`,
           {
             gray: 'text-gray-300 disabled:text-white/50',
