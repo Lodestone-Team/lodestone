@@ -24,8 +24,15 @@ import { FileType } from 'bindings/FileType';
 import {
   axiosWrapper,
   catchAsyncToString,
+  chooseFiles,
+  createInstanceDirectory,
+  createInstanceFile,
+  deleteInstanceDirectory,
+  deleteInstanceFile,
+  downloadInstanceFiles,
   formatTimeAgo,
   saveInstanceFile,
+  uploadInstanceFiles,
 } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
@@ -38,14 +45,6 @@ import clsx from 'clsx';
 import * as yup from 'yup';
 
 type Monaco = typeof monaco;
-
-const fileTypeToIconMap: Record<FileType, React.ReactElement> = {
-  Directory: <FontAwesomeIcon icon={faFolder} className="text-blue-accent" />,
-  File: <FontAwesomeIcon icon={faFile} className="text-gray-400" />,
-  Unknown: (
-    <FontAwesomeIcon icon={faClipboardQuestion} className="text-ochre" />
-  ),
-};
 
 const fileSorter = (a: ClientFile, b: ClientFile) => {
   if (a.file_type === b.file_type) {
@@ -201,127 +200,47 @@ export default function FileViewer() {
 
   /* Helper functions */
 
-  const deleteFile = async () => {
-    if (!openedFile) throw new Error('No file selected');
-    const error = await catchAsyncToString(
-      axiosWrapper<null>({
-        method: 'delete',
-        url: `/instance/${instance.uuid}/fs/rm/${openedFile.path}`,
-      })
-    );
-    if (error) {
-      // TODO: better error display
-      alert(error);
-      return;
-    }
-    queryClient.setQueriesData(
-      ['instance', instance.uuid, 'fileList', parentPath(openedFile.path)],
-      fileList?.filter((file) => file.path !== openedFile.path)
-    );
-    setOpenedFile(null);
-  };
-
-  const deleteDirectory = async () => {
-    const error = await catchAsyncToString(
-      axiosWrapper<null>({
-        method: 'delete',
-        url: `/instance/${instance.uuid}/fs/rmdir/${path}`,
-      })
-    );
-    if (error) {
-      // TODO: better error display
-      alert(error);
-      return;
-    }
-    queryClient.setQueriesData(
-      ['instance', instance.uuid, 'fileList', parentPath(path)],
-      fileList?.filter((file) => file.path !== path)
-    );
-    setPath(parentPath);
-  };
-
-  const createFile = async (name: string) => {
-    return await catchAsyncToString(
-      axiosWrapper<null>({
-        method: 'put',
-        url: `/instance/${instance.uuid}/fs/new/${path}/${name}`,
-      })
-    );
-  };
-
-  const createDirectory = async (name: string) => {
-    if (!name) throw new Error('No name provided');
-    return await catchAsyncToString(
-      axiosWrapper<null>({
-        method: 'put',
-        url: `/instance/${instance.uuid}/fs/mkdir/${path}/${name}`,
-      })
-    );
-  };
-
-  const downloadFile = async () => {
-    if (!openedFile) throw new Error('No file selected');
-    // first we fetch a download token
-    const tokenResponse = await axiosWrapper<string>({
-      method: 'get',
-      url: `/instance/${instance.uuid}/fs/download/${openedFile.path}`,
-    });
-    console.log(tokenResponse);
-    const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
-    window.open(downloadUrl, '_blank');
-  };
-
-  const uploadFiles = async (file: Array<File>) => {
-    // upload all files using multipart form data
-    const formData = new FormData();
-    file.forEach((f) => {
-      formData.append('file', f);
-    });
-    const error = await catchAsyncToString(
-      axiosWrapper<null>({
-        method: 'put',
-        url: `/instance/${instance.uuid}/fs/upload/${path}`,
-        data: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        timeout: 0,
-        onUploadProgress: (progressEvent) => {
-          console.log(progressEvent);
-        },
-      })
-    );
-    if (error) {
-      // TODO: better error display
-      alert(error);
-      return;
-    }
-    queryClient.invalidateQueries([
-      'instance',
-      instance.uuid,
-      'fileList',
-      path,
-    ]);
-  };
-
   const chooseFilesToUpload = async () => {
     const files = await chooseFiles();
     if (!files) return;
     // convert FileList to Array
     const fileArray = Array.from(files);
-    await uploadFiles(fileArray);
+    await uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
   };
 
-  const chooseFiles = async () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.click();
-    return new Promise<FileList | null>((resolve) => {
-      input.onchange = () => {
-        resolve(input.files);
-      };
-    });
+  const deleteTickedFiles = async () => {
+    // TODO: show a confirmation dialog
+    if (!tickedFiles) return;
+    for (const file of tickedFiles) {
+      if (file.file_type === 'Directory') {
+        deleteInstanceDirectory(instance.uuid, path, file.path, queryClient);
+        tickFile(file, false);
+      } else if (file.file_type === 'File') {
+        deleteInstanceFile(instance.uuid, path, file, queryClient);
+        tickFile(file, false);
+      }
+    }
+    setTickedFiles([]);
+  };
+
+  const downloadTickedFiles = async () => {
+    if (!tickedFiles) return;
+    const missedDirectories: string[] = [];
+    for (const file of tickedFiles) {
+      if (file.file_type === 'Directory') {
+        missedDirectories.push(file.path);
+      } else if (file.file_type === 'File') {
+        downloadInstanceFiles(instance.uuid, file);
+        tickFile(file, false);
+      }
+    }
+    if (missedDirectories.length > 0) {
+      const missedDirectoriesString = missedDirectories.join(', ');
+      // TODO: make this a toast
+      alert(
+        `Downloading a directory is not supported. The following directories were not downloaded: ${missedDirectoriesString}`
+      );
+    }
   };
 
   /* UI */
@@ -387,8 +306,8 @@ export default function FileViewer() {
     <div
       key={file.path}
       className={clsx(fileTreeEntryClassName, 'hover:bg-gray-700', {
-        'bg-gray-700': openedFile?.path === file.path,
-        'bg-gray-800': openedFile?.path !== file.path,
+        'bg-gray-700': fileTicked(file),
+        'bg-gray-800': !fileTicked(file),
       })}
     >
       <div
@@ -404,9 +323,25 @@ export default function FileViewer() {
       >
         <FontAwesomeIcon icon={fileTicked(file) ? faCheckSquare : faSquare} />
       </div>
-      {fileTypeToIconMap[file.file_type]}
+      <div className="w-3">
+        {file.file_type === 'Directory' && (
+          <FontAwesomeIcon icon={faFolder} className="text-blue-accent" />
+        )}
+        {file.file_type === 'File' && (
+          <FontAwesomeIcon
+            icon={openedFile?.path === file.path ? faFilePen : faFile}
+            className="text-gray-400"
+          />
+        )}
+        {file.file_type === 'Unknown' && (
+          <FontAwesomeIcon icon={faClipboardQuestion} className="text-ochre" />
+        )}
+      </div>
       <p
-        className="grow truncate text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
+        className={clsx(
+          'truncate text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline',
+          openedFile?.path === file.path && 'italic'
+        )}
         onClick={() => {
           if (file.file_type === 'Directory') {
             setPath(file.path);
@@ -419,6 +354,7 @@ export default function FileViewer() {
       >
         {file.name}
       </p>
+      <div className="grow"></div>
 
       <p className="hidden min-w-[10ch] text-right text-gray-500 @xs:inline">
         {file.modification_time || file.creation_time
@@ -491,7 +427,11 @@ export default function FileViewer() {
                 })}
                 onSubmit={async (values: { name: string }, actions: any) => {
                   actions.setSubmitting(true);
-                  const error = await createFile(values.name);
+                  const error = await createInstanceFile(
+                    instance.uuid,
+                    path,
+                    values.name
+                  );
                   if (error) {
                     actions.setErrors({ name: error });
                     actions.setSubmitting(false);
@@ -566,7 +506,11 @@ export default function FileViewer() {
                 })}
                 onSubmit={async (values: { name: string }, actions: any) => {
                   actions.setSubmitting(true);
-                  const error = await createDirectory(values.name);
+                  const error = await createInstanceDirectory(
+                    instance.uuid,
+                    path,
+                    values.name
+                  );
                   if (error) {
                     actions.setErrors({ name: error });
                     actions.setSubmitting(false);
@@ -678,29 +622,30 @@ export default function FileViewer() {
                 </Menu.Item>
               </div>
               <div className="p-1">
-                <Menu.Item>
+                <Menu.Item disabled={tickedFiles.length === 0}>
                   {({ active, disabled }) => (
                     <Button
-                      label="Delete directory"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
-                      onClick={deleteDirectory}
-                      icon={faTrashCan}
+                      label="Download"
+                      icon={faDownload}
+                      onClick={downloadTickedFiles}
                       variant="text"
                       align="start"
-                      color="red"
                       size="slim"
                       disabled={disabled}
                       active={active}
                     />
                   )}
                 </Menu.Item>
-                <Menu.Item disabled={isFileLoading || !openedFile}>
+              </div>
+              <div className="p-1">
+                <Menu.Item disabled={tickedFiles.length === 0}>
                   {({ active, disabled }) => (
                     <Button
-                      className="w-full whitespace-nowrap py-1.5 font-normal"
-                      label={`Delete file`}
+                      label="Delete selected"
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={deleteTickedFiles}
                       icon={faTrashCan}
-                      onClick={() => deleteFile()}
                       variant="text"
                       align="start"
                       color="red"
@@ -743,13 +688,6 @@ export default function FileViewer() {
           icon={faUpload}
           onClick={chooseFilesToUpload}
         />
-        <Button
-          className="h-fit"
-          label="Download"
-          icon={faDownload}
-          onClick={downloadFile}
-          disabled={!openedFile}
-        />
       </div>
       <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
         <ResizePanel
@@ -784,7 +722,6 @@ export default function FileViewer() {
                     minimap: {
                       enabled: false,
                     },
-                    lineNumbersMinChars: 3,
                   }}
                   onMount={handleEditorDidMount}
                 />
