@@ -46,11 +46,11 @@ const Button = forwardRef(
       <button
         className={clsx(
           `group flex select-none flex-row flex-nowrap items-center justify-${align}`,
-          'font-medium leading-normal tracking-tight enabled:focus-visible:ring-4',
+          'leading-normal tracking-medium enabled:focus-visible:ring-4',
           {
-            slim: 'gap-1 rounded-sm py-1 px-1.5 text-base',
-            medium: 'gap-1.5 rounded py-1 px-2 text-base',
-            large: 'gap-1.5 rounded py-1.5 px-3 text-base',
+            slim: 'gap-1 rounded-sm py-1 px-1.5 text-base font-normal',
+            medium: 'gap-1.5 rounded py-1 px-2 text-base font-medium',
+            large: 'gap-1.5 rounded py-1.5 px-3 text-base font-medium',
           }[size],
           {
             gray: 'text-gray-300 disabled:text-white/50',
