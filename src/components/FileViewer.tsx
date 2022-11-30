@@ -617,36 +617,6 @@ export default function FileViewer() {
                 <Menu.Item>
                   {({ active, disabled }) => (
                     <Button
-                      label="New file"
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
-                      onClick={() => setCreateFileModalOpen(true)}
-                      iconComponent={fileCheckIcon}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                      active={active}
-                    />
-                  )}
-                </Menu.Item>
-                <Menu.Item>
-                  {({ active, disabled }) => (
-                    <Button
-                      label="New folder"
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
-                      onClick={() => setCreateFolderModalOpen(true)}
-                      icon={faFolderPlus}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                      active={active}
-                    />
-                  )}
-                </Menu.Item>
-              </div>
-              <div className="py-2 px-1.5">
-                <Menu.Item>
-                  {({ active, disabled }) => (
-                    <Button
                       label={
                         tickedFiles.length === fileList?.length
                           ? 'Deselect all'
@@ -666,7 +636,7 @@ export default function FileViewer() {
                       align="start"
                       disabled={disabled}
                       active={active}
-                    />  
+                    />
                   )}
                 </Menu.Item>
                 <Menu.Item disabled={tickedFiles.length === 0}>
@@ -676,6 +646,36 @@ export default function FileViewer() {
                       label="Download selected"
                       icon={faDownload}
                       onClick={downloadTickedFiles}
+                      variant="text"
+                      align="start"
+                      disabled={disabled}
+                      active={active}
+                    />
+                  )}
+                </Menu.Item>
+              </div>
+              <div className="py-2 px-1.5">
+                <Menu.Item>
+                  {({ active, disabled }) => (
+                    <Button
+                      label="New file"
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={() => setCreateFileModalOpen(true)}
+                      iconComponent={fileCheckIcon}
+                      variant="text"
+                      align="start"
+                      disabled={disabled}
+                      active={active}
+                    />
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active, disabled }) => (
+                    <Button
+                      label="New folder"
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={() => setCreateFolderModalOpen(true)}
+                      icon={faFolderPlus}
                       variant="text"
                       align="start"
                       disabled={disabled}
