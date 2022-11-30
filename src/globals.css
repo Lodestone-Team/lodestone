@@ -34,7 +34,7 @@ body {
    */
 
   .input-base {
-    @apply appearance-none rounded-md bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50;
+    @apply appearance-none rounded bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50;
   }
 
   .input-base.disabled {
@@ -59,10 +59,6 @@ body {
 
   .input-base.enabled.border-error {
     @apply focus-visible:ring-red-faded/30;
-  }
-
-  .button-base {
-    @apply rounded py-1 px-2 text-base font-semibold leading-5 tracking-tight enabled:focus-visible:ring-4;
   }
 }
 
@@ -129,8 +125,8 @@ input {
 /* custom scrollbar */
 ::-webkit-scrollbar {
   display: block;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 *:hover, *:focus, *:focus-within {
@@ -151,7 +147,7 @@ input {
 
 *::-webkit-scrollbar-thumb {
   background-color: #00000000;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   border-radius: 12px;
   box-shadow: 2px 0px 0px 2px var(--scrollbar-color) inset;
 }

@@ -14,6 +14,7 @@ const Button = forwardRef(
       variant = 'contained',
       align = 'center',
       color = 'gray',
+      size = 'medium',
       className,
       onClick,
       type = 'button',
@@ -30,6 +31,7 @@ const Button = forwardRef(
       variant?: 'contained' | 'outlined' | 'text';
       align?: 'start' | 'center' | 'end';
       color?: 'gray' | 'red';
+      size?: 'slim' | 'medium' | 'large';
       className?: string;
       icon?: IconDefinition;
       iconRight?: IconDefinition;
@@ -40,28 +42,34 @@ const Button = forwardRef(
     },
     ref: React.Ref<HTMLButtonElement>
   ) => {
-    const hover = active ? '' : 'hover:';
     return (
       <button
         className={clsx(
-          `button-base group flex select-none flex-row flex-nowrap items-center gap-1 justify-${align}`,
+          `group flex select-none flex-row flex-nowrap items-center justify-${align}`,
+          'font-medium leading-normal tracking-tight enabled:focus-visible:ring-4',
+          {
+            slim: 'gap-1 rounded-sm py-1 px-1.5 text-base',
+            medium: 'gap-1.5 rounded py-1 px-2 text-base',
+            large: 'gap-1.5 rounded py-1.5 px-3 text-base',
+          }[size],
           {
             gray: 'text-gray-300 disabled:text-white/50',
-            red: 'text-red disabled:text-red/50',
+            red: 'text-red-accent disabled:text-red/50',
           }[color],
           {
             gray: 'enabled:focus-visible:ring-blue/30',
             red: 'enabled:focus-visible:ring-red-faded/30',
           }[color],
-          variant === 'contained' &&
-            {
-              gray: `bg-gray-700 enabled:${hover}bg-gray-600`,
-              red: `bg-red-faded/30 enabled:${hover}bg-red-faded/40 enabled:active:bg-red-faded/30`,
-            }[color],
-          variant === 'text' &&
-            `bg-transparent enabled:${hover}bg-gray-faded/20 enabled:active:bg-gray-faded/30`,
+          {
+            gray: active
+              ? 'bg-gray-700'
+              : `bg-gray-800 enabled:hover:bg-gray-700 enabled:active:bg-gray-800`,
+            red: active
+              ? 'bg-red-faded/25'
+              : `bg-gray-800 enabled:hover:bg-red-faded/25 enabled:active:bg-red-faded/10`,
+          }[color],
           variant !== 'text' &&
-            `outline outline-1 outline-gray-faded/30 enabled:${hover}outline-white/50`,
+            `outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50`,
           className
         )}
         disabled={disabled || loading}

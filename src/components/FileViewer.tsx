@@ -11,6 +11,8 @@ import {
   faCaretDown,
   faUpload,
   faFilePen,
+  faFolderPlus,
+  faAngleDown,
 } from '@fortawesome/free-solid-svg-icons';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -24,7 +26,7 @@ import { useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
-import { Menu, Transition } from '@headlessui/react';
+import { Dialog, Menu, Transition } from '@headlessui/react';
 import { faSquare } from '@fortawesome/free-regular-svg-icons';
 import clsx from 'clsx';
 
@@ -92,6 +94,8 @@ export default function FileViewer() {
   const [path, setPath] = useState('');
   const [targetFile, setTargetFile] = useState<ClientFile | null>(null);
   const [edittedFileContent, setEdittedFileContent] = useState('');
+  const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
+  const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const queryClient = useQueryClient();
   const atTopLevel = path === '';
@@ -455,16 +459,65 @@ export default function FileViewer() {
     </div>
   );
 
+  const createFileModal = (
+    <Dialog
+      open={createFileModalOpen}
+      onClose={() => setCreateFileModalOpen(false)}
+    >
+      <div className="fixed inset-0 bg-[#000]/80" />
+      <div className="fixed inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center p-4 text-center">
+          <Dialog.Panel>
+            <Formik
+              initialValues={{ name: '' }}
+              onSubmit={async (values: { name: string }, actions: any) => {
+                actions.setSubmitting(true);
+                const error = await createFile(values.name);
+                if (error) {
+                  alert(error);
+                  actions.setErrors({ name: error });
+                  actions.setSubmitting(false);
+                } else {
+                  queryClient.setQueriesData(
+                    ['instance', instance.uuid, 'fileList', path],
+                    fileList
+                      ? [
+                          ...fileList,
+                          {
+                            name: values.name,
+                            path: `${path}/${values.name}`,
+                            file_type: 'File' as FileType,
+                            creation_time: Date.now() / 1000,
+                            modification_time: Date.now() / 1000,
+                          },
+                        ].sort(fileSorter)
+                      : undefined
+                  );
+                  actions.setSubmitting(false);
+                  actions.resetForm();
+                }
+              }}
+            >
+              <Form id="create-file-form" autoComplete="off">
+                <InputField name="name" placeholder="New File" />
+              </Form>
+            </Formik>
+          </Dialog.Panel>
+        </div>
+      </div>
+    </Dialog>
+  );
+
   return (
     <div className="flex h-full w-full flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
+        {createFileModal}
         <Menu as="div" className="relative inline-block text-left">
           <Menu.Button
             as={Button}
             label="Add/Remove"
-            iconRight={faCaretDown}
+            icon={faAngleDown}
           ></Menu.Button>
-
           <Transition
             as={Fragment}
             enter="transition ease-out duration-200"
@@ -474,50 +527,24 @@ export default function FileViewer() {
             leaveFrom="opacity-100 translate-y-0"
             leaveTo="opacity-0 -translate-y-1"
           >
-            <Menu.Items className="absolute -left-0.5 z-10 mt-2 w-48 origin-top-left divide-y divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800 drop-shadow-md">
-              {/* <div className="p-1">
+            <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+              <div className="p-1">
                 <Menu.Item>
-                  {({ active }) => (
-                    <Formik
-                      initialValues={{ name: '' }}
-                      onSubmit={async (
-                        values: { name: string },
-                        actions: any
-                      ) => {
-                        actions.setSubmitting(true);
-                        const error = await createFile(values.name);
-                        if (error) {
-                          alert(error);
-                          actions.setErrors({ name: error });
-                          actions.setSubmitting(false);
-                        } else {
-                          queryClient.setQueriesData(
-                            ['instance', instance.uuid, 'fileList', path],
-                            fileList
-                              ? [
-                                  ...fileList,
-                                  {
-                                    name: values.name,
-                                    path: `${path}/${values.name}`,
-                                    file_type: 'File' as FileType,
-                                    creation_time: Date.now() / 1000,
-                                    modification_time: Date.now() / 1000,
-                                  },
-                                ].sort(fileSorter)
-                              : undefined
-                          );
-                          actions.setSubmitting(false);
-                          actions.resetForm();
-                        }
-                      }}
-                    >
-                      <Form id="create-file-form" autoComplete="off">
-                        <InputField name="name" placeholder="New File" />
-                      </Form>
-                    </Formik>
+                  {({ active, disabled }) => (
+                    <Button
+                      label="Create file"
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={() => setCreateFileModalOpen(true)}
+                      icon={faFolderPlus}
+                      variant="text"
+                      align="start"
+                      size="slim"
+                      disabled={disabled}
+                      active={active}
+                    />
                   )}
                 </Menu.Item>
-                <Menu.Item>
+                {/* <Menu.Item>
                   {({ active }) => (
                     <Formik
                       initialValues={{ name: '' }}
@@ -557,9 +584,9 @@ export default function FileViewer() {
                       </Form>
                     </Formik>
                   )}
-                </Menu.Item>
-              </div> */}
-              <div className="p-2">
+                </Menu.Item> */}
+              </div>
+              <div className="p-1">
                 <Menu.Item>
                   {({ active, disabled }) => (
                     <Button
@@ -570,6 +597,7 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       color="red"
+                      size="slim"
                       disabled={disabled}
                       active={active}
                     />
@@ -585,6 +613,7 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       color="red"
+                      size="slim"
                       disabled={disabled}
                       active={active}
                     />

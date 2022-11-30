@@ -29,6 +29,7 @@ module.exports = {
       red: {
         DEFAULT: '#DD6262',
         faded: '#AE3232',
+        accent: '#FF5C5C',
       },
       gray: {
         300: '#E3E3E4',
@@ -37,7 +38,7 @@ module.exports = {
         600: '#44464B',
         700: '#36393F',
         750: '#303338',
-        800: '#26282C',
+        800: '#2B2D32',
         850: '#212327',
         900: '#1D1E21',
         faded: '#A5A5AC',
@@ -66,6 +67,12 @@ module.exports = {
       normal: '0',
       wide: '0.04em',
     },
+    dropShadow: {
+      'sm': '0 0 transparent',
+      'md': '0 3px 6px #111114',
+      'lg': '0 8px 24px #111114',
+      'xl': '0 12px 48px #111114',
+    }
   },
   plugins: [
     function ({ addVariant }) {
