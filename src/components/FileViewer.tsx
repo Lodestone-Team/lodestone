@@ -10,6 +10,7 @@ import {
   faTrashCan,
   faCaretDown,
   faUpload,
+  faFilePen,
 } from '@fortawesome/free-solid-svg-icons';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,6 +26,7 @@ import { Form, Formik } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Menu, Transition } from '@headlessui/react';
 import { faSquare } from '@fortawesome/free-regular-svg-icons';
+import clsx from 'clsx';
 
 type Monaco = typeof monaco;
 
@@ -42,6 +44,45 @@ const fileSorter = (a: ClientFile, b: ClientFile) => {
   }
   return a.file_type.localeCompare(b.file_type);
 };
+
+const useFileList = (uuid: string, path: string) =>
+  useQuery<ClientFile[], Error>(
+    ['instance', uuid, 'fileList', path],
+    () => {
+      return axiosWrapper<ClientFile[]>({
+        url: `/instance/${uuid}/fs/ls/${path}`,
+        method: 'GET',
+      }).then((response) => {
+        // sort by file type, then file name
+        return response.sort(fileSorter);
+      });
+    },
+    {
+      retry: false,
+      cacheTime: 0,
+      staleTime: 0,
+    }
+  );
+
+const useFileContent = (uuid: string, targetFile: ClientFile | null) =>
+  useQuery<string, Error>(
+    ['instance', uuid, 'fileContent', targetFile?.path],
+    () => {
+      return axiosWrapper<string>({
+        url: `/instance/${uuid}/fs/read/${targetFile?.path}`,
+        method: 'GET',
+        transformResponse: (data) => data,
+      }).then((response) => {
+        return response;
+      });
+    },
+    {
+      enabled: targetFile !== null,
+      cacheTime: 0,
+      staleTime: 0,
+      retry: false,
+    }
+  );
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -64,52 +105,29 @@ export default function FileViewer() {
     return pathParts.join(direcotrySeparator);
   };
 
+  /* Query */
+
   const {
     data: fileList,
     isLoading: fileListLoading,
     error: fileListError,
-  } = useQuery<ClientFile[], Error>(
-    ['instance', instance.uuid, 'fileList', path],
-    () => {
-      return axiosWrapper<ClientFile[]>({
-        url: `/instance/${instance.uuid}/fs/ls/${path}`,
-        method: 'GET',
-      }).then((response) => {
-        // sort by file type, then file name
-        return response.sort(fileSorter);
-      });
-    },
-    {
-      retry: false,
-      cacheTime: 0,
-      staleTime: 0,
-    }
-  );
+  } = useFileList(instance.uuid, path);
 
   const {
     data: originalFileContent,
     isLoading: isFileLoading,
     error: fileError,
-  } = useQuery<string, Error>(
-    ['instance', instance.uuid, 'fileContent', targetFile?.path],
-    () => {
-      setEdittedFileContent('');
-      return axiosWrapper<string>({
-        url: `/instance/${instance.uuid}/fs/read/${targetFile?.path}`,
-        method: 'GET',
-        transformResponse: (data) => data,
-      }).then((response) => {
-        setEdittedFileContent(response);
-        return response;
-      });
-    },
-    {
-      enabled: targetFile !== null,
-      cacheTime: 0,
-      staleTime: 0,
-      retry: false,
-    }
-  );
+  } = useFileContent(instance.uuid, targetFile);
+
+  useEffect(() => {
+    setEdittedFileContent(originalFileContent || '');
+  }, [originalFileContent]);
+
+  useEffect(() => {
+    setEdittedFileContent('');
+  }, [targetFile]);
+
+  /* Monaco */
 
   function handleEditorDidMount(
     editor: monaco.editor.IStandaloneCodeEditor,
@@ -125,6 +143,23 @@ export default function FileViewer() {
       : targetFile?.name;
 
   const showingMonaco = targetFile && !isFileLoading && !fileError;
+
+  useEffect(() => {
+    // set monaco theme, just a different background color
+    if (monaco) {
+      monaco.editor.defineTheme('lodestone-dark', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#26282C',
+          'editor.lineHighlightBackground': '#2c2e33',
+        },
+      });
+    }
+  }, [monaco]);
+
+  /* Helper functions */
 
   const saveFile = async () => {
     if (!targetFile) throw new Error('No file selected');
@@ -286,23 +321,7 @@ export default function FileViewer() {
     });
   };
 
-  useEffect(() => {
-    // set monaco theme, just a different background color
-    if (monaco) {
-      monaco.editor.defineTheme('lodestone-dark', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [],
-        colors: {
-          'editor.background': '#26282C',
-          'editor.lineHighlightBackground': '#2c2e33',
-        },
-      });
-    }
-  }, [monaco]);
-
-  console.log('original content', originalFileContent);
-  console.log('editted content', edittedFileContent);
+  /* UI */
 
   const breadcrumb = (
     <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 whitespace-nowrap text-base font-medium">
@@ -356,9 +375,45 @@ export default function FileViewer() {
     </div>
   );
 
+  const fileTreeEntryClassName =
+    'flex flex-row items-center gap-4 py-2 px-4 text-base font-medium whitespace-nowrap';
+
+  const fileTreeEntry = (file: ClientFile) => (
+    <div
+      key={file.path}
+      className={clsx(fileTreeEntryClassName, 'hover:bg-gray-700', {
+        'bg-gray-700': targetFile?.path === file.path,
+        'bg-gray-800': targetFile?.path !== file.path,
+      })}
+    >
+      <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
+      {fileTypeToIconMap[file.file_type]}
+      <p
+        className="grow truncate text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
+        onClick={() => {
+          if (file.file_type === 'Directory') {
+            setPath(file.path);
+            setTargetFile(null);
+          } else {
+            setTargetFile(file);
+          }
+        }}
+      >
+        {file.name}
+      </p>
+
+      <p className="hidden min-w-[10ch] text-right text-gray-500 @xs:inline">
+        {file.modification_time || file.creation_time
+          ? formatTimeAgo(
+              Number(file.modification_time ?? file.creation_time) * 1000
+            )
+          : 'Unknown Time'}
+      </p>
+    </div>
+  );
   const fileTree = (
     <div className="flex h-full w-full grow flex-col @container/file-tree">
-      <div className="flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-y-overlay overflow-x-hidden">
+      <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">
         {!atTopLevel ? (
           <div
             key={'..'}
@@ -373,11 +428,11 @@ export default function FileViewer() {
         ) : null}
 
         {fileListLoading ? (
-          <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
+          <div className={fileTreeEntryClassName}>
             <p className="text-base font-medium text-gray-400">Loading...</p>
           </div>
         ) : fileListError ? (
-          <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
+          <div className={fileTreeEntryClassName}>
             <p className="text-base font-medium text-gray-400">
               {fileListError.message}
             </p>
@@ -385,45 +440,13 @@ export default function FileViewer() {
         ) : null}
 
         {fileList?.length === 0 && (
-          <div className="flex flex-row items-center gap-4 bg-gray-800 py-2 px-4">
+          <div className={fileTreeEntryClassName}>
             <p className="text-base font-medium text-gray-400">
               No files here...
             </p>
           </div>
         )}
-
-        {fileList?.map((file) => (
-          <div
-            key={file.path}
-            className={`flex flex-row items-center gap-4 py-2 px-4 hover:bg-gray-700 ${
-              file.name === targetFile?.name ? 'bg-gray-750' : 'bg-gray-800'
-            }`}
-          >
-            <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
-            {fileTypeToIconMap[file.file_type]}
-            <p
-              className="grow truncate text-base font-medium text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
-              onClick={() => {
-                if (file.file_type === 'Directory') {
-                  setPath(file.path);
-                  setTargetFile(null);
-                } else {
-                  setTargetFile(file);
-                }
-              }}
-            >
-              {file.name}
-            </p>
-
-            <p className="min-w-[10ch] whitespace-nowrap text-right text-base font-medium text-gray-500 @xs:inline hidden">
-              {file.modification_time || file.creation_time
-                ? formatTimeAgo(
-                    Number(file.modification_time ?? file.creation_time) * 1000
-                  )
-                : 'Unknown Time'}
-            </p>
-          </div>
-        ))}
+        {fileList?.map(fileTreeEntry)}
         <div
           onClick={() => setTargetFile(null)}
           className="min-h-[25%] grow"
@@ -598,7 +621,7 @@ export default function FileViewer() {
           disabled={!targetFile}
         />
       </div>
-      <div className="flex h-full w-full flex-row overflow-clip rounded-lg border border-gray-faded/30 divide-x divide-gray-faded/30 bg-gray-800">
+      <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
         <ResizePanel
           direction="e"
           maxSize={500}
@@ -636,12 +659,15 @@ export default function FileViewer() {
                   onMount={handleEditorDidMount}
                 />
               ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800">
+                <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
                   <FontAwesomeIcon
-                    icon={faFile}
-                    className="text-5xl text-gray-500"
+                    icon={faFilePen}
+                    className="text-xlarge text-gray-500"
                   />
-                  <p className="text-xl mt-4 text-gray-400">
+                  <p className="text-xl text-center text-gray-400">
+                    File Editor
+                  </p>
+                  <p className="text-xl text-center text-gray-400">
                     {fileError
                       ? fileError?.message ?? 'Unknown Error'
                       : isFileLoading
