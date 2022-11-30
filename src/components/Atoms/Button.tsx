@@ -55,8 +55,8 @@ const Button = forwardRef(
             large: 'gap-1.5 rounded py-1.5 px-3 text-base font-medium',
           }[size],
           {
-            gray: 'text-gray-300 disabled:text-white/50',
-            red: 'text-red-accent disabled:text-red/50',
+            gray: 'text-gray-300 child:text-white/50 disabled:text-white/50',
+            red: 'text-red-accent child:text-red-accent/50 disabled:text-red/50',
           }[color],
           {
             gray: 'enabled:focus-visible:ring-blue/30',

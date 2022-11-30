@@ -597,7 +597,7 @@ export default function FileViewer() {
   );
 
   return (
-    <div className="flex h-full w-full flex-col gap-3">
+    <div className="relative flex h-full w-full flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
         {createFileModal}
         {createFolderModal}
@@ -809,6 +809,11 @@ export default function FileViewer() {
           <p className="text-xl text-center text-gray-300">
             You don&#39;t have permission to read this folder
           </p>
+        </div>
+      )}
+      {tickedFiles.length > 0 && (
+        <div className=" absolute bottom-0 translate-y-full left-0 text-base font-normal text-white/50 px-4 py-2">
+          {tickedFiles.length} items selected
         </div>
       )}
     </div>

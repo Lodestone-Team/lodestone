@@ -6,6 +6,7 @@ import { Fragment, useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
 import {
   faAngleDown,
+  faArrowRightArrowLeft,
   faBell,
   faCog,
   faRightFromBracket,
@@ -43,7 +44,7 @@ export default function TopNav({
   }, [token, isLoading, isError, user]);
 
   return (
-    <div className="flex h-12 w-full flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 px-4 py-2">
+    <div className="flex w-full shrink-0 flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 px-4 py-2">
       <div className="grow">
         <img
           src="/logo.svg"
@@ -124,11 +125,12 @@ export default function TopNav({
           leaveFrom="opacity-100 translate-y-0"
           leaveTo="opacity-0 -translate-y-1"
         >
-          <Menu.Items className="absolute right-0 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+          <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
             <div className="py-2 px-1.5">
               <Menu.Item>
                 {({ active, disabled }) => (
                   <Button
+                    className="w-full flex-nowrap whitespace-nowrap"
                     label={userState === 'logged-in' ? 'Logout' : 'Login'}
                     loading={userState === 'loading'}
                     iconRight={faRightFromBracket}
@@ -140,7 +142,21 @@ export default function TopNav({
                         pushKeepQuery(router, '/auth');
                     }}
                     variant="text"
-                    align="start"
+                    align="end"
+                    disabled={disabled}
+                    active={active}
+                  />
+                )}
+              </Menu.Item>
+
+              <Menu.Item>
+                {({ active, disabled }) => (
+                  <Button
+                    className="w-full flex-nowrap whitespace-nowrap"
+                    label="Change node"
+                    iconRight={faArrowRightArrowLeft}
+                    variant="text"
+                    align="end"
                     disabled={disabled}
                     active={active}
                   />
