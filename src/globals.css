@@ -10,10 +10,12 @@ body {
   min-width: 100%;
   min-height: 100%;
   overscroll-behavior: none;
+  overflow: overlay;
 }
 
 * {
   box-sizing: border-box;
+  --scrollbar-color: #00000000;
 }
 
 /* Tailwind custom classes */
@@ -64,6 +66,32 @@ body {
   }
 }
 
+@layer utilities{
+  .overflow-overlay {
+    overflow: overlay;
+  }
+
+  .overflow-y-overlay {
+    overflow-y: overlay;
+  }
+
+  .overflow-x-overlay {
+    overflow-x: overlay;
+  }
+
+  .gutter-stable {
+    scrollbar-gutter: stable;
+  }
+
+  .gutter-both {
+    scrollbar-gutter: both-edges;
+  }
+
+  .gutter-both-stable {
+    scrollbar-gutter: both-edges stable;
+  }
+}
+
 /* Some libraries don't like class name */
 /* So I guess I'll customize them here */
 .gutter-horizontal {
@@ -100,29 +128,39 @@ input {
 
 /* custom scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  display: block;
+  width: 8px;
+  height: 8px;
 }
 
-::-webkit-scrollbar-track {
-  background: rgb(40 40 40, 0);
-  /* background: rgb(40 40 40); */
-  border-radius: 4px;
+*:hover, *:focus, *:focus-within {
+  --scrollbar-color: hsla(0, 0%, 50%, 0.7) !important;
 }
 
-::-webkit-scrollbar-thumb {
-  background-color: rgb(247 247 247 / 0%);
-  border-radius: 4px;
-  transition: opacity 0.2s ease, background-color 0.2s ease;
-  -webkit-transition: opacity 0.2s ease, background-color 0.2s ease;
-  -o-transition: opacity 0.2s ease, background-color 0.2s ease;
-  -moz-transition: opacity 0.2s ease, background-color 0.2s ease;
+*::-webkit-scrollbar-button {
+  display: none;
 }
 
-:hover::-webkit-scrollbar-thumb {
-  background-color: rgb(247 247 247 / 10%);
-  opacity: 0.5;
+*::-webkit-scrollbar-track {
+  background-color: #00000000;
 }
+
+*::-webkit-scrollbar-track-piece {
+  background-color: #00000000;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #00000000;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  box-shadow: 2px 0px 0px 2px var(--scrollbar-color) inset;
+}
+
+/* *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-color);
+  border: 0px solid transparent;
+  box-shadow: none;
+} */
 
 ::-webkit-scrollbar-corner {
   background: inherit;

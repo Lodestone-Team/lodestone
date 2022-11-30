@@ -358,7 +358,7 @@ export default function FileViewer() {
 
   const fileTree = (
     <div className="flex h-full w-full grow flex-col @container/file-tree">
-      <div className="flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-y-auto overflow-x-hidden">
+      <div className="flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-y-overlay overflow-x-hidden">
         {!atTopLevel ? (
           <div
             key={'..'}
