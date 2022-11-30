@@ -22,7 +22,12 @@ import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import axios from 'axios';
 import { FileType } from 'bindings/FileType';
-import { axiosWrapper, catchAsyncToString, formatTimeAgo } from 'utils/util';
+import {
+  axiosWrapper,
+  catchAsyncToString,
+  formatTimeAgo,
+  saveInstanceFile,
+} from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
@@ -96,7 +101,9 @@ export default function FileViewer() {
   if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
   const [targetFile, setTargetFile] = useState<ClientFile | null>(null);
-  const [edittedFileContent, setEdittedFileContent] = useState('');
+  const [fileContent, setfileContent] = useState('');
+  const fileContentRef = useRef<string>();
+  fileContentRef.current = fileContent;
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
@@ -127,11 +134,11 @@ export default function FileViewer() {
   } = useFileContent(instance.uuid, targetFile);
 
   useEffect(() => {
-    setEdittedFileContent(originalFileContent || '');
+    setfileContent(originalFileContent || '');
   }, [originalFileContent]);
 
   useEffect(() => {
-    setEdittedFileContent('');
+    setfileContent('');
   }, [targetFile]);
 
   /* Monaco */
@@ -141,6 +148,18 @@ export default function FileViewer() {
     monaco: Monaco
   ) {
     editorRef.current = editor;
+    // add ctrl+s save
+    if (!instance) return;
+    if (!targetFile) return;
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
+      saveInstanceFile(
+        instance.uuid,
+        path,
+        targetFile,
+        fileContentRef.current || '',
+        queryClient
+      )
+    );
   }
 
   // hack to get .lodestone_config detected as json
@@ -167,43 +186,6 @@ export default function FileViewer() {
   }, [monaco]);
 
   /* Helper functions */
-
-  const saveFile = async () => {
-    if (!targetFile) throw new Error('No file selected');
-    const error = await catchAsyncToString(
-      axiosWrapper<null>({
-        method: 'put',
-        url: `/instance/${instance.uuid}/fs/write/${targetFile.path}`,
-        data: edittedFileContent,
-      })
-    );
-    if (error) {
-      // TODO: better error display
-      alert(error);
-      return;
-    }
-    queryClient.setQueriesData(
-      ['instance', instance.uuid, 'fileContent', targetFile.path],
-      edittedFileContent
-    );
-
-    if (fileList) {
-      const newFileList = fileList.map((file) => {
-        if (file.path === targetFile.path) {
-          return {
-            ...file,
-            modification_time: Math.round(Date.now() / 1000),
-          };
-        }
-        return file;
-      });
-
-      queryClient.setQueriesData(
-        ['instance', instance.uuid, 'fileList', path],
-        newFileList
-      );
-    }
-  };
 
   const deleteFile = async () => {
     if (!targetFile) throw new Error('No file selected');
@@ -700,10 +682,18 @@ export default function FileViewer() {
           className="h-fit"
           label="Save"
           icon={faFloppyDisk}
-          onClick={saveFile}
+          onClick={() =>
+            saveInstanceFile(
+              instance.uuid,
+              path,
+              targetFile as any, //force ignore "null" possibility
+              fileContent,
+              queryClient
+            )
+          }
           disabled={
             !targetFile ||
-            edittedFileContent === originalFileContent ||
+            fileContent === originalFileContent ||
             !showingMonaco
           }
         />
@@ -741,9 +731,9 @@ export default function FileViewer() {
                 <Editor
                   height="100%"
                   onChange={(value) => {
-                    setEdittedFileContent(value ?? '');
+                    setfileContent(value ?? '');
                   }}
-                  value={edittedFileContent}
+                  value={fileContent}
                   theme="lodestone-dark"
                   path={monacoPath}
                   className="overflow-clip bg-gray-800"

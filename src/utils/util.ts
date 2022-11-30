@@ -3,6 +3,8 @@ import { NextRouter } from 'next/router';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
+import { ClientFile } from 'bindings/ClientFile';
+import { QueryClient } from '@tanstack/react-query';
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -83,7 +85,7 @@ export function errorToMessage(error: unknown): string {
         //   error.response.data = JSON.parse(reader.result as string);
         // };
       }
-      console.log(error.response.data)
+      console.log(error.response.data);
       if (error.response.data && error.response.data.inner) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(error.response.data);
@@ -286,4 +288,43 @@ export const LODESTONE_EPOCH = BigInt('1667530800000');
 export const getSnowflakeTimestamp = (snowflake_str: string) => {
   const snowflakeBigInt = BigInt(snowflake_str);
   return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
+};
+
+export const saveInstanceFile = async (
+  uuid: string,
+  directory: string,
+  file: ClientFile,
+  content: string,
+  queryClient: QueryClient
+) => {
+  if (!file) throw new Error('No file selected');
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/write/${file.path}`,
+      data: content,
+    })
+  );
+  if (error) {
+    // TODO: better error display
+    alert(error);
+    return;
+  }
+  queryClient.setQueriesData(
+    ['instance', uuid, 'fileContent', file.path],
+    content
+  );
+
+  const fileListKey = ['instance', uuid, 'fileList', directory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  if (!fileList) return;
+  const newFileList = fileList.map((f) => {
+    if (f.path === file.path)
+      return {
+        ...f,
+        modification_time: Math.round(Date.now() / 1000),
+      };
+    return f;
+  });
+  queryClient.setQueriesData(fileListKey, newFileList);
 };
