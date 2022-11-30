@@ -468,40 +468,59 @@ export default function FileViewer() {
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 text-center">
           <Dialog.Panel>
-            <Formik
-              initialValues={{ name: '' }}
-              onSubmit={async (values: { name: string }, actions: any) => {
-                actions.setSubmitting(true);
-                const error = await createFile(values.name);
-                if (error) {
-                  alert(error);
-                  actions.setErrors({ name: error });
-                  actions.setSubmitting(false);
-                } else {
-                  queryClient.setQueriesData(
-                    ['instance', instance.uuid, 'fileList', path],
-                    fileList
-                      ? [
-                          ...fileList,
-                          {
-                            name: values.name,
-                            path: `${path}/${values.name}`,
-                            file_type: 'File' as FileType,
-                            creation_time: Date.now() / 1000,
-                            modification_time: Date.now() / 1000,
-                          },
-                        ].sort(fileSorter)
-                      : undefined
-                  );
-                  actions.setSubmitting(false);
-                  actions.resetForm();
-                }
-              }}
-            >
-              <Form id="create-file-form" autoComplete="off">
-                <InputField name="name" placeholder="New File" />
-              </Form>
-            </Formik>
+            <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+              <Formik
+                initialValues={{ name: '' }}
+                onSubmit={async (values: { name: string }, actions: any) => {
+                  actions.setSubmitting(true);
+                  const error = await createFile(values.name);
+                  if (error) {
+                    actions.setErrors({ name: error });
+                    actions.setSubmitting(false);
+                  } else {
+                    queryClient.setQueriesData(
+                      ['instance', instance.uuid, 'fileList', path],
+                      fileList
+                        ? [
+                            ...fileList,
+                            {
+                              name: values.name,
+                              path: `${path}/${values.name}`,
+                              file_type: 'File' as FileType,
+                              creation_time: Date.now() / 1000,
+                              modification_time: Date.now() / 1000,
+                            },
+                          ].sort(fileSorter)
+                        : undefined
+                    );
+                    actions.setSubmitting(false);
+                    actions.resetForm();
+                    setCreateFileModalOpen(false);
+                  }
+                }}
+              >
+                {({ isSubmitting }) => (
+                  <Form
+                    id="create-file-form"
+                    autoComplete="off"
+                    className="flex flex-col items-stretch gap-8 text-center"
+                  >
+                    <InputField name="name" label="Name your file" />
+                    <div className="flex flex-row justify-between">
+                      <Button
+                        onClick={() => setCreateFileModalOpen(false)}
+                        label="Cancel"
+                      />
+                      <Button
+                        type="submit"
+                        label="Create"
+                        loading={isSubmitting}
+                      />
+                    </div>
+                  </Form>
+                )}
+              </Formik>
+            </div>
           </Dialog.Panel>
         </div>
       </div>
@@ -532,7 +551,7 @@ export default function FileViewer() {
                 <Menu.Item>
                   {({ active, disabled }) => (
                     <Button
-                      label="Create file"
+                      label="Create new file"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
                       onClick={() => setCreateFileModalOpen(true)}
                       icon={faFolderPlus}
