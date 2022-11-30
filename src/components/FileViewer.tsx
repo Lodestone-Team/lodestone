@@ -493,7 +493,7 @@ export default function FileViewer() {
                     autoComplete="off"
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
-                    <InputField name="name" label="Name your file" />
+                    <InputField name="name" label="Name your file" placeholder="Untitled" />
                     <div className="flex flex-row justify-between">
                       <Button
                         onClick={() => setCreateFileModalOpen(false)}
@@ -564,7 +564,7 @@ export default function FileViewer() {
                     autoComplete="off"
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
-                    <InputField name="name" label="Name your folder" />
+                    <InputField name="name" label="Name your folder" placeholder='Untitled folder' />
                     <div className="flex flex-row justify-between">
                       <Button
                         onClick={() => setCreateFolderModalOpen(false)}
