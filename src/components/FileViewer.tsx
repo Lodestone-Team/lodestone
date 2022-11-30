@@ -8,13 +8,12 @@ import {
   faFloppyDisk,
   faDownload,
   faTrashCan,
-  faCaretDown,
   faUpload,
   faFilePen,
   faFolderPlus,
   faAngleDown,
-  faFileCirclePlus,
   faPlus,
+  faCheckSquare,
 } from '@fortawesome/free-solid-svg-icons';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -97,6 +96,7 @@ const useFileContent = (uuid: string, file: ClientFile | null) =>
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const monaco = useMonaco();
+  const queryClient = useQueryClient();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
@@ -107,7 +107,21 @@ export default function FileViewer() {
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
-  const queryClient = useQueryClient();
+  const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
+  const tickFile = (file: ClientFile, ticked: boolean) => {
+    if (ticked) {
+      setTickedFiles((files) => [...files, file]);
+    } else {
+      setTickedFiles((files) => files.filter((f) => f.path !== file.path));
+    }
+  };
+  const fileTicked = (file: ClientFile) => {
+    // check just the path and type, not other metadata
+    return tickedFiles.some(
+      (f) => f.path === file.path && f.file_type === file.file_type
+    );
+  };
+
   const atTopLevel = path === '';
   let direcotrySeparator = '\\';
   // assume only linux paths contain /
@@ -325,6 +339,7 @@ export default function FileViewer() {
           onClick={() => {
             setPath('');
             setOpenedFile(null);
+            setTickedFiles([]);
           }}
         >
           {instance.path.split(direcotrySeparator).pop()}
@@ -347,6 +362,7 @@ export default function FileViewer() {
                   onClick={() => {
                     setPath(subPath);
                     setOpenedFile(null);
+                    setTickedFiles([]);
                   }}
                 >
                   {p}
@@ -375,7 +391,19 @@ export default function FileViewer() {
         'bg-gray-800': openedFile?.path !== file.path,
       })}
     >
-      <FontAwesomeIcon icon={faSquare} className="text-gray-500" />
+      <div
+        className={clsx(
+          '-my-2 -mx-2.5 flex h-8 w-8 shrink-0 cursor-pointer select-none items-center justify-center overflow-clip rounded-full hover:bg-gray-faded/30',
+          fileTicked(file) && 'text-gray-300 hover:text-gray-300',
+          !fileTicked(file) && 'text-gray-400 hover:text-gray-300'
+        )}
+        onClick={(e: React.MouseEvent) => {
+          e.stopPropagation();
+          tickFile(file, !fileTicked(file));
+        }}
+      >
+        <FontAwesomeIcon icon={fileTicked(file) ? faCheckSquare : faSquare} />
+      </div>
       {fileTypeToIconMap[file.file_type]}
       <p
         className="grow truncate text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline"
@@ -383,6 +411,7 @@ export default function FileViewer() {
           if (file.file_type === 'Directory') {
             setPath(file.path);
             setOpenedFile(null);
+            setTickedFiles([]);
           } else {
             setOpenedFile(file);
           }
@@ -410,6 +439,7 @@ export default function FileViewer() {
             onClick={() => {
               setPath(parentPath);
               setOpenedFile(null);
+              setTickedFiles([]);
             }}
           >
             <p className="select-none text-base font-medium">..</p>
@@ -493,7 +523,11 @@ export default function FileViewer() {
                     autoComplete="off"
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
-                    <InputField name="name" label="Name your file" placeholder="Untitled" />
+                    <InputField
+                      name="name"
+                      label="Name your file"
+                      placeholder="Untitled"
+                    />
                     <div className="flex flex-row justify-between">
                       <Button
                         onClick={() => setCreateFileModalOpen(false)}
@@ -564,7 +598,11 @@ export default function FileViewer() {
                     autoComplete="off"
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
-                    <InputField name="name" label="Name your folder" placeholder='Untitled folder' />
+                    <InputField
+                      name="name"
+                      label="Name your folder"
+                      placeholder="Untitled folder"
+                    />
                     <div className="flex flex-row justify-between">
                       <Button
                         onClick={() => setCreateFolderModalOpen(false)}
@@ -678,25 +716,27 @@ export default function FileViewer() {
         </Menu>
 
         {breadcrumb}
-        <Button
-          className="h-fit"
-          label="Save"
-          icon={faFloppyDisk}
-          onClick={() =>
-            saveInstanceFile(
-              instance.uuid,
-              path,
-              openedFile as any, //force ignore "null" possibility
-              fileContent,
-              queryClient
-            )
-          }
-          disabled={
-            !openedFile ||
-            fileContent === originalFileContent ||
-            !showingMonaco
-          }
-        />
+        {showingMonaco && (
+          <Button
+            className="h-fit"
+            label="Save"
+            icon={faFloppyDisk}
+            onClick={() =>
+              saveInstanceFile(
+                instance.uuid,
+                path,
+                openedFile as any, //force ignore "null" possibility
+                fileContent,
+                queryClient
+              )
+            }
+            disabled={
+              !openedFile ||
+              fileContent === originalFileContent ||
+              !showingMonaco
+            }
+          />
+        )}
         <Button
           className="h-fit"
           label="Upload"
