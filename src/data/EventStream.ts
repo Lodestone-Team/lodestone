@@ -277,7 +277,7 @@ export const useEventStream = () => {
           }
         },
         FSEvent: ({ operation, target }) => {
-          console.log(`FS ${operation} on ${target}`);
+          // console.log(`FS ${operation} on ${target.path}`);
           // match(target, {
           //   File: ({ path }) => {
           //     dispatch({

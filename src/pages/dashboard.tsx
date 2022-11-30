@@ -38,7 +38,7 @@ const Dashboard: NextPageWithLayout = () => {
   if (!instance || !uuid) {
     return (
       <div
-        className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container"
+        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
         key={uuid}
       >
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
@@ -127,7 +127,7 @@ const Dashboard: NextPageWithLayout = () => {
   return (
     // used to possibly center the content
     <div
-      className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container"
+      className="relative flex h-full w-full flex-row justify-center overflow-y-auto gutter-stable px-4 pt-8 pb-10 @container"
       key={uuid}
     >
       {/* main content container */}
@@ -215,7 +215,7 @@ const Dashboard: NextPageWithLayout = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="flex w-full grow flex-row items-stretch">
+          <Tab.Panels className="flex w-full grow flex-row items-stretch focus:outline-none">
             {tabList[instance.game_type].map((tab) => (
               <Tab.Panel
                 className="flex w-full flex-col gap-16"

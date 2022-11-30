@@ -3,6 +3,8 @@ import { NextRouter } from 'next/router';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
+import { ClientFile } from 'bindings/ClientFile';
+import { QueryClient } from '@tanstack/react-query';
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -75,6 +77,15 @@ export function errorToMessage(error: unknown): string {
       if (typeof error.response.data === 'string') {
         error.response.data = JSON.parse(error.response.data);
       }
+      // if response.data is a blob parse it as a JSON object
+      if (error.response.data instanceof Blob) {
+        const reader = new FileReader();
+        reader.readAsText(error.response.data);
+        // reader.onload = () => {
+        //   error.response.data = JSON.parse(reader.result as string);
+        // };
+      }
+      console.log(error.response.data);
       if (error.response.data && error.response.data.inner) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(error.response.data);
@@ -277,4 +288,177 @@ export const LODESTONE_EPOCH = BigInt('1667530800000');
 export const getSnowflakeTimestamp = (snowflake_str: string) => {
   const snowflakeBigInt = BigInt(snowflake_str);
   return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
+};
+
+export const saveInstanceFile = async (
+  uuid: string,
+  directory: string,
+  file: ClientFile,
+  content: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/write/${file.path}`,
+      data: content,
+    })
+  );
+  if (error) {
+    // TODO: better error display
+    alert(error);
+    return;
+  }
+  queryClient.setQueriesData(
+    ['instance', uuid, 'fileContent', file.path],
+    content
+  );
+
+  const fileListKey = ['instance', uuid, 'fileList', directory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  if (!fileList) return;
+  const newFileList = fileList.map((f) => {
+    if (f.path === file.path)
+      return {
+        ...f,
+        modification_time: Math.round(Date.now() / 1000),
+      };
+    return f;
+  });
+  queryClient.setQueriesData(fileListKey, newFileList);
+};
+
+export const deleteInstanceFile = async (
+  uuid: string,
+  directory: string,
+  file: ClientFile,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'delete',
+      url: `/instance/${uuid}/fs/rm/${file.path}`,
+    })
+  );
+  if (error) {
+    // TODO: better error display
+    alert(error);
+    return;
+  }
+
+  const fileListKey = ['instance', uuid, 'fileList', directory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  if (!fileList) return;
+  queryClient.setQueriesData(
+    fileListKey,
+    fileList?.filter((f) => f.path !== file.path)
+  );
+};
+
+export const deleteInstanceDirectory = async (
+  uuid: string,
+  parentDirectory: string,
+  directory: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'delete',
+      url: `/instance/${uuid}/fs/rmdir/${directory}`,
+    })
+  );
+  if (error) {
+    // TODO: better error display
+    alert(error);
+    return;
+  }
+  const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  queryClient.setQueriesData(
+    fileListKey,
+    fileList?.filter((file) => file.path !== directory)
+  );
+};
+
+export const downloadInstanceFiles = async (uuid: string, file: ClientFile) => {
+  // TODO handle errors
+  const tokenResponse = await axiosWrapper<string>({
+    method: 'get',
+    url: `/instance/${uuid}/fs/download/${file.path}`,
+  });
+  const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
+  window.open(downloadUrl, '_blank');
+};
+
+export const uploadInstanceFiles = async (
+  uuid: string,
+  directory: string,
+  file: Array<File>,
+  queryClient: QueryClient
+) => {
+  // upload all files using multipart form data
+  const formData = new FormData();
+  file.forEach((f) => {
+    formData.append('file', f);
+  });
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/upload/${directory}`,
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 0,
+      onUploadProgress: (progressEvent) => {
+        console.log(progressEvent);
+      },
+    })
+  );
+  if (error) {
+    // TODO: better error display
+    alert(error);
+    return;
+  }
+
+  // invalidate the query instead of updating it because file name might be different
+  queryClient.invalidateQueries(['instance', uuid, 'fileList', directory]);
+};
+
+export const createInstanceFile = async (
+  uuid: string,
+  directory: string,
+  name: string
+) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/new/${directory}/${name}`,
+    })
+  );
+};
+
+export const createInstanceDirectory = async (
+  uuid: string,
+  parentDirectory: string,
+  name: string
+) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/mkdir/${parentDirectory}/${name}`,
+    })
+  );
+};
+
+export const chooseFiles = async () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.click();
+  return new Promise<FileList | null>((resolve) => {
+    input.onchange = () => {
+      resolve(input.files);
+    };
+  });
 };

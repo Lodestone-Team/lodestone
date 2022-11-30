@@ -38,7 +38,7 @@ const queryClient = new QueryClient({
   },
 });
 
-axios.defaults.timeout = 2000;
+axios.defaults.timeout = 5000;
 
 function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);

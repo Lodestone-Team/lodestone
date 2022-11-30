@@ -41,7 +41,7 @@ export default function DashboardLayout({
   useClientInfo();
 
   useEffect(() => {
-    if (uuid && instances && uuid in instances) instances[uuid];
+    if (uuid && instances && uuid in instances) setInstanceState(instances[uuid]);
     else setInstanceState(null);
   }, [instances, uuid]);
 
