@@ -14,6 +14,7 @@ import {
   faAngleDown,
   faPlus,
   faCheckSquare,
+  faListCheck,
 } from '@fortawesome/free-solid-svg-icons';
 import { Fragment, useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -403,7 +404,10 @@ export default function FileViewer() {
         )}
         {fileList?.map(fileTreeEntry)}
         <div
-          onClick={() => setOpenedFile(null)}
+          onClick={() => {
+            setOpenedFile(null);
+            setTickedFiles([]);
+          }}
           className="min-h-[25%] grow"
         ></div>
       </div>
@@ -620,13 +624,37 @@ export default function FileViewer() {
                     />
                   )}
                 </Menu.Item>
-              </div>
-              <div className="p-1">
+                <Menu.Item>
+                  {({ active, disabled }) => (
+                    <Button
+                      label={
+                        tickedFiles.length === fileList?.length
+                          ? 'Deselect all'
+                          : 'Select all'
+                      }
+                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      onClick={() => {
+                        if (!fileList) return;
+                        if (tickedFiles.length === fileList.length) {
+                          setTickedFiles([]);
+                        } else {
+                          setTickedFiles([...fileList]);
+                        }
+                      }}
+                      icon={faListCheck}
+                      variant="text"
+                      align="start"
+                      size="slim"
+                      disabled={disabled}
+                      active={active}
+                    />
+                  )}
+                </Menu.Item>
                 <Menu.Item disabled={tickedFiles.length === 0}>
                   {({ active, disabled }) => (
                     <Button
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
-                      label="Download"
+                      label="Download files"
                       icon={faDownload}
                       onClick={downloadTickedFiles}
                       variant="text"
@@ -642,7 +670,7 @@ export default function FileViewer() {
                 <Menu.Item disabled={tickedFiles.length === 0}>
                   {({ active, disabled }) => (
                     <Button
-                      label="Delete selected"
+                      label="Delete files"
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
                       onClick={deleteTickedFiles}
                       icon={faTrashCan}
