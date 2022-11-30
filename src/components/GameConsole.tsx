@@ -1,3 +1,5 @@
+import { faServer } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import axios from 'axios';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useConsoleStream } from 'data/ConsoleStream';
@@ -56,8 +58,7 @@ export default function GameConsole() {
   let consoleStatusMessage = '';
   switch (consoleStatus) {
     case 'no-permission':
-      consoleStatusMessage =
-        'You do not have permission to access this console';
+      consoleStatusMessage = '';
       break;
     case 'loading':
       consoleStatusMessage = 'Loading console...';
@@ -81,7 +82,7 @@ export default function GameConsole() {
 
   let consoleInputMessage = '';
   if (!canAccessConsole || consoleStatus === 'no-permission')
-    consoleInputMessage = 'You do not have permission to access this console';
+    consoleInputMessage = 'No permission';
   else if (instance.state !== 'Running')
     consoleInputMessage = `Instance is ${instance.state.toLowerCase()}`;
   else if (consoleStatus === 'closed')
@@ -94,19 +95,31 @@ export default function GameConsole() {
           {consoleStatusMessage}
         </div>
       )}
-      <ol
-        className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small font-light tracking-tight text-gray-300"
-        ref={listRef}
-      >
-        {consoleLog.map((line) => (
-          <li
-            key={line.snowflake_str}
-            className="py-[0.125rem] px-4 hover:bg-gray-800"
-          >
-            {line.message}
-          </li>
-        ))}
-      </ol>
+      {!canAccessConsole || consoleStatus === 'no-permission' ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-900">
+          <FontAwesomeIcon
+            icon={faServer}
+            className="text-xlarge text-gray-400"
+          />
+          <p className="text-xl text-center text-gray-300">
+            You don&#39;t have permission to access this console
+          </p>
+        </div>
+      ) : (
+        <ol
+          className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small font-light tracking-tight text-gray-300"
+          ref={listRef}
+        >
+          {consoleLog.map((line) => (
+            <li
+              key={line.snowflake_str}
+              className="py-[0.125rem] px-4 hover:bg-gray-800"
+            >
+              {line.message}
+            </li>
+          ))}
+        </ol>
+      )}
       <div className="font-mono text-small">
         <form
           noValidate

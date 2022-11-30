@@ -50,18 +50,27 @@ export default function MinecraftSettingCard() {
         </h2>
       </div>
       <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-        {availableSettings.map((setting) => {
-          return (
-            <SettingField
-              instance={instance}
-              setting={setting[0]}
-              label={setting[1]}
-              key={setting[0]}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              type={setting[2] as any}
-            />
-          );
-        })}
+        {availableSettings.length ? (
+          availableSettings.map((setting) => {
+            return (
+              <SettingField
+                instance={instance}
+                setting={setting[0]}
+                label={setting[1]}
+                key={setting[0]}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                type={setting[2] as any}
+              />
+            );
+          })
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center p-4">
+            <h1 className="text-large font-bold"> Not available at this moment </h1>
+            <h2 className="text-base font-medium tracking-tight text-gray-300">
+              Try to start this instance at least once.
+            </h2>
+          </div>
+        )}
       </div>
     </div>
   );

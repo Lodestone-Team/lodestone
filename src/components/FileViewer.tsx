@@ -44,6 +44,7 @@ import { Dialog, Menu, Transition } from '@headlessui/react';
 import { faSquare } from '@fortawesome/free-regular-svg-icons';
 import clsx from 'clsx';
 import * as yup from 'yup';
+import { useUserAuthorized } from 'data/UserInfo';
 
 type Monaco = typeof monaco;
 
@@ -95,10 +96,12 @@ const useFileContent = (uuid: string, file: ClientFile | null) =>
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
+  if (!instance) throw new Error('No instance selected');
+  const canRead = useUserAuthorized('can_read_instance_file', instance?.uuid);
+  const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
   const monaco = useMonaco();
   const queryClient = useQueryClient();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  if (!instance) throw new Error('No instance selected');
   const [path, setPath] = useState('');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [fileContent, setfileContent] = useState('');
@@ -422,6 +425,7 @@ export default function FileViewer() {
             </p>
           </div>
         )}
+
         {fileList?.map(fileTreeEntry)}
         <div
           onClick={() => {
@@ -602,6 +606,7 @@ export default function FileViewer() {
             as={Button}
             label="Add/Remove"
             icon={faAngleDown}
+            disabled={!fileList}
           ></Menu.Button>
           <Transition
             as={Fragment}
@@ -614,7 +619,7 @@ export default function FileViewer() {
           >
             <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
               <div className="py-2 px-1.5">
-                <Menu.Item>
+                <Menu.Item disabled={!fileList}>
                   {({ active, disabled }) => (
                     <Button
                       label={
@@ -639,7 +644,7 @@ export default function FileViewer() {
                     />
                   )}
                 </Menu.Item>
-                <Menu.Item disabled={tickedFiles.length === 0}>
+                <Menu.Item disabled={tickedFiles.length === 0 || !canRead}>
                   {({ active, disabled }) => (
                     <Button
                       className="w-full items-start whitespace-nowrap py-1.5 font-normal"
@@ -655,7 +660,7 @@ export default function FileViewer() {
                 </Menu.Item>
               </div>
               <div className="py-2 px-1.5">
-                <Menu.Item>
+                <Menu.Item disabled={!canWrite}>
                   {({ active, disabled }) => (
                     <Button
                       label="New file"
@@ -669,7 +674,7 @@ export default function FileViewer() {
                     />
                   )}
                 </Menu.Item>
-                <Menu.Item>
+                <Menu.Item disabled={!canWrite}>
                   {({ active, disabled }) => (
                     <Button
                       label="New folder"
@@ -685,7 +690,7 @@ export default function FileViewer() {
                 </Menu.Item>
               </div>
               <div className="py-2 px-1.5">
-                <Menu.Item disabled={tickedFiles.length === 0}>
+                <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
                   {({ active, disabled }) => (
                     <Button
                       label="Delete selected"
@@ -732,66 +737,80 @@ export default function FileViewer() {
           label="Upload"
           icon={faUpload}
           onClick={chooseFilesToUpload}
+          disabled={!canWrite}
         />
       </div>
-      <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
-        <ResizePanel
-          direction="e"
-          maxSize={500}
-          minSize={200}
-          size={fileListSize}
-          validateSize={false}
-          onResize={setFileListSize}
-          containerClassNames="grow"
-          grow={!openedFile}
-        >
-          {fileTree}
-        </ResizePanel>
-        {openedFile && (
-          <div className="min-w-0 grow">
-            <div className="h-full">
-              {showingMonaco ? (
-                <Editor
-                  height="100%"
-                  onChange={(value) => {
-                    setfileContent(value ?? '');
-                  }}
-                  value={fileContent}
-                  theme="lodestone-dark"
-                  path={monacoPath}
-                  className="overflow-clip bg-gray-800"
-                  options={{
-                    padding: {
-                      top: 8,
-                    },
-                    minimap: {
-                      enabled: false,
-                    },
-                  }}
-                  onMount={handleEditorDidMount}
-                />
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
-                  <FontAwesomeIcon
-                    icon={faFilePen}
-                    className="text-xlarge text-gray-500"
+
+      {canRead ? (
+        <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+          <ResizePanel
+            direction="e"
+            maxSize={500}
+            minSize={200}
+            size={fileListSize}
+            validateSize={false}
+            onResize={setFileListSize}
+            containerClassNames="grow"
+            grow={!openedFile}
+          >
+            {fileTree}
+          </ResizePanel>
+          {openedFile && (
+            <div className="min-w-0 grow">
+              <div className="h-full">
+                {showingMonaco ? (
+                  <Editor
+                    height="100%"
+                    onChange={(value) => {
+                      setfileContent(value ?? '');
+                    }}
+                    value={fileContent}
+                    theme="lodestone-dark"
+                    path={monacoPath}
+                    className="overflow-clip bg-gray-800"
+                    options={{
+                      padding: {
+                        top: 8,
+                      },
+                      minimap: {
+                        enabled: false,
+                      },
+                    }}
+                    onMount={handleEditorDidMount}
                   />
-                  <p className="text-xl text-center text-gray-400">
-                    File Editor
-                  </p>
-                  <p className="text-xl text-center text-gray-400">
-                    {fileError
-                      ? fileError?.message ?? 'Unknown Error'
-                      : isFileLoading
-                      ? 'Loading...'
-                      : 'Select a file to view its contents'}
-                  </p>
-                </div>
-              )}
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
+                    <FontAwesomeIcon
+                      icon={faFilePen}
+                      className="text-xlarge text-gray-500"
+                    />
+                    <p className="text-xl text-center text-gray-400">
+                      File Editor
+                    </p>
+                    <p className="text-xl text-center text-gray-400">
+                      {fileError
+                        ? fileError?.message ?? 'Unknown Error'
+                        : isFileLoading
+                        ? 'Loading...'
+                        : 'Select a file to view its contents'}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+          <FontAwesomeIcon
+            icon={faFolder}
+            className="text-xlarge text-gray-400"
+          />
+          <p className="text-xl text-center text-gray-300">
+            You don&#39;t have permission to read this folder
+          </p>
+        </div>
+      )}
     </div>
   );
 }

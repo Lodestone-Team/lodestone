@@ -2,11 +2,18 @@ import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
 import router from 'next/router';
-import { useContext, useEffect, useState } from 'react';
+import { Fragment, useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
-import { faBell, faCog, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import {
+  faAngleDown,
+  faBell,
+  faCog,
+  faRightFromBracket,
+  faSpinner,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Avatar from 'boring-avatars';
+import { Menu, Transition } from '@headlessui/react';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -59,11 +66,7 @@ export default function TopNav({
       </div>
       <FontAwesomeIcon
         icon={faCog}
-        className={`w-4 select-none hover:cursor-pointer ${
-          showNotifications
-            ? 'text-white hover:text-white/75'
-            : 'text-gray-faded/50 hover:text-white/75'
-        }`}
+        className="w-4 select-none text-gray-faded/50 hover:cursor-pointer hover:text-white/75"
         onClick={() => {
           router.push(
             {
@@ -89,37 +92,64 @@ export default function TopNav({
           setShowNotifications(!showNotifications);
         }}
       />
-      <div className="flex flex-row items-center gap-2">
-        {userState == 'logged-in' && (
-          <Avatar size={20} name={user?.uid} variant="bauhaus" />
-        )}
-        <p className="font-medium text-gray-300">
-          {userState === 'logged-in' && user
-            ? `Hi, ${user.username}`
-            : userState === 'loading'
-            ? 'Loading...'
-            : 'Not logged in'}
-        </p>
-        <Button
-          label={userState === 'logged-in' ? 'Logout' : 'Login'}
-          loading={userState === 'loading'}
-          onClick={() => {
-            // remove the current token
-            setToken('');
-            if (userState !== 'logged-in')
-              // redirect to login page
-              pushKeepQuery(router, '/auth');
-          }}
-        />
-      </div>
-      {/* <FontAwesomeIcon
-        icon={faSpinner}
-        className={`w-4 select-none hover:cursor-pointer ${
-          true
-            ? 'text-white hover:text-white/75'
-            : 'text-white/50 hover:text-white/75'
-        }`}
-      /> */}
+      <Menu as="div" className="relative inline-block text-left">
+        <Menu.Button
+          as={Button}
+          label={
+            userState === 'logged-in' && user
+              ? `Hi, ${user.username}`
+              : userState === 'loading'
+              ? 'Loading...'
+              : 'Not logged in'
+          }
+          iconComponent={
+            userState == 'logged-in' && (
+              <Avatar
+                size={20}
+                name={user?.uid}
+                variant="beam"
+                colors={['#62DD76', '#1D8EB2', '#EFB440', '#DD6262', '#dd62c6']}
+              />
+            )
+          }
+          iconRight={faAngleDown}
+          className="font-medium text-gray-300"
+        ></Menu.Button>
+        <Transition
+          as={Fragment}
+          enter="transition ease-out duration-200"
+          enterFrom="opacity-0 -translate-y-1"
+          enterTo="opacity-100 translate-y-0"
+          leave="transition ease-in duration-150"
+          leaveFrom="opacity-100 translate-y-0"
+          leaveTo="opacity-0 -translate-y-1"
+        >
+          <Menu.Items className="absolute right-0 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+            <div className="py-2 px-1.5">
+              <Menu.Item>
+                {({ active, disabled }) => (
+                  <Button
+                    label={userState === 'logged-in' ? 'Logout' : 'Login'}
+                    loading={userState === 'loading'}
+                    iconRight={faRightFromBracket}
+                    onClick={() => {
+                      // remove the current token
+                      setToken('');
+                      if (userState !== 'logged-in')
+                        // redirect to login page
+                        pushKeepQuery(router, '/auth');
+                    }}
+                    variant="text"
+                    align="start"
+                    disabled={disabled}
+                    active={active}
+                  />
+                )}
+              </Menu.Item>
+            </div>
+          </Menu.Items>
+        </Transition>
+      </Menu>
     </div>
   );
 }
