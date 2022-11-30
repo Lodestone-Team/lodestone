@@ -46,7 +46,7 @@ use tower_http::cors::{Any, CorsLayer};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use util::list_dir;
 use uuid::Uuid;
-mod auth;
+pub mod auth;
 mod events;
 mod handlers;
 mod implementations;
