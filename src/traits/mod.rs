@@ -93,6 +93,7 @@ pub enum ErrorInner {
 
     // Generic error
     NotFound,
+    InternalError,
 }
 #[derive(Debug, Serialize, Clone, TS)]
 #[serde(rename = "ClientError")]
