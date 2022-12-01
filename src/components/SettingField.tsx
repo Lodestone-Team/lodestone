@@ -43,8 +43,6 @@ export default function SettingField({
     setValue(initialSetting ?? '');
   }, [initialSetting]);
 
-  console.log("value in settingfield" + value);
-
   const errorString = errorToMessage(error);
 
   switch (type) {
