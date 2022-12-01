@@ -6,7 +6,7 @@ use crate::{
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     prelude::get_snowflake,
     traits::{Error, ErrorInner},
-    util::{rand_alphanumeric, hash_password},
+    util::{hash_password, rand_alphanumeric},
     AppState,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
@@ -16,7 +16,7 @@ use axum::{
     Extension, Json, Router,
 };
 use axum_auth::{AuthBasic, AuthBearer};
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
 use log::error;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

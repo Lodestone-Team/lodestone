@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    implementations::minecraft, output_types::ClientEvent, prelude::get_snowflake,
+    output_types::ClientEvent, prelude::get_snowflake,
     traits::InstanceInfo,
 };
 

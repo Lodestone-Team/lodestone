@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHasher};
 use rand_core::OsRng;
+use std::collections::HashSet;
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;

@@ -1,4 +1,8 @@
-use axum::{extract::Path, routing::{get, put}, Extension, Json, Router};
+use axum::{
+    extract::Path,
+    routing::{get, put},
+    Extension, Json, Router,
+};
 use axum_auth::AuthBearer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use rand_core::OsRng;
+
 
 use crate::{
     auth::user::{User, UserAction},
@@ -60,8 +60,6 @@ pub fn can_user_view_event(event: impl AsRef<Event>, user: &User) -> bool {
         ),
     }
 }
-
-
 
 pub fn parse_bearer_token(token: &str) -> Option<String> {
     let mut split = token.split_ascii_whitespace();

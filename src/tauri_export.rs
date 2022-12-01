@@ -15,8 +15,7 @@ pub async fn get_owner_jwt(app_state: &AppState) -> Option<String> {
         .get_ref()
         .iter()
         .find(|(_, user)| user.is_owner)
-        .map(|(_, user)| user.create_jwt().ok())
-        .flatten()
+        .and_then(|(_, user)| user.create_jwt().ok())
 }
 
 pub async fn is_owner_account_present(app_state: &AppState) -> bool {

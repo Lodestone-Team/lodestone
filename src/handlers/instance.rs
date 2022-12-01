@@ -331,7 +331,7 @@ pub async fn delete_instance(
                 .lock()
                 .await
                 .deallocate(instance.port().await);
-            let instance_path = instance.path().await.clone();
+            let instance_path = instance.path().await;
             instances.remove(&uuid);
             drop(instances);
             let res = tokio::fs::remove_dir_all(instance_path)

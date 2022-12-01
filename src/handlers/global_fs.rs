@@ -639,12 +639,11 @@ async fn download(
                 format!(
                     "attachment; filename=\"{}\"",
                     path.file_name()
-                        .map(|s| s.to_str().map(|s| s.to_string()))
-                        .flatten()
-                        .unwrap_or("unknown".to_string())
+                        .and_then(|s| s.to_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "unknown".to_string())
                 ),
             ),
-            if let Some(metadata) = file.metadata().await.ok() {
+            if let Ok(metadata) = file.metadata().await {
                 (http::header::CONTENT_LENGTH, metadata.len().to_string())
             } else {
                 // if we can't get the file size, we just don't set the header

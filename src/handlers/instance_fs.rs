@@ -591,7 +591,7 @@ async fn upload_instance_file(
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
             event_id: event_id.clone(),
             progression_event_inner: ProgressionEventInner::ProgressionStart {
-                progression_name: format!("Uploading files"),
+                progression_name: "Uploading files".to_string(),
                 producer_id: "".to_string(),
                 total,
                 inner: None,
@@ -711,7 +711,6 @@ async fn upload_instance_file(
                 }
             })?;
         }
-
 
         let caused_by = CausedBy::User {
             user_id: requester.uid.clone(),
