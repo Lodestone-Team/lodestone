@@ -1,7 +1,6 @@
 import 'rc-tooltip/assets/bootstrap.css';
 import 'globals.css';
 import type { AppProps } from 'next/app';
-import { invoke } from '@tauri-apps/api/tauri';
 import { config } from '@fortawesome/fontawesome-svg-core';
 import '@fortawesome/fontawesome-svg-core/styles.css';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
@@ -60,27 +59,15 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const apiAddress = address ?? 'localhost';
 
   useEffectOnce(() => {
-    if (invoke) {
-      console.log('tauri api exists');
-      invoke('is_setup')
-        .then((isSetup) => {
-          console.log('isSetup', isSetup);
-        })
-        .catch((err) => {
-          console.log('tauri api call failed');
-        });
-    } else {
-      console.log('tauri api does not exist');
-    }
-
     if (tauri) {
+      console.log('globalTauri', tauri);
       console.log('globalTauri is defined');
       tauri
         ?.invoke('is_setup')
-        .then((isSetup) => {
+        .then((isSetup: unknown) => {
           console.log('globalTauri isSetup', isSetup);
         })
-        .catch((err) => {
+        .catch((err: any) => {
           console.log('globalTauri call failed');
         });
     } else {
