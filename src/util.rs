@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use argon2::{Argon2, PasswordHasher};
+use argon2::password_hash::SaltString;
+use rand_core::OsRng;
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
@@ -399,4 +402,11 @@ pub fn format_byte(bytes: u64) -> String {
         unit = "YB";
     }
     format!("{:.1} {}", bytes, unit)
+}
+
+pub fn hash_password(password: &str) -> String {
+    Argon2::default()
+        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string()
 }

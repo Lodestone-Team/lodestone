@@ -61,12 +61,7 @@ pub fn can_user_view_event(event: impl AsRef<Event>, user: &User) -> bool {
     }
 }
 
-pub fn hash_password(password: &str) -> String {
-    Argon2::default()
-        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
-        .unwrap()
-        .to_string()
-}
+
 
 pub fn parse_bearer_token(token: &str) -> Option<String> {
     let mut split = token.split_ascii_whitespace();

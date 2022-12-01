@@ -6,7 +6,7 @@ use crate::{
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     prelude::get_snowflake,
     traits::{Error, ErrorInner},
-    util::rand_alphanumeric,
+    util::{rand_alphanumeric, hash_password},
     AppState,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
 
-use super::util::{hash_password, try_auth};
+use super::util::try_auth;
 #[derive(Deserialize, Serialize)]
 pub struct Claim {
     pub uid: String,
@@ -33,24 +33,6 @@ pub struct Claim {
 struct NewUserSchema {
     pub username: String,
     pub password: String,
-}
-
-fn create_jwt(user: &User, jwt_secret: &str) -> Result<String, Error> {
-    let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(60))
-        .expect("valid timestamp")
-        .timestamp();
-    let claim = Claim {
-        uid: user.uid.clone(),
-        exp: exp as usize,
-    };
-    let header = Header::new(Algorithm::HS512);
-    Ok(encode(
-        &header,
-        &claim,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .unwrap())
 }
 
 pub async fn new_user(
@@ -133,7 +115,7 @@ pub async fn new_user(
         })
         .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(LoginReply {
-        token: create_jwt(&user, &user.secret)?,
+        token: user.create_jwt()?,
         user: user.into(),
     }))
 }
@@ -412,7 +394,7 @@ pub async fn login(
             })
         } else {
             Ok(Json(LoginReply {
-                token: create_jwt(user, &user.secret)?,
+                token: user.create_jwt()?,
                 user: user.into(),
             }))
         }

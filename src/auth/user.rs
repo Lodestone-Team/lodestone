@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::traits::{Error, ErrorInner};
+use crate::{
+    handlers::users::Claim,
+    traits::{Error, ErrorInner},
+};
 
 use super::permission::UserPermission;
 #[derive(Serialize, Deserialize, Clone)]
@@ -150,6 +153,30 @@ impl User {
             UserAction::ManageUser => self.is_owner,
             UserAction::ManagePermission => self.permissions.can_manage_permission,
         }
+    }
+
+    pub fn create_jwt(&self) -> Result<String, Error> {
+        let exp = chrono::Utc::now()
+            .checked_add_signed(chrono::Duration::days(60))
+            .ok_or(Error {
+                inner: ErrorInner::InternalError,
+                detail: "Failed to generate JWT".to_string(),
+            })?
+            .timestamp();
+        let claim = Claim {
+            uid: self.uid.clone(),
+            exp: exp as usize,
+        };
+        let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512);
+        jsonwebtoken::encode(
+            &header,
+            &claim,
+            &jsonwebtoken::EncodingKey::from_secret(self.secret.as_bytes()),
+        )
+        .map_err(|e| Error {
+            inner: ErrorInner::InternalError,
+            detail: format!("Failed to generate JWT: {}", e),
+        })
     }
 }
 
