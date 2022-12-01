@@ -29,7 +29,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
     time::Duration,
 };
 use sysinfo::SystemExt;
@@ -55,6 +55,7 @@ mod output_types;
 mod port_allocator;
 pub mod prelude;
 mod stateful;
+pub mod tauri_export;
 mod traits;
 mod util;
 
@@ -66,7 +67,6 @@ pub struct AppState {
     console_out_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<Event>>>>,
     monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
     event_broadcaster: Sender<Event>,
-    is_setup: Arc<AtomicBool>,
     uuid: String,
     client_name: Arc<Mutex<String>>,
     up_since: i64,
@@ -192,7 +192,7 @@ async fn download_dependencies() -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn run() {
+pub async fn run() -> AppState {
     env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
         .format_module_path(false)
@@ -280,7 +280,6 @@ pub async fn run() {
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
-        is_setup: Arc::new(AtomicBool::new(false)),
         uuid: Uuid::new_v4().to_string(),
         client_name: Arc::new(Mutex::new(format!(
             "{}'s Lodestone client",
@@ -346,50 +345,55 @@ pub async fn run() {
             }
         }
     };
+    tokio::spawn({
+        let shared_state = shared_state.clone();
+        async move {
+            let cors = CorsLayer::new()
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::OPTIONS,
+                    Method::PATCH,
+                    Method::DELETE,
+                ])
+                .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+                .allow_origin(Any);
 
-    let cors = CorsLayer::new()
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::OPTIONS,
-            Method::PATCH,
-            Method::DELETE,
-        ])
-        .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
-        .allow_origin(Any);
-
-    let api_routes = Router::new()
-        .merge(get_events_routes())
-        .merge(get_instance_setup_config_routes())
-        .merge(get_instance_manifest_routes())
-        .merge(get_instance_server_routes())
-        .merge(get_instance_config_routes())
-        .merge(get_instance_players_routes())
-        .merge(get_instance_routes())
-        .merge(get_system_routes())
-        .merge(get_checks_routes())
-        .merge(get_user_routes())
-        .merge(get_client_info_routes())
-        .merge(get_setup_route())
-        .merge(get_monitor_routes())
-        .merge(get_instance_macro_routes())
-        .merge(get_instance_fs_routes())
-        .merge(get_global_fs_routes())
-        .layer(Extension(shared_state.clone()))
-        .layer(cors);
-    let app = Router::new().nest("/api/v1", api_routes);
-    let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
-    select! {
-        _ = event_buffer_task => info!("Event buffer task exited"),
-        _ = monitor_report_task => info!("Monitor report task exited"),
-        _ = axum::Server::bind(&addr)
-        .serve(app.into_make_service()) => info!("Server exited"),
-        _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
-    }
-    // cleanup
-    let mut instances = shared_state.instances.lock().await;
-    for (_, instance) in instances.iter_mut() {
-        let _ = instance.stop(CausedBy::System).await;
-    }
+            let api_routes = Router::new()
+                .merge(get_events_routes())
+                .merge(get_instance_setup_config_routes())
+                .merge(get_instance_manifest_routes())
+                .merge(get_instance_server_routes())
+                .merge(get_instance_config_routes())
+                .merge(get_instance_players_routes())
+                .merge(get_instance_routes())
+                .merge(get_system_routes())
+                .merge(get_checks_routes())
+                .merge(get_user_routes())
+                .merge(get_client_info_routes())
+                .merge(get_setup_route())
+                .merge(get_monitor_routes())
+                .merge(get_instance_macro_routes())
+                .merge(get_instance_fs_routes())
+                .merge(get_global_fs_routes())
+                .layer(Extension(shared_state.clone()))
+                .layer(cors);
+            let app = Router::new().nest("/api/v1", api_routes);
+            let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
+            select! {
+                _ = event_buffer_task => info!("Event buffer task exited"),
+                _ = monitor_report_task => info!("Monitor report task exited"),
+                _ = axum::Server::bind(&addr)
+                .serve(app.into_make_service()) => info!("Server exited"),
+                _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
+            }
+            // cleanup
+            let mut instances = shared_state.instances.lock().await;
+            for (_, instance) in instances.iter_mut() {
+                let _ = instance.stop(CausedBy::System).await;
+            }
+        }
+    });
+    shared_state
 }
