@@ -79,5 +79,12 @@ pub trait TConfigurable: Sync + Send {
     async fn set_field(&mut self, field: &str, value: String) -> Result<(), super::Error>;
     async fn get_field(&self, field: &str) -> Result<String, super::Error>;
 
+    async fn change_version(&mut self, version: String) -> Result<(), super::Error> {
+        Err(super::Error {
+            detail : "Not supported".to_string(),
+            inner : super::ErrorInner::UnsupportedOperation,
+        })
+    }
+
     async fn settings(&self) -> Result<HashMap<String, String>, super::Error>;
 }

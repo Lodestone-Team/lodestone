@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{extract::Path, routing::{get, put}, Extension, Json, Router};
 use axum_auth::AuthBearer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -229,6 +229,37 @@ pub async fn set_game_setting(
     Ok(Json(()))
 }
 
+pub async fn change_version(
+    Extension(state): Extension<AppState>,
+    Path((uuid, new_version)): Path<(String, String)>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to change game setting".to_string(),
+        });
+    }
+    drop(users);
+    state
+        .instances
+        .lock()
+        .await
+        .get_mut(&uuid)
+        .ok_or(Error {
+            inner: ErrorInner::InstanceNotFound,
+            detail: "".to_string(),
+        })?
+        .change_version(new_version)
+        .await?;
+    Ok(Json(()))
+}
+
 pub fn get_instance_config_routes() -> Router {
     Router::new()
         .route(
@@ -239,4 +270,5 @@ pub fn get_instance_config_routes() -> Router {
             "/instance/:uuid/game/:key",
             get(get_game_setting).put(set_game_setting),
         )
+        .route("/instance/:uuid/version/:new_version", put(change_version))
 }

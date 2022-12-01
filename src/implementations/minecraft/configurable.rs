@@ -2,11 +2,15 @@ use std::{collections::HashMap, sync::atomic};
 
 use async_trait::async_trait;
 use serde_json::json;
+use tempdir::TempDir;
 
+use crate::traits::t_server::State;
 use crate::traits::{self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, Supported};
 
 use crate::traits::Error;
+use crate::util::download_file;
 
+use super::util::{get_fabric_jar_url, get_vanilla_jar_url};
 use super::{BackupInstruction, MinecraftInstance};
 
 #[async_trait]
@@ -186,6 +190,59 @@ impl TConfigurable for MinecraftInstance {
                 detail: format!("Field {} not found", field),
             })?
             .to_string())
+    }
+
+    async fn change_version(&mut self, version: String) -> Result<(), Error> {
+        if self.state.lock().await.get_ref() != &State::Stopped {
+            return Err(Error {
+                inner: ErrorInner::InstanceStarted,
+                detail: "Server must be stopped to change version".to_string(),
+            });
+        }
+        if version == self.config.version {
+            return Ok(());
+        }
+        let url = match self.config.flavour {
+            super::Flavour::Vanilla => get_vanilla_jar_url(&version).await.ok_or({
+                let error_msg =
+                    format!("Cannot get the vanilla jar version for version {}", version);
+                Error {
+                    inner: ErrorInner::VersionNotFound,
+                    detail: error_msg,
+                }
+            })?,
+            super::Flavour::Fabric => get_fabric_jar_url(&version, None, None).await.ok_or({
+                let error_msg =
+                    format!("Cannot get the fabric jar version for version {}", version);
+                Error {
+                    inner: ErrorInner::VersionNotFound,
+                    detail: error_msg,
+                }
+            })?,
+            super::Flavour::Paper => todo!(),
+            super::Flavour::Spigot => todo!(),
+        };
+        let temp_dir = TempDir::new("lodestone").map_err(|e| Error {
+            inner: ErrorInner::FailedToCreateFileOrDir,
+            detail: format!("Cannot create temp dir: {}", e),
+        })?;
+        download_file(
+            &url,
+            temp_dir.path(),
+            Some("server.jar"),
+            &Box::new(|_| {}),
+            true,
+        )
+        .await?;
+        let jar_path = temp_dir.path().join("server.jar");
+        tokio::fs::rename(jar_path, self.path().await.join("server.jar"))
+            .await
+            .map_err(|e| Error {
+                inner: ErrorInner::FailedToCreateFileOrDir,
+                detail: format!("Cannot rename jar file: {}", e),
+            })?;
+        self.config.version = version;
+        self.write_config_to_file().await
     }
 
     async fn settings(&self) -> Result<HashMap<String, String>, Error> {
