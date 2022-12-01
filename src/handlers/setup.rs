@@ -10,10 +10,16 @@ use crate::{
     AppState,
 };
 
+#[derive(serde::Deserialize)]
+pub struct OwnerSetup {
+    username: String,
+    password: String,
+}
+
 pub async fn setup_owner(
     Extension(state): Extension<AppState>,
     Path(key): Path<String>,
-    Json(owner_psw): Json<String>,
+    Json(owner_setup): Json<OwnerSetup>,
 ) -> Result<Json<()>, Error> {
     let mut setup_key_lock = state.first_time_setup_key.lock().await;
     match setup_key_lock.clone() {
@@ -22,12 +28,12 @@ pub async fn setup_owner(
             let salt = SaltString::generate(&mut OsRng);
             let argon2 = Argon2::default();
             let hashed_psw = argon2
-                .hash_password(owner_psw.as_bytes(), &salt)
+                .hash_password(owner_setup.password.as_bytes(), &salt)
                 .unwrap()
                 .to_string();
             let uid = uuid::Uuid::new_v4().to_string();
             let owner = User {
-                username: "owner".to_string(),
+                username: owner_setup.username,
                 is_owner: true,
                 permissions: UserPermission::new(),
                 uid: uid.clone(),
@@ -47,7 +53,7 @@ pub async fn setup_owner(
                     (),
                 )
                 .unwrap();
-            info!("Owner password: {}", owner_psw);
+            info!("Owner password: {}", owner_setup.password);
             Ok(Json(()))
         }
         None => Err(Error {

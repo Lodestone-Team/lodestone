@@ -1,4 +1,4 @@
-use std::{env, sync::atomic::Ordering};
+use std::env;
 
 use crate::{prelude::VERSION, AppState};
 use axum::{routing::get, Extension, Json, Router};
@@ -25,7 +25,7 @@ pub async fn get_client_info(Extension(state): Extension<AppState>) -> Json<Clie
     let sys = System::new_all();
     Json(ClientInfo {
         version: VERSION.with(|v| v.clone()),
-        is_setup: state.is_setup.load(Ordering::Relaxed),
+        is_setup: state.first_time_setup_key.lock().await.is_none(),
         os: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
         cpu: {
