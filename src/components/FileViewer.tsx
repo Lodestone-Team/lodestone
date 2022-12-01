@@ -11,7 +11,7 @@ import {
   faUpload,
   faFilePen,
   faFolderPlus,
-  faAngleDown,
+  faCaretDown,
   faPlus,
   faCheckSquare,
   faListCheck,
@@ -605,7 +605,7 @@ export default function FileViewer() {
           <Menu.Button
             as={Button}
             label="Add/Remove"
-            icon={faAngleDown}
+            icon={faCaretDown}
             disabled={!fileList}
           ></Menu.Button>
           <Transition

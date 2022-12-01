@@ -1,4 +1,4 @@
-import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Listbox } from '@headlessui/react';
 import { useEffect, useState } from 'react';

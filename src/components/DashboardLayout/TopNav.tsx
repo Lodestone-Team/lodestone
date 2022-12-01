@@ -5,7 +5,7 @@ import router from 'next/router';
 import { Fragment, useContext, useEffect, useState } from 'react';
 import { pushKeepQuery } from 'utils/util';
 import {
-  faAngleDown,
+  faCaretDown,
   faArrowRightArrowLeft,
   faBell,
   faCog,
@@ -113,7 +113,7 @@ export default function TopNav({
               />
             )
           }
-          iconRight={faAngleDown}
+          iconRight={faCaretDown}
           className="font-medium text-gray-300"
         ></Menu.Button>
         <Transition

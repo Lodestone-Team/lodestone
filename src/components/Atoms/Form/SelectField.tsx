@@ -5,7 +5,7 @@ import { FieldHookConfig, useField } from 'formik';
 import { Listbox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 export type SelectFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -53,7 +53,7 @@ export default function SelectField(props: SelectFieldProps) {
   ) : (
     <FontAwesomeIcon
       key="icon"
-      icon={faAngleDown}
+      icon={faCaretDown}
       className="w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500"
     />
   );

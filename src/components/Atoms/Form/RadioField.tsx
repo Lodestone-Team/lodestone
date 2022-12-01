@@ -4,7 +4,7 @@ import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { RadioGroup } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAngleDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;
