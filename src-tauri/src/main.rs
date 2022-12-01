@@ -32,7 +32,7 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<String, ()> 
 
 #[tokio::main]
 async fn main() {
-    let app_state = lodestone_client::run().await;
+    let app_state = lodestone_client::run().await.1;
     tauri::Builder::default()
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
