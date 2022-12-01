@@ -5,4 +5,5 @@ declare global {
     __TAURI__?: tauri;
   }
 }
-export const tauri = window.__TAURI__;
+
+export const tauri = typeof window !== "undefined" ? window.__TAURI__ : undefined;
