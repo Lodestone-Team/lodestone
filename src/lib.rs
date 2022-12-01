@@ -11,7 +11,6 @@ use crate::{
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
     prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
-    traits::Error,
     util::{download_file, rand_alphanumeric},
 };
 use auth::user::User;
@@ -43,6 +42,7 @@ use tokio::{
     },
 };
 use tower_http::cors::{Any, CorsLayer};
+pub use traits::Error;
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use util::list_dir;
 use uuid::Uuid;
