@@ -1,6 +1,7 @@
 import 'rc-tooltip/assets/bootstrap.css';
 import 'globals.css';
 import type { AppProps } from 'next/app';
+import { invoke } from '@tauri-apps/api/tauri';
 import { config } from '@fortawesome/fontawesome-svg-core';
 import '@fortawesome/fontawesome-svg-core/styles.css';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
@@ -9,7 +10,11 @@ import { NextPage } from 'next';
 import { LodestoneContext } from 'data/LodestoneContext';
 import axios from 'axios';
 import { useRouterQuery } from 'utils/hooks';
-import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
+import {
+  useEffectOnce,
+  useIsomorphicLayoutEffect,
+  useLocalStorage,
+} from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
 import { errorToMessage } from 'utils/util';
 import {
@@ -17,6 +22,7 @@ import {
   useNotificationReducer,
   useOngoingNotificationReducer,
 } from 'data/NotificationContext';
+import { tauri } from 'utils/tauriUtil';
 
 config.autoAddCss = false;
 
@@ -52,6 +58,35 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const protocol = 'http';
   const apiVersion = 'v1';
   const apiAddress = address ?? 'localhost';
+
+  useEffectOnce(() => {
+    if (invoke) {
+      console.log('tauri api exists');
+      invoke('is_setup')
+        .then((isSetup) => {
+          console.log('isSetup', isSetup);
+        })
+        .catch((err) => {
+          console.log('tauri api call failed');
+        });
+    } else {
+      console.log('tauri api does not exist');
+    }
+
+    if (tauri) {
+      console.log('globalTauri is defined');
+      tauri
+        ?.invoke('is_setup')
+        .then((isSetup) => {
+          console.log('globalTauri isSetup', isSetup);
+        })
+        .catch((err) => {
+          console.log('globalTauri call failed');
+        });
+    } else {
+      console.log('globalTauri is undefined');
+    }
+  });
 
   // set axios defaults
   useIsomorphicLayoutEffect(() => {
