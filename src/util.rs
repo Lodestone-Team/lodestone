@@ -2,6 +2,7 @@ use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
 use rand_core::OsRng;
 use std::collections::HashSet;
+use tempdir::TempDir;
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
@@ -188,7 +189,13 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
     let before: HashSet<PathBuf>;
 
     // TODO: remove hardcoded temp dir
-    let tmp_dir = dest.join(format!("tmp_{}", rand_alphanumeric(5)));
+    let tmp_dir = TempDir::new("lodestone")
+        .map_err(|e| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: format!("Failed to create temp dir, {}", e),
+        })?
+        .path()
+        .to_owned();
     tokio::fs::create_dir_all(&tmp_dir)
         .await
         .map_err(|_| Error {
