@@ -35,11 +35,7 @@ async fn run_macro(
     })?;
     instance
         .run_macro(&macro_name, args, None)
-        .await
-        .ok_or_else(|| Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        })??;
+        .await?;
     Ok(Json(()))
 }
 

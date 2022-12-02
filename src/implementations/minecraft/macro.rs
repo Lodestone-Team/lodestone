@@ -325,7 +325,7 @@ impl TMacro for MinecraftInstance {
         name: &str,
         args: Vec<String>,
         executor: Option<&str>,
-    ) -> crate::traits::MaybeUnsupported<Result<String, crate::traits::Error>> {
+    ) -> Result<(), crate::traits::Error> {
         let path = self.path_to_macros.join(name).with_extension("lua");
         let content = tokio::fs::read_to_string(&path)
             .await
@@ -342,6 +342,6 @@ impl TMacro for MinecraftInstance {
 
         // lua.load(&content).exec_async().unwrap();
 
-        Some(Ok("".to_string()))
+        Ok(())
     }
 }

@@ -20,9 +20,6 @@ pub mod t_player;
 pub mod t_resource;
 pub mod t_server;
 
-pub type MaybeUnsupported<T> = Option<T>;
-pub use core::option::Option::None as Unsupported;
-pub use core::option::Option::Some as Supported;
 
 #[derive(Debug, Serialize, Clone, TS)]
 #[ts(export)]
@@ -162,16 +159,16 @@ pub trait TInstance:
             cmd_args: self.cmd_args().await,
             description: self.description().await,
             port: self.port().await,
-            min_ram: self.min_ram().await,
-            max_ram: self.max_ram().await,
+            min_ram: self.min_ram().await.ok(),
+            max_ram: self.max_ram().await.ok(),
             creation_time: self.creation_time().await,
             path: self.path().await.display().to_string(),
             auto_start: self.auto_start().await,
             restart_on_crash: self.restart_on_crash().await,
             backup_period: self.backup_period().await.unwrap_or(None),
             state: self.state().await,
-            player_count: self.get_player_count().await,
-            max_player_count: self.get_max_player_count().await,
+            player_count: self.get_player_count().await.ok(),
+            max_player_count: self.get_max_player_count().await.ok(),
         }
     }
 }

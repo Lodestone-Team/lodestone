@@ -12,7 +12,6 @@ use serde_json::{json, Value};
 use crate::{
     auth::user::UserAction,
     events::CausedBy,
-    traits::{Supported, Unsupported},
 };
 
 use super::util::try_auth;
@@ -149,7 +148,7 @@ pub async fn send_command(
         user_name: requester.username.clone(),
     };
     drop(users);
-    match state
+    state
         .instances
         .lock()
         .await
@@ -159,14 +158,7 @@ pub async fn send_command(
             detail: "".to_string(),
         })?
         .send_command(&command, caused_by)
-        .await
-    {
-        Supported(v) => v.map(|_| Json(())),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .await.map(|_| Json(()))
 }
 
 pub async fn get_instance_state(

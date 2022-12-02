@@ -1,7 +1,6 @@
 use axum::{extract::Path, routing::get, Extension, Json, Router};
 use serde_json::Value;
 
-use crate::traits::{Supported, Unsupported};
 use crate::{
     traits::{t_player::TPlayerManagement, Error, ErrorInner},
     AppState,
@@ -11,7 +10,7 @@ pub async fn get_player_count(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
 ) -> Result<Json<u32>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
@@ -22,20 +21,14 @@ pub async fn get_player_count(
         })?
         .get_player_count()
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub async fn get_max_player_count(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
 ) -> Result<Json<u32>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
@@ -46,13 +39,7 @@ pub async fn get_max_player_count(
         })?
         .get_max_player_count()
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub async fn set_max_player_count(
@@ -60,7 +47,7 @@ pub async fn set_max_player_count(
     Path(uuid): Path<String>,
     Json(count): Json<u32>,
 ) -> Result<Json<()>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
@@ -71,20 +58,14 @@ pub async fn set_max_player_count(
         })?
         .set_max_player_count(count)
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub async fn get_player_list(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
 ) -> Result<Json<Vec<Value>>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
@@ -95,13 +76,7 @@ pub async fn get_player_list(
         })?
         .get_player_list()
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub fn get_instance_players_routes() -> Router {

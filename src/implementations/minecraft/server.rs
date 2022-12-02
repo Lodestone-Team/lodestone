@@ -14,7 +14,7 @@ use crate::prelude::{get_snowflake, LODESTONE_PATH};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
-use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
+use crate::traits::{Error, ErrorInner};
 use crate::util::{dont_spawn_terminal, scoped_join_win_safe};
 
 use super::MinecraftInstance;
@@ -558,12 +558,8 @@ impl TServer for MinecraftInstance {
         self.state.lock().await.get()
     }
 
-    async fn send_command(
-        &mut self,
-        command: &str,
-        cause_by: CausedBy,
-    ) -> MaybeUnsupported<Result<(), Error>> {
-        Supported(if self.state().await == State::Stopped {
+    async fn send_command(&mut self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
+        if self.state().await == State::Stopped {
             Err(Error {
                 inner: ErrorInner::InstanceStopped,
                 detail: "Instance not running".to_string(),
@@ -603,7 +599,7 @@ impl TServer for MinecraftInstance {
                     })
                 }
             }
-        })
+        }
     }
     async fn monitor(&self) -> MonitorReport {
         if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {

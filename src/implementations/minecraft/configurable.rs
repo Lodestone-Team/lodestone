@@ -5,7 +5,7 @@ use serde_json::json;
 use tempdir::TempDir;
 
 use crate::traits::t_server::State;
-use crate::traits::{self, t_configurable::TConfigurable, ErrorInner, MaybeUnsupported, Supported};
+use crate::traits::{self, t_configurable::TConfigurable, ErrorInner};
 
 use crate::traits::Error;
 use crate::util::download_file;
@@ -43,12 +43,12 @@ impl TConfigurable for MinecraftInstance {
         self.config.port
     }
 
-    async fn min_ram(&self) -> MaybeUnsupported<u32> {
-        Supported(self.config.min_ram)
+    async fn min_ram(&self) -> Result<u32, Error> {
+        Ok(self.config.min_ram)
     }
 
-    async fn max_ram(&self) -> MaybeUnsupported<u32> {
-        Supported(self.config.max_ram)
+    async fn max_ram(&self) -> Result<u32, Error> {
+        Ok(self.config.max_ram)
     }
 
     async fn creation_time(&self) -> i64 {
@@ -67,8 +67,8 @@ impl TConfigurable for MinecraftInstance {
         self.config.restart_on_crash
     }
 
-    async fn backup_period(&self) -> MaybeUnsupported<Option<u32>> {
-        Supported(self.config.backup_period)
+    async fn backup_period(&self) -> Result<Option<u32>, Error> {
+        Ok(self.config.backup_period)
     }
 
     async fn get_info(&self) -> serde_json::Value {
@@ -99,79 +99,53 @@ impl TConfigurable for MinecraftInstance {
         Ok(())
     }
 
-    async fn set_port(&mut self, port: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.port = port;
-            *self
-                .settings
-                .lock()
-                .await
-                .entry("server-port".to_string())
-                .or_insert_with(|| port.to_string()) = port.to_string();
-            self.write_config_to_file()
-                .await
-                .and(self.write_properties_to_file().await)
-        })
+    async fn set_port(&mut self, port: u32) -> Result<(), traits::Error> {
+        self.config.port = port;
+        *self
+            .settings
+            .lock()
+            .await
+            .entry("server-port".to_string())
+            .or_insert_with(|| port.to_string()) = port.to_string();
+        self.write_config_to_file()
+            .await
+            .and(self.write_properties_to_file().await)
     }
 
-    async fn set_cmd_args(
-        &mut self,
-        cmd_args: Vec<String>,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.cmd_args = cmd_args;
-            self.write_config_to_file().await
-        })
+    async fn set_cmd_args(&mut self, cmd_args: Vec<String>) -> Result<(), traits::Error> {
+        self.config.cmd_args = cmd_args;
+        self.write_config_to_file().await
     }
 
-    async fn set_min_ram(&mut self, min_ram: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.min_ram = min_ram;
-            self.write_config_to_file().await
-        })
+    async fn set_min_ram(&mut self, min_ram: u32) -> Result<(), traits::Error> {
+        self.config.min_ram = min_ram;
+        self.write_config_to_file().await
     }
 
-    async fn set_max_ram(&mut self, max_ram: u32) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.max_ram = max_ram;
-            self.write_config_to_file().await
-        })
+    async fn set_max_ram(&mut self, max_ram: u32) -> Result<(), traits::Error> {
+        self.config.max_ram = max_ram;
+        self.write_config_to_file().await
     }
 
-    async fn set_auto_start(
-        &mut self,
-        auto_start: bool,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.auto_start = auto_start;
-            self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
-            self.write_config_to_file().await
-        })
+    async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), traits::Error> {
+        self.config.auto_start = auto_start;
+        self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
+        self.write_config_to_file().await
     }
 
-    async fn set_restart_on_crash(
-        &mut self,
-        restart_on_crash: bool,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.restart_on_crash = restart_on_crash;
-            self.auto_start
-                .store(restart_on_crash, atomic::Ordering::Relaxed);
-            self.write_config_to_file().await
-        })
+    async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), traits::Error> {
+        self.config.restart_on_crash = restart_on_crash;
+        self.auto_start
+            .store(restart_on_crash, atomic::Ordering::Relaxed);
+        self.write_config_to_file().await
     }
 
-    async fn set_backup_period(
-        &mut self,
-        backup_period: Option<u32>,
-    ) -> MaybeUnsupported<Result<(), traits::Error>> {
-        Supported({
-            self.config.backup_period = backup_period;
-            self.backup_sender
-                .send(BackupInstruction::SetPeriod(backup_period))
-                .unwrap();
-            self.write_config_to_file().await
-        })
+    async fn set_backup_period(&mut self, backup_period: Option<u32>) -> Result<(), traits::Error> {
+        self.config.backup_period = backup_period;
+        self.backup_sender
+            .send(BackupInstruction::SetPeriod(backup_period))
+            .unwrap();
+        self.write_config_to_file().await
     }
 
     async fn set_field(&mut self, field: &str, value: String) -> Result<(), Error> {

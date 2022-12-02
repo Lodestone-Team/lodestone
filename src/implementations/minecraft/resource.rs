@@ -10,24 +10,15 @@ impl TResourceManagement for MinecraftInstance {
         todo!()
     }
 
-    async fn load(
-        &mut self,
-        _resource: &str,
-    ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
+    async fn load(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
         todo!()
     }
 
-    async fn unload(
-        &mut self,
-        _resource: &str,
-    ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
+    async fn unload(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
         todo!()
     }
 
-    async fn delete(
-        &mut self,
-        _resource: &str,
-    ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
+    async fn delete(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
         todo!()
     }
 }

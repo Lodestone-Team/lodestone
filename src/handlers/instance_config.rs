@@ -103,10 +103,10 @@ pub async fn set_instance_setting(
     match value {
         Value::Null => match key {
             InstanceSetting::BackupPeriod => instance.set_backup_period(None).await,
-            _ => Some(Err(Error {
+            _ => Err(Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "".to_string(),
-            })),
+            }),
         },
         Value::Number(n) => {
             let number = n.as_u64().ok_or(Error {
@@ -119,27 +119,27 @@ pub async fn set_instance_setting(
                 InstanceSetting::MaxRam => instance.set_max_ram(number).await,
                 InstanceSetting::MinRam => instance.set_min_ram(number).await,
                 InstanceSetting::Port => instance.set_port(number).await,
-                _ => Some(Err(Error {
+                _ => Err(Error {
                     inner: ErrorInner::MalformedRequest,
                     detail: "".to_string(),
-                })),
+                }),
             }
         }
         Value::Bool(b) => match key {
             InstanceSetting::AutoStart => instance.set_auto_start(b).await,
             InstanceSetting::RestartOnCrash => instance.set_restart_on_crash(b).await,
-            _ => Some(Err(Error {
+            _ => Err(Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "".to_string(),
-            })),
+            }),
         },
         Value::String(s) => match key {
-            InstanceSetting::Name => Some(instance.set_name(s).await),
-            InstanceSetting::Description => Some(instance.set_description(s).await),
-            _ => Some(Err(Error {
+            InstanceSetting::Name => instance.set_name(s).await,
+            InstanceSetting::Description => instance.set_description(s).await,
+            _ => Err(Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "".to_string(),
-            })),
+            }),
         },
         Value::Array(a) => match key {
             InstanceSetting::CmdArgs => {
@@ -158,20 +158,16 @@ pub async fn set_instance_setting(
                     )
                     .await
             }
-            _ => Some(Err(Error {
+            _ => Err(Error {
                 inner: ErrorInner::MalformedRequest,
                 detail: "".to_string(),
-            })),
+            }),
         },
-        _ => Some(Err(Error {
+        _ => Err(Error {
             inner: ErrorInner::MalformedRequest,
             detail: "".to_string(),
-        })),
-    }
-    .ok_or(Error {
-        inner: ErrorInner::UnsupportedOperation,
-        detail: "".to_string(),
-    })??;
+        }),
+    }?;
 
     Ok(Json(()))
 }

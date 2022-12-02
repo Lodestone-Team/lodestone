@@ -5,8 +5,6 @@ use ts_rs::TS;
 
 use crate::events::CausedBy;
 
-use super::MaybeUnsupported;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename = "InstanceState")]
 #[ts(export)]
@@ -70,6 +68,6 @@ pub trait TServer {
         &mut self,
         command: &str,
         caused_by: CausedBy,
-    ) -> MaybeUnsupported<Result<(), super::Error>>;
+    ) -> Result<(), super::Error>;
     async fn monitor(&self) -> MonitorReport;
 }
