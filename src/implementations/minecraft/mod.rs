@@ -976,15 +976,11 @@ impl MinecraftInstance {
             settings: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
-            macro_executor: MacroExecutor::new(Arc::new(Mutex::new(Arc::new(mlua::Lua::new)))),
+            macro_executor: MacroExecutor::new(),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
         };
         let get_lua = instance.macro_std();
-        instance
-            .macro_executor
-            .set_lua(Arc::new(move || get_lua()))
-            .await;
         let event_broadcaster = instance.event_broadcaster.clone();
         let mut rx = instance.macro_executor.event_receiver();
         tokio::spawn(async move {

@@ -13,7 +13,7 @@ use crate::traits::MinecraftInstance;
 use super::ErrorInner;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
-pub trait TConfigurable: Sync + Send {
+pub trait TConfigurable{
     // getters
     async fn uuid(&self) -> String;
     async fn name(&self) -> String;

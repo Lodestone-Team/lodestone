@@ -9,7 +9,7 @@ use tokio::process::Command;
 
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::util::read_properties_from_path;
-use crate::macro_executor::LuaExecutionInstruction;
+use crate::macro_executor::ExecutionInstruction;
 use crate::prelude::{get_snowflake, LODESTONE_PATH};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::{MonitorReport, State, TServer};
@@ -31,11 +31,11 @@ impl TServer for MinecraftInstance {
         if prelaunch.exists() {
             match tokio::fs::read_to_string(prelaunch).await {
                 Ok(script) => {
-                    let uuid = self.macro_executor.spawn(LuaExecutionInstruction {
-                        lua: None,
+                    let uuid = self.macro_executor.spawn(ExecutionInstruction {
                         content: script,
                         args: vec![],
                         executor: None,
+                        runtime : self.macro_std(),
                     });
                     // wait for prelaunch.lua to finish
                     let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
@@ -403,17 +403,17 @@ impl TServer for MinecraftInstance {
                                             );
                                             let path = scoped_join_win_safe(
                                                 &path_to_macros.join("in_game"),
-                                                &format!("{}.lua", macro_name),
+                                                &format!("{}.js", macro_name),
                                             )
                                             .unwrap();
                                             if let Ok(content) =
                                                 tokio::fs::read_to_string(&path).await
                                             {
-                                                let exec = LuaExecutionInstruction {
+                                                let exec = ExecutionInstruction {
                                                     content,
                                                     args,
                                                     executor: Some(player_name),
-                                                    lua: None,
+                                                    runtime : self.macro_std(),
                                                 };
                                                 macro_executor.spawn(exec);
                                             } else {

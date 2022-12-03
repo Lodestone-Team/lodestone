@@ -64,6 +64,8 @@ tokio-util = "0.7.4"
 enum_dispatch = "0.3.8"
 rcon = {version = "0.6.0", features = ["rt-tokio"]}
 tempdir = "0.3.7"
+igd = "0.12.0"
+deno_core = "0.162.0"
 [dependencies.uuid]
 version = "1.1.2"
 features = [
