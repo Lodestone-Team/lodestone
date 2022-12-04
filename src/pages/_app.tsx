@@ -86,21 +86,22 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   useIsomorphicLayoutEffect(() => {
     if (!token) {
       delete axios.defaults.headers.common['Authorization'];
-      return;
-    }
-    try {
-      const decoded = jwt.decode(token, { complete: true });
-      if (!decoded) throw new Error('Invalid token');
-      const { exp } = decoded.payload as { exp: number };
-      if (Date.now() >= exp * 1000) throw new Error('Token expired');
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } catch (e) {
-      const message = errorToMessage(e);
-      alert(message);
-      setToken('');
-      delete axios.defaults.headers.common['Authorization'];
+    } else {
+      try {
+        const decoded = jwt.decode(token, { complete: true });
+        if (!decoded) throw new Error('Invalid token');
+        const { exp } = decoded.payload as { exp: number };
+        if (Date.now() >= exp * 1000) throw new Error('Token expired');
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      } catch (e) {
+        const message = errorToMessage(e);
+        alert(message);
+        setToken('');
+        delete axios.defaults.headers.common['Authorization'];
+      }
     }
     queryClient.invalidateQueries();
+    queryClient.clear();
   }, [token]);
 
   return (

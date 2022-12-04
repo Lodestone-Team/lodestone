@@ -71,24 +71,29 @@ export function isAxiosError<ResponseType>(
 }
 
 export function errorToMessage(error: unknown): string {
-  if (isAxiosError<ClientError>(error)) {
+  if (isAxiosError<any>(error)) {
     if (error.response && error.response.data) {
+      let data = error.response.data;
       // if response.data is a string parse it as a JSON object
-      if (typeof error.response.data === 'string') {
-        error.response.data = JSON.parse(error.response.data);
+      if (typeof data === 'string') {
+        // spaghetti code
+        if (data.startsWith('`Authorization`')) {
+          return 'Invalid token';
+        }
+        data = JSON.parse(data);
       }
       // if response.data is a blob parse it as a JSON object
-      if (error.response.data instanceof Blob) {
+      if (data instanceof Blob) {
         const reader = new FileReader();
-        reader.readAsText(error.response.data);
+        reader.readAsText(data);
         // reader.onload = () => {
-        //   error.response.data = JSON.parse(reader.result as string);
+        //   data = JSON.parse(reader.result as string);
         // };
       }
-      console.log(error.response.data);
-      if (error.response.data && error.response.data.inner) {
+      console.log(data);
+      if (data && data.inner) {
         // TODO: more runtime type checking
-        const clientError: ClientError = new ClientError(error.response.data);
+        const clientError: ClientError = new ClientError(data);
         return clientError.toString();
       } else return `${error.code}: ${error.response.statusText}`;
     } else {
