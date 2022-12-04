@@ -100,6 +100,15 @@ pub struct Error {
     pub detail: String,
 }
 
+// implement std error trait
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error: {}", self.detail)
+    }
+}
+
+impl std::error::Error for Error {}
+
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self.inner {

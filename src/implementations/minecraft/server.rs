@@ -27,23 +27,15 @@ impl TServer for MinecraftInstance {
         self.state.lock().await.update(State::Starting, cause_by)?;
         env::set_current_dir(&self.config.path).unwrap();
 
-        let prelaunch = self.path().await.join("prelaunch.lua");
+        let prelaunch = self.path().await.join("prelaunch.js");
         if prelaunch.exists() {
-            match tokio::fs::read_to_string(prelaunch).await {
-                Ok(script) => {
-                    let uuid = self.macro_executor.spawn(ExecutionInstruction {
-                        content: script,
-                        args: vec![],
-                        executor: None,
-                        runtime : self.macro_std(),
-                    });
-                    // wait for prelaunch.lua to finish
-                    let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
-                }
-                Err(e) => {
-                    error!("Failed to read prelaunch script: {}", e);
-                }
-            }
+            let uuid = self.macro_executor.spawn(ExecutionInstruction {
+                path_to_main_module: prelaunch,
+                args: vec![],
+                executor: None,
+                runtime: self.macro_std(),
+            });
+            let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -406,19 +398,12 @@ impl TServer for MinecraftInstance {
                                                 &format!("{}.js", macro_name),
                                             )
                                             .unwrap();
-                                            if let Ok(content) =
-                                                tokio::fs::read_to_string(&path).await
-                                            {
-                                                let exec = ExecutionInstruction {
-                                                    content,
-                                                    args,
-                                                    executor: Some(player_name),
-                                                    runtime : self.macro_std(),
-                                                };
-                                                macro_executor.spawn(exec);
-                                            } else {
-                                                warn!("Failed to read macro file {:?}", path);
-                                            }
+                                            let _ = macro_executor.spawn(ExecutionInstruction {
+                                                runtime: self.macro_std(),
+                                                path_to_main_module: path,
+                                                args,
+                                                executor: Some(player_name),
+                                            });
                                         }
                                     }
                                 }

@@ -1048,6 +1048,11 @@ impl MinecraftInstance {
             })?;
         Ok(())
     }
+
+    pub async fn send_rcon(&self, cmd : String) -> Result<String, Error> {
+        let a = self.rcon_conn.lock().await.as_mut().unwrap().cmd(&cmd).await.unwrap();
+        Ok(a)
+    }
 }
 
 impl TInstance for MinecraftInstance {}

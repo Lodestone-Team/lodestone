@@ -1,7 +1,13 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use deno_core::JsRuntime;
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::{
     runtime::Builder,
     sync::{
@@ -18,12 +24,9 @@ use crate::{
     util::rand_macro_uuid,
 };
 
-// unsafe impl Send for MacroExecutor {}
-// unsafe impl Sync for MacroExecutor {}
-
 pub struct ExecutionInstruction {
-    pub runtime: Arc<dyn Fn() ->JsRuntime>,
-    pub content: String,
+    pub runtime: Box<dyn Fn(&Path) -> deno_runtime::worker::MainWorker + Send>,
+    pub path_to_main_module: PathBuf,
     pub args: Vec<String>,
     pub executor: Option<String>,
 }
@@ -36,22 +39,18 @@ pub enum Task {
 impl Debug for Task {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Task::Spawn(exec_instruction) => {
-                write!(
-                    f,
-                    "Spawn {{ content: {}, args: {:?}, executor: {:?} }}",
-                    exec_instruction.content, exec_instruction.args, exec_instruction.executor
-                )
-            }
+            Task::Spawn(exec_instruction) => f
+                .debug_struct("Task::Spawn")
+                .field("path_to_main_module", &exec_instruction.path_to_main_module)
+                .field("args", &exec_instruction.args)
+                .field("executor", &exec_instruction.executor)
+                .finish(),
             Task::Abort(uuid) => {
                 write!(f, "Abort {{ uuid: {} }}", uuid)
             }
         }
     }
 }
-
-unsafe impl Send for Task {}
-unsafe impl Sync for Task {}
 
 #[derive(Clone)]
 pub struct MacroExecutor {
@@ -84,23 +83,25 @@ impl MacroExecutor {
                                     async move {
                                         let ExecutionInstruction {
                                             runtime,
-                                            content,
+                                            path_to_main_module,
                                             args,
                                             executor,
                                         } = exec_instruction;
                                         let executor = executor.unwrap_or_default();
                                         // inject exectuor into the js runtime
-                                        let mut runtime = runtime();
-                                        runtime
-                                            .execute_script(
-                                                "executor.js",
-                                                &format!(
-                                                    "const executor = \"{}\"; {}",
-                                                    executor, content
-                                                ),
-                                            )
-                                            .unwrap();
-                                        runtime.run_event_loop(false).await;
+                                        let mut runtime = runtime(&path_to_main_module);
+                                        let main_module = deno_core::resolve_path(
+                                            &path_to_main_module.to_string_lossy(),
+                                        )
+                                        .unwrap();
+
+                                        runtime.execute_main_module(&main_module).await.unwrap();
+
+                                        let _ = runtime.run_event_loop(false).await.map_err(|e| {
+                                            error!("Error while running event loop: {}", e);
+                                        });
+
+                                        println!("done");
 
                                         let _ = event_broadcaster.send(MacroEvent {
                                             macro_uuid: uuid.clone(),

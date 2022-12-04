@@ -23,7 +23,7 @@ axum = { version = "0.5.13", features = ["headers", "ws", "multipart"] }
 axum-macros = "0.2.3"
 futures = "0.3.21"
 headers = "0.3"
-tokio = { version = "1.21.2", features = ["full"] }
+tokio = { version = "1.21.1", features = ["full"] }
 tokio-stream = "0.1"
 tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
 fancy-regex = "0.10.0"
@@ -66,6 +66,7 @@ rcon = {version = "0.6.0", features = ["rt-tokio"]}
 tempdir = "0.3.7"
 igd = "0.12.0"
 deno_core = "0.162.0"
+deno_runtime = "0.88.0"
 [dependencies.uuid]
 version = "1.1.2"
 features = [

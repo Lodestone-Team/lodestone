@@ -1,9 +1,18 @@
 use std::{
-    borrow::BorrowMut, cell::RefCell, path::PathBuf, rc::Rc, sync::Arc, thread, time::Duration,
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::Arc,
+    thread,
+    time::Duration,
 };
 
 use async_trait::async_trait;
-use deno_core::{op, JsRuntime, OpState, Resource};
+use deno_core::{
+    anyhow::{self, anyhow},
+    op, JsRuntime, OpState, Resource,
+};
+use deno_runtime::worker::MainWorker;
 use log::error;
 use mlua::Lua;
 
@@ -20,47 +29,59 @@ use super::MinecraftInstance;
 impl Resource for MinecraftInstance {}
 
 #[op]
-async fn send_stdin(state: Rc<RefCell<OpState>>, cmd: String) {
-    let mut instance = state.borrow().resource_table.get::<MinecraftInstance>(0).unwrap();
+async fn send_stdin(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyhow::Error> {
+    let state = state.borrow();
+    let instance = state.borrow::<MinecraftInstance>().clone();
     instance
         .stdin
         .lock()
         .await
         .as_mut()
-        .unwrap()
-        .write_all(cmd.as_bytes())
-        .await
-        .unwrap();
+        .ok_or_else(|| anyhow!("Failed to lock stdin"))?
+        .write_all(format!("{}\n", cmd).as_bytes())
+        .await?;
+    Ok(())
 }
 
-struct RuntimeState {
-    pub stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
-    pub path: PathBuf,
-    pub uuid: String,
-    pub rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+#[op]
+async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyhow::Error> {
+    let state = state.borrow();
+    let instance = state.borrow::<MinecraftInstance>().clone();
+    instance
+        .rcon_conn
+        .lock()
+        .await
+        .as_mut()
+        .ok_or_else(|| anyhow!("Failed to lock stdin"))?
+        .cmd(&cmd)
+        .await?;
+    Ok(())
 }
 
 impl MinecraftInstance {
-    pub fn macro_std(&self) -> Arc<dyn Fn() -> JsRuntime> {
-        Arc::new({
+    pub fn macro_std(&self) -> Box<dyn Fn(&Path) -> deno_runtime::worker::MainWorker + Send> {
+        Box::new({
             let a = self.clone();
-            move || {
+            move |js_path| {
+                let a = a.clone();
+                let mut options = deno_runtime::worker::WorkerOptions::default();
                 let ext = deno_core::Extension::builder()
-                    .ops(vec![
-                        // An op for summing an array of numbers
-                        // The op-layer automatically deserializes inputs
-                        // and serializes the returned Result & value
-                        send_stdin::decl(),
-                    ])
+                    .ops(vec![send_stdin::decl(), send_rcon::decl()])
+                    .state(move |state| {
+                        state.put(a.clone());
+                        Ok(())
+                    })
                     .build();
-                let mut op_state = OpState::new(32);
-                op_state.resource_table.add(a.clone());
-                ext.init_state(&mut op_state).unwrap();
-                let runtime = JsRuntime::new(deno_core::RuntimeOptions {
-                    extensions: vec![ext],
-                    ..Default::default()
-                });
-                runtime
+                options.extensions.push(ext);
+                let main_module = deno_core::resolve_path(&js_path.to_string_lossy()).unwrap();
+                let permissions = deno_runtime::permissions::Permissions::allow_all();
+                let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
+                    main_module.clone(),
+                    permissions,
+                    options,
+                );
+
+                worker
             }
         })
     }
@@ -114,13 +135,10 @@ impl TMacro for MinecraftInstance {
         args: Vec<String>,
         executor: Option<&str>,
     ) -> Result<(), crate::traits::Error> {
-        let path = self.path_to_macros.join(name).with_extension("lua");
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .expect("Failed to read macro");
+        let path_to_main_module = self.path_to_macros.join(name).with_extension("js");
 
         let exec_instruction = ExecutionInstruction {
-            content,
+            path_to_main_module,
             args,
             executor: executor.map(|s| s.to_string()),
             runtime: self.macro_std(),
