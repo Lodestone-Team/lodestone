@@ -40,13 +40,11 @@ export const useEventStream = () => {
     [queryClient]
   );
   const updateInstancePlayerCount = useCallback(
-    (uuid: string, increment: number) => {
+    (uuid: string, player_num: number) => {
       updateInstance(uuid, queryClient, (oldInfo) => {
         return {
           ...oldInfo,
-          player_count: oldInfo.player_count
-            ? oldInfo.player_count + increment
-            : oldInfo.player_count,
+          player_count: player_num,
         };
       });
     },
@@ -124,12 +122,10 @@ export const useEventStream = () => {
               console.log(`Got system message on ${name}: ${message}`);
             },
             PlayerChange: ({ player_list, players_joined, players_left }) => {
-              // updateInstancePlayerCount(uuid, player_list.length);
               console.log(`Got player change on ${name}: ${player_list}`);
               console.log(`${players_joined} joined ${name}`);
               console.log(`${players_left} left ${name}`);
-              updateInstancePlayerCount(uuid, players_joined.length);
-              updateInstancePlayerCount(uuid, -players_left.length);
+              if (fresh) updateInstancePlayerCount(uuid, player_list.length);
               const title = `${
                 players_joined.length > 0
                   ? `${players_joined.join(', ')} Joined ${name}`
