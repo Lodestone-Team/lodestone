@@ -33,6 +33,7 @@ const SettingsPage: NextPageWithLayout = () => {
   const { address } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [selectedTabIndex, setSelectedTabIndex] = useState(0);
 
   const nameField = (
     <InputBox
@@ -55,13 +56,10 @@ const SettingsPage: NextPageWithLayout = () => {
     />
   );
 
-  return (
-    // used to possibly center the content
-    <div className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container">
-      <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-6">
-        <div className="flex min-w-0 flex-row items-center gap-4">
-          <h1 className="dashboard-instance-heading">Core Settings</h1>
-        </div>
+  const tabList = [
+    {
+      title: 'Settings',
+      content: (
         <div className="flex w-full flex-col gap-4 @4xl:flex-row">
           <div className="w-[28rem]">
             <h1 className="text-large font-black"> General Settings </h1>
@@ -74,6 +72,48 @@ const SettingsPage: NextPageWithLayout = () => {
             {unsafeModeField}
           </div>
         </div>
+      ),
+    },
+  ];
+
+  return (
+    // used to possibly center the content
+    <div className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container">
+      <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
+        <div className="flex min-w-0 flex-row items-center gap-4">
+          <h1 className="dashboard-instance-heading">Core Settings</h1>
+        </div>
+        <Tab.Group
+          selectedIndex={selectedTabIndex}
+          onChange={setSelectedTabIndex}
+        >
+          <Tab.List className="mb-6 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
+            {tabList.map((tab) => (
+              <Tab
+                key={tab.title}
+                className={({ selected }) =>
+                  `text-medium font-semibold tracking-tight focus-visible:outline-none ${
+                    selected
+                      ? 'border-b-2 border-blue-accent text-blue-accent'
+                      : 'mb-0.5 text-gray-500'
+                  }`
+                }
+              >
+                {tab.title}
+              </Tab>
+            ))}
+          </Tab.List>
+          <Tab.Panels className="flex w-full grow flex-row items-stretch focus:outline-none">
+            {tabList.map((tab) => (
+              <Tab.Panel
+                className="flex w-full flex-col gap-16"
+                key={tab.title}
+              >
+                {tab.content}
+              </Tab.Panel>
+            ))}
+          </Tab.Panels>
+        </Tab.Group>
       </div>
     </div>
   );
