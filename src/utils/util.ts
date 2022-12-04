@@ -78,7 +78,7 @@ export function errorToMessage(error: unknown): string {
       if (typeof data === 'string') {
         // spaghetti code
         if (data.startsWith('`Authorization`')) {
-          return 'Invalid token';
+          return 'Invalid token: try to log out and log in again';
         }
         data = JSON.parse(data);
       }
