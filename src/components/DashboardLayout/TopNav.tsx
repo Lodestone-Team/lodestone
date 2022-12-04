@@ -153,7 +153,7 @@ export default function TopNav({
                 {({ active, disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
-                    label="Change node"
+                    label="Change core"
                     iconRight={faArrowRightArrowLeft}
                     variant="text"
                     align="end"

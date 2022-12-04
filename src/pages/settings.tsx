@@ -60,7 +60,7 @@ const SettingsPage: NextPageWithLayout = () => {
     <div className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container">
       <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-6">
         <div className="flex min-w-0 flex-row items-center gap-4">
-          <h1 className="dashboard-instance-heading">Dashboard Settings</h1>
+          <h1 className="dashboard-instance-heading">Core Settings</h1>
         </div>
         <div className="flex w-full flex-col gap-4 @4xl:flex-row">
           <div className="w-[28rem]">
