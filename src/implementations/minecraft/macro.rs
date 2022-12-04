@@ -30,8 +30,8 @@ impl Resource for MinecraftInstance {}
 
 #[op]
 async fn send_stdin(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyhow::Error> {
-    let state = state.borrow();
-    let instance = state.borrow::<MinecraftInstance>().clone();
+    return Err(anyhow!("Failed to lock stdin"));
+    let instance = state.borrow().resource_table.get::<MinecraftInstance>(3).unwrap();
     instance
         .stdin
         .lock()
@@ -44,18 +44,10 @@ async fn send_stdin(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyh
 }
 
 #[op]
-async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyhow::Error> {
-    let state = state.borrow();
-    let instance = state.borrow::<MinecraftInstance>().clone();
-    instance
-        .rcon_conn
-        .lock()
-        .await
-        .as_mut()
-        .ok_or_else(|| anyhow!("Failed to lock stdin"))?
-        .cmd(&cmd)
-        .await?;
-    Ok(())
+async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<String, anyhow::Error> {
+    let instance = state.borrow().resource_table.get::<MinecraftInstance>(3).unwrap();
+    let ret = instance.rcon_conn.lock().await.as_mut().unwrap().cmd(&cmd).await?;
+    Ok(ret)
 }
 
 impl MinecraftInstance {
@@ -68,7 +60,9 @@ impl MinecraftInstance {
                 let ext = deno_core::Extension::builder()
                     .ops(vec![send_stdin::decl(), send_rcon::decl()])
                     .state(move |state| {
-                        state.put(a.clone());
+                        let id = state.resource_table.add(a.clone());
+                        // i sure fucking hope this id doesn't change
+                        dbg!(id);
                         Ok(())
                     })
                     .build();

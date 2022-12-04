@@ -95,7 +95,10 @@ impl MacroExecutor {
                                         )
                                         .unwrap();
 
-                                        runtime.execute_main_module(&main_module).await.unwrap();
+                                        let _ = runtime.execute_main_module(&main_module).await.map_err(|e| {
+                                            error!("Error executing main module: {}", e);
+                                            e
+                                        });
 
                                         let _ = runtime.run_event_loop(false).await.map_err(|e| {
                                             error!("Error while running event loop: {}", e);

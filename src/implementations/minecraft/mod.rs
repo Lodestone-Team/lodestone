@@ -133,7 +133,7 @@ pub struct MinecraftInstance {
     settings: Arc<Mutex<HashMap<String, String>>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
-    rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+    pub rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
 }
 
 #[derive(Debug, Clone)]
