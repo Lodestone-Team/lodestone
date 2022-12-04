@@ -64,7 +64,7 @@ export default function MinecraftSettingCard() {
             );
           })
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center p-4">
+          <div className="flex h-full w-full flex-col items-center justify-center p-4 bg-gray-800">
             <h1 className="text-large font-bold"> Not available at this moment </h1>
             <h2 className="text-base font-medium tracking-tight text-gray-300">
               Try to start this instance at least once.
