@@ -3,7 +3,7 @@ import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGameSetting } from 'data/GameSetting';
 import { axiosPutSingleValue, errorToMessage } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
-import Textfield from './Atoms/Config/InputBox';
+import InputBox from './Atoms/Config/InputBox';
 import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -48,7 +48,7 @@ export default function SettingField({
   switch (type) {
     case 'text':
       return (
-        <Textfield
+        <InputBox
           label={label}
           value={value}
           type="text"
@@ -65,7 +65,7 @@ export default function SettingField({
       );
     case 'number':
       return (
-        <Textfield
+        <InputBox
           label={label}
           value={value}
           type="number"

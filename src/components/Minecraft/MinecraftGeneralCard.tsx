@@ -1,5 +1,5 @@
 import DashboardCard from 'components/DashboardCard';
-import Textfield from 'components/Atoms/Config/InputBox';
+import InputBox from 'components/Atoms/Config/InputBox';
 import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper, parseintStrict } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,7 +29,7 @@ export default function MinecraftGeneralCard() {
   }
 
   const portField = (
-    <Textfield
+    <InputBox
       label="Port"
       value={instance.port.toString()}
       type="number"
@@ -56,7 +56,7 @@ export default function MinecraftGeneralCard() {
   );
 
   const maxPlayersField = supportedOptions.includes('GetMaxPlayerCount') ? (
-    <Textfield
+    <InputBox
       label="Max Players"
       value={instance.max_player_count?.toString() ?? ''}
       type="number"
@@ -78,7 +78,7 @@ export default function MinecraftGeneralCard() {
   ) : null;
 
   const minRamField = supportedOptions.includes('GetMinRam') ? (
-    <Textfield
+    <InputBox
       label="Min RAM"
       value={instance.min_ram?.toString() ?? ''}
       type="number"
@@ -97,7 +97,7 @@ export default function MinecraftGeneralCard() {
   ) : null;
 
   const maxRamField = supportedOptions.includes('GetMaxRam') ? (
-    <Textfield
+    <InputBox
       label="Max RAM"
       value={instance.max_ram?.toString() ?? ''}
       type="number"

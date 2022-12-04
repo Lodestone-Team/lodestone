@@ -186,7 +186,6 @@ const Dashboard: NextPageWithLayout = () => {
           />
         </div>
         <div className="flex w-full flex-row items-center gap-2">
-          {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
             initialText={instance.description}
             type={'description'}
