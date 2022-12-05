@@ -1,12 +1,5 @@
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 
-use deno_core::JsRuntime;
 use log::{debug, error, info};
 use tokio::{
     runtime::Builder,
@@ -25,10 +18,19 @@ use crate::{
 };
 
 pub struct ExecutionInstruction {
-    pub runtime: Box<dyn Fn(&Path) -> deno_runtime::worker::MainWorker + Send>,
-    pub path_to_main_module: PathBuf,
-    pub args: Vec<String>,
+    pub runtime: Box<
+        dyn Fn(
+                String,
+                String,
+                Vec<String>,
+                bool,
+            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
+            + Send,
+    >,
+    pub name: String,
     pub executor: Option<String>,
+    pub args: Vec<String>,
+    pub is_in_game: bool,
 }
 
 pub enum Task {
@@ -41,7 +43,7 @@ impl Debug for Task {
         match self {
             Task::Spawn(exec_instruction) => f
                 .debug_struct("Task::Spawn")
-                .field("path_to_main_module", &exec_instruction.path_to_main_module)
+                .field("name", &exec_instruction.name)
                 .field("args", &exec_instruction.args)
                 .field("executor", &exec_instruction.executor)
                 .finish(),
@@ -83,28 +85,32 @@ impl MacroExecutor {
                                     async move {
                                         let ExecutionInstruction {
                                             runtime,
-                                            path_to_main_module,
+                                            name,
                                             args,
                                             executor,
+                                            is_in_game,
                                         } = exec_instruction;
                                         let executor = executor.unwrap_or_default();
                                         // inject exectuor into the js runtime
-                                        let mut runtime = runtime(&path_to_main_module);
+                                        let (mut runtime, path_to_main_module) =
+                                            runtime(name, executor, args, is_in_game)
+                                                .expect("Failed to create runtime");
                                         let main_module = deno_core::resolve_path(
                                             &path_to_main_module.to_string_lossy(),
                                         )
                                         .unwrap();
 
-                                        let _ = runtime.execute_main_module(&main_module).await.map_err(|e| {
-                                            error!("Error executing main module: {}", e);
-                                            e
-                                        });
+                                        let _ = runtime
+                                            .execute_main_module(&main_module)
+                                            .await
+                                            .map_err(|e| {
+                                                error!("Error executing main module: {}", e);
+                                                e
+                                            });
 
                                         let _ = runtime.run_event_loop(false).await.map_err(|e| {
                                             error!("Error while running event loop: {}", e);
                                         });
-
-                                        println!("done");
 
                                         let _ = event_broadcaster.send(MacroEvent {
                                             macro_uuid: uuid.clone(),

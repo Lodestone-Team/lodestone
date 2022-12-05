@@ -980,7 +980,6 @@ impl MinecraftInstance {
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
         };
-        let get_lua = instance.macro_std();
         let event_broadcaster = instance.event_broadcaster.clone();
         let mut rx = instance.macro_executor.event_receiver();
         tokio::spawn(async move {
@@ -1049,8 +1048,23 @@ impl MinecraftInstance {
         Ok(())
     }
 
-    pub async fn send_rcon(&self, cmd : String) -> Result<String, Error> {
-        let a = self.rcon_conn.lock().await.as_mut().unwrap().cmd(&cmd).await.unwrap();
+    pub async fn send_rcon(&self, cmd: &str) -> Result<String, Error> {
+        let a = self
+            .rcon_conn
+            .clone()
+            .lock()
+            .await
+            .as_mut()
+            .ok_or_else(|| Error {
+                inner: ErrorInner::RconNotOpen,
+                detail: "Rcon not open".to_string(),
+            })?
+            .cmd(cmd)
+            .await
+            .map_err(|_| Error {
+                inner: ErrorInner::RconError,
+                detail: "Rcon error".to_string(),
+            })?;
         Ok(a)
     }
 }

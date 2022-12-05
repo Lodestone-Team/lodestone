@@ -3,6 +3,7 @@ use std::env;
 use std::process::Stdio;
 use std::time::Duration;
 
+use futures::TryFutureExt;
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -12,10 +13,11 @@ use crate::implementations::minecraft::util::read_properties_from_path;
 use crate::macro_executor::ExecutionInstruction;
 use crate::prelude::{get_snowflake, LODESTONE_PATH};
 use crate::traits::t_configurable::TConfigurable;
+use crate::traits::t_macro::TMacro;
 use crate::traits::t_server::{MonitorReport, State, TServer};
 
 use crate::traits::{Error, ErrorInner};
-use crate::util::{dont_spawn_terminal, scoped_join_win_safe};
+use crate::util::dont_spawn_terminal;
 
 use super::MinecraftInstance;
 use log::{debug, error, info, warn};
@@ -30,10 +32,11 @@ impl TServer for MinecraftInstance {
         let prelaunch = self.path().await.join("prelaunch.js");
         if prelaunch.exists() {
             let uuid = self.macro_executor.spawn(ExecutionInstruction {
-                path_to_main_module: prelaunch,
+                name: "prelaunch".to_string(),
                 args: vec![],
                 executor: None,
                 runtime: self.macro_std(),
+                is_in_game: false,
             });
             let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
         } else {
@@ -121,8 +124,7 @@ impl TServer for MinecraftInstance {
                     let name = self.config.name.clone();
                     let players = self.players.clone();
                     let macro_executor = self.macro_executor.clone();
-                    let path_to_macros = self.path_to_macros.clone();
-                    let self = self.clone();
+                    let mut __self = self.clone();
                     async move {
                         fn parse_system_msg(msg: &str) -> Option<String> {
                             lazy_static! {
@@ -323,16 +325,16 @@ impl TServer for MinecraftInstance {
                                                 );
                                                     e
                                                 });
-                                        if rcon.is_ok() {
+                                        if let Ok(rcon) = rcon {
                                             info!("Connected to RCON");
-                                            *self.rcon_conn.lock().await = rcon.ok();
+                                            self.rcon_conn.lock().await.replace(rcon);
                                             break;
                                         }
                                         tokio::time::sleep(Duration::from_secs(2_u64.pow(i))).await;
                                     }
                                 } else {
                                     warn!("RCON is not enabled, skipping");
-                                    *self.rcon_conn.lock().await = None;
+                                    self.rcon_conn.lock().await.take();
                                 }
                             }
                             if let Some(system_msg) = parse_system_msg(&line) {
@@ -393,17 +395,18 @@ impl TServer for MinecraftInstance {
                                                 "Invoking macro {} with args {:?}",
                                                 macro_name, args
                                             );
-                                            let path = scoped_join_win_safe(
-                                                &path_to_macros.join("in_game"),
-                                                &format!("{}.js", macro_name),
-                                            )
-                                            .unwrap();
-                                            let _ = macro_executor.spawn(ExecutionInstruction {
-                                                runtime: self.macro_std(),
-                                                path_to_main_module: path,
-                                                args,
-                                                executor: Some(player_name),
-                                            });
+                                            let _ = self
+                                                .run_macro(
+                                                    &macro_name,
+                                                    args,
+                                                    Some(player_name.as_str()),
+                                                    true,
+                                                )
+                                                .await
+                                                .map_err(|e| {
+                                                    warn!("Failed to run macro: {}", e);
+                                                    e
+                                                });
                                         }
                                     }
                                 }
@@ -543,7 +546,7 @@ impl TServer for MinecraftInstance {
         self.state.lock().await.get()
     }
 
-    async fn send_command(&mut self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
+    async fn send_command(&self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
         if self.state().await == State::Stopped {
             Err(Error {
                 inner: ErrorInner::InstanceStopped,
