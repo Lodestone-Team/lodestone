@@ -133,7 +133,7 @@ pub struct MinecraftInstance {
     settings: Arc<Mutex<HashMap<String, String>>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
-    rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+    pub rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -976,15 +976,10 @@ impl MinecraftInstance {
             settings: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
-            macro_executor: MacroExecutor::new(Arc::new(Mutex::new(Arc::new(mlua::Lua::new)))),
+            macro_executor: MacroExecutor::new(),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
         };
-        let get_lua = instance.macro_std();
-        instance
-            .macro_executor
-            .set_lua(Arc::new(move || get_lua()))
-            .await;
         let event_broadcaster = instance.event_broadcaster.clone();
         let mut rx = instance.macro_executor.event_receiver();
         tokio::spawn(async move {
@@ -1051,6 +1046,26 @@ impl MinecraftInstance {
                 detail: "Failed to write to properties file".to_string(),
             })?;
         Ok(())
+    }
+
+    pub async fn send_rcon(&self, cmd: &str) -> Result<String, Error> {
+        let a = self
+            .rcon_conn
+            .clone()
+            .lock()
+            .await
+            .as_mut()
+            .ok_or_else(|| Error {
+                inner: ErrorInner::RconNotOpen,
+                detail: "Rcon not open".to_string(),
+            })?
+            .cmd(cmd)
+            .await
+            .map_err(|_| Error {
+                inner: ErrorInner::RconError,
+                detail: "Rcon error".to_string(),
+            })?;
+        Ok(a)
     }
 }
 

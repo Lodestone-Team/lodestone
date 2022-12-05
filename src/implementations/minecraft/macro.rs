@@ -1,278 +1,214 @@
-use std::{sync::Arc, thread, time::Duration};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use async_trait::async_trait;
-use log::error;
-use mlua::Lua;
-
-use tokio::{io::AsyncWriteExt, task::yield_now};
+use deno_core::{
+    anyhow::{self},
+    op, OpState,
+};
 
 use crate::{
-    macro_executor::LuaExecutionInstruction,
-    traits::{t_macro::TMacro, Error, ErrorInner},
-    util::{list_dir, scoped_join_win_safe},
+    events::{CausedBy, EventInner},
+    macro_executor::ExecutionInstruction,
+    traits::{t_macro::TMacro, t_server::TServer, Error, ErrorInner},
+    util::list_dir,
 };
 
 use super::MinecraftInstance;
 
+#[op]
+async fn send_stdin(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyhow::Error> {
+    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
+    instance.send_command(&cmd, CausedBy::Unknown).await?;
+    Ok(())
+}
+
+#[op]
+async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<String, anyhow::Error> {
+    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
+    let ret = instance.send_rcon(&cmd).await?;
+    Ok(ret)
+}
+
+#[op]
+fn config(state: Rc<RefCell<OpState>>) -> Result<String, anyhow::Error> {
+    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
+    Ok(serde_json::to_string(&instance.config)?)
+}
+
+#[op]
+async fn on_event(
+    state: Rc<RefCell<OpState>>,
+    event: String,
+) -> Result<Option<String>, anyhow::Error> {
+    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
+    let mut event_rx = instance.event_broadcaster.subscribe();
+    if event == "playerMessage" {
+        while let Ok(event) = event_rx.recv().await {
+            if let EventInner::InstanceEvent(inner) = event.event_inner {
+                if let crate::events::InstanceEventInner::PlayerMessage {
+                    player,
+                    player_message,
+                } = inner.instance_event_inner
+                {
+                    return Ok(Some(
+                        serde_json::json!(
+                         {
+                             "player": player,
+                             "message": player_message
+                         }
+                        )
+                        .to_string(),
+                    ));
+                }
+            }
+        }
+    } else if event == "playersJoined" {
+        while let Ok(event) = event_rx.recv().await {
+            if let EventInner::InstanceEvent(inner) = event.event_inner {
+                if let crate::events::InstanceEventInner::PlayerChange { players_joined, .. } =
+                    inner.instance_event_inner
+                {
+                    if !players_joined.is_empty() {
+                        return Ok(Some(
+                            serde_json::json!({ "players": players_joined }).to_string(),
+                        ));
+                    }
+                    continue;
+                }
+            }
+        }
+    } else if event == "playersLeft" {
+        while let Ok(event) = event_rx.recv().await {
+            if let EventInner::InstanceEvent(inner) = event.event_inner {
+                if let crate::events::InstanceEventInner::PlayerChange { players_left, .. } =
+                    inner.instance_event_inner
+                {
+                    if !players_left.is_empty() {
+                        return Ok(Some(
+                            serde_json::json!(
+                             {
+                                 "playersLeft": players_left,
+                             }
+                            )
+                            .to_string(),
+                        ));
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+    } else if event == "playersChanged" {
+        while let Ok(event) = event_rx.recv().await {
+            if let EventInner::InstanceEvent(inner) = event.event_inner {
+                if let crate::events::InstanceEventInner::PlayerChange { player_list, .. } =
+                    inner.instance_event_inner
+                {
+                    return Ok(Some(
+                        serde_json::json!(
+                         {
+                             "players": player_list,
+                         }
+                        )
+                        .to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    todo!()
+}
+
 impl MinecraftInstance {
-    pub fn macro_std(&self) -> Arc<dyn Fn() -> Lua + Sync + Send> {
-        Arc::new({
-            let stdin = self.stdin.clone();
-            let path = self.config.path.clone().to_str().unwrap().to_string();
-            let uuid = self.config.uuid.clone();
-            let event_broadcaster = self.event_broadcaster.clone();
-            let macro_executor = self.macro_executor.clone();
-            let rcon_conn = self.rcon_conn.clone();
-            move || {
-                let lua = Lua::new();
-                let await_event = lua
-                    .create_async_function({
-                        let event_broadcaster = event_broadcaster.clone();
-                        let uuid = uuid.clone();
-                        move |_, event_str: String| {
-                            let event_broadcaster = event_broadcaster.clone();
-                            let instance_uuid = uuid.clone();
-                            async move {
-                                let mut event_receiver = event_broadcaster.subscribe();
-                                while let Ok(event) = event_receiver.recv().await {
-                                    match event_str.as_str() {
-                                        "player_msg" => {
-                                            if let Some(event_uuid) = event.get_instance_uuid() {
-                                                if instance_uuid != event_uuid {
-                                                    continue;
-                                                }
-                                                if let Some((player, msg)) =
-                                                    event.try_player_message()
-                                                {
-                                                    return Ok((player, msg));
-                                                }
-                                            }
-                                        }
-                                        _ => todo!(),
-                                    }
-                                }
-                                panic!("Event receiver closed");
-                            }
-                        }
-                    })
-                    .unwrap();
-                let sleep_and_yield = lua
-                    .create_async_function(|_, (secs,): (f64,)| async move {
-                        tokio::time::sleep(Duration::from_secs_f64(secs)).await;
-                        Ok(())
-                    })
-                    .unwrap();
-                let yield_now = lua
-                    .create_async_function(|_, ()| async move {
-                        yield_now().await;
-                        Ok(())
-                    })
-                    .unwrap();
-                let sleep_and_block = lua
-                    .create_async_function(|_, (secs,): (f64,)| async move {
-                        thread::sleep(Duration::from_secs_f64(secs));
-                        Ok(())
-                    })
-                    .unwrap();
-                let send_stdin = lua
-                    .create_async_function({
-                        let stdin = stdin.clone();
-                        move |_, cmd: String| {
-                            let stdin = stdin.clone();
-                            async move {
-                                let mut stdin = stdin.lock().await;
-                                match stdin.as_mut() {
-                                    Some(stdin) => {
-                                        stdin
-                                            .write_all(format!("{}\n", cmd).as_bytes())
-                                            .await
-                                            .unwrap();
-                                    }
-                                    None => {
-                                        error!("Failed to send stdin, stdin is not available")
-                                    }
-                                }
-                                Ok(())
-                            }
-                        }
-                    })
-                    .unwrap();
+    pub fn macro_std(
+        &self,
+    ) -> Box<
+        dyn Fn(
+                String,
+                String,
+                Vec<String>,
+                bool,
+            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
+            + Send,
+    > {
+        Box::new({
+            let path_to_macros = self.path_to_macros.clone();
+            let instance = self.clone();
+            move |macro_name: String,
+                  executor: String,
+                  args: Vec<String>,
+                  is_in_game: bool|
+                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
+                let path_to_macro = path_to_macros.join(&macro_name).with_extension("js");
+                let path_to_main_module = if is_in_game {
+                    path_to_macros
+                        .join("in_game")
+                        .join(&macro_name)
+                        .with_extension("js")
+                } else if path_to_macro.exists() {
+                    path_to_macro
+                } else {
+                    path_to_macros
+                        .join("in_game")
+                        .join(&macro_name)
+                        .with_extension("js")
+                };
 
-                let send_rcon = lua
-                    .create_async_function({
-                        let rcon_conn = rcon_conn.clone();
-                        move |_, cmd: String| {
-                            let rcon_conn = rcon_conn.clone();
-                            async move {
-                                let mut rcon_conn = rcon_conn.lock().await;
-                                match rcon_conn.as_mut() {
-                                    Some(rcon_conn) => Ok(rcon_conn.cmd(&cmd).await.ok()),
-                                    None => {
-                                        error!("Failed to send rcon, rcon is not available");
-                                        Ok(None)
-                                    }
-                                }
-                            }
-                        }
-                    })
-                    .unwrap();
+                if !path_to_main_module.exists() || !path_to_main_module.is_file() {
+                    return Err(Error {
+                        inner: ErrorInner::FileOrDirNotFound,
+                        detail: format!("Macro file not found: {}", path_to_main_module.display()),
+                    });
+                }
 
-                let log_info = lua.create_async_function({
-                    let stdin = stdin.clone();
-                    move |_, msg: String| {
-                        let stdin = stdin.clone();
-                        async move {
-                            let mut stdin = stdin.lock().await;
-                            match stdin.as_mut() {
-                                Some(stdin) => {
-                                    stdin
-                                        .write_all(format!(
-                                            "tellraw @a [\"\",{{\"text\":\"[Info] \",\"color\":\"green\"}},{{\"text\":\"{}\"}}]\n",
-                                            msg
-                                        ).as_bytes())
-                                        .await
-                                        .unwrap();
-                                }
-                                None => {
-                                    error!("Failed to send stdin, stdin is not available")
-                                }
-                            }
+                let mut bootstrap_options = deno_runtime::BootstrapOptions::default();
+                bootstrap_options.args = args;
+
+                let mut worker_options = deno_runtime::worker::WorkerOptions::default();
+                worker_options.bootstrap = bootstrap_options;
+
+                let ext = deno_core::Extension::builder()
+                    .ops(vec![
+                        send_stdin::decl(),
+                        send_rcon::decl(),
+                        config::decl(),
+                        on_event::decl(),
+                    ])
+                    .state({
+                        let instance = instance.clone();
+                        move |state| {
+                            state.put(instance.clone());
                             Ok(())
                         }
-                    }
-                }).unwrap();
-                let log_warn = lua.create_async_function({
-                    let stdin = stdin.clone();
-                    move |_, msg: String| {
-                        let stdin = stdin.clone();
-                        async move {
-                            let mut stdin = stdin.lock().await;
-                            match stdin.as_mut() {
-                                Some(stdin) => {
-                                    stdin
-                                        .write_all( format!(
-                                            "tellraw @a [\"\",{{\"text\":\"[Warn] \",\"color\":\"yellow\"}},{{\"text\":\"{}\"}}]\n",
-                                            msg
-                                        ).as_bytes())
-                                        .await
-                                        .unwrap();
-                                }
-                                None => {
-                                    error!("Failed to send stdin, stdin is not available")
-                                }
-                            }
-                            Ok(())
-                        }
-                    }
-                })
-                .unwrap();
-                let log_err = lua.create_async_function({
-                    let stdin = stdin.clone();
-                    move |_, msg: String| {
-                        let stdin = stdin.clone();
-                        async move {
-                            let mut stdin = stdin.lock().await;
-                            match stdin.as_mut() {
-                                Some(stdin) => {
-                                    stdin
-                                        .write_all(format!(
-                                            "tellraw @a [\"\",{{\"text\":\"[Error] \",\"color\":\"red\"}},{{\"text\":\"{}\"}}]\n",
-                                            msg
-                                        )
-                                        .as_bytes())
-                                        .await
-                                        .unwrap();
-                                }
-                                None => {
-                                    error!("Failed to send stdin, stdin is not available")
-                                }
-                            }
-                            Ok(())
-                        }
-                    }
-                })
-                .unwrap();
-                let spawn_task = lua
-                    .create_async_function({
-                        let path = path.clone();
-                        let macro_executor = macro_executor.clone();
-                        move |_, (macro_name, args): (String, Vec<String>)| {
-                            let path = path.clone();
-                            let macro_executor = macro_executor.clone();
-                            async move {
-                                let macro_path =
-                                    scoped_join_win_safe(&path, format!("macros/{}", macro_name))
-                                        .unwrap()
-                                        .with_extension("lua");
-                                let macro_ingame_path = scoped_join_win_safe(
-                                    &path,
-                                    format!("macros/in_game/{}", macro_name),
-                                )
-                                .unwrap()
-                                .with_extension("lua");
-                                let macro_path = if macro_path.exists() {
-                                    macro_path
-                                } else {
-                                    macro_ingame_path
-                                };
-                                if let Ok(macro_code) = tokio::fs::read_to_string(macro_path).await
-                                {
-                                    let exec_instruction = LuaExecutionInstruction {
-                                        lua: None,
-                                        content: macro_code,
-                                        args,
-                                        // todo: figure out how to inherit the executor
-                                        executor: None,
-                                    };
-                                    Ok(macro_executor.spawn(exec_instruction))
-                                } else {
-                                    panic!("Failed to load macro");
-                                }
-                            }
-                        }
                     })
-                    .unwrap();
-                let abort_task = lua
-                    .create_async_function({
-                        let macro_executor = macro_executor.clone();
-                        move |_, uuid: String| {
-                            let macro_executor = macro_executor.clone();
-                            async move { Ok(macro_executor.abort_macro(&uuid).await.is_ok()) }
-                        }
-                    })
-                    .unwrap();
-                let await_task = lua
-                    .create_async_function({
-                        let macro_executor = macro_executor.clone();
-                        move |_, (macro_uuid, timeout): (String, Option<f64>)| {
-                            let macro_executor = macro_executor.clone();
-                            async move {
-                                Ok(macro_executor
-                                    .wait_with_timeout(macro_uuid, timeout)
-                                    .await
-                                    .is_ok())
-                            }
-                        }
-                    })
-                    .unwrap();
-                lua.globals()
-                    .set("sleep_and_yield", sleep_and_yield)
-                    .unwrap();
-                lua.globals().set("yield_now", yield_now).unwrap();
-                lua.globals()
-                    .set("sleep_and_block", sleep_and_block)
-                    .unwrap();
-                lua.globals().set("send_stdin", send_stdin).unwrap();
-                lua.globals().set("send_rcon", send_rcon).unwrap();
-                lua.globals().set("log_info", log_info).unwrap();
-                lua.globals().set("log_warn", log_warn).unwrap();
-                lua.globals().set("log_err", log_err).unwrap();
-                lua.globals().set("await_event", await_event).unwrap();
-                lua.globals().set("spawn_task", spawn_task).unwrap();
-                lua.globals().set("abort_task", abort_task).unwrap();
-                lua.globals().set("await_task", await_task).unwrap();
-                lua.globals().set("INSTANCE_PATH", path.clone()).unwrap();
-                lua
+                    .build();
+                worker_options.extensions.push(ext);
+                let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
+                    .map_err(|e| Error {
+                    inner: ErrorInner::IOError,
+                    detail: format!("Failed to resolve path: {}", e),
+                })?;
+                // todo(CheatCod3) : limit the permissions
+                let permissions = deno_runtime::permissions::Permissions::allow_all();
+                let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
+                    main_module,
+                    permissions,
+                    worker_options,
+                );
+                let js = include_str!("js_macro/runtime.js");
+                worker
+                    .execute_script("[lodestone:runtime.js]", js)
+                    .map_err(|e| Error {
+                        inner: ErrorInner::FailedToRun,
+                        detail: format!("Failed to execute runtime.js: {}", e),
+                    })?;
+                worker
+                    .execute_script(
+                        "[dep_inject]",
+                        format!("const executor = \"{}\";", executor).as_str(),
+                    )
+                    .expect("Failed to inject executor");
+                Ok((worker, path_to_main_module))
             }
         })
     }
@@ -325,22 +261,17 @@ impl TMacro for MinecraftInstance {
         name: &str,
         args: Vec<String>,
         executor: Option<&str>,
+        is_in_game: bool,
     ) -> Result<(), crate::traits::Error> {
-        let path = self.path_to_macros.join(name).with_extension("lua");
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .expect("Failed to read macro");
-
-        let exec_instruction = LuaExecutionInstruction {
-            lua: None,
-            content,
+        let exec_instruction = ExecutionInstruction {
+            name: name.to_string(),
             args,
             executor: executor.map(|s| s.to_string()),
+            runtime: self.macro_std(),
+            is_in_game,
         };
 
         self.macro_executor.spawn(exec_instruction);
-
-        // lua.load(&content).exec_async().unwrap();
 
         Ok(())
     }

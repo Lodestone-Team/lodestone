@@ -9,10 +9,7 @@ use axum_auth::AuthBearer;
 
 use serde_json::{json, Value};
 
-use crate::{
-    auth::user::UserAction,
-    events::CausedBy,
-};
+use crate::{auth::user::UserAction, events::CausedBy};
 
 use super::util::try_auth;
 use crate::{
@@ -158,7 +155,8 @@ pub async fn send_command(
             detail: "".to_string(),
         })?
         .send_command(&command, caused_by)
-        .await.map(|_| Json(()))
+        .await
+        .map(|_| Json(()))
 }
 
 pub async fn get_instance_state(

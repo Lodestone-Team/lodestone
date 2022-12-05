@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-
 
 use crate::{
     auth::user::{User, UserAction},

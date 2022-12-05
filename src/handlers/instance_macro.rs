@@ -33,9 +33,7 @@ async fn run_macro(
         inner: ErrorInner::InstanceNotFound,
         detail: "".to_string(),
     })?;
-    instance
-        .run_macro(&macro_name, args, None)
-        .await?;
+    instance.run_macro(&macro_name, args, None, false).await?;
     Ok(Json(()))
 }
 

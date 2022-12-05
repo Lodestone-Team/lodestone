@@ -3,10 +3,7 @@ use std::{collections::HashSet, path::PathBuf};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{
-    output_types::ClientEvent, prelude::get_snowflake,
-    traits::InstanceInfo,
-};
+use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]

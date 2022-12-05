@@ -6,14 +6,14 @@ pub use serde::{Deserialize, Serialize};
 pub use serde_json;
 use serde_json::Value;
 
-use crate::Error;
 use crate::traits::GameInstance;
 use crate::traits::MinecraftInstance;
+use crate::Error;
 
 use super::ErrorInner;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
-pub trait TConfigurable: Sync + Send {
+pub trait TConfigurable {
     // getters
     async fn uuid(&self) -> String;
     async fn name(&self) -> String;
@@ -46,37 +46,25 @@ pub trait TConfigurable: Sync + Send {
             detail: "This instance does not support setting port".to_string(),
         })
     }
-    async fn set_cmd_args(
-        &mut self,
-        _cmd_args: Vec<String>,
-    ) -> Result<(), crate::traits::Error> {
+    async fn set_cmd_args(&mut self, _cmd_args: Vec<String>) -> Result<(), crate::traits::Error> {
         Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "This instance does not support setting command line arguments".to_string(),
         })
     }
-    async fn set_min_ram(
-        &mut self,
-        _min_ram: u32,
-    ) -> Result<(), crate::traits::Error> {
+    async fn set_min_ram(&mut self, _min_ram: u32) -> Result<(), crate::traits::Error> {
         Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "This instance does not support setting ram".to_string(),
         })
     }
-    async fn set_max_ram(
-        &mut self,
-        _max_ram: u32,
-    ) -> Result<(), crate::traits::Error> {
+    async fn set_max_ram(&mut self, _max_ram: u32) -> Result<(), crate::traits::Error> {
         Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "This instance does not support setting ram".to_string(),
         })
     }
-    async fn set_auto_start(
-        &mut self,
-        _auto_start: bool,
-    ) -> Result<(), crate::traits::Error> {
+    async fn set_auto_start(&mut self, _auto_start: bool) -> Result<(), crate::traits::Error> {
         Err(Error {
             inner: ErrorInner::UnsupportedOperation,
             detail: "This instance does not support auto start".to_string(),

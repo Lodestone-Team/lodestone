@@ -20,7 +20,6 @@ pub mod t_player;
 pub mod t_resource;
 pub mod t_server;
 
-
 #[derive(Debug, Serialize, Clone, TS)]
 #[ts(export)]
 pub enum ErrorInner {
@@ -38,6 +37,8 @@ pub enum ErrorInner {
     FailedToReadStdout,
     StdinNotOpen,
     StdoutNotOpen,
+    RconNotOpen,
+    RconError,
     FailedToAcquireLock,
 
     // Network errors:
@@ -99,6 +100,15 @@ pub struct Error {
     pub inner: ErrorInner,
     pub detail: String,
 }
+
+// implement std error trait
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error: {}", self.detail)
+    }
+}
+
+impl std::error::Error for Error {}
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {

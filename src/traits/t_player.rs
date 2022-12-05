@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use serde_json;
 
-
 use crate::{traits::GameInstance, Error};
 
 use super::ErrorInner;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
-pub trait TPlayerManagement: Sync + Send {
+pub trait TPlayerManagement {
     async fn get_player_count(&self) -> Result<u32, Error> {
         Err(Error {
             inner: ErrorInner::UnsupportedOperation,
