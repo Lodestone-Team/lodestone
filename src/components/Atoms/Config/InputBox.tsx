@@ -26,6 +26,8 @@ export default function InputBox({
   showIcons = true,
   validate: validateProp, //throws error if invalid
   onChange: onChangeProp,
+  description,
+  descriptionFunc,
 }: {
   label?: string;
   placeholder?: string;
@@ -44,6 +46,8 @@ export default function InputBox({
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
   onChange?: (arg: string) => Promise<void>;
+  description?: string;
+  descriptionFunc?: (arg: string) => string;
 }) {
   const [value, setValue] = useState(initialValue ?? '');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -174,7 +178,7 @@ export default function InputBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
     >
       <div className={`flex flex-col`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
@@ -184,14 +188,14 @@ export default function InputBox({
           </p>
         ) : (
           <p className="text-small font-medium tracking-medium text-white/50">
-            The {label} for the server
+            {descriptionFunc ? descriptionFunc(initialValue || value) : description}
           </p>
         )}
       </div>
       <form
         onSubmit={onSubmit}
         onReset={onReset}
-        className="relative w-5/12"
+        className="relative w-5/12 flex-shrink-0"
         ref={formRef}
         onKeyDown={handleKeyDown}
         id={id}

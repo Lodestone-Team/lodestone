@@ -13,6 +13,8 @@ export default function SelectBox({
   onChange: onChangeProp,
   error: errorProp,
   disabled = false,
+  description,
+  descriptionFunc,
 }: {
   label: string;
   value?: string;
@@ -21,6 +23,8 @@ export default function SelectBox({
   error?: string;
   disabled?: boolean;
   onChange: (arg: string) => Promise<void>;
+  description?: string;
+  descriptionFunc?: (arg: string) => string;
 }) {
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -69,7 +73,7 @@ export default function SelectBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
     >
       <div className={`flex flex-col`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
@@ -79,18 +83,18 @@ export default function SelectBox({
           </p>
         ) : (
           <p className="text-small font-medium tracking-medium text-white/50">
-            The {label} for the server
+            {descriptionFunc ? descriptionFunc(value) : description}
           </p>
         )}
       </div>
-      <div className="relative w-5/12">
+      <div className="relative w-5/12 shrink-0">
         <Listbox
           value={value}
           onChange={onChange}
           disabled={disabled || isLoading}
         >
           <Listbox.Button
-            className={`input-base w-full group ${
+            className={`input-base group w-full ${
               errorText ? 'border-error' : 'border-normal'
             }`}
           >
@@ -100,7 +104,7 @@ export default function SelectBox({
             </div>
           </Listbox.Button>
           <Listbox.Options
-            className={`input-base p-0 w-full border-normal absolute z-50 mt-2 max-h-60 overflow-auto py-1 shadow-md`}
+            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-1 shadow-md`}
           >
             {options.map((option) => (
               <Listbox.Option

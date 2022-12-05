@@ -13,6 +13,8 @@ export default function SelectBox({
   onChange: onChangeProp,
   error: errorProp,
   disabled = false,
+  description,
+  descriptionFunc,
 }: {
   label: string;
   value: boolean;
@@ -20,6 +22,8 @@ export default function SelectBox({
   error?: string;
   disabled?: boolean;
   onChange: (arg: boolean) => Promise<void>;
+  description?: string;
+  descriptionFunc?: (arg: boolean) => string;
 }) {
   const [value, setValue] = useState(initialValue);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -64,7 +68,7 @@ export default function SelectBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
     >
       <div className={`flex flex-col`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
@@ -74,11 +78,11 @@ export default function SelectBox({
           </p>
         ) : (
           <p className="text-small font-medium tracking-medium text-white/50">
-            The {label} for the server
+            {descriptionFunc ? descriptionFunc(value) : description}
           </p>
         )}
       </div>
-      <div className="relative flex w-5/12 flex-row items-center justify-end gap-4">
+      <div className="relative flex w-5/12 flex-row items-center justify-end gap-4 shrink-0">
         {status}
         <Switch
           checked={value}

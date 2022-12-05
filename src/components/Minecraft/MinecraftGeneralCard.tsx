@@ -52,6 +52,7 @@ export default function MinecraftGeneralCard() {
           port: numPort,
         }));
       }}
+      descriptionFunc={(port) => `Server will be available on port ${port}`}
     />
   );
 
@@ -74,6 +75,9 @@ export default function MinecraftGeneralCard() {
           max_player_count: numMaxPlayers,
         }));
       }}
+      descriptionFunc={(maxPlayers) =>
+        `A maximum of ${maxPlayers} players can connect`
+      }
     />
   ) : null;
 
@@ -93,6 +97,9 @@ export default function MinecraftGeneralCard() {
           min_ram: numMinRam,
         }));
       }}
+      descriptionFunc={(minRam) =>
+        `Minimum RAM allocated to the server: ${minRam} MB`
+      }
     />
   ) : null;
 
@@ -112,66 +119,25 @@ export default function MinecraftGeneralCard() {
           max_ram: numMaxRam,
         }));
       }}
-    />
-  ) : null;
-
-  const gameModeField = currentSettings.includes('gamemode') ? (
-    <SettingField
-      instance={instance}
-      setting="gamemode"
-      label="Game Mode"
-      type="dropdown"
-      options={['survival', 'creative', 'adventure']}
-    />
-  ) : null;
-
-  const difficultyField = currentSettings.includes('difficulty') ? (
-    <SettingField
-      instance={instance}
-      setting="difficulty"
-      label="Difficulty"
-      type="dropdown"
-      options={['peaceful', 'easy', 'normal', 'hard']}
-    />
-  ) : null;
-
-  const onlineModeField = currentSettings.includes('online-mode') ? (
-    <SettingField
-      instance={instance}
-      setting="online-mode"
-      label='"Online Mode"'
-      type="toggle"
-      options={['true', 'false']}
-    />
-  ) : null;
-
-  const pvpField = currentSettings.includes('pvp') ? (
-    <SettingField
-      instance={instance}
-      setting="pvp"
-      label="PvP"
-      type="toggle"
-      options={['true', 'false']}
+      descriptionFunc={(maxRam) =>
+        `Maximum RAM allocated to the server: ${maxRam} MB`
+      }
     />
   ) : null;
 
   return (
-    <div className="flex flex-col @4xl:flex-row gap-4">
+    <div className="flex flex-col gap-4 @4xl:flex-row">
       <div className="w-[28rem]">
-        <h1 className="font-black text-large"> General Settings </h1>
-        <h2 className="font-medium text-base italic tracking-tight text-white/50">
-          Most commonly used settings for your server
+        <h1 className="text-large font-black"> Server Settings </h1>
+        <h2 className="text-base font-medium italic tracking-tight text-white/50">
+          Technical settings for the server
         </h2>
       </div>
-      <div className="w-full child:w-full rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 last:child:border-b-0 last:child:rounded-b-lg first:child:rounded-t-lg">
+      <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
         {portField}
         {maxPlayersField}
         {minRamField}
         {maxRamField}
-        {gameModeField}
-        {difficultyField}
-        {onlineModeField}
-        {pvpField}
       </div>
     </div>
   );

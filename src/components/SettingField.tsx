@@ -17,6 +17,8 @@ export default function SettingField({
   options,
   min,
   max,
+  description,
+  descriptionFunc,
 }: {
   instance: InstanceInfo;
   setting: string;
@@ -25,6 +27,8 @@ export default function SettingField({
   min?: number;
   max?: number;
   options?: string[];
+  description?: string;
+  descriptionFunc?: (arg: any) => string;
 }) {
   const uuid = instance.uuid;
   const {
@@ -61,6 +65,8 @@ export default function SettingField({
             );
             setValue(value);
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'number':
@@ -82,6 +88,8 @@ export default function SettingField({
             console.log(typeof value);
             setValue(value);
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'dropdown':
@@ -101,6 +109,8 @@ export default function SettingField({
               value
             );
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'toggle':
@@ -116,6 +126,8 @@ export default function SettingField({
               value ? 'true' : 'false'
             );
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
   }
