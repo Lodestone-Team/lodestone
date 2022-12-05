@@ -158,7 +158,7 @@ pub async fn create_minecraft_instance(
     }
 
     let uuid = setup_config.uuid.clone();
-    tokio::task::spawn_local({
+    tokio::task::spawn({
         let uuid = uuid.clone();
         let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();

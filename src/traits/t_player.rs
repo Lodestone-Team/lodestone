@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde_json;
 
-
 use crate::{traits::GameInstance, Error};
 
 use super::ErrorInner;

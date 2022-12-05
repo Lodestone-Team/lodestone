@@ -20,7 +20,6 @@ pub mod t_player;
 pub mod t_resource;
 pub mod t_server;
 
-
 #[derive(Debug, Serialize, Clone, TS)]
 #[ts(export)]
 pub enum ErrorInner {
@@ -38,6 +37,8 @@ pub enum ErrorInner {
     FailedToReadStdout,
     StdinNotOpen,
     StdoutNotOpen,
+    RconNotOpen,
+    RconError,
     FailedToAcquireLock,
 
     // Network errors:

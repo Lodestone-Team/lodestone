@@ -12,6 +12,7 @@ pub trait TMacro {
         _name: &str,
         _args: Vec<String>,
         _executor: Option<&str>,
+        _is_in_game: bool,
     ) -> Result<(), super::Error> {
         Err(super::Error {
             inner: super::ErrorInner::UnsupportedOperation,
