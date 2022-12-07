@@ -181,14 +181,17 @@ export default function FileViewer() {
 
   // hack to get .lodestone_config detected as json
   const monacoPath =
-    openedFile?.name === '.lodestone_config'
-      ? '.lodestone_config.json'
-      : openedFile?.name;
+    'file://' +
+      instance.path +
+      direcotrySeparator +
+      (openedFile?.path === '.lodestone_config'
+        ? '.lodestone_config.json'
+        : openedFile?.path) || '';
 
   const showingMonaco = openedFile && !isFileLoading && !fileError;
-
   useEffect(() => {
     // set monaco theme, just a different background color
+    // also set some ts settings
     if (monaco) {
       monaco.editor.defineTheme('lodestone-dark', {
         base: 'vs-dark',
@@ -198,6 +201,15 @@ export default function FileViewer() {
           'editor.background': '#26282C',
           'editor.lineHighlightBackground': '#2c2e33',
         },
+      });
+      monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+        target: monaco.languages.typescript.ScriptTarget.ES2016,
+        allowNonTsExtensions: true,
+        allowJs: true,
+        allowSyntheticDefaultImports: true,
+        moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+        module: monaco.languages.typescript.ModuleKind.ESNext,
+        esModuleInterop: true
       });
     }
   }, [monaco]);
@@ -742,7 +754,7 @@ export default function FileViewer() {
       </div>
 
       {canRead ? (
-        <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+        <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
           <ResizePanel
             direction="e"
             maxSize={500}
@@ -750,7 +762,7 @@ export default function FileViewer() {
             size={fileListSize}
             validateSize={false}
             onResize={setFileListSize}
-            containerClassNames="grow"
+            containerClassNames="grow rounded-l-lg last:rounded-r-lg overflow-clip"
             grow={!openedFile}
           >
             {fileTree}
@@ -767,7 +779,7 @@ export default function FileViewer() {
                     value={fileContent}
                     theme="lodestone-dark"
                     path={monacoPath}
-                    className="overflow-clip bg-gray-800"
+                    className="bg-gray-800"
                     options={{
                       padding: {
                         top: 8,
@@ -812,7 +824,7 @@ export default function FileViewer() {
         </div>
       )}
       {tickedFiles.length > 0 && (
-        <div className=" absolute bottom-0 translate-y-full left-0 text-base font-normal text-white/50 px-4 py-2">
+        <div className=" absolute bottom-0 left-0 translate-y-full px-4 py-2 text-base font-normal text-white/50">
           {tickedFiles.length} items selected
         </div>
       )}
