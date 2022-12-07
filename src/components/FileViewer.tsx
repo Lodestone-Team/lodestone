@@ -15,8 +15,16 @@ import {
   faPlus,
   faCheckSquare,
   faListCheck,
+  faArrowsRotate,
 } from '@fortawesome/free-solid-svg-icons';
-import { Fragment, useContext, useEffect, useRef, useState } from 'react';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
@@ -104,7 +112,7 @@ export default function FileViewer() {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [path, setPath] = useState('');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
-  const [fileContent, setfileContent] = useState('');
+  const [fileContent, setFileContent] = useState('');
   const fileContentRef = useRef<string>();
   fileContentRef.current = fileContent;
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
@@ -151,11 +159,7 @@ export default function FileViewer() {
   } = useFileContent(instance.uuid, openedFile);
 
   useEffect(() => {
-    setfileContent(originalFileContent || '');
-  }, [originalFileContent]);
-
-  useEffect(() => {
-    setfileContent('');
+    setFileContent('');
   }, [openedFile]);
 
   /* Monaco */
@@ -177,17 +181,18 @@ export default function FileViewer() {
         queryClient
       )
     );
+    setFileContent(editor.getValue());
   }
 
   // hack to get .lodestone_config detected as json
   const monacoPath =
-    'file://' +
-      instance.path +
+    instance.path +
       direcotrySeparator +
       (openedFile?.path === '.lodestone_config'
         ? '.lodestone_config.json'
         : openedFile?.path) || '';
 
+  // const showingMonaco = openedFile;
   const showingMonaco = openedFile && !isFileLoading && !fileError;
   useEffect(() => {
     // set monaco theme, just a different background color
@@ -207,10 +212,16 @@ export default function FileViewer() {
         allowNonTsExtensions: true,
         allowJs: true,
         allowSyntheticDefaultImports: true,
-        moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+        moduleResolution:
+          monaco.languages.typescript.ModuleResolutionKind.NodeJs,
         module: monaco.languages.typescript.ModuleKind.ESNext,
-        esModuleInterop: true
+        esModuleInterop: true,
       });
+      monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+      // monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      //   noSemanticValidation: true,
+      //   noSyntaxValidation: true,
+      // });
     }
   }, [monaco]);
 
@@ -724,25 +735,38 @@ export default function FileViewer() {
 
         {breadcrumb}
         {showingMonaco && (
-          <Button
-            className="h-fit"
-            label="Save"
-            icon={faFloppyDisk}
-            onClick={() =>
-              saveInstanceFile(
-                instance.uuid,
-                path,
-                openedFile as any, //force ignore "null" possibility
-                fileContent,
-                queryClient
-              )
-            }
-            disabled={
-              !openedFile ||
-              fileContent === originalFileContent ||
-              !showingMonaco
-            }
-          />
+          <>
+            <Button
+              className="h-fit"
+              label="Save"
+              icon={faFloppyDisk}
+              onClick={() =>
+                saveInstanceFile(
+                  instance.uuid,
+                  path,
+                  openedFile as any, //force ignore "null" possibility
+                  fileContent,
+                  queryClient
+                )
+              }
+              disabled={
+                !openedFile ||
+                fileContent === originalFileContent ||
+                !showingMonaco
+              }
+            />
+            <Button
+              className="h-fit whitespace-nowrap"
+              label="Discard Changes"
+              icon={faArrowsRotate}
+              onClick={() => setFileContent(originalFileContent || '')}
+              disabled={
+                !openedFile ||
+                fileContent === originalFileContent ||
+                !showingMonaco
+              }
+            />
+          </>
         )}
         <Button
           className="h-fit"
@@ -774,9 +798,10 @@ export default function FileViewer() {
                   <Editor
                     height="100%"
                     onChange={(value) => {
-                      setfileContent(value ?? '');
+                      setFileContent(value ?? '');
                     }}
                     value={fileContent}
+                    defaultValue={originalFileContent}
                     theme="lodestone-dark"
                     path={monacoPath}
                     className="bg-gray-800"
@@ -788,7 +813,9 @@ export default function FileViewer() {
                         enabled: false,
                       },
                     }}
+                    saveViewState={true}
                     onMount={handleEditorDidMount}
+                    keepCurrentModel={true}
                   />
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
