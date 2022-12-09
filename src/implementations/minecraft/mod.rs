@@ -1025,7 +1025,6 @@ impl MinecraftInstance {
     }
 
     async fn write_properties_to_file(&self) -> Result<(), Error> {
-        dbg!(&self.path_to_properties);
         // open the file in write-only mode, returns `io::Result<File>`
         let mut file = tokio::fs::File::create(&self.path_to_properties)
             .await
