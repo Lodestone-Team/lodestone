@@ -89,7 +89,7 @@ pub enum MacroEventInner {
 #[ts(export)]
 pub struct MacroEvent {
     pub instance_uuid: String,
-    pub macro_uuid: String,
+    pub macro_pid: usize,
     pub macro_event_inner: MacroEventInner,
 }
 
@@ -100,7 +100,7 @@ impl Into<Event> for MacroEvent {
             snowflake: get_snowflake(),
             event_inner: EventInner::MacroEvent(self.clone()),
             caused_by: CausedBy::Macro {
-                macro_uuid: self.macro_uuid,
+                macro_pid: self.macro_pid,
             },
         }
     }
@@ -228,7 +228,7 @@ fn event_type_export() {
 pub enum CausedBy {
     User { user_id: String, user_name: String },
     Instance { instance_uuid: String },
-    Macro { macro_uuid: String },
+    Macro { macro_pid: usize },
     System,
     Unknown,
 }

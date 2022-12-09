@@ -188,7 +188,7 @@ impl TServer for MinecraftInstance {
                         }
 
                         enum MacroInstruction {
-                            Abort(String),
+                            Abort(usize),
                             Spawn {
                                 player_name: String,
                                 macro_name: String,
@@ -205,7 +205,7 @@ impl TServer for MinecraftInstance {
                                 if RE.is_match(&msg).unwrap() {
                                     if let Some(cap) = RE.captures(&msg).ok()? {
                                         Some(MacroInstruction::Abort(
-                                            cap.get(1)?.as_str().to_string(),
+                                            cap.get(1)?.as_str().parse().ok()?,
                                         ))
                                     } else {
                                         None

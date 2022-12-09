@@ -291,9 +291,6 @@ pub fn rand_alphanumeric(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect()
 }
 
-pub fn rand_macro_uuid() -> String {
-    format!("MACRO_{}", uuid::Uuid::new_v4())
-}
 
 // safe_path only works on linux and messes up on windows
 // this is a hacky solution
