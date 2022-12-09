@@ -3,10 +3,7 @@ name = "lodestone_client"
 version = "0.4.0"
 edition = "2021"
 
-exclude = [
-    "target/*",
-    "InstanceTest/*"
-]
+exclude = ["target/*", "InstanceTest/*"]
 
 [[bin]]
 name = "test_ground"
@@ -51,21 +48,22 @@ axum-auth = "0.2"
 jsonwebtoken = "8.1.1"
 chrono = "0.4.22"
 ringbuffer = "0.8.5"
-semver = {version="1.0", features = ["serde"]}
+semver = { version = "1.0", features = ["serde"] }
 whoami = "1.2.3"
 home = "0.5.3"
 port_scanner = "0.1.5"
-safe-path = {git = "https://github.com/Lodestone-Team/safe_path_subset"}
+safe-path = { git = "https://github.com/Lodestone-Team/safe_path_subset" }
 rs-snowflake = "0.6.0"
 walkdir = "2.3.2"
 enum-kinds = "0.5.1"
 tokio-util = "0.7.4"
 enum_dispatch = "0.3.8"
-rcon = {version = "0.6.0", features = ["rt-tokio"]}
+rcon = { version = "0.6.0", features = ["rt-tokio"] }
 tempdir = "0.3.7"
 igd = "0.12.0"
 deno_core = "0.162.0"
 deno_runtime = "0.88.0"
+deno_ast = { version = "0.20.0", features = ["transpiling"] }
 [dependencies.uuid]
 version = "1.1.2"
 features = [
