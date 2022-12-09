@@ -49,3 +49,9 @@ impl UserPermission {
         }
     }
 }
+
+impl Default for UserPermission {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -12,11 +12,7 @@ use std::{
 use log::{debug, error, info};
 use tokio::{
     runtime::Builder,
-    sync::{
-        broadcast,
-        mpsc,
-        oneshot, Mutex,
-    },
+    sync::{broadcast, mpsc, oneshot, Mutex},
     task::{JoinHandle, LocalSet},
 };
 
@@ -288,20 +284,9 @@ impl MacroExecutor {
             macro_process_table: process_table,
             sender: tx,
             event_broadcaster,
-            next_process_id: process_id.clone(),
+            next_process_id: process_id,
         }
     }
-    /// modify the lua execution context while choosing preserving the old context by adding a new layer
-    // pub async fn add_lua_chain(&self, get_lua: Arc<dyn Fn(Lua) -> Lua + Sync + Send>) {
-    //     // add the function to the lua chain
-    //     let mut lock = self.get_lua.lock().await;
-    //     let old = lock.clone();
-    //     let new = Arc::new(move || {
-    //         let lua = old();
-    //         get_lua(lua)
-    //     });
-    //     *lock = new;
-    // }
 
     pub fn event_receiver(&self) -> broadcast::Receiver<MacroEvent> {
         self.event_broadcaster.subscribe()
@@ -323,7 +308,7 @@ impl MacroExecutor {
         self.macro_process_table
             .lock()
             .await
-            .get(&pid)
+            .get(pid)
             .ok_or_else(|| Error {
                 inner: ErrorInner::MacroNotFound,
                 detail: "Macro not found".to_owned(),
@@ -370,5 +355,11 @@ impl MacroExecutor {
             detail: "Macro not found".to_owned(),
         })?;
         Ok(handle.is_finished())
+    }
+}
+
+impl Default for MacroExecutor {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -291,7 +291,6 @@ pub fn rand_alphanumeric(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect()
 }
 
-
 // safe_path only works on linux and messes up on windows
 // this is a hacky solution
 pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(

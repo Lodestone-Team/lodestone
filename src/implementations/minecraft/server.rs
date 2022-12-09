@@ -3,7 +3,6 @@ use std::env;
 use std::process::Stdio;
 use std::time::Duration;
 
-use futures::TryFutureExt;
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
