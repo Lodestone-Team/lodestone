@@ -8,7 +8,7 @@ use deno_core::{
 
 use crate::{
     events::{CausedBy, EventInner},
-    macro_executor::ExecutionInstruction,
+    macro_executor::{self, ExecutionInstruction},
     traits::{t_macro::TMacro, t_server::TServer, Error, ErrorInner},
     util::list_dir,
 };
@@ -139,27 +139,12 @@ impl MinecraftInstance {
                   args: Vec<String>,
                   is_in_game: bool|
                   -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
-                let path_to_macro = path_to_macros.join(&macro_name).with_extension("js");
-                let path_to_main_module = if is_in_game {
-                    path_to_macros
-                        .join("in_game")
-                        .join(&macro_name)
-                        .with_extension("js")
-                } else if path_to_macro.exists() {
-                    path_to_macro
-                } else {
-                    path_to_macros
-                        .join("in_game")
-                        .join(&macro_name)
-                        .with_extension("js")
-                };
-
-                if !path_to_main_module.exists() || !path_to_main_module.is_file() {
-                    return Err(Error {
-                        inner: ErrorInner::FileOrDirNotFound,
-                        detail: format!("Macro file not found: {}", path_to_main_module.display()),
-                    });
-                }
+                let path_to_main_module = macro_executor::resolve_macro_invocation(
+                    &path_to_macros,
+                    &macro_name,
+                    is_in_game,
+                )
+                .expect("Failed to resolve macro invocation");
 
                 let mut bootstrap_options = deno_runtime::BootstrapOptions::default();
                 bootstrap_options.args = args;
@@ -183,6 +168,7 @@ impl MinecraftInstance {
                     })
                     .build();
                 worker_options.extensions.push(ext);
+                worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader);
                 let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
                     .map_err(|e| Error {
                     inner: ErrorInner::IOError,
