@@ -2,15 +2,17 @@
 
 use crate::{
     handlers::{
-        checks::get_checks_routes, client_info::get_client_info_routes, events::get_events_routes,
+        checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
         global_fs::get_global_fs_routes, instance::*, instance_config::get_instance_config_routes,
         instance_fs::get_instance_fs_routes, instance_macro::get_instance_macro_routes,
         instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
+        setup::get_setup_route, system::get_system_routes, users::get_user_routes, global_settings::get_global_settings_routes,
     },
-    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
+    prelude::{
+        LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS,
+    },
     util::{download_file, rand_alphanumeric},
 };
 use auth::user::User;
@@ -22,6 +24,7 @@ use port_allocator::PortAllocator;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use stateful::Stateful;
 use std::{
@@ -34,6 +37,7 @@ use std::{
 use sysinfo::SystemExt;
 use tokio::{
     fs::create_dir_all,
+    io::AsyncWriteExt,
     process::Command,
     select,
     sync::{
@@ -44,7 +48,9 @@ use tokio::{
 };
 use tower_http::cors::{Any, CorsLayer};
 pub use traits::Error;
-use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
+use traits::{
+    t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer, ErrorInner,
+};
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
@@ -60,6 +66,66 @@ pub mod tauri_export;
 mod traits;
 mod util;
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GlobalSettings {
+    #[serde(skip)]
+    path_to_global_settings: PathBuf,
+    core_name: String,
+    safe_mode: bool,
+}
+
+impl GlobalSettings {
+    pub async fn new() -> Self {
+        let path_to_glove_settings = PATH_TO_STORES.with(|v| v.join("global_settings.json"));
+        if path_to_glove_settings.exists() {
+            if let Ok(v) =
+                serde_json::from_reader(std::fs::File::open(&path_to_glove_settings).unwrap())
+            {
+                return v;
+            }
+        }
+        let ret = Self {
+            path_to_global_settings: path_to_glove_settings,
+            core_name: format!("{}'s Lodestone Core", whoami::realname()),
+            safe_mode: true,
+        };
+        ret.save().await.unwrap();
+        ret
+    }
+    async fn save(&self) -> Result<(), Error> {
+        let mut file = tokio::fs::File::create(&self.path_to_global_settings)
+            .await
+            .map_err(|_| Error {
+                inner: ErrorInner::FailedToCreateFileOrDir,
+                detail: "Failed to create global settings file".to_string(),
+            })?;
+        file.write_all(serde_json::to_string_pretty(self).unwrap().as_bytes())
+            .await
+            .map_err(|_| Error {
+                inner: ErrorInner::FailedToWriteFileOrDir,
+                detail: "Failed to write to global settings file".to_string(),
+            })?;
+        Ok(())
+    }
+    pub async fn set_core_name(&mut self, name: String) -> Result<(), Error> {
+        self.core_name = name;
+        self.save().await
+    }
+
+    pub fn core_name(&self) -> String {
+        self.core_name.clone()
+    }
+
+    pub async fn set_safe_mode(&mut self, safe_mode: bool) -> Result<(), Error> {
+        self.safe_mode = safe_mode;
+        self.save().await
+    }
+
+    pub fn safe_mode(&self) -> bool {
+        self.safe_mode
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     instances: Arc<Mutex<HashMap<String, GameInstance>>>,
@@ -69,8 +135,8 @@ pub struct AppState {
     monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
     event_broadcaster: Sender<Event>,
     uuid: String,
-    client_name: Arc<Mutex<String>>,
     up_since: i64,
+    global_settings: Arc<Mutex<GlobalSettings>>,
     system: Arc<Mutex<sysinfo::System>>,
     port_allocator: Arc<Mutex<PortAllocator>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
@@ -282,15 +348,12 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
         uuid: Uuid::new_v4().to_string(),
-        client_name: Arc::new(Mutex::new(format!(
-            "{}'s Lodestone client",
-            whoami::realname()
-        ))),
         up_since: chrono::Utc::now().timestamp(),
         port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
+        global_settings: Arc::new(Mutex::new(GlobalSettings::new().await)),
     };
 
     let event_buffer_task = {
@@ -373,12 +436,13 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                     .merge(get_system_routes())
                     .merge(get_checks_routes())
                     .merge(get_user_routes())
-                    .merge(get_client_info_routes())
+                    .merge(get_core_info_routes())
                     .merge(get_setup_route())
                     .merge(get_monitor_routes())
                     .merge(get_instance_macro_routes())
                     .merge(get_instance_fs_routes())
                     .merge(get_global_fs_routes())
+                    .merge(get_global_settings_routes())
                     .layer(Extension(shared_state.clone()))
                     .layer(cors);
                 let app = Router::new().nest("/api/v1", api_routes);

@@ -2,7 +2,7 @@
 // pub mod instance;
 // pub mod users;
 pub mod checks;
-pub mod client_info;
+pub mod core_info;
 pub mod events;
 pub mod global_fs;
 pub mod instance;
@@ -18,3 +18,4 @@ pub mod setup;
 pub mod system;
 pub mod users;
 mod util;
+pub mod global_settings;
