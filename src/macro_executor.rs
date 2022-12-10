@@ -174,21 +174,21 @@ pub struct ExecutionInstruction {
     pub is_in_game: bool,
 }
 
-pub enum Task {
+pub enum Instruction {
     Spawn(ExecutionInstruction),
     Abort(usize),
 }
 
-impl Debug for Task {
+impl Debug for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Task::Spawn(exec_instruction) => f
-                .debug_struct("Task::Spawn")
+            Instruction::Spawn(exec_instruction) => f
+                .debug_struct("Instruction::Spawn")
                 .field("name", &exec_instruction.name)
                 .field("args", &exec_instruction.args)
                 .field("executor", &exec_instruction.executor)
                 .finish(),
-            Task::Abort(uuid) => {
+            Instruction::Abort(uuid) => {
                 write!(f, "Abort {{ uuid: {} }}", uuid)
             }
         }
@@ -197,8 +197,8 @@ impl Debug for Task {
 
 #[derive(Clone)]
 pub struct MacroExecutor {
-    macro_process_table: Arc<Mutex<HashMap<usize, JoinHandle<()>>>>,
-    sender: mpsc::UnboundedSender<(Task, usize)>,
+    macro_process_table: Arc<Mutex<HashMap<usize, (JoinHandle<()>, deno_core::v8::IsolateHandle)>>>,
+    sender: mpsc::UnboundedSender<(Instruction, usize)>,
     event_broadcaster: broadcast::Sender<MacroEvent>,
     next_process_id: Arc<AtomicUsize>,
 }
@@ -206,8 +206,8 @@ pub struct MacroExecutor {
 impl MacroExecutor {
     pub fn new() -> MacroExecutor {
         let (tx, mut rx): (
-            mpsc::UnboundedSender<(Task, usize)>,
-            mpsc::UnboundedReceiver<(Task, usize)>,
+            mpsc::UnboundedSender<(Instruction, usize)>,
+            mpsc::UnboundedReceiver<(Instruction, usize)>,
         ) = mpsc::unbounded_channel();
         let (event_broadcaster, _) = broadcast::channel(16);
         let process_table = Arc::new(Mutex::new(HashMap::new()));
@@ -222,23 +222,25 @@ impl MacroExecutor {
                 local.spawn_local(async move {
                     while let Some((new_task, pid)) = rx.recv().await {
                         match new_task {
-                            Task::Spawn(exec_instruction) => {
+                            Instruction::Spawn(exec_instruction) => {
+                                let ExecutionInstruction {
+                                    runtime,
+                                    name,
+                                    args,
+                                    executor,
+                                    is_in_game,
+                                } = exec_instruction;
+                                let executor = executor.unwrap_or_default();
+                                // inject exectuor into the js runtime
+                                let (mut runtime, path_to_main_module) =
+                                    runtime(name, executor, args, is_in_game)
+                                        .expect("Failed to create runtime");
+                                let isolate_handle =
+                                    runtime.js_runtime.v8_isolate().thread_safe_handle();
                                 let handle = tokio::task::spawn_local({
                                     let event_broadcaster = event_broadcaster.clone();
                                     let process_id = process_id.clone();
                                     async move {
-                                        let ExecutionInstruction {
-                                            runtime,
-                                            name,
-                                            args,
-                                            executor,
-                                            is_in_game,
-                                        } = exec_instruction;
-                                        let executor = executor.unwrap_or_default();
-                                        // inject exectuor into the js runtime
-                                        let (mut runtime, path_to_main_module) =
-                                            runtime(name, executor, args, is_in_game)
-                                                .expect("Failed to create runtime");
                                         let main_module = deno_core::resolve_path(
                                             &path_to_main_module.to_string_lossy(),
                                         )
@@ -263,10 +265,17 @@ impl MacroExecutor {
                                         });
                                     }
                                 });
-                                process_table.lock().await.insert(pid, handle);
+                                process_table
+                                    .lock()
+                                    .await
+                                    .insert(pid, (handle, isolate_handle));
                             }
-                            Task::Abort(pid) => {
-                                process_table.lock().await.get(&pid).unwrap().abort();
+                            Instruction::Abort(pid) => {
+                                if let Some((_, isolate_handle)) =
+                                    process_table.lock().await.get(&pid)
+                                {
+                                    isolate_handle.terminate_execution();
+                                }
                             }
                         }
                     }
@@ -295,7 +304,7 @@ impl MacroExecutor {
     pub fn spawn(&self, exec_instruction: ExecutionInstruction) -> usize {
         let pid = self.next_process_id.fetch_add(1, Ordering::SeqCst);
         self.sender
-            .send((Task::Spawn(exec_instruction), pid))
+            .send((Instruction::Spawn(exec_instruction), pid))
             .expect("Thread with LocalSet has shut down.");
         info!("Spawned macro with pid {}", pid);
         pid
@@ -313,7 +322,8 @@ impl MacroExecutor {
                 inner: ErrorInner::MacroNotFound,
                 detail: "Macro not found".to_owned(),
             })?
-            .abort();
+            .1
+            .terminate_execution();
         Ok(())
     }
     pub async fn wait_with_timeout(
@@ -354,7 +364,7 @@ impl MacroExecutor {
             inner: ErrorInner::MacroNotFound,
             detail: "Macro not found".to_owned(),
         })?;
-        Ok(handle.is_finished())
+        Ok(handle.0.is_finished())
     }
 }
 
