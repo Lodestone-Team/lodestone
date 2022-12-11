@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     body::{Bytes, StreamBody},
@@ -30,7 +30,7 @@ use crate::{
     AppState,
 };
 
-use super::util::try_auth;
+use super::util::{decode_base64, try_auth};
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -82,9 +82,13 @@ impl From<&std::path::Path> for File {
 
 async fn list_files(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -127,9 +131,13 @@ async fn list_files(
 
 async fn read_file(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -168,10 +176,14 @@ async fn read_file(
 
 async fn write_file(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     body: Bytes,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -211,9 +223,13 @@ async fn write_file(
 
 async fn make_directory(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -253,9 +269,13 @@ async fn make_directory(
 
 async fn remove_file(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -301,9 +321,13 @@ async fn remove_file(
 
 async fn remove_dir(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -351,9 +375,13 @@ async fn remove_dir(
 
 async fn new_file(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -395,9 +423,13 @@ async fn new_file(
 
 async fn download_file(
     Extension(state): Extension<AppState>,
-    Path(absolute_path): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -443,11 +475,15 @@ async fn download_file(
 
 async fn upload_file(
     Extension(state): Extension<AppState>,
-    Path(absolute_path_to_dir): Path<String>,
+    Path(base64_absolute_path): Path<String>,
     headers: HeaderMap,
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
 ) -> Result<Json<()>, Error> {
+    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Absolute path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -461,7 +497,7 @@ async fn upload_file(
     }
     drop(users);
 
-    let path_to_dir = PathBuf::from(absolute_path_to_dir);
+    let path_to_dir = PathBuf::from(absolute_path);
     if path_to_dir.exists() && !path_to_dir.is_dir() {
         return Err(Error {
             inner: ErrorInner::MalformedRequest,
@@ -665,14 +701,14 @@ async fn download(
 
 pub fn get_global_fs_routes() -> Router {
     Router::new()
-        .route("/fs/ls/*absolute_path", get(list_files))
-        .route("/fs/read/*absolute_path", get(read_file))
-        .route("/fs/write/*absolute_path", put(write_file))
-        .route("/fs/mkdir/*absolute_path", put(make_directory))
-        .route("/fs/rm/*absolute_path", delete(remove_file))
-        .route("/fs/rmdir/*absolute_path", delete(remove_dir))
-        .route("/fs/new/*absolute_path", put(new_file))
-        .route("/fs/download/*absolute_path", get(download_file))
-        .route("/fs/upload/*absolute_path", put(upload_file))
+        .route("/fs/:base64_absolute_path/ls", get(list_files))
+        .route("/fs/:base64_absolute_path/read", get(read_file))
+        .route("/fs/:base64_absolute_path/write", put(write_file))
+        .route("/fs/:base64_absolute_path/mkdir", put(make_directory))
+        .route("/fs/:base64_absolute_path/rm", delete(remove_file))
+        .route("/fs/:base64_absolute_path/rmdir", delete(remove_dir))
+        .route("/fs/:base64_absolute_path/new", put(new_file))
+        .route("/fs/:base64_absolute_path/download", get(download_file))
+        .route("/fs/:base64_absolute_path/upload", put(upload_file))
         .route("/file/:key", get(download))
 }

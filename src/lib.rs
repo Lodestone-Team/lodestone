@@ -46,7 +46,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 pub use traits::Error;
 use traits::{
     t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer, ErrorInner,
@@ -417,13 +417,15 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                     .allow_methods([
                         Method::GET,
                         Method::POST,
-                        Method::PUT,
-                        Method::OPTIONS,
                         Method::PATCH,
+                        Method::PUT,
                         Method::DELETE,
+                        Method::OPTIONS,
                     ])
                     .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
                     .allow_origin(Any);
+                
+                let trace = TraceLayer::new_for_http();
 
                 let api_routes = Router::new()
                     .merge(get_events_routes())
@@ -444,7 +446,8 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                     .merge(get_global_fs_routes())
                     .merge(get_global_settings_routes())
                     .layer(Extension(shared_state.clone()))
-                    .layer(cors);
+                    .layer(cors)
+                    .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);
                 let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
                 select! {

@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 axum = { version = "0.5.13", features = ["headers", "ws", "multipart"] }
 axum-macros = "0.2.3"
+base64 = "0.20.0"
 futures = "0.3.21"
 headers = "0.3"
 tokio = { version = "1.21.1", features = ["full"] }

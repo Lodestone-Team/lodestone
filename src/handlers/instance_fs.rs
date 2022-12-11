@@ -46,13 +46,17 @@ fn is_file_protected(path: impl AsRef<std::path::Path>) -> bool {
     }
 }
 
-use super::{global_fs::File, util::try_auth};
+use super::{global_fs::File, util::decode_base64, util::try_auth};
 
 async fn list_instance_files(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -109,9 +113,13 @@ async fn list_instance_files(
 
 async fn read_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -157,10 +165,14 @@ async fn read_instance_file(
 
 async fn write_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     body: Bytes,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -213,9 +225,13 @@ async fn write_instance_file(
 
 async fn make_instance_directory(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -256,9 +272,13 @@ async fn make_instance_directory(
 
 async fn remove_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -323,9 +343,13 @@ async fn remove_instance_file(
 
 async fn remove_instance_dir(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -424,9 +448,13 @@ async fn remove_instance_dir(
 
 async fn new_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -484,9 +512,13 @@ async fn new_instance_file(
 
 async fn download_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -542,11 +574,15 @@ async fn download_instance_file(
 
 async fn upload_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(String, String)>,
     headers: HeaderMap,
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
 ) -> Result<Json<()>, Error> {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
         inner: ErrorInner::Unauthorized,
@@ -744,39 +780,39 @@ async fn upload_instance_file(
 pub fn get_instance_fs_routes() -> Router {
     Router::new()
         .route(
-            "/instance/:uuid/fs/ls/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/ls",
             get(list_instance_files),
         )
         .route(
-            "/instance/:uuid/fs/read/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/read",
             get(read_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/write/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/write",
             put(write_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/mkdir/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/mkdir",
             put(make_instance_directory),
         )
         .route(
-            "/instance/:uuid/fs/rm/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/rm",
             delete(remove_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/rmdir/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/rmdir",
             delete(remove_instance_dir),
         )
         .route(
-            "/instance/:uuid/fs/new/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/new",
             put(new_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/download/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/download",
             get(download_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/upload/*relative_path",
+            "/instance/:uuid/fs/:base64_relative_path/upload",
             put(upload_instance_file),
         )
 }
