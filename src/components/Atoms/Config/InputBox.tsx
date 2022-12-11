@@ -180,7 +180,7 @@ export default function InputBox({
     <div
       className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
     >
-      <div className={`flex flex-col min-w-0`}>
+      <div className={`flex flex-col min-w-0 grow`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
         {errorText ? (
           <p className="text-small font-medium tracking-medium text-red">

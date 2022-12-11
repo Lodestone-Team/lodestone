@@ -78,12 +78,12 @@ export default function MinecraftSettingCard() {
       name: 'MOTD: Message of the Day',
       type: 'text',
       descriptionFunc: (motd) => (
-        <p
+        <span
           className={`mt-1 p-2 text-base font-minecraft`}
           style={{ backgroundImage: `url(/assets/dirt.png)` }}
         >
           <MOTDRender motd={parse(convertUnicode(motd))} />
-        </p>
+        </span>
       ),
     },
   };
