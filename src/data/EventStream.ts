@@ -1,7 +1,7 @@
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useContext, useEffect, useMemo } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { match, otherwise, partial } from 'variant';
@@ -319,27 +319,56 @@ export const useEventStream = () => {
         handleEvent(event, false);
       });
     });
+  }, [
+    address,
+    apiVersion,
+    eventQuery,
+    handleEvent,
+    isReady,
+    port,
+    queryClient,
+    token,
+  ]);
 
+  const connectWebsocket = useCallback(() => {
     const wsAddress = `ws://${address}:${
       port ?? 16662
     }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(eventQuery)}`;
 
     const websocket = new WebSocket(wsAddress);
 
-    // if the websocket because error, we should try to reconnect
+    websocket.onopen = () => {
+      console.log('websocket opened');
+    };
+
     websocket.onerror = (event) => {
       console.error('websocket error', event);
-      // alert('Disconnected from server, please refresh the page to reconnect');
+      websocket.close();
+      alert('Disconnected from server, please refresh the page to reconnect');
     };
 
     websocket.onmessage = (messageEvent) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const event: ClientEvent = JSON.parse(messageEvent.data);
       handleEvent(event, true);
     };
 
+    websocket.onclose = () => {
+      console.log('websocket closed');
+      setTimeout(() => {
+        console.log('reconnecting');
+        connectWebsocket();
+      }, 1000);
+    };
+    return websocket.close;
+  }, [address, apiVersion, eventQuery, handleEvent, port]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    if (!token) return;
+
+    const close = connectWebsocket();
     return () => {
-      websocket.close();
+      close();
     };
   }, [
     address,
