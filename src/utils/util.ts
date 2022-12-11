@@ -5,6 +5,7 @@ import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
 import { QueryClient } from '@tanstack/react-query';
+import { Base64 } from 'js-base64';
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -305,7 +306,7 @@ export const saveInstanceFile = async (
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
-      url: `/instance/${uuid}/fs/write/${file.path}`,
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/write`,
       data: content,
     })
   );
@@ -342,7 +343,7 @@ export const deleteInstanceFile = async (
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'delete',
-      url: `/instance/${uuid}/fs/rm/${file.path}`,
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/rm`,
     })
   );
   if (error) {
@@ -369,7 +370,7 @@ export const deleteInstanceDirectory = async (
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'delete',
-      url: `/instance/${uuid}/fs/rmdir/${directory}`,
+      url: `/instance/${uuid}/fs/${Base64.encode(directory, true)}/rmdir`,
     })
   );
   if (error) {
@@ -389,7 +390,7 @@ export const downloadInstanceFiles = async (uuid: string, file: ClientFile) => {
   // TODO handle errors
   const tokenResponse = await axiosWrapper<string>({
     method: 'get',
-    url: `/instance/${uuid}/fs/download/${file.path}`,
+    url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/download`,
   });
   const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
   window.open(downloadUrl, '_blank');
@@ -409,7 +410,7 @@ export const uploadInstanceFiles = async (
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
-      url: `/instance/${uuid}/fs/upload/${directory}`,
+      url: `/instance/${uuid}/fs/${Base64.encode(directory, true)}/upload`,
       data: formData,
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -435,10 +436,11 @@ export const createInstanceFile = async (
   directory: string,
   name: string
 ) => {
+  const filePath = directory + '/' + name;
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
-      url: `/instance/${uuid}/fs/new/${directory}/${name}`,
+      url: `/instance/${uuid}/fs/${Base64.encode(filePath, true)}/new`,
     })
   );
 };
@@ -448,10 +450,11 @@ export const createInstanceDirectory = async (
   parentDirectory: string,
   name: string
 ) => {
+  const filePath = parentDirectory + '/' + name;
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
-      url: `/instance/${uuid}/fs/mkdir/${parentDirectory}/${name}`,
+      url: `/instance/${uuid}/fs/${Base64.encode(filePath, true)}/mkdir`,
     })
   );
 };

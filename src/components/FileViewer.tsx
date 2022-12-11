@@ -53,6 +53,7 @@ import { faSquare } from '@fortawesome/free-regular-svg-icons';
 import clsx from 'clsx';
 import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
+import { Base64 } from 'js-base64';
 
 type Monaco = typeof monaco;
 
@@ -68,7 +69,7 @@ const useFileList = (uuid: string, path: string) =>
     ['instance', uuid, 'fileList', path],
     () => {
       return axiosWrapper<ClientFile[]>({
-        url: `/instance/${uuid}/fs/ls/${path}`,
+        url: `/instance/${uuid}/fs/${Base64.encode(path, true)}/ls`,
         method: 'GET',
       }).then((response) => {
         // sort by file type, then file name
@@ -87,7 +88,10 @@ const useFileContent = (uuid: string, file: ClientFile | null) =>
     ['instance', uuid, 'fileContent', file?.path],
     () => {
       return axiosWrapper<string>({
-        url: `/instance/${uuid}/fs/read/${file?.path}`,
+        url: `/instance/${uuid}/fs/${Base64.encode(
+          file?.path ?? '',
+          true
+        )}/read`,
         method: 'GET',
         transformResponse: (data) => data,
       }).then((response) => {
@@ -110,7 +114,7 @@ export default function FileViewer() {
   const monaco = useMonaco();
   const queryClient = useQueryClient();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const [path, setPath] = useState('');
+  const [path, setPath] = useState('.');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [fileContent, setFileContent] = useState('');
   const fileContentRef = useRef<string>();
@@ -133,7 +137,7 @@ export default function FileViewer() {
     );
   };
 
-  const atTopLevel = path === '';
+  const atTopLevel = path === '.';
   let direcotrySeparator = '\\';
   // assume only linux paths contain /
   if (instance.path.includes('/')) direcotrySeparator = '/';
@@ -293,7 +297,7 @@ export default function FileViewer() {
   );
 
   const breadcrumb = (
-    <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 whitespace-nowrap text-base font-medium">
+    <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 whitespace-nowrap text-base font-medium truncate">
       <p className="truncate">
         {/* instance name */}
         <span
@@ -303,7 +307,7 @@ export default function FileViewer() {
               : 'text-gray-300'
           }
           onClick={() => {
-            setPath('');
+            setPath('.');
             setOpenedFile(null);
             setTickedFiles([]);
           }}
@@ -316,6 +320,8 @@ export default function FileViewer() {
           path.split(direcotrySeparator).map((p, i, arr) => {
             // display a breadcrumb, where each one when clicked goes to appropriate path
             const subPath = arr.slice(0, i + 1).join(direcotrySeparator);
+            if (subPath === '' || subPath === '.')
+              return null; /* skip the first empty path */
             return (
               <span key={subPath}>
                 <span className="text-gray-300"> {direcotrySeparator} </span>
@@ -339,8 +345,8 @@ export default function FileViewer() {
       </p>
 
       {/* file name */}
-      <p className="truncate text-gray-300">
-        <span className="text-gray-300"> {direcotrySeparator} </span>
+      <p className="grow truncate text-gray-300">
+        <span className="min-w-fit text-gray-300"> {direcotrySeparator}</span>
         {openedFile?.name}
       </p>
     </div>
@@ -786,7 +792,7 @@ export default function FileViewer() {
             size={fileListSize}
             validateSize={false}
             onResize={setFileListSize}
-            containerClassNames="grow rounded-l-lg last:rounded-r-lg overflow-clip"
+            containerClassNames="grow shrink-0 rounded-l-lg last:rounded-r-lg overflow-clip"
             grow={!openedFile}
           >
             {fileTree}
