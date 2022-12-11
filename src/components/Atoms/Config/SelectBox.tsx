@@ -23,8 +23,8 @@ export default function SelectBox({
   error?: string;
   disabled?: boolean;
   onChange: (arg: string) => Promise<void>;
-  description?: string;
-  descriptionFunc?: (arg: string) => string;
+  description?: React.ReactNode;
+  descriptionFunc?: (arg: string) => React.ReactNode;
 }) {
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -75,14 +75,14 @@ export default function SelectBox({
     <div
       className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
     >
-      <div className={`flex flex-col`}>
+      <div className={`flex flex-col min-w-0`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
         {errorText ? (
           <p className="text-small font-medium tracking-medium text-red">
             {errorText || 'Unknown error'}
           </p>
         ) : (
-          <p className="text-small font-medium tracking-medium text-white/50">
+          <p className="text-small font-medium tracking-medium text-white/50 text-ellipsis overflow-hidden">
             {descriptionFunc ? descriptionFunc(value) : description}
           </p>
         )}

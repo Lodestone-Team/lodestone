@@ -1,10 +1,10 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { InstanceInfo } from 'bindings/InstanceInfo';
-import DashboardCard from 'components/DashboardCard';
 import SettingField from 'components/SettingField';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext } from 'react';
+import { parse } from 'minecraft-motd-util';
+import { MOTDRender } from 'components/Atoms/MOTDRender';
+import { convertUnicode } from 'utils/util';
 
 export default function MinecraftSettingCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -20,8 +20,8 @@ export default function MinecraftSettingCard() {
       name: string;
       type: 'toggle' | 'number' | 'text' | 'dropdown';
       options?: string[];
-      description?: string;
-      descriptionFunc?: (value: any) => string;
+      description?: React.ReactNode;
+      descriptionFunc?: (value: any) => React.ReactNode;
     };
   } = {
     gamemode: {
@@ -75,10 +75,16 @@ export default function MinecraftSettingCard() {
           : 'Players can join without authentication and with any username.',
     },
     motd: {
-      name: 'MOTD (Message of the Day)',
+      name: 'MOTD: Message of the Day',
       type: 'text',
-      description:
-        "The message displayed in the server list below the server's name.",
+      descriptionFunc: (motd) => (
+        <p
+          className={`mt-1 p-2 text-base font-minecraft`}
+          style={{ backgroundImage: `url(/assets/dirt.png)` }}
+        >
+          <MOTDRender motd={parse(convertUnicode(motd))} />
+        </p>
+      ),
     },
   };
 
@@ -168,13 +174,13 @@ export default function MinecraftSettingCard() {
   return (
     <>
       <div className="flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-[28rem]">
+        <div className="w-72 shrink-0">
           <h1 className="text-large font-black"> Common Settings </h1>
           <h2 className="text-base font-medium italic tracking-tight text-white/50">
             Common settings that are used by most servers.
           </h2>
         </div>
-        <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
           {availableCommonSettings.length ? (
             availableCommonSettings.map((setting) => {
               return (
@@ -204,13 +210,13 @@ export default function MinecraftSettingCard() {
         </div>
       </div>
       <div className="flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-[28rem]">
+        <div className="w-72 shrink-0">
           <h1 className="text-large font-black"> Advanced Settings </h1>
           <h2 className="text-base font-medium italic tracking-tight text-white/50">
             Most users should not need to change these settings.
           </h2>
         </div>
-        <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
           {availableAdvancedSettings.length ? (
             availableAdvancedSettings.map((setting) => {
               return (

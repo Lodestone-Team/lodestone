@@ -27,8 +27,8 @@ export default function SettingField({
   min?: number;
   max?: number;
   options?: string[];
-  description?: string;
-  descriptionFunc?: (arg: any) => string;
+  description?: React.ReactNode;
+  descriptionFunc?: (arg: any) => React.ReactNode;
 }) {
   const uuid = instance.uuid;
   const {

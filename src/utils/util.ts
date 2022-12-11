@@ -470,3 +470,12 @@ export const chooseFiles = async () => {
     };
   });
 };
+
+// put this in whatever utility library file you have:
+export function convertUnicode(input: string) {
+  return input
+    .replace(/\\+u([0-9a-fA-F]{4})/g, (a, b) =>
+      String.fromCharCode(parseInt(b, 16))
+    )
+    .replace(/\\+n/g, '\n');
+}

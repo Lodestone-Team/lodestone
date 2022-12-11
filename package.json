@@ -34,6 +34,7 @@
     "i": "^0.3.7",
     "js-base64": "^3.7.3",
     "jsonwebtoken": "^8.5.1",
+    "minecraft-motd-util": "^1.1.12",
     "monaco-editor": "^0.34.0",
     "msw": "^0.47.4",
     "msw-storybook-addon": "^1.6.3",

@@ -49,6 +49,7 @@ module.exports = {
       sans: ['Satoshi', ...defaultTheme.fontFamily.sans],
       heading: ['Chillax', ...defaultTheme.fontFamily.sans],
       title: ['Clash Grotesk', ...defaultTheme.fontFamily.sans],
+      minecraft: ['Minecraft', ...defaultTheme.fontFamily.sans],
       mono: ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
