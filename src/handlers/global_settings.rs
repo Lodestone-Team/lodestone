@@ -40,6 +40,18 @@ pub async fn change_core_name(
             detail: "Not authorized to change core name".to_string(),
         });
     }
+    if new_name.len() > 32 {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Name too long".to_string(),
+        });
+    }
+    if new_name.len() < 1 {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Name too short".to_string(),
+        });
+    }
     state.global_settings.lock().await.set_core_name(new_name).await?;
     Ok(())
 }
