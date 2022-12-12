@@ -1,0 +1,29 @@
+diff --git a/node_modules/minecraft-motd-util/dist/parse.js b/node_modules/minecraft-motd-util/dist/parse.js
+index f67f930..37330a8 100644
+--- a/node_modules/minecraft-motd-util/dist/parse.js
++++ b/node_modules/minecraft-motd-util/dist/parse.js
+@@ -41,13 +41,13 @@ var formattingLookupProperties = {
+ var parseBool = function (value) { return typeof value === 'boolean' ? value : typeof value === 'string' ? value.toLowerCase() === 'true' : false; };
+ var parseText = function (text, options) {
+     var _a;
+-    var result = [{ text: '', color: 'white' }];
++    var result = [{ text: '', color: 'gray' }];
+     var position = 0;
+     while (position + 1 <= text.length) {
+         var character = text.charAt(position);
+         var item = result[result.length - 1];
+         if (character === '\n') {
+-            result.push({ text: '\n', color: 'white' });
++            result.push({ text: '\n', color: 'gray' });
+             position++;
+             continue;
+         }
+@@ -59,7 +59,7 @@ var parseText = function (text, options) {
+         var formattingCode = text.charAt(position + 1).toLowerCase();
+         position += 2;
+         if (formattingCode === 'r') {
+-            result.push({ text: '', color: 'white' });
++            result.push({ text: '', color: 'gray' });
+             continue;
+         }
+         if (formattingCode in formattingLookupProperties) {
