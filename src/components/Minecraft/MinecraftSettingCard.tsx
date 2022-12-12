@@ -79,7 +79,7 @@ export default function MinecraftSettingCard() {
       type: 'text',
       descriptionFunc: (motd) => (
         <div
-          className={`mt-1 p-2 text-base font-minecraft whitespace-nowrap`}
+          className={`mt-1 p-2 text-base font-minecraft whitespace-pre-wrap text-[gray]`}
           style={{ backgroundImage: `url(/assets/dirt.png)` }}
         >
           <MOTDRender motd={parse(convertUnicode(motd))} />

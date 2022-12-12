@@ -366,18 +366,6 @@ export const useEventStream = () => {
     if (!isReady) return;
     if (!token) return;
 
-    const close = connectWebsocket();
-    return () => {
-      close();
-    };
-  }, [
-    address,
-    apiVersion,
-    eventQuery,
-    handleEvent,
-    isReady,
-    port,
-    queryClient,
-    token,
-  ]);
+    return connectWebsocket();
+  }, [connectWebsocket, handleEvent, isReady, token]);
 };
