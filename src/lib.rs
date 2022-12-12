@@ -27,6 +27,7 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use stateful::Stateful;
+use ts_rs::TS;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -66,7 +67,8 @@ pub mod tauri_export;
 mod traits;
 mod util;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, TS)]
+#[ts(export)]
 pub struct GlobalSettings {
     #[serde(skip)]
     path_to_global_settings: PathBuf,
