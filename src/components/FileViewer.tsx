@@ -100,7 +100,7 @@ const useFileContent = (uuid: string, file: ClientFile | null, enabled: boolean)
       });
     },
     {
-      enabled: file !== null && canRead,
+      enabled: file !== null && enabled,
       cacheTime: 0,
       staleTime: 0,
       retry: false,
