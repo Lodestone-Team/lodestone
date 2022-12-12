@@ -54,14 +54,14 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   // Loading: 'gray',
 };
 
-export const pushKeepQuery = (router: NextRouter, pathname: string) => {
+export const pushKeepQuery = (router: NextRouter, pathname: string, shallow = true) => {
   router.push(
     {
       pathname,
       query: router.query,
     },
     undefined,
-    { shallow: true }
+    { shallow }
   );
 };
 

@@ -1,7 +1,14 @@
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { match, otherwise, partial } from 'variant';
@@ -18,6 +25,8 @@ export const useEventStream = () => {
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
   const { isReady, token, address, port, apiVersion } =
     useContext(LodestoneContext);
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsConnected = useRef(false);
 
   const eventQuery: EventQuery = useMemo(
     () => ({
@@ -330,42 +339,66 @@ export const useEventStream = () => {
     token,
   ]);
 
-  const connectWebsocket = useCallback(() => {
-    const wsAddress = `ws://${address}:${
-      port ?? 16662
-    }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(eventQuery)}`;
-
-    const websocket = new WebSocket(wsAddress);
-
-    websocket.onopen = () => {
-      console.log('websocket opened');
-    };
-
-    websocket.onerror = (event) => {
-      console.error('websocket error', event);
-      websocket.close();
-      alert('Disconnected from server, please refresh the page to reconnect');
-    };
-
-    websocket.onmessage = (messageEvent) => {
-      const event: ClientEvent = JSON.parse(messageEvent.data);
-      handleEvent(event, true);
-    };
-
-    websocket.onclose = () => {
-      console.log('websocket closed');
-      setTimeout(() => {
-        console.log('reconnecting');
-        connectWebsocket();
-      }, 1000);
-    };
-    return websocket.close;
-  }, [address, apiVersion, eventQuery, handleEvent, port]);
-
   useEffect(() => {
     if (!isReady) return;
     if (!token) return;
 
+    const connectWebsocket = () => {
+      const wsAddress = `ws://${address}:${
+        port ?? 16662
+      }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(
+        eventQuery
+      )}`;
+
+      if (wsRef.current) wsRef.current.close();
+
+      const websocket = new WebSocket(wsAddress);
+
+      wsRef.current = websocket;
+      wsConnected.current = true;
+
+      websocket.onopen = () => {
+        console.log('websocket opened');
+      };
+
+      websocket.onerror = (event) => {
+        console.error('websocket error', event);
+        websocket.close();
+        alert('Disconnected from server, please refresh the page to reconnect');
+      };
+
+      websocket.onmessage = (messageEvent) => {
+        const event: ClientEvent = JSON.parse(messageEvent.data);
+        handleEvent(event, true);
+      };
+
+      websocket.onclose = () => {
+        console.log('websocket closed');
+        wsRef.current = null;
+        if (!wsConnected.current) return;
+        setTimeout(() => {
+          console.log('reconnecting');
+          connectWebsocket();
+        }, 1000);
+      };
+    };
+
     connectWebsocket();
-  }, [connectWebsocket, handleEvent, isReady, token]);
+    return () => {
+      console.log('unmounting event listener');
+      wsConnected.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [
+    handleEvent,
+    isReady,
+    token,
+    address,
+    apiVersion,
+    eventQuery,
+    handleEvent,
+    port,
+  ]);
 };

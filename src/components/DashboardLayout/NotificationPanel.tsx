@@ -1,6 +1,7 @@
 import { NotificationContext } from 'data/NotificationContext';
 import { useContext } from 'react';
 import NotificationCard from 'components/Atoms/NotificationCard';
+import { useUserAuthorized } from 'data/UserInfo';
 
 export default function NotificationPanel({
   className = '',

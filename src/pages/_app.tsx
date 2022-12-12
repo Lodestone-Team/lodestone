@@ -86,6 +86,10 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   useIsomorphicLayoutEffect(() => {
     if (!token) {
       delete axios.defaults.headers.common['Authorization'];
+      dispatch({
+        type: 'clear',
+      });
+      // TODO: clear ongoing notifications as well
     } else {
       try {
         const decoded = jwt.decode(token, { complete: true });
