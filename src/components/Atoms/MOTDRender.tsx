@@ -31,7 +31,6 @@ export const MOTDRender = ({
   className?: string;
 }) => {
   let lineNum = 0;
-  console.log(motd);
   return (
     <>
       {motd.map((item, index) =>
