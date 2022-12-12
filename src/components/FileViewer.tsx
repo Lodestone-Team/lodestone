@@ -64,7 +64,7 @@ const fileSorter = (a: ClientFile, b: ClientFile) => {
   return a.file_type.localeCompare(b.file_type);
 };
 
-const useFileList = (uuid: string, path: string) =>
+const useFileList = (uuid: string, path: string, enabled: boolean) =>
   useQuery<ClientFile[], Error>(
     ['instance', uuid, 'fileList', path],
     () => {
@@ -77,13 +77,14 @@ const useFileList = (uuid: string, path: string) =>
       });
     },
     {
+      enabled,
       retry: false,
       cacheTime: 0,
       staleTime: 0,
     }
   );
 
-const useFileContent = (uuid: string, file: ClientFile | null) =>
+const useFileContent = (uuid: string, file: ClientFile | null, enabled: boolean) =>
   useQuery<string, Error>(
     ['instance', uuid, 'fileContent', file?.path],
     () => {
@@ -99,7 +100,7 @@ const useFileContent = (uuid: string, file: ClientFile | null) =>
       });
     },
     {
-      enabled: file !== null,
+      enabled: file !== null && canRead,
       cacheTime: 0,
       staleTime: 0,
       retry: false,
@@ -154,13 +155,13 @@ export default function FileViewer() {
     data: fileList,
     isLoading: fileListLoading,
     error: fileListError,
-  } = useFileList(instance.uuid, path);
+  } = useFileList(instance.uuid, path, canRead);
 
   const {
     data: originalFileContent,
     isLoading: isFileLoading,
     error: fileError,
-  } = useFileContent(instance.uuid, openedFile);
+  } = useFileContent(instance.uuid, openedFile, canRead);
 
   useEffect(() => {
     setFileContent('');

@@ -28,12 +28,14 @@ import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import SettingField from 'components/SettingField';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
+import { useGlobalSettings } from 'data/GlobalSettings';
 
 const SettingsPage: NextPageWithLayout = () => {
   const { address } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+  const {data: globalSettings} = useGlobalSettings();
 
   const nameField = (
     <InputBox
@@ -103,10 +105,10 @@ const SettingsPage: NextPageWithLayout = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="flex w-full grow flex-row items-stretch focus:outline-none">
+          <Tab.Panels className="flex w-full grow flex-row items-stretch">
             {tabList.map((tab) => (
               <Tab.Panel
-                className="flex w-full flex-col gap-16"
+                className="flex w-full flex-col gap-16 focus:outline-none"
                 key={tab.title}
               >
                 {tab.content}

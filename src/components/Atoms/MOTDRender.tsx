@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { ParseResult } from 'minecraft-motd-util/dist/types';
+import React from 'react';
 
 const colors: {
   [key: string]: string;
@@ -40,8 +41,8 @@ export const MOTDRender = ({
           // only display 2 lines
           if (lineNum > 1) return null;
           return (
-            <>
-              {brindex > 0 && <br key={`br-${index}`} />}
+            <React.Fragment key={index}>
+              {brindex > 0 && <br />}
               <span
                 style={{
                   color: item.color in colors ? colors[item.color] : undefined,
@@ -52,15 +53,14 @@ export const MOTDRender = ({
                   item.underline ? 'underline' : '',
                   item.strikethrough ? 'line-through' : ''
                 )}
-                key={index}
               >
                 {text}
               </span>
-            </>
+            </React.Fragment>
           );
         })
       )}
-      {lineNum > 1 && <span key="...">...</span>}
+      {lineNum > 1 && <span>...</span>}
     </>
   );
 };

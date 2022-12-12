@@ -29,7 +29,7 @@ const validationSchema = yup.object({
 
 const Auth: NextPageWithLayout = () => {
   const router = useRouter();
-  const { token, setToken } = useContext(LodestoneContext);
+  const { token, setToken, address, port } = useContext(LodestoneContext);
 
   useEffect(() => {
     if (token) {
@@ -85,14 +85,14 @@ const Auth: NextPageWithLayout = () => {
             Welcome Back!
           </h1>
           <p>
-            Connect to your Lodestone client.
-            <br />
+            Connect to Lodestone core at {`${address}:${port}`}
+            {/* <br />
             Don&apos;t have Lodestone?{' '}
             <Link href="/get-started">
               <span className="text-green-accent hover:cursor-pointer hover:text-green">
                 Get started here
               </span>
-            </Link>
+            </Link> */}
           </p>
         </div>
         <Formik

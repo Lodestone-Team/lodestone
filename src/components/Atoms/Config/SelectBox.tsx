@@ -13,6 +13,8 @@ export default function SelectBox({
   onChange: onChangeProp,
   error: errorProp,
   disabled = false,
+  canRead = true,
+  isLoading: isLoadingProp = false,
   description,
   descriptionFunc,
 }: {
@@ -22,6 +24,8 @@ export default function SelectBox({
   className?: string;
   error?: string;
   disabled?: boolean;
+  canRead?: boolean;
+  isLoading?: boolean;
   onChange: (arg: string) => Promise<void>;
   description?: React.ReactNode;
   descriptionFunc?: (arg: string) => React.ReactNode;
@@ -47,8 +51,10 @@ export default function SelectBox({
   };
 
   const errorText = errorProp || error;
+  disabled = disabled || !canRead || isLoadingProp;
+  description = canRead ? descriptionFunc?.(initialValue || value) ?? description : "No permission";
 
-  const icon = isLoading ? (
+  const icon = (isLoading || isLoadingProp) ? (
     <BeatLoader
       key="loading"
       size="0.25rem"
@@ -83,7 +89,7 @@ export default function SelectBox({
           </div>
         ) : (
           <div className="text-small font-medium tracking-medium text-white/50 text-ellipsis overflow-hidden">
-            {descriptionFunc ? descriptionFunc(value) : description}
+            {description}
           </div>
         )}
       </div>

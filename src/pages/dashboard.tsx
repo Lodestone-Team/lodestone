@@ -214,10 +214,10 @@ const Dashboard: NextPageWithLayout = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="flex w-full grow flex-row items-stretch focus:outline-none">
+          <Tab.Panels className="flex w-full grow flex-row items-stretch">
             {tabList[instance.game_type].map((tab) => (
               <Tab.Panel
-                className="flex w-full flex-col gap-16"
+                className="flex w-full flex-col gap-16 focus:outline-none"
                 key={tab.title}
               >
                 {tab.content}

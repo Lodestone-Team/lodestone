@@ -31,23 +31,25 @@ export default function SettingField({
   descriptionFunc?: (arg: any) => React.ReactNode;
 }) {
   const uuid = instance.uuid;
-  const {
-    data: initialSetting,
-    isLoading,
-    error,
-  } = useGameSetting(uuid, setting);
-  label = label ?? setting;
-  const [value, setValue] = useState(initialSetting ?? '');
   const can_access_instance_setting = useUserAuthorized(
     'can_access_instance_setting',
     instance.uuid
   );
+  const {
+    data: initialSetting,
+    isLoading: isSettingLoading,
+    error,
+  } = useGameSetting(uuid, setting, can_access_instance_setting);
+  label = label ?? setting;
+  const [value, setValue] = useState(initialSetting ?? '');
+
 
   useIsomorphicLayoutEffect(() => {
     setValue(initialSetting ?? '');
   }, [initialSetting]);
 
   const errorString = errorToMessage(error);
+  const isLoading = can_access_instance_setting ? isSettingLoading : false;
 
   switch (type) {
     case 'text':
@@ -56,8 +58,9 @@ export default function SettingField({
           label={label}
           value={value}
           type="text"
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onSubmit={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
@@ -77,8 +80,9 @@ export default function SettingField({
           type="number"
           min={min}
           max={max}
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onSubmit={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
@@ -101,8 +105,9 @@ export default function SettingField({
           label={label}
           value={value}
           options={options}
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onChange={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
@@ -118,8 +123,9 @@ export default function SettingField({
         <ToggleBox
           label={label}
           value={value === 'true'}
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onChange={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,

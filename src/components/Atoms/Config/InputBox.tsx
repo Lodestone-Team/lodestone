@@ -22,6 +22,8 @@ export default function InputBox({
   error: errorProp,
   removeArrows,
   disabled = false,
+  canRead = true,
+  isLoading: isLoadingProp = false,
   id = '',
   showIcons = true,
   validate: validateProp, //throws error if invalid
@@ -41,6 +43,8 @@ export default function InputBox({
   error?: string;
   removeArrows?: boolean;
   disabled?: boolean;
+  canRead?: boolean;
+  isLoading?: boolean;
   id?: string;
   showIcons?: boolean;
   onSubmit: (arg: string) => Promise<void>;
@@ -138,6 +142,8 @@ export default function InputBox({
   };
 
   const errorText = errorProp || error;
+  disabled = disabled || !canRead || isLoadingProp;
+  description = canRead ? descriptionFunc?.(initialValue || value) ?? description : "No permission";
 
   let icons = [];
 
@@ -159,7 +165,7 @@ export default function InputBox({
       />
     );
   }
-  if (isLoading) {
+  if (isLoading || isLoadingProp) {
     icons = [
       <BeatLoader
         key="loading"
@@ -188,7 +194,7 @@ export default function InputBox({
           </div>
         ) : (
           <div className="text-small font-medium tracking-medium text-white/50 text-ellipsis overflow-hidden">
-            {descriptionFunc ? descriptionFunc(initialValue || value) : description}
+            {description}
           </div>
         )}
       </div>

@@ -366,6 +366,6 @@ export const useEventStream = () => {
     if (!isReady) return;
     if (!token) return;
 
-    return connectWebsocket();
+    connectWebsocket();
   }, [connectWebsocket, handleEvent, isReady, token]);
 };
