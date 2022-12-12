@@ -15,7 +15,7 @@ import {
   useLocalStorage,
 } from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
-import { errorToMessage } from 'utils/util';
+import { errorToString } from 'utils/util';
 import {
   NotificationContext,
   useNotificationReducer,
@@ -98,7 +98,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
         if (Date.now() >= exp * 1000) throw new Error('Token expired');
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
-        const message = errorToMessage(e);
+        const message = errorToString(e);
         alert(message);
         setToken('');
         delete axios.defaults.headers.common['Authorization'];

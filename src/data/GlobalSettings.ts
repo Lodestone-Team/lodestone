@@ -6,7 +6,7 @@ import { LodestoneContext } from './LodestoneContext';
 
 export const useGlobalSettings = () =>
   useQuery<GlobalSettings, AxiosError>(
-    ['global-settings'],
+    ['global_settings'],
     () => {
       return axios.get<GlobalSettings>('/global_settings').then((response) => {
         return response.data;

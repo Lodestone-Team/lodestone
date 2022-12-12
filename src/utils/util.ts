@@ -71,7 +71,7 @@ export function isAxiosError<ResponseType>(
   return axios.isAxiosError(error);
 }
 
-export function errorToMessage(error: unknown): string {
+export function errorToString(error: unknown): string {
   if (isAxiosError<any>(error)) {
     if (error.response && error.response.data) {
       let data = error.response.data;
@@ -117,7 +117,7 @@ export async function axiosWrapper<ResponseType>(
     const response = await axios.request<ResponseType>(config);
     return response.data;
   } catch (error) {
-    throw new Error(errorToMessage(error));
+    throw new Error(errorToString(error));
   }
 }
 

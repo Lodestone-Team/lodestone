@@ -1,7 +1,7 @@
 // a wrapper around TextField that fetches a single setting from the server
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGameSetting } from 'data/GameSetting';
-import { axiosPutSingleValue, errorToMessage } from 'utils/util';
+import { axiosPutSingleValue, errorToString } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
 import InputBox from './Atoms/Config/InputBox';
 import { useState } from 'react';
@@ -48,7 +48,7 @@ export default function SettingField({
     setValue(initialSetting ?? '');
   }, [initialSetting]);
 
-  const errorString = errorToMessage(error);
+  const errorString = errorToString(error);
   const isLoading = can_access_instance_setting ? isSettingLoading : false;
 
   switch (type) {

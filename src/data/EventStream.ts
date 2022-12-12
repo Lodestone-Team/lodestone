@@ -364,7 +364,6 @@ export const useEventStream = () => {
       websocket.onerror = (event) => {
         console.error('websocket error', event);
         websocket.close();
-        alert('Disconnected from server, please refresh the page to reconnect');
       };
 
       websocket.onmessage = (messageEvent) => {

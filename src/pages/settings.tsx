@@ -12,6 +12,7 @@ import {
   axiosPutSingleValue,
   axiosWrapper,
   catchAsyncToString,
+  errorToString,
   stateToLabelColor,
 } from 'utils/util';
 import { NextPageWithLayout } from './_app';
@@ -23,7 +24,7 @@ import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import FileViewer from 'components/FileViewer';
-import { useUserAuthorized } from 'data/UserInfo';
+import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import SettingField from 'components/SettingField';
@@ -35,25 +36,54 @@ const SettingsPage: NextPageWithLayout = () => {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
-  const {data: globalSettings} = useGlobalSettings();
+  const { data: globalSettings, isLoading, error } = useGlobalSettings();
+  const { data: userInfo, isLoading: userLoading } = useUserInfo();
+  const can_change_core_settings = userInfo?.is_owner ?? false;
+
+  const errorString = errorToString(error);
 
   const nameField = (
     <InputBox
       label="Name"
-      value={'PLACEHOLDER'}
-      disabled={false}
+      value={globalSettings?.core_name}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      validate={async (name) => {
+        // don't be empty
+        if (name === '') throw new Error('Name cannot be empty');
+        // don't be too long
+        if (name.length > 32)
+          throw new Error('Name cannot be longer than 32 characters');
+      }}
       onSubmit={async (name) => {
-        // TODO
+        await axiosPutSingleValue('/global_settings/name', name);
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          core_name: name,
+        });
       }}
     />
   );
 
   const unsafeModeField = (
     <ToggleBox
-      label={'Unsafe Mode'}
-      value={true} // TODO
+      label={'Safe Mode'}
+      value={globalSettings?.safe_mode ?? false}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={
+        'Safe mode limits non-owner users to only relatively safe commands. Unsafe mode allows users to potentially take over your server/computer.'
+      }
       onChange={async (value) => {
-        //  TODO
+        await axiosPutSingleValue('/global_settings/safe_mode', value);
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          safe_mode: value,
+        });
       }}
     />
   );
@@ -64,9 +94,9 @@ const SettingsPage: NextPageWithLayout = () => {
       content: (
         <div className="flex w-full flex-col gap-4 @4xl:flex-row">
           <div className="w-[28rem]">
-            <h1 className="text-large font-black"> General Settings </h1>
+            <h1 className="text-large font-black"> Owner Settings </h1>
             <h2 className="text-base font-medium italic tracking-tight text-white/50">
-              Most commonly used settings for your server
+              Settings that only the owner can change
             </h2>
           </div>
           <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
