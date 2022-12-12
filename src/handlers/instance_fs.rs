@@ -646,7 +646,7 @@ async fn upload_instance_file(
             detail: "No file name".to_string(),
         })?;
         let name = sanitize_filename::sanitize(name);
-        let path = scoped_join_win_safe(&root, &name)?;
+        let path = scoped_join_win_safe(&path_to_dir, &name)?;
         // if the file has a protected extension, or no extension, deny
         if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
             return Err(Error {
