@@ -1,6 +1,6 @@
 use axum::{
     extract::Path,
-    routing::{get, post},
+    routing::{get, put},
     Extension, Json, Router,
 };
 use axum_auth::AuthBearer;
@@ -25,9 +25,9 @@ pub async fn get_core_settings(
 }
 
 pub async fn change_core_name(
-    Path(new_name): Path<String>,
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
+    Json(new_name): Json<String>,
 ) -> Result<(), Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
@@ -45,9 +45,9 @@ pub async fn change_core_name(
 }
 
 pub async fn change_core_safe_mode(
-    Path(safe_mode): Path<bool>,
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
+    Json(safe_mode): Json<bool>,
 ) -> Result<(), Error> {
     let users = state.users.lock().await;
     let requester = try_auth(&token, users.get_ref()).ok_or(Error {
@@ -67,9 +67,9 @@ pub async fn change_core_safe_mode(
 pub fn get_global_settings_routes() -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
-        .route("/global_settings/name/:new_name", post(change_core_name))
+        .route("/global_settings/name", put(change_core_name))
         .route(
-            "/global_settings/safe_mode/:safe_mode",
-            post(change_core_safe_mode),
+            "/global_settings/safe_mode",
+            put(change_core_safe_mode),
         )
 }
