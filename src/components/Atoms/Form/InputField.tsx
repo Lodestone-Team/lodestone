@@ -32,7 +32,7 @@ export default function InputField(props: InputFieldProps) {
           onChange={field.onChange}
           onBlur={field.onBlur}
           name={field.name}
-          autoComplete="off-doesn't-work-but-apparently-this-does"
+          autoComplete="nope"
           placeholder={props.placeholder}
         />
         {errorText && (

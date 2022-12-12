@@ -104,7 +104,7 @@ const Auth: NextPageWithLayout = () => {
             <Form
               id="loginForm"
               className="flex flex-col gap-12"
-              autoComplete="off"
+              autoComplete="nope"
             >
               <div className="flex flex-col gap-y-12">
                 <InputField type="text" name="username" label="Username" />

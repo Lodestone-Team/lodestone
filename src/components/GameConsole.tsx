@@ -123,7 +123,7 @@ export default function GameConsole() {
       <div className="font-mono text-small">
         <form
           noValidate
-          autoComplete="off"
+          autoComplete="nope"
           onSubmit={(e: React.SyntheticEvent) => {
             e.preventDefault();
             sendCommand(command);

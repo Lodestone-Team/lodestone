@@ -518,7 +518,7 @@ export default function FileViewer() {
                 {({ isSubmitting }) => (
                   <Form
                     id="create-file-form"
-                    autoComplete="off"
+                    autoComplete="nope"
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
                     <InputField
@@ -597,7 +597,7 @@ export default function FileViewer() {
                 {({ isSubmitting }) => (
                   <Form
                     id="create-folder-form"
-                    autoComplete="off"
+                    autoComplete="nope"
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
                     <InputField

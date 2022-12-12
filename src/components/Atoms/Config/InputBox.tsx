@@ -227,6 +227,7 @@ export default function InputBox({
           }}
           disabled={disabled}
           type={type}
+          autoComplete="nope"
         />
       </form>
     </div>
