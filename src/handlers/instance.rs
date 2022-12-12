@@ -28,16 +28,22 @@ use super::util::try_auth;
 
 pub async fn get_instance_list(
     Extension(state): Extension<AppState>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<InstanceInfo>>, Error> {
-    let mut list_of_configs: Vec<InstanceInfo> = join_all(state.instances.lock().await.iter().map(
-        |(_, instance)| async move {
-            // want id, name, playercount, maxplayer count, port, state and type
-            instance.get_instance_info().await
-        },
-    ))
-    .await
-    .into_iter()
-    .collect();
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    drop(users);
+    let mut list_of_configs: Vec<InstanceInfo> = Vec::new();
+
+    let instances = state.instances.lock().await;
+    for instance in instances.values() {
+        if requester.can_perform_action(&UserAction::ViewInstance(instance.uuid().await)) {
+            list_of_configs.push(instance.get_instance_info().await);
+        }
+    }
 
     list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
 
@@ -47,20 +53,29 @@ pub async fn get_instance_list(
 pub async fn get_instance_info(
     Path(uuid): Path<String>,
     Extension(state): Extension<AppState>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<InstanceInfo>, Error> {
-    Ok(Json(
-        state
-            .instances
-            .lock()
-            .await
-            .get(&uuid)
-            .ok_or(Error {
-                inner: ErrorInner::InstanceNotFound,
-                detail: "".to_string(),
-            })?
-            .get_instance_info()
-            .await,
-    ))
+    let users = state.users.lock().await;
+    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+        inner: ErrorInner::Unauthorized,
+        detail: "Token error".to_string(),
+    })?;
+    drop(users);
+
+    let instances = state.instances.lock().await;
+
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
+
+    if !requester.can_perform_action(&UserAction::ViewInstance(instance.uuid().await)) {
+        return Err(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "You are not allowed to view this instance".to_string(),
+        });
+    }
+    Ok(Json(instance.get_instance_info().await))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
