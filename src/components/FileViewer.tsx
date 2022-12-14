@@ -54,6 +54,7 @@ import clsx from 'clsx';
 import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
+import * as toml from 'utils/monaco-languages/toml'
 
 type Monaco = typeof monaco;
 
@@ -223,6 +224,9 @@ export default function FileViewer() {
         esModuleInterop: true,
       });
       monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+      monaco.languages.register({ id: 'toml' });
+      monaco.languages.setLanguageConfiguration('toml', toml.conf);
+      monaco.languages.setMonarchTokensProvider('toml', toml.language);
       // monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
       //   noSemanticValidation: true,
       //   noSyntaxValidation: true,
@@ -811,6 +815,7 @@ export default function FileViewer() {
                     defaultValue={originalFileContent}
                     theme="lodestone-dark"
                     path={monacoPath}
+                    language={'toml'}
                     className="bg-gray-800"
                     options={{
                       padding: {
