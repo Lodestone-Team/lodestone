@@ -105,7 +105,17 @@ export default function GameConsole() {
             You don&#39;t have permission to access this console
           </p>
         </div>
-      ) : (
+      ) : consoleLog.length === 0 ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-900">
+          <FontAwesomeIcon
+            icon={faServer}
+            className="text-xlarge text-gray-400"
+          />
+          <p className="text-xl text-center text-gray-300">
+            No console messages
+          </p>
+        </div>
+      ):(
         <ol
           className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small font-light tracking-tight text-gray-300"
           ref={listRef}
