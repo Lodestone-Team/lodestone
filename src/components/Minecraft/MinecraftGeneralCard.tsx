@@ -11,12 +11,17 @@ import SettingField from 'components/SettingField';
 import { useContext } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { PortStatus } from 'bindings/PortStatus';
+import { useUserAuthorized } from 'data/UserInfo';
 
 export default function MinecraftGeneralCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const queryClient = useQueryClient();
   const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
+  const can_access_instance_setting = useUserAuthorized(
+    'can_access_instance_setting',
+    instance.uuid
+  );
   const supportedOptions = manifest?.supported_operations
     ? manifest.supported_operations
     : [];
@@ -35,7 +40,7 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={65535}
-      disabled={!supportedOptions.includes('SetPort')}
+      disabled={!supportedOptions.includes('SetPort') || !can_access_instance_setting}
       validate={async (port) => {
         const numPort = parseintStrict(port);
         const result = await axiosWrapper<PortStatus>({
@@ -63,7 +68,7 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={10000}
-      // disabled={!supportedOptions.includes('SetMaxPlayers')}
+      disabled={!can_access_instance_setting}
       onSubmit={async (maxPlayers) => {
         const numMaxPlayers = parseintStrict(maxPlayers);
         await axiosPutSingleValue<void>(
@@ -88,7 +93,7 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={100000}
-      disabled={!supportedOptions.includes('SetMinRam')}
+      disabled={!supportedOptions.includes('SetMinRam') || !can_access_instance_setting}
       onSubmit={async (minRam) => {
         const numMinRam = parseInt(minRam);
         await axiosPutSingleValue<void>(`/instance/${uuid}/min_ram`, numMinRam);
@@ -110,7 +115,7 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={100000}
-      disabled={!supportedOptions.includes('SetMaxRam')}
+      disabled={!supportedOptions.includes('SetMaxRam') || !can_access_instance_setting}
       onSubmit={async (maxRam) => {
         const numMaxRam = parseInt(maxRam);
         await axiosPutSingleValue<void>(`/instance/${uuid}/max_ram`, numMaxRam);
