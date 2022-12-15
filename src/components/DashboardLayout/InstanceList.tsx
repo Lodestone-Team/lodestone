@@ -21,7 +21,7 @@ export default function InstanceList({
 
   return (
     <div
-      className={`gap -mx-1.5 flex h-0 grow flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
+      className={`gap -mx-1.5 flex min-h-0 flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
     >
       {instances &&
         Object.values(instances).map((instance) => (

@@ -26,7 +26,7 @@ export default function LeftNav({ className }: { className?: string }) {
 
   return (
     <div className={`flex w-full flex-col items-center px-4 ${className}`}>
-      <div className="flex w-full grow flex-col">
+      <div className="flex w-full grow flex-col ">
         <Dialog
           open={showCreateInstance}
           onClose={() => setShowCreateInstance(false)}
@@ -43,7 +43,7 @@ export default function LeftNav({ className }: { className?: string }) {
             </div>
           </div>
         </Dialog>
-        <InstanceList className="pt-8">
+        <InstanceList className="pt-12 pb-4">
           <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
             {/* <h1 className="mr-1 text-large font-bold tracking-tight">
               Instances
