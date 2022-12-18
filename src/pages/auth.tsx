@@ -11,33 +11,39 @@ import { LoginReply } from 'bindings/LoginReply';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
+import ComboField from 'components/Atoms/Form/ComboField';
 
 type LoginValues = {
   username: string;
   password: string;
-};
-
-const initialValues: LoginValues = {
-  username: '',
-  password: '',
+  coreSocket: string;
 };
 
 const validationSchema = yup.object({
   username: yup.string().required('Username is required'),
   password: yup.string().required('Password is required'),
+  coreSocket: yup
+    .string()
+    .required('Choose a core to connect to')
+    .matches(
+      /^((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|([a-zA-Z0-9-.]+)):\d+$/,
+      'Invalid socket'
+    ),
 });
 
 const Auth: NextPageWithLayout = () => {
   const router = useRouter();
-  const { token, setToken, address, port } = useContext(LodestoneContext);
+  const { token, setToken, socket, tokens, isReady, protocol, apiVersion } =
+    useContext(LodestoneContext);
+  const coreList = tokens ? Object.keys(tokens) : [];
 
-  useEffect(() => {
-    if (token) {
-      alert('Logged in!');
-      pushKeepQuery(router, '/');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  const initialValues: LoginValues = {
+    username: '',
+    password: '',
+    coreSocket: socket ?? coreList[0] ?? '',
+  };
+
+  console.log(initialValues);
 
   const onSubmit = (
     values: LoginValues,
@@ -50,11 +56,25 @@ const Auth: NextPageWithLayout = () => {
         {},
         {
           auth: values,
+          baseURL: `${protocol}://${values.coreSocket}/api/${apiVersion}`,
         }
       )
       .then((response) => {
         // set the token cookie
-        setToken(response.data.token);
+        setToken(response.data.token, values.coreSocket);
+        // redirect to the home page, and set the query
+        router.push(
+          {
+            pathname: '/dashboard',
+            query: {
+              ...router.query,
+              uuid: null,
+              address: values.coreSocket.split(':')[0],
+              port: values.coreSocket.split(':')[1],
+            },
+          },
+          undefined
+        );
       })
       .catch((error: AxiosError<ClientError>) => {
         if (axios.isAxiosError(error) && error.response) {
@@ -84,36 +104,52 @@ const Auth: NextPageWithLayout = () => {
           <h1 className="text-larger font-bold tracking-tight text-gray-300">
             Welcome Back!
           </h1>
-          <p>
-            Connect to Lodestone core at {`${address}:${port}`}
-            {/* <br />
+        </div>
+        {isReady ? (
+          <Formik
+            initialValues={initialValues}
+            validationSchema={validationSchema}
+            onSubmit={onSubmit}
+          >
+            {({ isSubmitting }) => (
+              <Form
+                id="loginForm"
+                className="flex flex-col gap-12"
+                autoComplete="nope"
+              >
+                <div>
+                  <div className="flex flex-row items-baseline gap-2">
+                    <p className="whitespace-nowrap grow">Connect to: </p>
+                    <ComboField
+                      name="coreSocket"
+                      className="grow"
+                      options={coreList}
+                      allowCustom={true}
+                    />
+                  </div>
+                  {/* <br />
             Don&apos;t have Lodestone?{' '}
             <Link href="/get-started">
               <span className="text-green-accent hover:cursor-pointer hover:text-green">
                 Get started here
               </span>
             </Link> */}
-          </p>
-        </div>
-        <Formik
-          initialValues={initialValues}
-          validationSchema={validationSchema}
-          onSubmit={onSubmit}
-        >
-          {({ isSubmitting }) => (
-            <Form
-              id="loginForm"
-              className="flex flex-col gap-12"
-              autoComplete="nope"
-            >
-              <div className="flex flex-col gap-y-12">
-                <InputField type="text" name="username" label="Username" />
-                <InputField type="password" name="password" label="Password" />
-              </div>
-              <Button type="submit" label="Login" loading={isSubmitting} />
-            </Form>
-          )}
-        </Formik>
+                </div>
+                <div className="flex flex-col gap-y-12">
+                  <InputField type="text" name="username" label="Username" />
+                  <InputField
+                    type="password"
+                    name="password"
+                    label="Password"
+                  />
+                </div>
+                <Button type="submit" label="Login" loading={isSubmitting} />
+              </Form>
+            )}
+          </Formik>
+        ) : (
+          <p>Loading...</p>
+        )}
       </div>
     </div>
   );

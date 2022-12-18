@@ -8,7 +8,7 @@ import { UserPermission } from 'bindings/UserPermission';
 
 // this won't ever change. if it does it will be invalidated manually
 export const useUserInfo = () => {
-  const { token, setToken } = useContext(LodestoneContext);
+  const { token, setToken, socket } = useContext(LodestoneContext);
 
   return useQuery<PublicUser, AxiosError<ClientError>>(
     ['user', 'info'],
@@ -22,7 +22,7 @@ export const useUserInfo = () => {
       onError: (error) => {
         if (error.response?.data?.inner === 'Unauthorized')
           // then token is invalid, delete it
-          setToken('');
+          setToken('', socket);
       },
     }
   );

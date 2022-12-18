@@ -82,7 +82,7 @@ export default function SelectField(props: SelectFieldProps) {
           disabled={disabledVisual}
         >
           <Listbox.Button
-            className={`input-base group min-h-[1em] ${
+            className={`input-base w-full group min-h-[1em] ${
               errorText ? 'border-error' : 'border-normal'
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
           >

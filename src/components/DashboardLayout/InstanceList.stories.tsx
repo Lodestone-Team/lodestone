@@ -90,12 +90,15 @@ const Template: ComponentStory<typeof InstanceList> = () => (
     value={{
       address: 'example.com',
       port: '16662',
+      socket: 'example.com:16662',
       protocol: 'http',
       apiVersion: 'v1',
       isReady: true,
       token: 'example-token',
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      setToken: () => {},
+      setToken: () => {
+        console.error('setToken not implemented');
+      },
+      tokens: {},
     }}
   >
     <QueryClientProvider client={queryClient}>

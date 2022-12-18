@@ -27,7 +27,7 @@ export default function TopNav({
 }) {
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const { token, setToken } = useContext(LodestoneContext);
+  const { token, setToken, socket } = useContext(LodestoneContext);
 
   useEffect(() => {
     if (!token) {
@@ -136,7 +136,7 @@ export default function TopNav({
                     iconRight={faRightFromBracket}
                     onClick={() => {
                       // remove the current token
-                      setToken('');
+                      setToken('', socket);
                       if (userState !== 'logged-in')
                         // redirect to login page
                         pushKeepQuery(router, '/auth');
@@ -159,6 +159,9 @@ export default function TopNav({
                     align="end"
                     disabled={disabled}
                     active={active}
+                    onClick={() => {
+                      pushKeepQuery(router, '/auth');
+                    }}
                   />
                 )}
               </Menu.Item>

@@ -11,11 +11,20 @@ export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
   loading?: boolean;
   options: string[];
+  allowCustom?: boolean;
 };
 
 export default function ComboField(props: ComboFieldProps) {
-  const { label, className, disabled, options, placeholder, loading, ...rest } =
-    props;
+  const {
+    label,
+    className,
+    disabled,
+    options,
+    placeholder,
+    loading,
+    allowCustom,
+    ...rest
+  } = props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
@@ -27,7 +36,7 @@ export default function ComboField(props: ComboFieldProps) {
 
   // reset the field value if the options change
   useEffect(() => {
-    if (selectedValue && !options.includes(selectedValue)) {
+    if (selectedValue && !options.includes(selectedValue) && !allowCustom) {
       field.onChange({
         target: {
           name: field.name,
@@ -104,10 +113,39 @@ export default function ComboField(props: ComboFieldProps) {
           <Combobox.Options
             className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto py-1 shadow-md`}
           >
-            {filteredOptions.length === 0 && query !== '' ? (
-              <div className="relative cursor-default select-none bg-gray-800 py-2 pl-8 pr-4 text-gray-300">
-                Nothing found.
-              </div>
+            {allowCustom && query.length > 0 && (
+              <Combobox.Option
+                value={query}
+                className={({ active }) => {
+                  return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
+                    active ? 'bg-gray-800' : 'bg-gray-900'
+                  }`;
+                }}
+              >
+                {({ selected }) => (
+                  <>
+                    <span
+                      className={`block truncate ${
+                        selected ? 'font-medium' : 'font-normal'
+                      }`}
+                    >
+                      Add &#34;{query}&#34;
+                    </span>
+                    {selected && (
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-accent">
+                        <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
+                      </span>
+                    )}
+                  </>
+                )}
+              </Combobox.Option>
+            )}
+            {filteredOptions.length === 0 && query.length > 0 ? (
+              allowCustom ? null : (
+                <div className="relative cursor-default select-none bg-gray-800 py-2 pl-8 pr-4 text-gray-300">
+                  Nothing found.
+                </div>
+              )
             ) : (
               filteredOptions.map((option) => (
                 <Combobox.Option

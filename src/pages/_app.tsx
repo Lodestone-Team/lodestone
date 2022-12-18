@@ -49,14 +49,23 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
   const { query: address, isReady } = useRouterQuery('address');
   const { query: port } = useRouterQuery('port');
-  const [token, setToken] = useLocalStorage<string>('token', '');
+  const protocol = 'http';
+  const apiVersion = 'v1';
+  const coreAddress = address ?? 'localhost';
+  const corePort = port ?? 16662;
+  const coreSocket = `${coreAddress}:${corePort}`;
+  const [tokens, setTokens] = useLocalStorage<Record<string, string>>(
+    'tokens',
+    {}
+  ); //TODO: clear all outdated tokens
+  const token = tokens[coreSocket] ?? '';
   const { notifications, dispatch } = useNotificationReducer();
   const { ongoingNotifications, ongoingDispatch } =
     useOngoingNotificationReducer();
 
-  const protocol = 'http';
-  const apiVersion = 'v1';
-  const apiAddress = address ?? 'localhost';
+  const setToken = (token: string, coreSocket: string) => {
+    setTokens({ ...tokens, [coreSocket]: token });
+  };
 
   useEffectOnce(() => {
     if (tauri) {
@@ -78,10 +87,8 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   // set axios defaults
   useIsomorphicLayoutEffect(() => {
     if (!isReady) return;
-    axios.defaults.baseURL = `${protocol}://${apiAddress}:${
-      port ?? 16662
-    }/api/${apiVersion}`;
-  }, [apiAddress, port, isReady]);
+    axios.defaults.baseURL = `${protocol}://${coreAddress}:${corePort}/api/${apiVersion}`;
+  }, [coreAddress, port, isReady]);
 
   useIsomorphicLayoutEffect(() => {
     if (!token) {
@@ -100,7 +107,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
       } catch (e) {
         const message = errorToString(e);
         alert(message);
-        setToken('');
+        setToken('', coreSocket);
         delete axios.defaults.headers.common['Authorization'];
       }
     }
@@ -112,13 +119,15 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider
         value={{
-          address: apiAddress as string,
+          address: coreAddress as string,
           port: port ?? '16662',
           protocol,
           apiVersion,
           isReady: isReady,
           token,
           setToken,
+          tokens,
+          socket: coreSocket,
         }}
       >
         <NotificationContext.Provider
