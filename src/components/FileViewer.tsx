@@ -54,7 +54,7 @@ import clsx from 'clsx';
 import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
-import * as toml from 'utils/monaco-languages/toml'
+import * as toml from 'utils/monaco-languages/toml';
 
 type Monaco = typeof monaco;
 
@@ -85,7 +85,11 @@ const useFileList = (uuid: string, path: string, enabled: boolean) =>
     }
   );
 
-const useFileContent = (uuid: string, file: ClientFile | null, enabled: boolean) =>
+const useFileContent = (
+  uuid: string,
+  file: ClientFile | null,
+  enabled: boolean
+) =>
   useQuery<string, Error>(
     ['instance', uuid, 'fileContent', file?.path],
     () => {
@@ -192,11 +196,14 @@ export default function FileViewer() {
 
   // hack to get .lodestone_config detected as json
   const monacoPath =
-    instance.path +
-      direcotrySeparator +
-      (openedFile?.path === '.lodestone_config'
-        ? '.lodestone_config.json'
-        : openedFile?.path) || '';
+    instance.path + direcotrySeparator + openedFile?.path || '';
+
+  // for overwriting the file type for certain files
+  const monacoLanguage = monacoPath.endsWith('.lodestone_config')
+    ? 'json'
+    : monacoPath.endsWith('.toml')
+    ? 'toml'
+    : undefined;
 
   // const showingMonaco = openedFile;
   const showingMonaco = openedFile && !isFileLoading && !fileError;
@@ -302,7 +309,7 @@ export default function FileViewer() {
   );
 
   const breadcrumb = (
-    <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 whitespace-nowrap text-base font-medium truncate">
+    <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 truncate whitespace-nowrap text-base font-medium">
       <p className="truncate">
         {/* instance name */}
         <span
@@ -815,7 +822,6 @@ export default function FileViewer() {
                     defaultValue={originalFileContent}
                     theme="lodestone-dark"
                     path={monacoPath}
-                    language={'toml'}
                     className="bg-gray-800"
                     options={{
                       padding: {
@@ -825,6 +831,7 @@ export default function FileViewer() {
                         enabled: false,
                       },
                     }}
+                    language={monacoLanguage}
                     saveViewState={true}
                     onMount={handleEditorDidMount}
                     keepCurrentModel={true}
