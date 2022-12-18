@@ -20,14 +20,16 @@ import { useRouterQuery } from 'utils/hooks';
 import router from 'next/router';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import NotificationPanel from './NotificationPanel';
+import { useUserAuthorized, useUserInfo, useUserLoggedIn } from 'data/UserInfo';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { query: uuid } = useRouterQuery('uuid');
-  const { isLoading, isError, data: instances, error } = useInstanceList();
+  const { query: queryUuid } = useRouterQuery('uuid');
+  const userLoggedIn = useUserLoggedIn();
+  const { isLoading, isError, data: dataInstances, error } = useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
   const [showNotifications, setShowNotifications] = useLocalStorage(
@@ -36,14 +38,16 @@ export default function DashboardLayout({
   );
   const { width, height } = useWindowSize();
 
+  const instances = userLoggedIn ? dataInstances : null;
+
   // called for side effects
   useEventStream();
   useClientInfo();
 
   useEffect(() => {
-    if (uuid && instances && uuid in instances) setInstanceState(instances[uuid]);
+    if (queryUuid && instances && queryUuid in instances) setInstanceState(instances[queryUuid]);
     else setInstanceState(null);
-  }, [instances, uuid]);
+  }, [instances, queryUuid]);
 
   function setInstance(instance: InstanceInfo | null) {
     if (instance === null) {

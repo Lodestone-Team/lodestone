@@ -1,7 +1,10 @@
+import { faServer } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InstanceCard from 'components/InstanceCard';
 import InstanceLoadingCard from 'components/InstanceLoadingCard';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
+import { useUserAuthorized, useUserLoggedIn } from 'data/UserInfo';
 import { useContext } from 'react';
 import { match, otherwise } from 'variant';
 
@@ -18,12 +21,14 @@ export default function InstanceList({
     selectInstance,
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
+  const userLoggedIn = useUserLoggedIn();
 
   return (
     <div
       className={`gap -mx-1.5 flex min-h-0 flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
     >
-      {instances &&
+      {userLoggedIn ? (
+        instances &&
         Object.values(instances).map((instance) => (
           <InstanceCard
             key={instance.uuid}
@@ -33,7 +38,20 @@ export default function InstanceList({
             }}
             {...instance}
           />
-        ))}
+        ))
+    ) : (
+        <div
+          className={`flex w-fit select-none flex-col items-stretch rounded-xl border border-gray-faded/30 bg-gray-800 gap-4 py-4 px-6 text-base font-semibold tracking-tight`}
+        >
+          <FontAwesomeIcon
+            icon={faServer}
+            className="text-larger text-gray-400"
+          />
+          <p className="text-xl text-center text-gray-400">
+            Log in to view game server instances.
+          </p>
+        </div>
+      )}
       {ongoingNotifications &&
         ongoingNotifications
           .map((notification) => {

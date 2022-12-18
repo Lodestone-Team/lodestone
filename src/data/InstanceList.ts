@@ -51,7 +51,7 @@ export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
 };
 
 // instance list sorted by creation time
-export const useInstanceList = () =>
+export const useInstanceList = (enabled = true) =>
   useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(
     ['instances', 'list'],
     () => {
@@ -72,6 +72,6 @@ export const useInstanceList = () =>
       });
     },
     {
-      enabled: useContext(LodestoneContext).isReady,
+      enabled: useContext(LodestoneContext).isReady && enabled,
     }
   );

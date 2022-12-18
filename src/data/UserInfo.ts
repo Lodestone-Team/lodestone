@@ -66,3 +66,8 @@ export const useUserAuthorized = (
   const { data: user } = useUserInfo();
   return isUserAuthorized(user, permission, instanceId);
 };
+
+export const useUserLoggedIn = () => {
+  const {data: user} = useUserInfo();
+  return !!user;
+}
