@@ -101,7 +101,7 @@ export default function GameConsole() {
     <div className="relative flex h-full w-full flex-col rounded-lg border border-gray-faded/30">
       <Tooltip
         overlay={<span>{consoleStatusMessage}</span>}
-        placement="bottom"
+        placement="top"
         trigger={['hover']}
         mouseEnterDelay={0}
       >
