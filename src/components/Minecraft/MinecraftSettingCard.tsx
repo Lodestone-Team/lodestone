@@ -260,14 +260,26 @@ export default function MinecraftSettingCard() {
           </h2>
         </div>
         <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          <div className="flex flex-row items-center justify-between group relative gap-4 bg-gray-800 px-4 py-3 text-base h-full">
+          <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-base">
             <div className="flex min-w-0 grow flex-col">
-              <label className="text-base font-medium text-red-accent">
-                Delete Instance
-              </label>
-              <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-red">
-                Delete this game instance and all of its data.
-              </div>
+              {can_delete_instance ? (
+                <label className="text-base font-medium text-red-accent">
+                  Delete Instance
+                </label>
+              ) : (
+                <label className="text-base font-medium text-gray-300">
+                  Delete Instance
+                </label>
+              )}
+              {can_delete_instance ? (
+                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-red">
+                  Delete this game instance and all of its data.
+                </div>
+              ) : (
+                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
+                  No permission
+                </div>
+              )}
             </div>
             <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
               <Button
@@ -278,23 +290,25 @@ export default function MinecraftSettingCard() {
                   axiosWrapper({
                     method: 'DELETE',
                     url: `/instance/${instance.uuid}`,
-                  }).then(() => {
-                    queryClient.invalidateQueries(['instances', 'list']);
-                    router.push(
-                      {
-                        pathname: '/',
-                        query: {
-                          ...router.query,
-                          uuid: null,
+                  })
+                    .then(() => {
+                      queryClient.invalidateQueries(['instances', 'list']);
+                      router.push(
+                        {
+                          pathname: '/',
+                          query: {
+                            ...router.query,
+                            uuid: null,
+                          },
                         },
-                      },
-                      undefined,
-                      { shallow: true }
-                    );
-                  }).catch((err) => {
-                    const err_message = errorToString(err);
-                    alert(err_message);
-                  });
+                        undefined,
+                        { shallow: true }
+                      );
+                    })
+                    .catch((err) => {
+                      const err_message = errorToString(err);
+                      alert(err_message);
+                    });
                 }}
               />
             </div>

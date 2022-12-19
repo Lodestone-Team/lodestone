@@ -60,7 +60,7 @@ export default function GameConsole() {
   let consoleStatusColor = 'text-gray-500';
   switch (consoleStatus) {
     case 'no-permission':
-      consoleStatusMessage = '';
+      consoleStatusMessage = 'No permission to access console';
       consoleStatusColor = 'text-red-accent';
       break;
     case 'loading':
