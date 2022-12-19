@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import { useEffect, useRef, useState } from 'react';
 
-import { useIsomorphicLayoutEffect } from 'usehooks-ts';
+import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 
 export function useIntervalImmediate(
   callback: () => void,
@@ -86,33 +86,59 @@ export function useIntervalClockSeconds(callback: () => void, seconds: number) {
   useIntervalClock(callback, delay, initialDelayGen);
 }
 
-export function useRouterQuery(queryString: string) {
+/**
+ * Uses both local storage and the query string (example: ?query=value) to store a value.
+ * @param key a unique key to store the value under
+ * @param defaultValue the default value to use if there is no value in local storage or the query string
+ * @param defaultToLocal if true, the value in local storage will be used if there is no value in the query string
+ * @param visible if true, the query string will be updated when the value is changed
+ * @returns
+ */
+export function useRouterQuery(
+  key: string,
+  defaultValue?: string,
+  defaultToLocal = true,
+  visible = true
+) {
   const router = useRouter();
-  const [state, setState] = useState<string | undefined>(undefined);
+  const [storage, setStorage] = useLocalStorage<string>(
+    `${key}-router-query`,
+    defaultValue || ''
+  );
   const [ready, setReady] = useState(false);
 
-  const setQuery = (value: string) => {
-    router.replace(
-      {
-        pathname: router.pathname,
-        query: { ...router.query, [queryString]: value },
-      },
-      undefined,
-      { shallow: true }
-    );
+  const setQuery = (value: string, pathname?: string) => {
+    setStorage(value);
+    if (visible)
+      router.replace(
+        {
+          pathname: pathname || router.pathname,
+          query: { ...router.query, [key]: value },
+        },
+        undefined,
+        { shallow: true }
+      );
   };
 
   useEffect(() => {
     // check if it's an array
-    const val = router.query[queryString];
+    const val = router.query[key];
+    let newVal: string | undefined;
     if (!val) {
-      setState(undefined);
+      newVal = undefined;
     } else if (Array.isArray(val)) {
-      setState(val[0]);
+      newVal = val[0];
     } else {
-      setState(val);
+      newVal = val;
     }
-  }, [router.query, queryString]);
+
+    if (defaultToLocal && !newVal && storage) {
+      newVal = storage;
+      if (visible) setQuery(newVal);
+    } else if (newVal !== storage) {
+      setStorage(newVal || '');
+    }
+  }, [router.query, key]);
 
   useEffect(() => {
     setReady(router.isReady);
@@ -120,7 +146,7 @@ export function useRouterQuery(queryString: string) {
 
   return {
     isReady: ready,
-    query: state,
+    query: storage,
     setQuery,
   };
 }

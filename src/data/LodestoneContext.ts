@@ -13,6 +13,10 @@ interface LodestoneContext {
   setToken: (token: string, coreSocket: string) => void;
   /** All the tokens, a record from CoreSocket to token */
   tokens: Record<string, string>;
+  setAddress: (address: string) => void;
+  setPort: (port: string) => void;
+  setProtocol: (protocol: string) => void;
+  setApiVersion: (apiVersion: string) => void;
 }
 
 export const LodestoneContext = createContext<LodestoneContext>({
@@ -27,4 +31,16 @@ export const LodestoneContext = createContext<LodestoneContext>({
     console.error('setToken not implemented');
   },
   tokens: {},
+  setAddress: () => {
+    console.error('setAddress not implemented');
+  },
+  setPort: () => {
+    console.error('setPort not implemented');
+  },
+  setProtocol: () => {
+    console.error('setProtocol not implemented');
+  },
+  setApiVersion: () => {
+    console.error('setApiVersion not implemented');
+  },
 });

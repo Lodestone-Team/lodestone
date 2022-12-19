@@ -21,7 +21,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import Button from 'components/Atoms/Button';
-import { useRouter } from 'next/router';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import FileViewer from 'components/FileViewer';
 import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
@@ -34,7 +33,6 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 const SettingsPage: NextPageWithLayout = () => {
   const { address } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
-  const router = useRouter();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const { data: globalSettings, isLoading, error } = useGlobalSettings();
   const { data: userInfo, isLoading: userLoading } = useUserInfo();

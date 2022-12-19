@@ -19,7 +19,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import Button from 'components/Atoms/Button';
-import { useRouter } from 'next/router';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import FileViewer from 'components/FileViewer';
 import { useUserAuthorized } from 'data/UserInfo';

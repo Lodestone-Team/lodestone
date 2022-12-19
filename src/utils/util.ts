@@ -65,6 +65,17 @@ export const pushKeepQuery = (router: NextRouter, pathname: string, shallow = tr
   );
 };
 
+export const setQuery = (router: NextRouter, key: string, value?: string, pathname?: string) => {
+  router.push(
+    {
+      pathname: pathname || router.pathname,
+      query: { ...router.query, [key]: value },
+    },
+    undefined,
+    { shallow: true }
+  );
+}
+
 export function isAxiosError<ResponseType>(
   error: unknown
 ): error is AxiosError<ResponseType> {

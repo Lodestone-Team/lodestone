@@ -17,20 +17,27 @@ import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useEffect, useState } from 'react';
 import { useInstanceList } from 'data/InstanceList';
 import { useRouterQuery } from 'utils/hooks';
-import router from 'next/router';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import NotificationPanel from './NotificationPanel';
 import { useUserAuthorized, useUserInfo, useUserLoggedIn } from 'data/UserInfo';
+import { pushKeepQuery } from 'utils/util';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { query: queryUuid } = useRouterQuery('uuid');
+  const { query: queryUuid, setQuery } = useRouterQuery('instance');
   const userLoggedIn = useUserLoggedIn();
-  const { isLoading, isError, data: dataInstances, error } = useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
+  const {
+    isLoading,
+    isError,
+    data: dataInstances,
+    error,
+  } = useInstanceList(userLoggedIn);
+  const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
+    undefined
+  );
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
   const [showNotifications, setShowNotifications] = useLocalStorage(
     'showNotifications',
@@ -38,44 +45,25 @@ export default function DashboardLayout({
   );
   const { width, height } = useWindowSize();
 
-  const instances = userLoggedIn ? dataInstances : null;
+  const instances = userLoggedIn ? dataInstances : undefined;
 
   // called for side effects
   useEventStream();
   useClientInfo();
 
   useEffect(() => {
-    if (queryUuid && instances && queryUuid in instances) setInstanceState(instances[queryUuid]);
-    else setInstanceState(null);
+    if (queryUuid && instances && queryUuid in instances)
+      setInstanceState(instances[queryUuid]);
+    else setInstanceState(undefined);
   }, [instances, queryUuid]);
 
-  function setInstance(instance: InstanceInfo | null) {
-    if (instance === null) {
-      setInstanceState(null);
-      router.push(
-        {
-          pathname: '/',
-          query: {
-            ...router.query,
-            uuid: null,
-          },
-        },
-        undefined,
-        { shallow: true }
-      );
+  function setInstance(instance?: InstanceInfo) {
+    if (instance === undefined) {
+      setInstanceState(undefined);
+      setQuery('', '/');
     } else {
       setInstanceState(instance);
-      router.push(
-        {
-          pathname: '/dashboard',
-          query: {
-            ...router.query,
-            uuid: instance.uuid,
-          },
-        },
-        undefined,
-        { shallow: true }
-      );
+      setQuery(instance.uuid, '/dashboard');
     }
   }
 
@@ -122,11 +110,9 @@ export default function DashboardLayout({
               ) : (
                 <div
                   className="absolute right-2 -top-2 h-full w-96 rounded-lg drop-shadow-lg child:h-full"
-                  style={
-                    {
-                      width: rightNavSize,
-                    }
-                  }
+                  style={{
+                    width: rightNavSize,
+                  }}
                 >
                   <NotificationPanel className="rounded-lg border" />
                 </div>

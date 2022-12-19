@@ -4,14 +4,14 @@ import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext } from 'react';
 import { parse } from 'minecraft-motd-util';
 import { MOTDRender } from 'components/Atoms/MOTDRender';
-import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
+import { axiosWrapper, convertUnicode, errorToString, pushKeepQuery, setQuery } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/router';
 
 export default function MinecraftSettingCard() {
-  const { selectedInstance: instance } = useContext(InstanceContext);
+  const { selectedInstance: instance, selectInstance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
   const supportedOptions = manifest?.supported_operations
@@ -293,17 +293,7 @@ export default function MinecraftSettingCard() {
                   })
                     .then(() => {
                       queryClient.invalidateQueries(['instances', 'list']);
-                      router.push(
-                        {
-                          pathname: '/',
-                          query: {
-                            ...router.query,
-                            uuid: null,
-                          },
-                        },
-                        undefined,
-                        { shallow: true }
-                      );
+                      selectInstance(undefined);
                     })
                     .catch((err) => {
                       const err_message = errorToString(err);

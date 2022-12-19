@@ -35,22 +35,6 @@ const getRamUsage = async (): Promise<[number, number]> => {
 };
 
 const Home: NextPageWithLayout = () => {
-  const router = useRouter();
-  // get rid of uuid from query
-  const { uuid } = router.query;
-
-  useEffect(() => {
-    if (uuid) {
-      router.push({
-        pathname: `/dashboard`,
-        query: {
-          ...router.query,
-        },
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uuid]);
-
   return (
     // used to possibly center the content
     <div

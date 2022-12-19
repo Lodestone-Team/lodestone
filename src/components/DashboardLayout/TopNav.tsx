@@ -15,6 +15,7 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Avatar from 'boring-avatars';
 import { Menu, Transition } from '@headlessui/react';
+import { InstanceContext } from 'data/InstanceContext';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -28,6 +29,7 @@ export default function TopNav({
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
   const { token, setToken, socket } = useContext(LodestoneContext);
+  const { selectInstance } = useContext(InstanceContext);
 
   useEffect(() => {
     if (!token) {
@@ -51,17 +53,7 @@ export default function TopNav({
           alt="logo"
           className="w-32 hover:cursor-pointer"
           onClick={() => {
-            router.push(
-              {
-                pathname: '/',
-                query: {
-                  ...router.query,
-                  uuid: undefined,
-                },
-              },
-              undefined,
-              { shallow: true }
-            );
+            selectInstance(undefined);
           }}
         />
       </div>
@@ -69,17 +61,7 @@ export default function TopNav({
         icon={faCog}
         className="w-4 select-none text-gray-faded/50 hover:cursor-pointer hover:text-white/75"
         onClick={() => {
-          router.push(
-            {
-              pathname: '/settings/',
-              query: {
-                ...router.query,
-                uuid: undefined,
-              },
-            },
-            undefined,
-            { shallow: true }
-          );
+          pushKeepQuery(router, '/settings');
         }}
       />
       <FontAwesomeIcon

@@ -47,18 +47,30 @@ axios.defaults.timeout = 5000;
 
 function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
-  const { query: address, isReady } = useRouterQuery('address');
-  const { query: port } = useRouterQuery('port');
-  const protocol = 'http';
-  const apiVersion = 'v1';
-  const coreAddress = address ?? 'localhost';
-  const corePort = port ?? 16662;
-  const coreSocket = `${coreAddress}:${corePort}`;
+  const {
+    query: address,
+    isReady,
+    setQuery: setAddress,
+  } = useRouterQuery('address', 'localhost');
+  const { query: port, setQuery: setPort } = useRouterQuery('port', '16662');
+  const { query: protocol, setQuery: setProtocol } = useRouterQuery(
+    'protocol',
+    'http',
+    true,
+    false //TODO: make it true when https is supported
+  );
+  const { query: apiVersion, setQuery: setApiVersion } = useRouterQuery(
+    'apiVersion',
+    'v1',
+    true,
+    false //TODO: make it true when there are multiple api versions
+  );
+  const socket = `${address}:${port}`;
   const [tokens, setTokens] = useLocalStorage<Record<string, string>>(
     'tokens',
     {}
   ); //TODO: clear all outdated tokens
-  const token = tokens[coreSocket] ?? '';
+  const token = tokens[socket] ?? '';
   const { notifications, dispatch } = useNotificationReducer();
   const { ongoingNotifications, ongoingDispatch } =
     useOngoingNotificationReducer();
@@ -87,8 +99,8 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   // set axios defaults
   useIsomorphicLayoutEffect(() => {
     if (!isReady) return;
-    axios.defaults.baseURL = `${protocol}://${coreAddress}:${corePort}/api/${apiVersion}`;
-  }, [coreAddress, port, isReady]);
+    axios.defaults.baseURL = `${protocol}://${socket}/api/${apiVersion}`;
+  }, [socket, isReady]);
 
   useIsomorphicLayoutEffect(() => {
     if (!token) {
@@ -107,7 +119,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
       } catch (e) {
         const message = errorToString(e);
         alert(message);
-        setToken('', coreSocket);
+        setToken('', socket);
         delete axios.defaults.headers.common['Authorization'];
       }
     }
@@ -119,7 +131,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider
         value={{
-          address: coreAddress as string,
+          address: address as string,
           port: port ?? '16662',
           protocol,
           apiVersion,
@@ -127,7 +139,11 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
           token,
           setToken,
           tokens,
-          socket: coreSocket,
+          socket: socket,
+          setAddress,
+          setPort,
+          setProtocol,
+          setApiVersion,
         }}
       >
         <NotificationContext.Provider
