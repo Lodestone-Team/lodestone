@@ -111,7 +111,7 @@ export default function GameConsole() {
         />
       </Tooltip>
       {!canAccessConsole || consoleStatus === 'no-permission' ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-900">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faServer}
             className="text-xlarge text-gray-400"
@@ -121,7 +121,7 @@ export default function GameConsole() {
           </p>
         </div>
       ) : consoleLog.length === 0 ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-900">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faServer}
             className="text-xlarge text-gray-400"
