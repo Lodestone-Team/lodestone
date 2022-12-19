@@ -1,10 +1,11 @@
-import { faServer } from '@fortawesome/free-solid-svg-icons';
+import { faCircle, faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import axios from 'axios';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useConsoleStream } from 'data/ConsoleStream';
 import { InstanceContext } from 'data/InstanceContext';
 import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
+import Tooltip from 'rc-tooltip';
 import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
@@ -56,28 +57,36 @@ export default function GameConsole() {
   };
 
   let consoleStatusMessage = '';
+  let consoleStatusColor = 'text-gray-500';
   switch (consoleStatus) {
     case 'no-permission':
       consoleStatusMessage = '';
+      consoleStatusColor = 'text-red-accent';
       break;
     case 'loading':
       consoleStatusMessage = 'Loading console...';
+      consoleStatusColor = 'text-gray-500';
       break;
     case 'buffered':
       consoleStatusMessage = 'History messages. No live updates';
+      consoleStatusColor = 'text-gray-500';
       break;
     case 'live':
       consoleStatusMessage = 'Console is live';
+      consoleStatusColor = 'text-green-accent';
       break;
     case 'live-no-buffer':
       consoleStatusMessage =
         'Console is live but failed to fetch history. Your internet connection may be unstable';
+      consoleStatusColor = 'text-ochre';
       break;
     case 'closed':
       consoleStatusMessage = 'Console is closed';
+      consoleStatusColor = 'text-red-accent';
       break;
     case 'error':
       consoleStatusMessage = 'Connection lost or error';
+      consoleStatusColor = 'text-red-accent';
   }
 
   let consoleInputMessage = '';
@@ -90,11 +99,17 @@ export default function GameConsole() {
 
   return (
     <div className="relative flex h-full w-full flex-col rounded-lg border border-gray-faded/30">
-      {consoleStatusMessage && (
-        <div className="absolute top-0 right-0 select-none p-4 py-1 font-mono text-small font-light tracking-tight text-gray-500 hover:text-gray-400">
-          {consoleStatusMessage}
-        </div>
-      )}
+      <Tooltip
+        overlay={<span>{consoleStatusMessage}</span>}
+        placement="bottom"
+        trigger={['hover']}
+        mouseEnterDelay={0}
+      >
+        <FontAwesomeIcon
+          icon={faCircle}
+          className={`absolute top-0 right-0 select-none p-1.5 text-small ${consoleStatusColor}`}
+        />
+      </Tooltip>
       {!canAccessConsole || consoleStatus === 'no-permission' ? (
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-900">
           <FontAwesomeIcon
@@ -115,7 +130,7 @@ export default function GameConsole() {
             No console messages
           </p>
         </div>
-      ):(
+      ) : (
         <ol
           className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small font-light tracking-tight text-gray-300"
           ref={listRef}
