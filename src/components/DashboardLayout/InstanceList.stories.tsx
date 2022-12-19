@@ -99,6 +99,18 @@ const Template: ComponentStory<typeof InstanceList> = () => (
         console.error('setToken not implemented');
       },
       tokens: {},
+      setAddress: () => {
+        console.error('setAddress not implemented');
+      },
+      setPort: () => {
+        console.error('setPort not implemented');
+      },
+      setProtocol: () => {
+        console.error('setProtocol not implemented');
+      },
+      setApiVersion: () => {
+        console.error('setApiVersion not implemented');
+      },
     }}
   >
     <QueryClientProvider client={queryClient}>
