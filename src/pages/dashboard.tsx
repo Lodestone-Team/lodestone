@@ -185,7 +185,7 @@ const Dashboard: NextPageWithLayout = () => {
             }}
           />
         </div>
-        <div className="flex w-full flex-row items-center gap-2">
+        {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield
             initialText={instance.description}
             type={'description'}
@@ -193,7 +193,7 @@ const Dashboard: NextPageWithLayout = () => {
             placeholder="No description"
             containerClassName="min-w-0"
           />
-        </div>
+        </div> */}
         <Tab.Group
           selectedIndex={selectedTabIndex}
           onChange={setSelectedTabIndex}
