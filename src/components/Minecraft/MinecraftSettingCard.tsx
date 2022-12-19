@@ -4,7 +4,11 @@ import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext } from 'react';
 import { parse } from 'minecraft-motd-util';
 import { MOTDRender } from 'components/Atoms/MOTDRender';
-import { convertUnicode } from 'utils/util';
+import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
+import Button from 'components/Atoms/Button';
+import { useUserAuthorized } from 'data/UserInfo';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/router';
 
 export default function MinecraftSettingCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -14,6 +18,9 @@ export default function MinecraftSettingCard() {
     ? manifest.supported_operations
     : [];
   const supportedSettings = manifest?.settings ? manifest.settings : [];
+  const can_delete_instance = useUserAuthorized('can_delete_instance');
+  const queryClient = useQueryClient();
+  const router = useRouter();
 
   const commonSettings: {
     [key: string]: {
@@ -79,7 +86,7 @@ export default function MinecraftSettingCard() {
       type: 'text',
       descriptionFunc: (motd) => (
         <div
-          className={`mt-1 p-2 text-base font-minecraft whitespace-pre-wrap text-[gray]`}
+          className={`mt-1 whitespace-pre-wrap p-2 font-minecraft text-base text-[gray]`}
           style={{ backgroundImage: `url(/assets/dirt.png)` }}
         >
           <MOTDRender motd={parse(convertUnicode(motd))} />
@@ -243,6 +250,55 @@ export default function MinecraftSettingCard() {
               </h2>
             </div>
           )}
+        </div>
+      </div>
+      <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
+        <div className="w-72 shrink-0">
+          <h1 className="text-large font-black"> Danger Zone </h1>
+          <h2 className="text-base font-medium italic tracking-tight text-white/50">
+            These settings can cause irreversible damage to your server.
+          </h2>
+        </div>
+        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+          <div className="flex flex-row items-center justify-between group relative gap-4 bg-gray-800 px-4 py-3 text-base h-full">
+            <div className="flex min-w-0 grow flex-col">
+              <label className="text-base font-medium text-red-accent">
+                Delete Instance
+              </label>
+              <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-red">
+                Delete this game instance and all of its data.
+              </div>
+            </div>
+            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
+              <Button
+                label="Delete"
+                color="red"
+                disabled={!can_delete_instance}
+                onClick={() => {
+                  axiosWrapper({
+                    method: 'DELETE',
+                    url: `/instance/${instance.uuid}`,
+                  }).then(() => {
+                    queryClient.invalidateQueries(['instances', 'list']);
+                    router.push(
+                      {
+                        pathname: '/',
+                        query: {
+                          ...router.query,
+                          uuid: null,
+                        },
+                      },
+                      undefined,
+                      { shallow: true }
+                    );
+                  }).catch((err) => {
+                    const err_message = errorToString(err);
+                    alert(err_message);
+                  });
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </>

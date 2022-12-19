@@ -31,9 +31,7 @@ const Dashboard: NextPageWithLayout = () => {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
-  const router = useRouter();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
-  const canDeleteInstance = useUserAuthorized('can_delete_instance');
 
   if (!instance || !uuid) {
     return (
@@ -58,6 +56,14 @@ const Dashboard: NextPageWithLayout = () => {
   const tabList = {
     minecraft: [
       {
+        title: 'Overview',
+        content: (
+          <>
+            <MinecraftPerformanceCard />
+          </>
+        ),
+      },
+      {
         title: 'Settings',
         content: (
           <>
@@ -75,14 +81,6 @@ const Dashboard: NextPageWithLayout = () => {
         content: <FileViewer />,
       },
       {
-        title: 'Overview',
-        content: (
-          <DashboardCard>
-            <h1 className="text-medium font-bold"> Placeholder </h1>
-          </DashboardCard>
-        ),
-      },
-      {
         title: 'Resources',
         content: (
           <DashboardCard>
@@ -97,10 +95,6 @@ const Dashboard: NextPageWithLayout = () => {
             <h1 className="text-medium font-bold"> Placeholder </h1>
           </DashboardCard>
         ),
-      },
-      {
-        title: 'Monitor',
-        content: <MinecraftPerformanceCard />,
       },
     ],
   };
@@ -142,7 +136,7 @@ const Dashboard: NextPageWithLayout = () => {
             containerClassName="min-w-0"
           />
         </div>
-        <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
+        <div className="-mt-2 flex flex-row flex-wrap items-center gap-4 mb-2">
           <GameIcon
             game_type={instance.game_type}
             game_flavour={instance.flavour}
@@ -161,29 +155,6 @@ const Dashboard: NextPageWithLayout = () => {
           >
             <ClipboardTextfield text={`${address}:${instance.port}`} />
           </Label>
-          <Button
-            label="Delete"
-            disabled={!canDeleteInstance}
-            onClick={() => {
-              axiosWrapper({
-                method: 'DELETE',
-                url: `/instance/${uuid}`,
-              }).then(() => {
-                queryClient.invalidateQueries(['instances', 'list']);
-                router.push(
-                  {
-                    pathname: '/',
-                    query: {
-                      ...router.query,
-                      uuid: null,
-                    },
-                  },
-                  undefined,
-                  { shallow: true }
-                );
-              });
-            }}
-          />
         </div>
         {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield
