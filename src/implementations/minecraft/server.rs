@@ -589,8 +589,9 @@ impl TServer for MinecraftInstance {
         }
     }
     async fn monitor(&self) -> MonitorReport {
+        let mut sys = self.system.lock().await;
+        sys.refresh_memory();
         if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
-            let mut sys = self.system.lock().await;
             sys.refresh_process(Pid::from_u32(pid));
             let proc = (*sys).process(Pid::from_u32(pid));
             if let Some(proc) = proc {
