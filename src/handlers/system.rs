@@ -18,7 +18,7 @@ pub async fn get_ram(Extension(state): Extension<AppState>) -> Json<MemInfo> {
     sys.refresh_memory();
     Json(MemInfo {
         total: sys.total_memory(),
-        free: sys.free_memory(),
+        free: sys.available_memory(),
     })
 }
 
