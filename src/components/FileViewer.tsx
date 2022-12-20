@@ -55,6 +55,7 @@ import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
 import * as toml from 'utils/monaco-languages/toml';
+import { useRouterQuery } from 'utils/hooks';
 
 type Monaco = typeof monaco;
 
@@ -120,7 +121,16 @@ export default function FileViewer() {
   const monaco = useMonaco();
   const queryClient = useQueryClient();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const [path, setPath] = useState('.');
+  const pathKey = `path-${instance?.uuid}`;
+  const {
+    isReady,
+    query: pathParent,
+    setQuery: setPathParent,
+  } = useRouterQuery('path', { [pathKey]: '.' }, false);
+  const path = pathParent[pathKey] ?? '.';
+  const setPath = (newPath: string) => {
+    setPathParent({ [pathKey]: newPath });
+  };
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [fileContent, setFileContent] = useState('');
   const fileContentRef = useRef<string>();

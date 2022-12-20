@@ -120,7 +120,7 @@ export function useRouterQuery(
       });
       console.log('newQuery', newQuery);
 
-      router.replace(
+      router.push(
         {
           pathname: pathname || router.pathname,
           query: newQuery,
