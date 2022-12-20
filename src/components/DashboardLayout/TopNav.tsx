@@ -123,7 +123,7 @@ export default function TopNav({
                       setToken('', socket);
                       if (userState !== 'logged-in')
                         // redirect to login page
-                        pushKeepQuery(router, '/login/user');
+                        pushKeepQuery(router, '/login/user/select');
                     }}
                     variant="text"
                     align="end"

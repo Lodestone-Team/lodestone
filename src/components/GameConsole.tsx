@@ -61,7 +61,7 @@ export default function GameConsole() {
   switch (consoleStatus) {
     case 'no-permission':
       consoleStatusMessage = 'No permission to access console';
-      consoleStatusColor = 'text-red-accent';
+      consoleStatusColor = 'text-gray-500';
       break;
     case 'loading':
       consoleStatusMessage = 'Loading console...';
@@ -87,6 +87,11 @@ export default function GameConsole() {
     case 'error':
       consoleStatusMessage = 'Connection lost or error';
       consoleStatusColor = 'text-red-accent';
+  }
+  // overwrites
+  if (instance.state !== 'Running') {
+    consoleStatusMessage = `Instance is ${instance.state.toLowerCase()}`;
+    consoleStatusColor = 'text-gray-500';
   }
 
   let consoleInputMessage = '';
