@@ -89,28 +89,21 @@ const queryClient = new QueryClient();
 const Template: ComponentStory<typeof InstanceList> = () => (
   <LodestoneContext.Provider
     value={{
-      address: 'example.com',
-      port: LODESTONE_PORT.toString(),
-      socket: `example.com:${LODESTONE_PORT}`,
-      protocol: 'http',
-      apiVersion: 'v1',
+      core: {
+        address: 'example.com',
+        port: LODESTONE_PORT.toString(),
+        protocol: 'http',
+        apiVersion: 'v1',
+      },
+      coreList: [],
       isReady: true,
       token: 'example-token',
       setToken: () => {
         console.error('setToken not implemented');
       },
       tokens: {},
-      setAddress: () => {
-        console.error('setAddress not implemented');
-      },
-      setPort: () => {
-        console.error('setPort not implemented');
-      },
-      setProtocol: () => {
-        console.error('setProtocol not implemented');
-      },
-      setApiVersion: () => {
-        console.error('setApiVersion not implemented');
+      setCore: () => {
+        console.error('setCores not implemented');
       },
     }}
   >
@@ -121,6 +114,4 @@ const Template: ComponentStory<typeof InstanceList> = () => (
 );
 
 export const Default = Template.bind({});
-Default.args = {
-  
-};
+Default.args = {};

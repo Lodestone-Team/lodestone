@@ -50,7 +50,7 @@ const Auth: NextPageWithLayout = () => {
           throw new Error('Invalid response, setup may be invalid');
       })
       .then(() => {
-        setCore(values, '/login/user');
+        setCore(values, '/login/user/select');
         actions.setSubmitting(false);
       })
       .catch((err) => {

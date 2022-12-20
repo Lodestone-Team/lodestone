@@ -14,7 +14,7 @@ export default function LeftNav({ className }: { className?: string }) {
   const [showCreateInstance, setShowCreateInstance] = useState(false);
   const canCreateInstance = useUserAuthorized('can_create_instance');
 
-  const systemName = clientInfoLoading ? '...' : clientInfo?.client_name;
+  const systemName = clientInfoLoading ? '...' : clientInfo?.core_name;
   const cpu = clientInfoLoading ? '...' : clientInfo?.cpu;
   const os = clientInfoLoading ? '...' : clientInfo?.os;
   const up_since = clientInfoLoading ? 0 : clientInfo?.up_since;

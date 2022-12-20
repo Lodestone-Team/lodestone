@@ -3,7 +3,7 @@ import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
 import { useContext, useEffect } from 'react';
 import { pushKeepQuery } from 'utils/util';
-import { NextPageWithLayout } from '../_app';
+import { NextPageWithLayout } from '../../_app';
 import Link from 'next/link';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ClientError } from 'bindings/ClientError';
@@ -15,6 +15,7 @@ import ComboField from 'components/Atoms/Form/ComboField';
 import { useCoreInfo } from 'data/SystemInfo';
 import NoSSR from 'react-no-ssr';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
+import { useUserInfo } from 'data/UserInfo';
 
 type LoginValues = {
   username: string;
@@ -34,13 +35,12 @@ const Auth: NextPageWithLayout = () => {
   const socket = `${address}:${port}`;
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
+  const userInfo = useUserInfo();
 
   const initialValues: LoginValues = {
     username: '',
     password: '',
   };
-
-  console.log(initialValues);
 
   const onSubmit = (
     values: LoginValues,
@@ -125,8 +125,8 @@ const Auth: NextPageWithLayout = () => {
                 <div className="flex w-full flex-row justify-end gap-4">
                   <Button
                     icon={faArrowLeft}
-                    label="Change Core"
-                    onClick={() => pushKeepQuery(router, '/login/core/select')}
+                    label="Back"
+                    onClick={() => router.back()}
                   />
                   <Button
                     type="submit"
