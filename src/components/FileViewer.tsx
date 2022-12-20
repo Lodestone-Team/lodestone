@@ -448,7 +448,7 @@ export default function FileViewer() {
             key={'..'}
             className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
             onClick={() => {
-              setPath(parentPath);
+              setPath(parentPath(path));
               setOpenedFile(null);
               setTickedFiles([]);
             }}
