@@ -110,7 +110,7 @@ const Auth: NextPageWithLayout = () => {
                     name="core"
                     className="flex-1 grow"
                     options={coreList}
-                    label="API Version"
+                    label="Select Core"
                   />
                   <p>OR</p>
                   <Button

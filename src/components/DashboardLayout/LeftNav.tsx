@@ -26,7 +26,7 @@ export default function LeftNav({ className }: { className?: string }) {
 
   return (
     <div className={`flex w-full flex-col items-center px-4 ${className}`}>
-      <div className="flex w-full grow flex-col ">
+      <div className="flex w-full grow flex-col h-full">
         <Dialog
           open={showCreateInstance}
           onClose={() => setShowCreateInstance(false)}

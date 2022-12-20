@@ -25,7 +25,7 @@ export default function InstanceList({
 
   return (
     <div
-      className={`gap -mx-1.5 flex min-h-0 flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
+      className={`gap -mx-1.5 flex flex-col gap-y-4 overflow-y-auto min-h-0 px-3 child:w-full ${className}`}
     >
       {userLoggedIn ? (
         instances &&
