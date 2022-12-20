@@ -6,21 +6,28 @@ import { Listbox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { CoreConnectionInfo } from 'data/LodestoneContext';
+import { isType } from 'variant';
 
-export type SelectFieldProps = FieldHookConfig<string> & {
+export type SelectCoreFieldProps = FieldHookConfig<CoreConnectionInfo> & {
   label?: string;
   loading?: boolean;
-  options: string[];
+  options: CoreConnectionInfo[];
 };
 
-export default function SelectField(props: SelectFieldProps) {
+export default function SelectCoreField(props: SelectCoreFieldProps) {
   const { label, className, disabled, options, placeholder, loading, ...rest } =
     props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [touched, error] = at(meta, 'touched', 'error');
   const isError = touched && error && true;
-  const errorText = isError ? error : '';
+  let errorText = '';
+  if (typeof error === 'string') {
+    errorText = isError ? error : '';
+  } else if (typeof error === 'object') {
+    errorText = isError ? error.address : '';
+  }
   const disabledVisual = disabled || loading;
   const loadingVisual = loading && !disabled;
 
@@ -87,7 +94,9 @@ export default function SelectField(props: SelectFieldProps) {
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
           >
             <>
-              {selectedValue ? selectedValue : placeholder || 'Select...'}
+              {selectedValue
+                ? `${selectedValue.address}:${selectedValue.port}`
+                : placeholder || 'Select...'}
               <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
                 <div className="flex flex-row gap-2">{icon}</div>
               </div>
@@ -98,7 +107,7 @@ export default function SelectField(props: SelectFieldProps) {
           >
             {options.map((option) => (
               <Listbox.Option
-                key={option}
+                key={`${option.address}:${option.port}`}
                 value={option}
                 className={({ active }) => {
                   return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
@@ -113,7 +122,7 @@ export default function SelectField(props: SelectFieldProps) {
                         selected ? 'font-medium' : 'font-normal'
                       }`}
                     >
-                      {option}
+                      {option.address}:{option.port}
                     </span>
                     {selected && (
                       <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-accent">

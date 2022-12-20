@@ -144,7 +144,7 @@ export default function TopNav({
                     disabled={disabled}
                     active={active}
                     onClick={() => {
-                      pushKeepQuery(router, '/login/core');
+                      pushKeepQuery(router, '/login/core/select');
                     }}
                   />
                 )}

@@ -4,6 +4,7 @@ import { LODESTONE_PORT } from 'utils/util';
 interface LodestoneContext {
   core: CoreConnectionInfo;
   setCore: (core: CoreConnectionInfo, pathname?: string) => void;
+  coreList: CoreConnectionInfo[];
   isReady: boolean;
   /** The JWT token string, where no token is an empty string */
   token: string;
@@ -18,7 +19,6 @@ export interface CoreConnectionInfo {
   port: string;
   protocol: string;
   apiVersion: string;
-  
 }
 
 export const LodestoneContext = createContext<LodestoneContext>({
@@ -31,6 +31,7 @@ export const LodestoneContext = createContext<LodestoneContext>({
   setCore: () => {
     console.error('setCore not implemented');
   },
+  coreList: [],
   isReady: false,
   token: '',
   setToken: () => {

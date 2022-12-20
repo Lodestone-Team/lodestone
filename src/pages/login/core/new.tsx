@@ -1,9 +1,9 @@
 import axios, { AxiosError } from 'axios';
 import Button from 'components/Atoms/Button';
 import { useRouter } from 'next/router';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { errorToString, LODESTONE_PORT, pushKeepQuery } from 'utils/util';
-import { NextPageWithLayout } from '../_app';
+import { NextPageWithLayout } from '../../_app';
 import Link from 'next/link';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import { ClientError } from 'bindings/ClientError';
@@ -71,7 +71,7 @@ const Auth: NextPageWithLayout = () => {
     >
       <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
         <div className="text flex flex-col items-start">
-          <img src="/logo.svg" alt="logo" className="w-40 h-9" />
+          <img src="/logo.svg" alt="logo" className="h-9 w-40" />
           <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
             Add a new core
           </h1>
@@ -90,7 +90,7 @@ const Auth: NextPageWithLayout = () => {
                 className="flex flex-col gap-12"
                 autoComplete="nope"
               >
-                <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2 h-32">
+                <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
                   <SelectField
                     name="apiVersion"
                     className="grow"
@@ -115,7 +115,7 @@ const Auth: NextPageWithLayout = () => {
                   <Button
                     icon={faArrowLeft}
                     label="Back"
-                    onClick={() => pushKeepQuery(router, '/')}
+                    onClick={() => router.back()}
                   />
                   <Button
                     type="submit"
@@ -129,7 +129,9 @@ const Auth: NextPageWithLayout = () => {
             )}
           </Formik>
         ) : (
-          <p>Loading...</p>
+          <div className="h-32">
+            <p>Loading...</p>
+          </div>
         )}
       </div>
     </div>

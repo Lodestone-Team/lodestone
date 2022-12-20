@@ -126,7 +126,7 @@ const Auth: NextPageWithLayout = () => {
                   <Button
                     icon={faArrowLeft}
                     label="Change Core"
-                    onClick={() => pushKeepQuery(router, '/login/core')}
+                    onClick={() => pushKeepQuery(router, '/login/core/select')}
                   />
                   <Button
                     type="submit"

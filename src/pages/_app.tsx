@@ -180,6 +180,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
         value={{
           core,
           setCore,
+          coreList,
           isReady,
           token,
           setToken,
