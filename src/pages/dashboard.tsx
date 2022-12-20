@@ -26,7 +26,8 @@ import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 
 const Dashboard: NextPageWithLayout = () => {
-  const { address } = useContext(LodestoneContext);
+  const { core } = useContext(LodestoneContext);
+  const { address, port } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;

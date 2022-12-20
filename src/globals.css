@@ -44,7 +44,7 @@ body {
    */
 
   .input-base {
-    @apply appearance-none rounded bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50;
+    @apply appearance-none rounded bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50 placeholder:text-white/30;
   }
 
   .input-base.disabled {

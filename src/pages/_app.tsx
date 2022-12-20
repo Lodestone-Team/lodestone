@@ -4,9 +4,9 @@ import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
 import '@fortawesome/fontawesome-svg-core/styles.css';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
-import { ReactElement, ReactNode, useState } from 'react';
+import { ReactElement, ReactNode, useEffect, useMemo } from 'react';
 import { NextPage } from 'next';
-import { LodestoneContext } from 'data/LodestoneContext';
+import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import axios from 'axios';
 import { useRouterQuery } from 'utils/hooks';
 import {
@@ -15,7 +15,7 @@ import {
   useLocalStorage,
 } from 'usehooks-ts';
 import jwt from 'jsonwebtoken';
-import { errorToString } from 'utils/util';
+import { errorToString, LODESTONE_PORT } from 'utils/util';
 import {
   NotificationContext,
   useNotificationReducer,
@@ -48,22 +48,29 @@ axios.defaults.timeout = 5000;
 function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
   const {
-    query: address,
+    query: coreQuery,
     isReady,
-    setQuery: setAddress,
-  } = useRouterQuery('address', 'localhost');
-  const { query: port, setQuery: setPort } = useRouterQuery('port', '16662');
-  const { query: protocol, setQuery: setProtocol } = useRouterQuery(
-    'protocol',
-    'http',
-    true,
-    false //TODO: make it true when https is supported
+    setQuery: setCoreQuery,
+  } = useRouterQuery('core', {
+    address: 'localhost',
+    port: LODESTONE_PORT.toString(),
+    protocol: 'http',
+    apiVersion: 'v1',
+  });
+  const core: CoreConnectionInfo = useMemo(
+    () => ({
+      address: coreQuery.address ?? 'localhost',
+      port: coreQuery.port ?? LODESTONE_PORT.toString(),
+      protocol: coreQuery.protocol ?? 'http',
+      apiVersion: coreQuery.apiVersion ?? 'v1',
+    }),
+    [coreQuery]
   );
-  const { query: apiVersion, setQuery: setApiVersion } = useRouterQuery(
-    'apiVersion',
-    'v1',
-    true,
-    false //TODO: make it true when there are multiple api versions
+  const { address, port, protocol, apiVersion } = core;
+
+  const [coreList, setCoreList] = useLocalStorage<CoreConnectionInfo[]>(
+    'cores',
+    []
   );
   const socket = `${address}:${port}`;
   const [tokens, setTokens] = useLocalStorage<Record<string, string>>(
@@ -78,6 +85,47 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
   const setToken = (token: string, coreSocket: string) => {
     setTokens({ ...tokens, [coreSocket]: token });
   };
+
+  const setCore = (core: CoreConnectionInfo, pathname?: string) => {
+    queryClient.invalidateQueries();
+    //TODO: add core to the key of each query instead of invalidating all queries
+    setCoreQuery(
+      {
+        address: core.address,
+        port: core.port + '',
+        protocol: core.protocol,
+        apiVersion: core.apiVersion,
+      },
+      pathname
+    );
+  };
+
+  useEffect(() => {
+    // check if core is already in the list
+    // if it's exactly the same, do nothing
+    if (
+      coreList.some(
+        (c) =>
+          c.address === core.address &&
+          c.port === core.port &&
+          c.protocol === core.protocol &&
+          c.apiVersion === core.apiVersion
+      )
+    )
+      return;
+    const index = coreList.findIndex(
+      (c) => c.address === core.address && c.port === core.port
+    );
+    if (index !== -1) {
+      const newCoreList = [...coreList];
+      newCoreList[index] = core;
+      setCoreList(newCoreList);
+    } else {
+      setCoreList([...coreList, core]);
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [core, setCoreList]); //setCoreList left out on purpose
 
   useEffectOnce(() => {
     if (tauri) {
@@ -98,9 +146,8 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
 
   // set axios defaults
   useIsomorphicLayoutEffect(() => {
-    if (!isReady) return;
     axios.defaults.baseURL = `${protocol}://${socket}/api/${apiVersion}`;
-  }, [socket, isReady]);
+  }, [core, isReady]);
 
   useIsomorphicLayoutEffect(() => {
     if (!token) {
@@ -131,19 +178,12 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider
         value={{
-          address: address as string,
-          port: port ?? '16662',
-          protocol,
-          apiVersion,
-          isReady: isReady,
+          core,
+          setCore,
+          isReady,
           token,
           setToken,
           tokens,
-          socket: socket,
-          setAddress,
-          setPort,
-          setProtocol,
-          setApiVersion,
         }}
       >
         <NotificationContext.Provider

@@ -56,7 +56,7 @@ export const useCPUInfo = () => {
   );
 };
 
-export interface ClientInfo {
+export interface CoreInfo {
   version: string;
   is_setup: boolean;
   os: string;
@@ -67,14 +67,14 @@ export interface ClientInfo {
   total_disk: number;
   host_name: string;
   uuid: string;
-  client_name: string;
+  core_name: string;
   up_since: number;
 }
 
-export const useClientInfo = () => {
-  return useQuery<ClientInfo, AxiosError>(
-    ['systeminfo', 'clientinfo'],
-    () => axios.get<ClientInfo>(`/info`).then((res) => res.data),
+export const useCoreInfo = () => {
+  return useQuery<CoreInfo, AxiosError>(
+    ['systeminfo', 'CoreInfo'],
+    () => axios.get<CoreInfo>(`/info`).then((res) => res.data),
     {
       enabled: useContext(LodestoneContext).isReady,
     }

@@ -1,11 +1,9 @@
 import { createContext } from 'react';
+import { LODESTONE_PORT } from 'utils/util';
 
 interface LodestoneContext {
-  address: string;
-  port: string;
-  socket: string;
-  protocol: string;
-  apiVersion: string;
+  core: CoreConnectionInfo;
+  setCore: (core: CoreConnectionInfo, pathname?: string) => void;
   isReady: boolean;
   /** The JWT token string, where no token is an empty string */
   token: string;
@@ -13,34 +11,30 @@ interface LodestoneContext {
   setToken: (token: string, coreSocket: string) => void;
   /** All the tokens, a record from CoreSocket to token */
   tokens: Record<string, string>;
-  setAddress: (address: string) => void;
-  setPort: (port: string) => void;
-  setProtocol: (protocol: string) => void;
-  setApiVersion: (apiVersion: string) => void;
+}
+
+export interface CoreConnectionInfo {
+  address: string;
+  port: string;
+  protocol: string;
+  apiVersion: string;
+  
 }
 
 export const LodestoneContext = createContext<LodestoneContext>({
-  address: 'localhost',
-  port: '16662',
-  socket: 'localhost:16662',
-  protocol: 'http',
-  apiVersion: 'v1',
+  core: {
+    address: '',
+    port: LODESTONE_PORT.toString(),
+    protocol: 'http',
+    apiVersion: 'v1',
+  } as CoreConnectionInfo,
+  setCore: () => {
+    console.error('setCore not implemented');
+  },
   isReady: false,
   token: '',
   setToken: () => {
     console.error('setToken not implemented');
   },
   tokens: {},
-  setAddress: () => {
-    console.error('setAddress not implemented');
-  },
-  setPort: () => {
-    console.error('setPort not implemented');
-  },
-  setProtocol: () => {
-    console.error('setProtocol not implemented');
-  },
-  setApiVersion: () => {
-    console.error('setApiVersion not implemented');
-  },
 });

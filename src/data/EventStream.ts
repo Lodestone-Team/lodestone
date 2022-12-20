@@ -15,6 +15,7 @@ import { match, otherwise, partial } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
+import { LODESTONE_PORT } from 'utils/util';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -23,8 +24,8 @@ import axios from 'axios';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { isReady, token, address, port, apiVersion } =
-    useContext(LodestoneContext);
+  const { isReady, token, core } = useContext(LodestoneContext);
+  const { address, port, apiVersion } = core;
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnected = useRef(false);
 
@@ -345,7 +346,7 @@ export const useEventStream = () => {
 
     const connectWebsocket = () => {
       const wsAddress = `ws://${address}:${
-        port ?? 16662
+        port ?? LODESTONE_PORT
       }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(
         eventQuery
       )}`;

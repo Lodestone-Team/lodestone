@@ -8,7 +8,9 @@ import { UserPermission } from 'bindings/UserPermission';
 
 // this won't ever change. if it does it will be invalidated manually
 export const useUserInfo = () => {
-  const { token, setToken, socket } = useContext(LodestoneContext);
+  const { token, setToken, core } = useContext(LodestoneContext);
+  const { port, address } = core;
+  const socket = `${address}:${port}`;
 
   return useQuery<PublicUser, AxiosError<ClientError>>(
     ['user', 'info'],
@@ -68,6 +70,6 @@ export const useUserAuthorized = (
 };
 
 export const useUserLoggedIn = () => {
-  const {data: user} = useUserInfo();
+  const { data: user } = useUserInfo();
   return !!user;
-}
+};

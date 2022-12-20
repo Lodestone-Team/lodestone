@@ -4,7 +4,7 @@ import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
 import { InstanceContext } from 'data/InstanceContext';
 import { usePerformanceStream } from 'data/PerformanceStream';
-import { useClientInfo } from 'data/SystemInfo';
+import { useCoreInfo } from 'data/SystemInfo';
 import { useContext } from 'react';
 import { round } from 'utils/util';
 
@@ -16,7 +16,7 @@ export default function MinecraftPerformanceCard() {
   const { buffer: performanceBuffer, latency_s } = usePerformanceStream(
     instance.uuid
   );
-  const { data } = useClientInfo();
+  const { data } = useCoreInfo();
   const total_ram = data?.total_ram ?? 32;
 
   return (

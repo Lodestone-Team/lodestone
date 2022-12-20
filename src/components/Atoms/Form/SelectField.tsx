@@ -92,7 +92,7 @@ export default function SelectField(props: SelectFieldProps) {
             </div>
           </Listbox.Button>
           <Listbox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 overflow-auto p-0 py-1 shadow-md`}
+            className={`input-base border-normal absolute w-full z-50 mt-2 max-h-60 overflow-auto p-0 py-1 shadow-md`}
           >
             {options.map((option) => (
               <Listbox.Option

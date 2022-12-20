@@ -2,7 +2,7 @@ import SystemStat from './SystemStat';
 import InstanceList from './InstanceList';
 import { useState } from 'react';
 import { useIntervalImmediate } from 'utils/hooks';
-import { useClientInfo } from 'data/SystemInfo';
+import { useCoreInfo } from 'data/SystemInfo';
 import Button from 'components/Atoms/Button';
 import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog } from '@headlessui/react';
@@ -10,7 +10,7 @@ import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
 
 export default function LeftNav({ className }: { className?: string }) {
-  const { data: clientInfo, isLoading: clientInfoLoading } = useClientInfo();
+  const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
   const canCreateInstance = useUserAuthorized('can_create_instance');
 

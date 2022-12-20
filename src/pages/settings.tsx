@@ -31,7 +31,8 @@ import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useGlobalSettings } from 'data/GlobalSettings';
 
 const SettingsPage: NextPageWithLayout = () => {
-  const { address } = useContext(LodestoneContext);
+  const { core } = useContext(LodestoneContext);
+  const { address, port } = core;
   const queryClient = useQueryClient();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const { data: globalSettings, isLoading, error } = useGlobalSettings();

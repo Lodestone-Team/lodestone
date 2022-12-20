@@ -7,6 +7,8 @@ import { ClientFile } from 'bindings/ClientFile';
 import { QueryClient } from '@tanstack/react-query';
 import { Base64 } from 'js-base64';
 
+export const LODESTONE_PORT = 16662;
+
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
 };

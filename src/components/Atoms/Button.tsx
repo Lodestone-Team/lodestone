@@ -31,7 +31,7 @@ const Button = forwardRef(
       active?: boolean;
       variant?: 'contained' | 'outlined' | 'text';
       align?: 'start' | 'center' | 'end';
-      color?: 'gray' | 'red';
+      color?: 'gray' | 'red' | 'primary';
       size?: 'slim' | 'medium' | 'large';
       className?: string;
       iconComponent?: React.ReactNode;
@@ -57,10 +57,12 @@ const Button = forwardRef(
           {
             gray: 'text-gray-300 child:text-white/50 disabled:text-white/50',
             red: 'text-red-accent child:text-red-accent/50 disabled:text-red/50',
+            primary: 'text-gray-300 child:text-white/50 disabled:text-white/50',
           }[color],
           {
             gray: 'enabled:focus-visible:ring-blue/30',
             red: 'enabled:focus-visible:ring-red-faded/30',
+            primary: 'enabled:focus-visible:ring-blue/30',
           }[color],
           {
             gray: active
@@ -69,9 +71,15 @@ const Button = forwardRef(
             red: active
               ? 'bg-red-faded/25'
               : `bg-gray-800 enabled:hover:bg-red-faded/25 enabled:active:bg-red-faded/10`,
+            primary: active
+              ? 'bg-[#037AA0]'
+              : `bg-blue enabled:hover:bg-[#037AA0] enabled:active:bg-[#13668A] disabled:bg-blue-faded/50`, //TODO: remove hardcoded colors
           }[color],
-          variant !== 'text' &&
-            `outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50`,
+          variant !== 'text' &&          {
+            gray: 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
+            red: 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
+            primary: 'outline outline-1 outline-blue-faded/50 enabled:hover:outline-blue-accent/75', //TODO: remove hardcoded colors
+          }[color],
           className
         )}
         disabled={disabled || loading}

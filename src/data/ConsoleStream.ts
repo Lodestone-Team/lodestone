@@ -1,4 +1,4 @@
-import { getSnowflakeTimestamp } from './../utils/util';
+import { getSnowflakeTimestamp, LODESTONE_PORT } from './../utils/util';
 import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -74,8 +74,8 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
  * @return whatever useQuery returns
  */
 export const useConsoleStream = (uuid: string) => {
-  const { address, port, apiVersion, isReady, token } =
-    useContext(LodestoneContext);
+  const { core, isReady, token } = useContext(LodestoneContext);
+  const { address, port, apiVersion } = core;
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
@@ -124,7 +124,7 @@ export const useConsoleStream = (uuid: string) => {
 
     const websocket = new WebSocket(
       `ws://${address}:${
-        port ?? 16662
+        port ?? LODESTONE_PORT
       }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
     );
 

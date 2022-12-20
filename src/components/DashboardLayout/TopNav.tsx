@@ -28,7 +28,9 @@ export default function TopNav({
 }) {
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const { token, setToken, socket } = useContext(LodestoneContext);
+  const { token, setToken, core } = useContext(LodestoneContext);
+  const { address, port } = core;
+  const socket = `${address}:${port}`
   const { selectInstance } = useContext(InstanceContext);
 
   useEffect(() => {
@@ -121,7 +123,7 @@ export default function TopNav({
                       setToken('', socket);
                       if (userState !== 'logged-in')
                         // redirect to login page
-                        pushKeepQuery(router, '/auth');
+                        pushKeepQuery(router, '/login/user');
                     }}
                     variant="text"
                     align="end"
@@ -142,7 +144,7 @@ export default function TopNav({
                     disabled={disabled}
                     active={active}
                     onClick={() => {
-                      pushKeepQuery(router, '/auth');
+                      pushKeepQuery(router, '/login/core');
                     }}
                   />
                 )}

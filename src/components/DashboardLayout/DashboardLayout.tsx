@@ -11,7 +11,7 @@ import {
   useWindowSize,
 } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
-import { useClientInfo } from 'data/SystemInfo';
+import { useCoreInfo } from 'data/SystemInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useEffect, useState } from 'react';
@@ -27,7 +27,8 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { query: queryUuid, setQuery } = useRouterQuery('instance');
+  const { query, setQuery } = useRouterQuery('instance', { instance: '' });
+  const queryUuid = query['instance'];
   const userLoggedIn = useUserLoggedIn();
   const {
     isLoading,
@@ -49,7 +50,7 @@ export default function DashboardLayout({
 
   // called for side effects
   useEventStream();
-  useClientInfo();
+  useCoreInfo();
 
   useEffect(() => {
     if (queryUuid && instances && queryUuid in instances)
@@ -60,10 +61,10 @@ export default function DashboardLayout({
   function setInstance(instance?: InstanceInfo) {
     if (instance === undefined) {
       setInstanceState(undefined);
-      setQuery('', '/');
+      setQuery({ instance: '' }, '/');
     } else {
       setInstanceState(instance);
-      setQuery(instance.uuid, '/dashboard');
+      setQuery({ instance: instance.uuid }, '/dashboard');
     }
   }
 

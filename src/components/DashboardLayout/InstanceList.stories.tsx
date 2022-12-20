@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setupWorker, rest } from 'msw';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { InstanceInfo } from 'bindings/InstanceInfo';
+import { LODESTONE_PORT } from 'utils/util';
 
 const mockedInstanceInfo: InstanceInfo[] = [
   {
@@ -89,8 +90,8 @@ const Template: ComponentStory<typeof InstanceList> = () => (
   <LodestoneContext.Provider
     value={{
       address: 'example.com',
-      port: '16662',
-      socket: 'example.com:16662',
+      port: LODESTONE_PORT.toString(),
+      socket: `example.com:${LODESTONE_PORT}`,
       protocol: 'http',
       apiVersion: 'v1',
       isReady: true,

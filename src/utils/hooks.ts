@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 
@@ -88,57 +88,93 @@ export function useIntervalClockSeconds(callback: () => void, seconds: number) {
 
 /**
  * Uses both local storage and the query string (example: ?query=value) to store a value.
- * @param key a unique key to store the value under
+ * @param localKey a unique key to store the value under in local storage
  * @param defaultValue the default value to use if there is no value in local storage or the query string
  * @param defaultToLocal if true, the value in local storage will be used if there is no value in the query string
  * @param visible if true, the query string will be updated when the value is changed
  * @returns
  */
 export function useRouterQuery(
-  key: string,
-  defaultValue?: string,
-  defaultToLocal = true,
-  visible = true
+  localKey: string,
+  defaultValue: Record<string, string | undefined>,
+  defaultToLocal = true
 ) {
   const router = useRouter();
-  const [storage, setStorage] = useLocalStorage<string>(
-    `${key}-router-query`,
-    defaultValue || ''
-  );
+  const isReady = router.isReady;
+  const [storage, setStorage] = useLocalStorage<
+    Record<string, string | undefined>
+  >(`${localKey}-router-query`, defaultValue || {});
   const [ready, setReady] = useState(false);
 
-  const setQuery = (value: string, pathname?: string) => {
-    setStorage(value);
-    if (visible)
+  /**
+   * Sets the values in local storage and router query
+   */
+  const setQuery = useCallback(
+    (value: Record<string, string | undefined>, pathname?: string) => {
+      setStorage(value);
+      console.log('setQuery', localKey, value, pathname);
+      // replace every key in the query string with the new value
+      const newQuery = { ...router.query };
+      Object.keys(value).forEach((key) => {
+        newQuery[key] = value[key];
+      });
+      console.log('newQuery', newQuery);
+
       router.replace(
         {
           pathname: pathname || router.pathname,
-          query: { ...router.query, [key]: value },
+          query: newQuery,
         },
         undefined,
         { shallow: true }
       );
-  };
+    },
+    [localKey, router, setStorage]
+  );
 
+  /**
+   * Watches for changes in the query string and updates the local storage if necessary
+   */
   useEffect(() => {
-    // check if it's an array
-    const val = router.query[key];
-    let newVal: string | undefined;
-    if (!val) {
-      newVal = undefined;
-    } else if (Array.isArray(val)) {
-      newVal = val[0];
-    } else {
-      newVal = val;
+    // reconstruct the object from the query
+    const newValue = storage;
+    let changed = false;
+    if (!isReady) return;
+    Object.keys(defaultValue).forEach((key) => {
+      console.log(router.query);
+      if (router.query[key]) {
+        const rawVal = router.query[key];
+        console.log('rawVal', key, rawVal);
+        let val: string | undefined;
+        if (!rawVal) {
+          val = undefined;
+        } else if (Array.isArray(rawVal)) {
+          val = rawVal[0];
+        } else {
+          val = rawVal;
+        }
+        if (defaultToLocal && !val && storage[key]) {
+          changed = true;
+          val = storage[key];
+        }
+        if (val !== storage[key]) {
+          changed = true;
+          newValue[key] = val;
+        }
+      } else if (defaultToLocal && storage[key]) {
+        changed = true;
+        newValue[key] = storage[key];
+      }
+    });
+    console.log(newValue, storage, changed);
+    if (changed) {
+      setQuery(newValue);
     }
-
-    if (defaultToLocal && !newVal && storage) {
-      newVal = storage;
-      if (visible) setQuery(newVal);
-    } else if (newVal !== storage) {
-      setStorage(newVal || '');
-    }
-  }, [router.query, key]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ //dependencies left out on purpose
+    router.query,
+    isReady,
+  ]);
 
   useEffect(() => {
     setReady(router.isReady);
