@@ -4,6 +4,7 @@ use crate::{prelude::VERSION, AppState};
 use axum::{routing::get, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};
+use ts_rs::TS;
 
 #[derive(Serialize, Deserialize)]
 pub struct CoreInfo {
@@ -17,7 +18,7 @@ pub struct CoreInfo {
     total_disk: u64,
     host_name: String,
     uuid: String,
-    client_name: String,
+    core_name: String,
     up_since: i64,
 }
 
@@ -45,7 +46,7 @@ pub async fn get_core_info(Extension(state): Extension<AppState>) -> Json<CoreIn
             .unwrap_or_else(|| "Unknown Hostname".to_string()),
         total_ram: sys.total_memory(),
         total_disk: sys.disks().iter().fold(0, |acc, v| acc + v.total_space()),
-        client_name: state.global_settings.lock().await.core_name(),
+        core_name: state.global_settings.lock().await.core_name(),
         uuid: state.uuid.clone(),
         up_since: state.up_since,
     })
