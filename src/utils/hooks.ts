@@ -1,6 +1,5 @@
-import { useRouter } from 'next/router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-
+import { BrowserLocationContext } from './../data/BrowserLocationContext';
+import { useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 
 export function useIntervalImmediate(
@@ -86,105 +85,92 @@ export function useIntervalClockSeconds(callback: () => void, seconds: number) {
   useIntervalClock(callback, delay, initialDelayGen);
 }
 
+export let globalSearchParams: URLSearchParams;
+
 /**
- * Uses both local storage and the query string (example: ?query=value) to store a value.
- * @param localKey a unique key to store the value under in local storage
- * @param defaultValue the default value to use if there is no value in local storage or the query string
- * @param defaultToLocal if true, the value in local storage will be used if there is no value in the query string
- * @param visible if true, the query string will be updated when the value is changed
- * @returns
+ * Similar to useState, but stores the value in the search params.
+ * @param key The key to use in the search params.
+ * @param initialValue The initial value to use and the default value if the key is not present.
+ * @param visible If the default value should be visible in the search params.
+ * @return A tuple of the value and a setter function.
  */
-export function useRouterQuery(
-  localKey: string,
-  defaultValue: Record<string, string | undefined>,
-  defaultToLocal = true
+export function useQueryParam(
+  key: string,
+  initialValue: string,
+  visible = true
 ) {
-  const router = useRouter();
-  const isReady = router.isReady;
-  const [storage, setStorage] = useLocalStorage<
-    Record<string, string | undefined>
-  >(`${localKey}-router-query`, defaultValue || {});
-  const [ready, setReady] = useState(false);
+  const { setSearchParam, searchParams } = useContext(BrowserLocationContext);
+  const [value, setValue] = useState(searchParams.get(key) ?? initialValue);
 
-  /**
-   * Sets the values in local storage and router query
-   */
-  const setQuery = useCallback(
-    (value: Record<string, string | undefined>, pathname?: string) => {
-      setStorage(value);
-      console.log('setQuery', localKey, value, pathname);
-      // replace every key in the query string with the new value
-      const newQuery = { ...router.query };
-      Object.keys(value).forEach((key) => {
-        newQuery[key] = value[key];
-      });
-      console.log('newQuery', newQuery);
-
-      router.push(
-        {
-          pathname: pathname || router.pathname,
-          query: newQuery,
-        },
-        undefined,
-        { shallow: true }
-      );
+  const setValueAndParams = useCallback(
+    (newValue: string) => {
+      setValue(newValue);
+      setSearchParam(key, newValue);
     },
-    [localKey, router, setStorage]
+    [key, setSearchParam]
   );
 
-  /**
-   * Watches for changes in the query string and updates the local storage if necessary
-   */
   useEffect(() => {
-    // reconstruct the object from the query
-    const newValue = storage;
-    let changed = false;
-    if (!isReady) return;
-    Object.keys(defaultValue).forEach((key) => {
-      console.log(router.query);
-      if (router.query[key]) {
-        const rawVal = router.query[key];
-        console.log('rawVal', key, rawVal);
-        let val: string | undefined;
-        if (!rawVal) {
-          val = undefined;
-        } else if (Array.isArray(rawVal)) {
-          val = rawVal[0];
-        } else {
-          val = rawVal;
-        }
-        if (defaultToLocal && !val && storage[key]) {
-          changed = true;
-          val = storage[key];
-        }
-        if (val !== storage[key]) {
-          changed = true;
-          newValue[key] = val;
-        }
-      } else if (defaultToLocal && storage[key]) {
-        changed = true;
-        newValue[key] = storage[key];
-      }
-    });
-    console.log(newValue, storage, changed);
-    if (changed) {
-      setQuery(newValue);
+    const newValue = searchParams.get(key);
+    // if value is falsy and initial value is not the same (to prevent infinite loops), set the param to the initial value
+    if (!newValue && newValue !== initialValue) {
+      if (visible)
+        //if visible, set the searchParam too
+        setSearchParam(key, initialValue);
+      // if not visible, just set the value
+      else setValue(initialValue);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ //dependencies left out on purpose
-    router.query,
-    isReady,
-  ]);
+    // if value is truthy and not the same as the current value, set the value
+    if (newValue && newValue !== value) {
+      setValue(newValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue, key, searchParams]);
 
+  return [value, setValueAndParams] as const;
+}
+
+/**
+ * Similar to useState, but stores the value in both local storage and the search params.
+ * @param key The key to use in the search params and local storage.
+ * @param initialValue The initial value to use.
+ * @param visible If the stored value should be visible in the search params.
+ * @return A tuple of the value and a setter function.
+ */
+export function useLocalStorageQueryParam(
+  key: string,
+  initialValue: string,
+  visible = true
+) {
+  const { setSearchParam, searchParams } = useContext(BrowserLocationContext);
+  const [value, setValue] = useLocalStorage(key, initialValue);
+
+  const setValueAndParams = useCallback(
+    (newValue: string) => {
+      setValue(newValue);
+      // if empty, remove the param
+      setSearchParam(key, newValue);
+    },
+    [key, setSearchParam, setValue]
+  );
+
+  // we use the stored value as the initial value
   useEffect(() => {
-    setReady(router.isReady);
-  }, [router.isReady]);
+    const newValue = searchParams.get(key);
+    // if value is falsy and not the same as the current value, set the param to the current value if visible
+    if (!newValue && newValue !== value) {
+      if (visible)
+        //if visible, set the searchParam too
+        setSearchParam(key, value);
+    }
+    // if value is truthy and not the same as the current value, set the value
+    if (newValue && newValue !== value) {
+      setValue(newValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue, key, searchParams]);
 
-  return {
-    isReady: ready,
-    query: storage,
-    setQuery,
-  };
+  return [value, setValueAndParams] as const;
 }
 
 export function usePrevious(value: unknown) {
@@ -194,3 +180,38 @@ export function usePrevious(value: unknown) {
   });
   return ref.current;
 }
+
+/**
+ * Similar to useNavigate from react-router-dom
+ * but the default behavior is to not change the search params or merge them with the new path
+ */
+// export const useMyNavigate = () => {
+//   const navigate = useNavigate();
+//   const [searchParams, setSearchParams] = useSearchParams();
+
+//   const myNavigate = (to: To, options?: NavigateOptions) => {
+//     if (typeof to === 'number') {
+//       navigate(to, options);
+//     } else if (typeof to === 'string') {
+//       navigate(to, options);
+//     } else {
+//       const { search, ...rest } = to;
+//       if (!search) {
+//         navigate(rest, options);
+//       } else {
+//         const newSearchParams = new URLSearchParams(search);
+//         // generate a new search params object that is the combination of the current search params and the new search params
+//         const combinedSearchParams = new URLSearchParams();
+//         for (const [key, value] of searchParams) {
+//           combinedSearchParams.set(key, value);
+//         }
+//         for (const [key, value] of newSearchParams) {
+//           combinedSearchParams.set(key, value);
+//         }
+//         navigate({ ...rest, search: combinedSearchParams.toString() }, options);
+//       }
+//     }
+//   };
+
+//   return myNavigate;
+// };

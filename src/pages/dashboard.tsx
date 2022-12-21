@@ -2,32 +2,23 @@ import { Tab } from '@headlessui/react';
 import ClipboardTextfield from 'components/ClipboardTextfield';
 import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
-import DashboardLayout from 'components/DashboardLayout';
 import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { ReactElement, ReactNode, useContext, useState } from 'react';
-import {
-  axiosPutSingleValue,
-  axiosWrapper,
-  catchAsyncToString,
-  stateToLabelColor,
-} from 'utils/util';
-import { NextPageWithLayout } from './_app';
+import { useContext, useState } from 'react';
+import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
-import Button from 'components/Atoms/Button';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import FileViewer from 'components/FileViewer';
-import { useUserAuthorized } from 'data/UserInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 
-const Dashboard: NextPageWithLayout = () => {
+const Dashboard = () => {
   const { core } = useContext(LodestoneContext);
-  const { address, port } = core;
+  const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
@@ -41,7 +32,7 @@ const Dashboard: NextPageWithLayout = () => {
       >
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
-            <h1 className="truncate whitespace-pre dashboard-instance-heading">
+            <h1 className="dashboard-instance-heading truncate whitespace-pre">
               Instance not found
             </h1>
           </div>
@@ -107,6 +98,8 @@ const Dashboard: NextPageWithLayout = () => {
     }));
   };
 
+  // might use this later
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const setInstanceDescription = async (description: string) => {
     await axiosPutSingleValue<void>(
       `/instance/${uuid}/description`,
@@ -121,7 +114,7 @@ const Dashboard: NextPageWithLayout = () => {
   return (
     // used to possibly center the content
     <div
-      className="relative flex h-full w-full flex-row justify-center overflow-y-auto gutter-stable px-4 pt-8 pb-10 @container"
+      className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
       key={uuid}
     >
       {/* main content container */}
@@ -136,7 +129,7 @@ const Dashboard: NextPageWithLayout = () => {
             containerClassName="min-w-0"
           />
         </div>
-        <div className="-mt-2 flex flex-row flex-wrap items-center gap-4 mb-2">
+        <div className="-mt-2 mb-2 flex flex-row flex-wrap items-center gap-4">
           <GameIcon
             game_type={instance.game_type}
             game_flavour={instance.flavour}
@@ -200,9 +193,5 @@ const Dashboard: NextPageWithLayout = () => {
     </div>
   );
 };
-
-Dashboard.getLayout = (page: ReactElement): ReactNode => (
-  <DashboardLayout>{page}</DashboardLayout>
-);
 
 export default Dashboard;

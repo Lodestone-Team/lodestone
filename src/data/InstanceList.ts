@@ -1,8 +1,6 @@
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { InstanceInfo } from 'bindings/InstanceInfo';
-import { useContext } from 'react';
-import { LodestoneContext } from './LodestoneContext';
 
 export const updateInstance = (
   uuid: string,
@@ -72,6 +70,6 @@ export const useInstanceList = (enabled = true) =>
       });
     },
     {
-      enabled: useContext(LodestoneContext).isReady && enabled,
+      enabled,
     }
   );

@@ -4,7 +4,7 @@ import InstanceCard from 'components/InstanceCard';
 import InstanceLoadingCard from 'components/InstanceLoadingCard';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
-import { useUserAuthorized, useUserLoggedIn } from 'data/UserInfo';
+import { useUserLoggedIn } from 'data/UserInfo';
 import { useContext } from 'react';
 import { match, otherwise } from 'variant';
 

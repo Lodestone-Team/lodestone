@@ -1,5 +1,3 @@
-import axios from 'axios';
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
 import { InstanceContext } from 'data/InstanceContext';

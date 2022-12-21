@@ -96,7 +96,6 @@ const Template: ComponentStory<typeof InstanceList> = () => (
         apiVersion: 'v1',
       },
       coreList: [],
-      isReady: true,
       token: 'example-token',
       setToken: () => {
         console.error('setToken not implemented');

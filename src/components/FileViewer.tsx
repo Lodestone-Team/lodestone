@@ -12,7 +12,6 @@ import {
   faFilePen,
   faFolderPlus,
   faCaretDown,
-  faPlus,
   faCheckSquare,
   faListCheck,
   faArrowsRotate,
@@ -28,11 +27,9 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import axios from 'axios';
 import { FileType } from 'bindings/FileType';
 import {
   axiosWrapper,
-  catchAsyncToString,
   chooseFiles,
   createInstanceDirectory,
   createInstanceFile,
@@ -46,7 +43,7 @@ import {
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
-import { Form, Formik } from 'formik';
+import { Form, Formik, FormikHelpers } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { faSquare } from '@fortawesome/free-regular-svg-icons';
@@ -55,7 +52,7 @@ import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
 import * as toml from 'utils/monaco-languages/toml';
-import { useRouterQuery } from 'utils/hooks';
+import { useQueryParam } from 'utils/hooks';
 
 type Monaco = typeof monaco;
 
@@ -121,16 +118,7 @@ export default function FileViewer() {
   const monaco = useMonaco();
   const queryClient = useQueryClient();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const pathKey = `path-${instance?.uuid}`;
-  const {
-    isReady,
-    query: pathParent,
-    setQuery: setPathParent,
-  } = useRouterQuery('path', { [pathKey]: '.' }, false);
-  const path = pathParent[pathKey] ?? '.';
-  const setPath = (newPath: string) => {
-    setPathParent({ [pathKey]: newPath });
-  };
+  const [path, setPath] = useQueryParam('path', '.');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [fileContent, setFileContent] = useState('');
   const fileContentRef = useRef<string>();
@@ -163,6 +151,16 @@ export default function FileViewer() {
     pathParts.pop();
     return pathParts.join(direcotrySeparator);
   };
+
+  /* Resets */
+  useLayoutEffect(() => {
+    setPath('.');
+  }, [instance]);
+
+  useLayoutEffect(() => {
+    setOpenedFile(null);
+    setTickedFiles([]);
+  }, [path]);
 
   /* Query */
 
@@ -330,8 +328,6 @@ export default function FileViewer() {
           }
           onClick={() => {
             setPath('.');
-            setOpenedFile(null);
-            setTickedFiles([]);
           }}
         >
           {instance.path.split(direcotrySeparator).pop()}
@@ -355,8 +351,6 @@ export default function FileViewer() {
                   }
                   onClick={() => {
                     setPath(subPath);
-                    setOpenedFile(null);
-                    setTickedFiles([]);
                   }}
                 >
                   {p}
@@ -420,8 +414,6 @@ export default function FileViewer() {
         onClick={() => {
           if (file.file_type === 'Directory') {
             setPath(file.path);
-            setOpenedFile(null);
-            setTickedFiles([]);
           } else {
             setOpenedFile(file);
           }
@@ -449,8 +441,6 @@ export default function FileViewer() {
             className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
             onClick={() => {
               setPath(parentPath(path));
-              setOpenedFile(null);
-              setTickedFiles([]);
             }}
           >
             <p className="select-none text-base font-medium">..</p>
@@ -504,7 +494,10 @@ export default function FileViewer() {
                 validationSchema={yup.object({
                   name: yup.string().required('Required'),
                 })}
-                onSubmit={async (values: { name: string }, actions: any) => {
+                onSubmit={async (
+                  values: { name: string },
+                  actions: FormikHelpers<{ name: string }>
+                ) => {
                   actions.setSubmitting(true);
                   const error = await createInstanceFile(
                     instance.uuid,
@@ -583,7 +576,10 @@ export default function FileViewer() {
                 validationSchema={yup.object({
                   name: yup.string().required('Required'),
                 })}
-                onSubmit={async (values: { name: string }, actions: any) => {
+                onSubmit={async (
+                  values: { name: string },
+                  actions: FormikHelpers<{ name: string }>
+                ) => {
                   actions.setSubmitting(true);
                   const error = await createInstanceDirectory(
                     instance.uuid,
@@ -772,7 +768,7 @@ export default function FileViewer() {
                 saveInstanceFile(
                   instance.uuid,
                   path,
-                  openedFile as any, //force ignore "null" possibility
+                  openedFile,
                   fileContent,
                   queryClient
                 )

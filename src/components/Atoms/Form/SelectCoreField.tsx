@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import PropTypes from 'prop-types';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Listbox } from '@headlessui/react';
@@ -7,7 +6,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { CoreConnectionInfo } from 'data/LodestoneContext';
-import { isType } from 'variant';
 
 export type SelectCoreFieldProps = FieldHookConfig<CoreConnectionInfo> & {
   label?: string;

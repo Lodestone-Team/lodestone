@@ -1,5 +1,4 @@
 import { LabelColor } from 'components/Atoms/Label';
-import { NextRouter } from 'next/router';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
@@ -56,28 +55,6 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   // Loading: 'gray',
 };
 
-export const pushKeepQuery = (router: NextRouter, pathname: string, shallow = true) => {
-  router.push(
-    {
-      pathname,
-      query: router.query,
-    },
-    undefined,
-    { shallow }
-  );
-};
-
-export const setQuery = (router: NextRouter, key: string, value?: string, pathname?: string) => {
-  router.push(
-    {
-      pathname: pathname || router.pathname,
-      query: { ...router.query, [key]: value },
-    },
-    undefined,
-    { shallow: true }
-  );
-}
-
 export function isAxiosError<ResponseType>(
   error: unknown
 ): error is AxiosError<ResponseType> {
@@ -85,10 +62,13 @@ export function isAxiosError<ResponseType>(
 }
 
 export function errorToString(error: unknown): string {
-  if (isAxiosError<any>(error)) {
+  if (isAxiosError<unknown>(error)) {
     if (error.response && error.response.data) {
-      let data = error.response.data;
-      // if response.data is a string parse it as a JSON object
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let data: any = error.response.data;
+
+
+      /* if response.data is a string parse it as a JSON object */
       if (typeof data === 'string') {
         // spaghetti code
         if (data.startsWith('`Authorization`')) {
@@ -96,7 +76,9 @@ export function errorToString(error: unknown): string {
         }
         data = JSON.parse(data);
       }
-      // if response.data is a blob parse it as a JSON object
+
+
+      /* if response.data is a blob parse it as a JSON object */
       if (data instanceof Blob) {
         const reader = new FileReader();
         reader.readAsText(data);
@@ -104,7 +86,7 @@ export function errorToString(error: unknown): string {
         //   data = JSON.parse(reader.result as string);
         // };
       }
-      console.log(data);
+      
       if (data && data.inner) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(data);

@@ -51,7 +51,8 @@ export const MOTDRender = ({
                   item.bold ? 'font-bold' : 'font-normal',
                   item.italics ? 'italic' : '',
                   item.underline ? 'underline' : '',
-                  item.strikethrough ? 'line-through' : ''
+                  item.strikethrough ? 'line-through' : '',
+                  className
                 )}
               >
                 {text}

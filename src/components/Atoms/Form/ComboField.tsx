@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import PropTypes from 'prop-types';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Combobox } from '@headlessui/react';

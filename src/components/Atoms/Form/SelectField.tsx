@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import PropTypes from 'prop-types';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Listbox } from '@headlessui/react';

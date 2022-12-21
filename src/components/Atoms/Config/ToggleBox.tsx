@@ -1,6 +1,3 @@
-import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Listbox } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';

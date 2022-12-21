@@ -1,9 +1,3 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  faCircleCheck,
-  faCircleXmark,
-  faCircleNotch,
-} from '@fortawesome/free-solid-svg-icons';
 import ProgressBar from 'components/Atoms/ProgressBar';
 import { formatNotificationTime } from 'utils/util';
 import LoadingStatusIcon from './LoadingStatusIcon';

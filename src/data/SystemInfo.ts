@@ -1,9 +1,5 @@
-import { useContext } from 'react';
-// React Query hooks for systeminfo
-
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { LodestoneContext } from './LodestoneContext';
 
 export interface MemInfo {
   total: number;
@@ -19,9 +15,6 @@ export const useMemInfo = () => {
   return useQuery<MemInfo, AxiosError>(
     ['systeminfo', 'meminfo'],
     () => axios.get<MemInfo>(`/system/memory`).then((res) => res.data),
-    {
-      enabled: useContext(LodestoneContext).isReady,
-    }
   );
 };
 
@@ -34,9 +27,6 @@ export const useDiskInfo = () => {
   return useQuery<DiskInfo, AxiosError>(
     ['systeminfo', 'diskinfo'],
     () => axios.get<DiskInfo>(`/system/disk`).then((res) => res.data),
-    {
-      enabled: useContext(LodestoneContext).isReady,
-    }
   );
 };
 
@@ -50,9 +40,6 @@ export const useCPUInfo = () => {
   return useQuery<CPUInfo, AxiosError>(
     ['systeminfo', 'cpuinfo'],
     () => axios.get<CPUInfo>(`/system/cpu`).then((res) => res.data),
-    {
-      enabled: useContext(LodestoneContext).isReady,
-    }
   );
 };
 
@@ -75,8 +62,5 @@ export const useCoreInfo = () => {
   return useQuery<CoreInfo, AxiosError>(
     ['systeminfo', 'CoreInfo'],
     () => axios.get<CoreInfo>(`/info`).then((res) => res.data),
-    {
-      enabled: useContext(LodestoneContext).isReady,
-    }
   );
 };

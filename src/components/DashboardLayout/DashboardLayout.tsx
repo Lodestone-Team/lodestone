@@ -4,10 +4,9 @@
 import NoSSR from 'react-no-ssr';
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
+import { useContext } from 'react';
 import {
-  useInterval,
   useLocalStorage,
-  useSessionStorage,
   useWindowSize,
 } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
@@ -16,25 +15,19 @@ import { InstanceContext } from 'data/InstanceContext';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useEffect, useState } from 'react';
 import { useInstanceList } from 'data/InstanceList';
-import { useRouterQuery } from 'utils/hooks';
+import { useQueryParam } from 'utils/hooks';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import NotificationPanel from './NotificationPanel';
-import { useUserAuthorized, useUserInfo, useUserLoggedIn } from 'data/UserInfo';
-import { pushKeepQuery } from 'utils/util';
+import { useUserLoggedIn } from 'data/UserInfo';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { Outlet } from 'react-router-dom';
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const { query, setQuery } = useRouterQuery('instance', { instance: '' });
-  const queryUuid = query['instance'];
+export default function DashboardLayout() {
+  const { setPathname } = useContext(BrowserLocationContext);
+  const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
   const userLoggedIn = useUserLoggedIn();
   const {
-    isLoading,
-    isError,
     data: dataInstances,
-    error,
   } = useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
@@ -61,10 +54,12 @@ export default function DashboardLayout({
   function setInstance(instance?: InstanceInfo) {
     if (instance === undefined) {
       setInstanceState(undefined);
-      setQuery({ instance: '' }, '/');
+      setQueryUuid('');
+      setPathname('/');
     } else {
       setInstanceState(instance);
-      setQuery({ instance: instance.uuid }, '/dashboard');
+      setQueryUuid(instance.uuid);
+      setPathname('/dashboard');
     }
   }
 
@@ -91,7 +86,9 @@ export default function DashboardLayout({
               </div>
             </div>
             <div className="h-full min-w-0 grow basis-[1024px] child:h-full">
-              <div className="max-w-[1024px]">{children}</div>
+              <div className="max-w-[1024px]">
+                <Outlet />
+              </div>
             </div>
           </div>
           <NoSSR>

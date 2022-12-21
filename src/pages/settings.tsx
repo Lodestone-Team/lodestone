@@ -1,38 +1,18 @@
 import { Tab } from '@headlessui/react';
-import ClipboardTextfield from 'components/ClipboardTextfield';
 import InputBox from 'components/Atoms/Config/InputBox';
-import GameConsole from 'components/GameConsole';
-import DashboardCard from 'components/DashboardCard';
-import DashboardLayout from 'components/DashboardLayout';
-import Label from 'components/Atoms/Label';
-import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { ReactElement, ReactNode, useContext, useState } from 'react';
+import { useContext, useState } from 'react';
 import {
   axiosPutSingleValue,
-  axiosWrapper,
-  catchAsyncToString,
   errorToString,
-  stateToLabelColor,
 } from 'utils/util';
-import { NextPageWithLayout } from './_app';
-import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
-import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
-import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
-import Button from 'components/Atoms/Button';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
-import FileViewer from 'components/FileViewer';
-import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
-import { InstanceContext } from 'data/InstanceContext';
-import GameIcon from 'components/Atoms/GameIcon';
-import SettingField from 'components/SettingField';
+import { useUserInfo } from 'data/UserInfo';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useGlobalSettings } from 'data/GlobalSettings';
 
-const SettingsPage: NextPageWithLayout = () => {
+const SettingsPage = () => {
   const { core } = useContext(LodestoneContext);
-  const { address, port } = core;
   const queryClient = useQueryClient();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const { data: globalSettings, isLoading, error } = useGlobalSettings();
@@ -149,9 +129,5 @@ const SettingsPage: NextPageWithLayout = () => {
     </div>
   );
 };
-
-SettingsPage.getLayout = (page: ReactElement): ReactNode => (
-  <DashboardLayout>{page}</DashboardLayout>
-);
 
 export default SettingsPage;

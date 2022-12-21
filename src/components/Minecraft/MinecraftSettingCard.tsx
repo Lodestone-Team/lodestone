@@ -4,11 +4,10 @@ import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext } from 'react';
 import { parse } from 'minecraft-motd-util';
 import { MOTDRender } from 'components/Atoms/MOTDRender';
-import { axiosWrapper, convertUnicode, errorToString, pushKeepQuery, setQuery } from 'utils/util';
+import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/router';
 
 export default function MinecraftSettingCard() {
   const { selectedInstance: instance, selectInstance } = useContext(InstanceContext);
@@ -20,7 +19,6 @@ export default function MinecraftSettingCard() {
   const supportedSettings = manifest?.settings ? manifest.settings : [];
   const can_delete_instance = useUserAuthorized('can_delete_instance');
   const queryClient = useQueryClient();
-  const router = useRouter();
 
   const commonSettings: {
     [key: string]: {

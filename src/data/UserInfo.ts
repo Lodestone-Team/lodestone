@@ -20,7 +20,7 @@ export const useUserInfo = () => {
         .then((response) => response.data);
     },
     {
-      enabled: useContext(LodestoneContext).isReady && token !== '',
+      enabled: token !== '',
       onError: (error) => {
         if (error.response?.data?.inner === 'Unauthorized')
           // then token is invalid, delete it

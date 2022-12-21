@@ -1,13 +1,8 @@
-import DashboardCard from 'components/DashboardCard';
 import InputBox from 'components/Atoms/Config/InputBox';
 import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper, parseintStrict } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useInstanceManifest } from 'data/InstanceManifest';
-import { useGameSetting } from 'data/GameSetting';
-import Dropdown from 'components/Atoms/Config/SelectBox';
-import SettingField from 'components/SettingField';
 import { useContext } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { PortStatus } from 'bindings/PortStatus';
@@ -25,7 +20,7 @@ export default function MinecraftGeneralCard() {
   const supportedOptions = manifest?.supported_operations
     ? manifest.supported_operations
     : [];
-  const currentSettings = manifest?.settings ? manifest.settings : [];
+  const currentSettings = manifest?.settings ?? [];
   const uuid = instance.uuid;
 
   if (isLoading) {

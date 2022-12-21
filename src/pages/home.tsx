@@ -1,11 +1,7 @@
 import axios from 'axios';
 import DashboardCard from 'components/DashboardCard';
-import DashboardLayout from 'components/DashboardLayout';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
-import { useRouter } from 'next/router';
-import { ReactElement, ReactNode, useEffect } from 'react';
 import { round } from 'utils/util';
-import { NextPageWithLayout } from './_app';
 
 type CpuUsageReply = {
   cpu_speed: number;
@@ -34,12 +30,10 @@ const getRamUsage = async (): Promise<[number, number]> => {
   });
 };
 
-const Home: NextPageWithLayout = () => {
+const Home = () => {
   return (
     // used to possibly center the content
-    <div
-      className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container"
-    >
+    <div className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container">
       {/* main content container */}
       <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
         <h1 className="font-heading text-2xlarge font-semibold tracking-tight text-gray-300">
@@ -73,9 +67,5 @@ const Home: NextPageWithLayout = () => {
     </div>
   );
 };
-
-Home.getLayout = (page: ReactElement): ReactNode => (
-  <DashboardLayout>{page}</DashboardLayout>
-);
 
 export default Home;

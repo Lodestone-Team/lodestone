@@ -1,17 +1,10 @@
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
-import { match, otherwise, partial } from 'variant';
+import { match, otherwise } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
@@ -24,8 +17,7 @@ import { LODESTONE_PORT } from 'utils/util';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { isReady, token, core } = useContext(LodestoneContext);
-  const { address, port, apiVersion } = core;
+  const { token, core } = useContext(LodestoneContext);
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnected = useRef(false);
 
@@ -313,7 +305,6 @@ export const useEventStream = () => {
   );
 
   useEffect(() => {
-    if (!isReady) return;
     if (!token) return;
 
     dispatch({
@@ -329,25 +320,15 @@ export const useEventStream = () => {
         handleEvent(event, false);
       });
     });
-  }, [
-    address,
-    apiVersion,
-    eventQuery,
-    handleEvent,
-    isReady,
-    port,
-    queryClient,
-    token,
-  ]);
+  }, [eventQuery, handleEvent, queryClient, token, core]);
 
   useEffect(() => {
-    if (!isReady) return;
     if (!token) return;
 
     const connectWebsocket = () => {
-      const wsAddress = `ws://${address}:${
-        port ?? LODESTONE_PORT
-      }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(
+      const wsAddress = `ws://${core.address}:${
+        core.port ?? LODESTONE_PORT
+      }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
         eventQuery
       )}`;
 
@@ -391,14 +372,5 @@ export const useEventStream = () => {
         wsRef.current.close();
       }
     };
-  }, [
-    handleEvent,
-    isReady,
-    token,
-    address,
-    apiVersion,
-    eventQuery,
-    handleEvent,
-    port,
-  ]);
+  }, [handleEvent, token, eventQuery, handleEvent, core]);
 };

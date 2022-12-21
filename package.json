@@ -47,6 +47,7 @@
     "react-dom": "^18.2.0",
     "react-draggable": "^4.4.5",
     "react-no-ssr": "^1.1.0",
+    "react-router-dom": "^6.5.0",
     "react-spinners": "^0.13.4",
     "storybook-addon-next-router": "^4.0.0",
     "usehooks-ts": "^2.6.0",

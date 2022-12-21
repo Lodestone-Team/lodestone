@@ -1,7 +1,5 @@
 import { axiosWrapper, catchAsyncToString } from 'utils/util';
-import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
 import * as yup from 'yup';
-import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 import { PortStatus } from 'bindings/PortStatus';
 
 export const formId = 'minecraftCreateNewInstanceForm';

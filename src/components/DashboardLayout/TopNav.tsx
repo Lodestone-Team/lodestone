@@ -1,21 +1,19 @@
 import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
-import router from 'next/router';
 import { Fragment, useContext, useEffect, useState } from 'react';
-import { pushKeepQuery } from 'utils/util';
 import {
   faCaretDown,
   faArrowRightArrowLeft,
   faBell,
   faCog,
   faRightFromBracket,
-  faSpinner,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Avatar from 'boring-avatars';
 import { Menu, Transition } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -26,11 +24,12 @@ export default function TopNav({
   showNotifications: boolean;
   setShowNotifications: (show: boolean) => void;
 }) {
+  const { setPathname } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
   const { token, setToken, core } = useContext(LodestoneContext);
   const { address, port } = core;
-  const socket = `${address}:${port}`
+  const socket = `${address}:${port}`;
   const { selectInstance } = useContext(InstanceContext);
 
   useEffect(() => {
@@ -62,9 +61,7 @@ export default function TopNav({
       <FontAwesomeIcon
         icon={faCog}
         className="w-4 select-none text-gray-faded/50 hover:cursor-pointer hover:text-white/75"
-        onClick={() => {
-          pushKeepQuery(router, '/settings');
-        }}
+        onClick={() => setPathname('/settings')}
       />
       <FontAwesomeIcon
         icon={faBell}
@@ -73,9 +70,7 @@ export default function TopNav({
             ? 'text-white hover:text-white/75'
             : 'text-gray-faded/50 hover:text-white/75'
         }`}
-        onClick={() => {
-          setShowNotifications(!showNotifications);
-        }}
+        onClick={() => setShowNotifications(!showNotifications)}
       />
       <Menu as="div" className="relative inline-block text-left">
         <Menu.Button
@@ -123,7 +118,7 @@ export default function TopNav({
                       setToken('', socket);
                       if (userState !== 'logged-in')
                         // redirect to login page
-                        pushKeepQuery(router, '/login/user/select');
+                        setPathname('/login/user/select');
                     }}
                     variant="text"
                     align="end"
@@ -143,9 +138,7 @@ export default function TopNav({
                     align="end"
                     disabled={disabled}
                     active={active}
-                    onClick={() => {
-                      pushKeepQuery(router, '/login/core/select');
-                    }}
+                    onClick={() => setPathname('/login/core/select')}
                   />
                 )}
               </Menu.Item>

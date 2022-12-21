@@ -1,21 +1,16 @@
 import axios, { AxiosError } from 'axios';
 import Button from 'components/Atoms/Button';
-import { useRouter } from 'next/router';
-import { useContext, useEffect } from 'react';
-import { pushKeepQuery } from 'utils/util';
-import { NextPageWithLayout } from '../../_app';
-import Link from 'next/link';
+import { useContext } from 'react';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { ClientError } from 'bindings/ClientError';
 import { LoginReply } from 'bindings/LoginReply';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
-import ComboField from 'components/Atoms/Form/ComboField';
 import { useCoreInfo } from 'data/SystemInfo';
 import NoSSR from 'react-no-ssr';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
-import { useUserInfo } from 'data/UserInfo';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 type LoginValues = {
   username: string;
@@ -27,15 +22,13 @@ const validationSchema = yup.object({
   password: yup.string().required('Password is required'),
 });
 
-const Auth: NextPageWithLayout = () => {
-  const router = useRouter();
-  const { token, setToken, tokens, isReady, core } =
-    useContext(LodestoneContext);
-  const { protocol, apiVersion, address, port } = core;
+const LoginNewUserPage = () => {
+  const { setPathname, navigateBack } = useContext(BrowserLocationContext);
+  const { setToken, core } = useContext(LodestoneContext);
+  const { address, port } = core;
   const socket = `${address}:${port}`;
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
-  const userInfo = useUserInfo();
 
   const initialValues: LoginValues = {
     username: '',
@@ -59,7 +52,7 @@ const Auth: NextPageWithLayout = () => {
         // set the token cookie
         setToken(response.data.token, socket);
         // redirect to the home page, and set the query
-        pushKeepQuery(router, '/');
+        setPathname('/');
       })
       .catch((error: AxiosError<ClientError>) => {
         if (axios.isAxiosError(error) && error.response) {
@@ -95,56 +88,48 @@ const Auth: NextPageWithLayout = () => {
             <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
               Sign-in to {core_name ?? '...'}
             </h1>
-            <h2 className="text-medium font-medium tracking-medium text-gray-300 h-9">
+            <h2 className="h-9 text-medium font-medium tracking-medium text-gray-300">
               Base URL: {socket}
             </h2>
           </NoSSR>
         </div>
-        {isReady ? (
-          <Formik
-            initialValues={initialValues}
-            validationSchema={validationSchema}
-            onSubmit={onSubmit}
-            validateOnBlur={false}
-            validateOnChange={false}
-          >
-            {({ isSubmitting }) => (
-              <Form
-                id="loginForm"
-                className="flex flex-col gap-12"
-                autoComplete="nope"
-              >
-                <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2 h-32">
-                  <InputField type="text" name="username" label="Username" />
-                  <InputField
-                    type="password"
-                    name="password"
-                    label="Password"
-                  />
-                </div>
-                <div className="flex w-full flex-row justify-end gap-4">
-                  <Button
-                    icon={faArrowLeft}
-                    label="Back"
-                    onClick={() => router.back()}
-                  />
-                  <Button
-                    type="submit"
-                    color="primary"
-                    icon={faArrowRight}
-                    label="Login"
-                    loading={isSubmitting}
-                  />
-                </div>
-              </Form>
-            )}
-          </Formik>
-        ) : (
-          <p>Loading...</p>
-        )}
+        <Formik
+          initialValues={initialValues}
+          validationSchema={validationSchema}
+          onSubmit={onSubmit}
+          validateOnBlur={false}
+          validateOnChange={false}
+        >
+          {({ isSubmitting }) => (
+            <Form
+              id="loginForm"
+              className="flex flex-col gap-12"
+              autoComplete="nope"
+            >
+              <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
+                <InputField type="text" name="username" label="Username" />
+                <InputField type="password" name="password" label="Password" />
+              </div>
+              <div className="flex w-full flex-row justify-end gap-4">
+                <Button
+                  icon={faArrowLeft}
+                  label="Back"
+                  onClick={navigateBack}
+                />
+                <Button
+                  type="submit"
+                  color="primary"
+                  icon={faArrowRight}
+                  label="Login"
+                  loading={isSubmitting}
+                />
+              </div>
+            </Form>
+          )}
+        </Formik>
       </div>
     </div>
   );
 };
 
-export default Auth;
+export default LoginNewUserPage;

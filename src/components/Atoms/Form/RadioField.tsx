@@ -1,10 +1,7 @@
 import React, { useEffect } from 'react';
-import PropTypes from 'prop-types';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { RadioGroup } from '@headlessui/react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;

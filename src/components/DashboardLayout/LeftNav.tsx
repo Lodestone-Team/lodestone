@@ -45,9 +45,6 @@ export default function LeftNav({ className }: { className?: string }) {
         </Dialog>
         <InstanceList className="pt-12 pb-4">
           <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
-            {/* <h1 className="mr-1 text-large font-bold tracking-tight">
-              Instances
-            </h1> */}
             <Button
               label="Add"
               className="w-fit"

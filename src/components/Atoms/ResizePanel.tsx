@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { DraggableCore } from 'react-draggable';
 import { getHeight, getWidth } from 'utils/util';
 import { DraggableEvent, DraggableData } from 'react-draggable';
+import clsx from 'clsx';
 
 const setCursor = (cursor: string) => {
   document.body.style.cursor = cursor;
@@ -101,12 +102,6 @@ export default function ResizePanel({
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return;
-    // const actualContent = content.children[0] as HTMLElement;
-    // const initialSize = isHorizontal
-    //   ? getWidth(actualContent, 'full')
-    //   : getHeight(actualContent, 'full');
-
-    // Initialize the size value based on the content's current size
 
     setSize(initialSize);
     setTargetSize(initialSize);
@@ -154,15 +149,15 @@ export default function ResizePanel({
     ? { width: size + 'px' }
     : { height: size + 'px' };
 
-  const contentClassName = `flex grow self-stretch ${
-    isHorizontal ? 'flex-row' : 'flex-col'
-  }`;
-
   const content = [
     <div
       key="content"
       ref={contentRef}
-      className={contentClassName}
+      className={clsx(
+        "flex grow self-stretch",
+        isHorizontal ? "flex-row" : "flex-col",
+        contentClassNamesProps,
+      )}
       style={grow ? {} : contentStyle}
     >
       {children}
@@ -192,18 +187,3 @@ export default function ResizePanel({
     </div>
   );
 }
-
-// class ResizePanel extends React.Component {
-//   // constructor(props) {
-//   //   super(props);
-//   //   this.state = { size: 0 };
-
-//   //   this.contentRef = React.createRef();
-//   //   this.wrapperRef = React.createRef();
-//   //   this.validateSize = debounce(this.validateSize, 100).bind(this);
-//   // }
-
-//   render() {}
-// }
-
-// export default ResizePanel;

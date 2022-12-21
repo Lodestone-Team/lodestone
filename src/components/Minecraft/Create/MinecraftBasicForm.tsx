@@ -1,19 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
-import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrimitive';
 import { MinecraftVersions } from 'bindings/MinecraftVersions';
 import ComboField from 'components/Atoms/Form/ComboField';
 import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
-import SelectField from 'components/Atoms/Form/SelectField';
-import { LodestoneContext } from 'data/LodestoneContext';
-import { Field, useFormikContext } from 'formik';
-import { useContext } from 'react';
+import { useFormikContext } from 'formik';
 import { MinecraftSetupConfigPrimitiveForm } from './form';
 
 export default function MinecraftBasicForm() {
-  const { isReady } = useContext(LodestoneContext);
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
     useQuery<MinecraftFlavour[]>(
       ['minecraft', 'flavours'],
@@ -24,7 +19,6 @@ export default function MinecraftBasicForm() {
             return a.localeCompare(b);
           });
         }),
-      { enabled: isReady }
     );
 
   const { values } = useFormikContext<MinecraftSetupConfigPrimitiveForm>();
@@ -40,7 +34,7 @@ export default function MinecraftBasicForm() {
           .then((res) => {
             return [...res.data.release, ...res.data.snapshot, ...res.data.old_alpha];
           }),
-      { enabled: isReady && values.flavour !== '' }
+      { enabled: values.flavour !== '' }
     );
   return (
     <>

@@ -11,11 +11,10 @@ import {
   Legend,
   ChartOptions,
   ChartData,
-  Tick,
   ScriptableLineSegmentContext,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { useIntervalClockSeconds, useIntervalImmediate } from 'utils/hooks';
+import { useIntervalClockSeconds } from 'utils/hooks';
 import { asyncCallWithTimeout } from 'utils/util';
 
 ChartJS.register(

@@ -1,6 +1,5 @@
 import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
-import { Field } from 'formik';
 
 export default function MinecraftAdvancedForm() {
   return (

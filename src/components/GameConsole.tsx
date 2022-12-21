@@ -1,10 +1,9 @@
 import { faCircle, faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import axios from 'axios';
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useConsoleStream } from 'data/ConsoleStream';
 import { InstanceContext } from 'data/InstanceContext';
-import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
+import { useUserAuthorized } from 'data/UserInfo';
 import Tooltip from 'rc-tooltip';
 import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';

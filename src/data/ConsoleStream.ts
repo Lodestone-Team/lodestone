@@ -74,7 +74,7 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
  * @return whatever useQuery returns
  */
 export const useConsoleStream = (uuid: string) => {
-  const { core, isReady, token } = useContext(LodestoneContext);
+  const { core, token } = useContext(LodestoneContext);
   const { address, port, apiVersion } = core;
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
@@ -112,10 +112,6 @@ export const useConsoleStream = (uuid: string) => {
   };
 
   useEffect(() => {
-    if (!isReady) {
-      setStatus('loading');
-      return;
-    }
     if (!canAccessConsole) {
       setStatus('no-permission');
       return;
@@ -146,10 +142,9 @@ export const useConsoleStream = (uuid: string) => {
       websocket.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, address, port, apiVersion, uuid, canAccessConsole]);
+  }, [address, port, apiVersion, uuid, canAccessConsole]);
 
   useEffect(() => {
-    if (!isReady) return;
     if (!canAccessConsole) return;
     axios
       .get(`/instance/${uuid}/console/buffer`)
@@ -161,7 +156,7 @@ export const useConsoleStream = (uuid: string) => {
       .catch((e) => {
         console.error(e);
       });
-  }, [canAccessConsole, isReady, uuid]);
+  }, [canAccessConsole, uuid]);
   return {
     consoleLog,
     consoleStatus: status,
