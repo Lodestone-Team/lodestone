@@ -11,7 +11,7 @@ const bytesInGigabyte = 1073741824;
 export default function MinecraftPerformanceCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
-  const { buffer: performanceBuffer, latency_s } = usePerformanceStream(
+  const { buffer: performanceBuffer, counter, latency_s } = usePerformanceStream(
     instance.uuid
   );
   const { data } = useCoreInfo();
@@ -30,6 +30,7 @@ export default function MinecraftPerformanceCard() {
               p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
             )}
             max={100}
+            counter={counter}
             unit="%"
           />
         </div>
@@ -44,6 +45,7 @@ export default function MinecraftPerformanceCard() {
                 : NaN
             )}
             max={round(total_ram / bytesInGigabyte, 1)}
+            counter={counter}
             unit="GiB"
           />
         </div>
