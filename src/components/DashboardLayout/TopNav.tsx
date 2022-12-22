@@ -60,7 +60,7 @@ export default function TopNav({
       </div>
       <FontAwesomeIcon
         icon={faCog}
-        className="w-4 select-none text-gray-faded/50 hover:cursor-pointer hover:text-white/75"
+        className="w-4 select-none text-white/50 hover:cursor-pointer hover:text-white/75"
         onClick={() => setPathname('/settings')}
       />
       <FontAwesomeIcon
@@ -68,7 +68,7 @@ export default function TopNav({
         className={`w-4 select-none hover:cursor-pointer ${
           showNotifications
             ? 'text-gray-300 hover:text-white/75'
-            : 'text-gray-faded/50 hover:text-white/75'
+            : 'text-white/50 hover:text-white/75'
         }`}
         onClick={() => setShowNotifications(!showNotifications)}
       />
