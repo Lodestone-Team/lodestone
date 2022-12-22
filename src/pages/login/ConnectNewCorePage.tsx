@@ -1,7 +1,7 @@
 import axios from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
-import { errorToString, LODESTONE_PORT } from 'utils/util';
+import { DISABLE_AUTOFILL, errorToString, LODESTONE_PORT } from 'utils/util';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
@@ -80,7 +80,7 @@ const ConnectNewCorePage = () => {
             <Form
               id="addCoreForm"
               className="flex flex-col gap-12"
-              autoComplete="nope"
+              autoComplete={DISABLE_AUTOFILL}
             >
               <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
                 <SelectField

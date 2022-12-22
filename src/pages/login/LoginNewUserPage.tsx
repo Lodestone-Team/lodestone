@@ -11,6 +11,7 @@ import { useCoreInfo } from 'data/SystemInfo';
 import NoSSR from 'react-no-ssr';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { DISABLE_AUTOFILL } from 'utils/util';
 
 type LoginValues = {
   username: string;
@@ -104,7 +105,7 @@ const LoginNewUserPage = () => {
             <Form
               id="loginForm"
               className="flex flex-col gap-12"
-              autoComplete="nope"
+              autoComplete={DISABLE_AUTOFILL}
             >
               <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
                 <InputField type="text" name="username" label="Username" />

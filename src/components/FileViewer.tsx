@@ -35,6 +35,7 @@ import {
   createInstanceFile,
   deleteInstanceDirectory,
   deleteInstanceFile,
+  DISABLE_AUTOFILL,
   downloadInstanceFiles,
   formatTimeAgo,
   saveInstanceFile,
@@ -532,7 +533,7 @@ export default function FileViewer() {
                 {({ isSubmitting }) => (
                   <Form
                     id="create-file-form"
-                    autoComplete="nope"
+                    autoComplete={DISABLE_AUTOFILL}
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
                     <InputField
@@ -614,7 +615,7 @@ export default function FileViewer() {
                 {({ isSubmitting }) => (
                   <Form
                     id="create-folder-form"
-                    autoComplete="nope"
+                    autoComplete={DISABLE_AUTOFILL}
                     className="flex flex-col items-stretch gap-8 text-center"
                   >
                     <InputField

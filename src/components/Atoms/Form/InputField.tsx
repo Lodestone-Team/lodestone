@@ -1,6 +1,7 @@
 import React from 'react';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
+import { DISABLE_AUTOFILL } from 'utils/util';
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -32,7 +33,7 @@ export default function InputField(props: InputFieldProps) {
           onChange={field.onChange}
           onBlur={field.onBlur}
           name={field.name}
-          autoComplete="nope"
+          autoComplete={DISABLE_AUTOFILL}
           placeholder={props.placeholder}
         />
         {errorText && (
