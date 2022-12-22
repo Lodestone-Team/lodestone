@@ -26,7 +26,7 @@ const Button = forwardRef(
       ...props
     }: {
       label: string;
-      disabled?: olean;
+      disabled?: boolean;
       loading?: boolean;
       active?: boolean;
       variant?: 'contained' | 'text';
