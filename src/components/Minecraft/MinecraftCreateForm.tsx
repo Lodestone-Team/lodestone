@@ -92,6 +92,7 @@ export default function CreateMinecraftInstance({
         validationSchema={currentValidationSchema}
         onSubmit={_handleSubmit}
         innerRef={formikRef}
+        validateOnBlur={false}
       >
         {({ isSubmitting }) => (
           <Form
