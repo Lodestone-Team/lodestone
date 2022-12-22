@@ -51,9 +51,14 @@ const Button = forwardRef(
           'leading-normal tracking-medium enabled:focus-visible:ring-4',
           'enabled:focus-visible:ring-blue-faded/50',
           {
-            slim: 'gap-1 rounded-sm py-1 px-1.5 text-base font-normal',
-            medium: 'gap-1.5 rounded py-1 px-2 text-base font-medium',
-            large: 'gap-1.5 rounded py-1.5 px-3 text-base font-medium',
+            slim: 'gap-1 rounded-sm py-1 px-1.5 text-base',
+            medium: 'gap-1.5 rounded py-1 px-2 text-base',
+            large: 'gap-1.5 rounded py-1.5 px-3 text-base',
+          }[size],
+          color==='danger' ? 'font-bold' : {
+            slim: 'font-normal',
+            medium: 'font-medium',
+            large: 'font-medium',
           }[size],
           {
             plain: 'text-gray-300 disabled:text-white/50 child:text-white/50',
