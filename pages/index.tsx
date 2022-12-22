@@ -8,7 +8,7 @@ import {
 import React, { useEffect, useLayoutEffect, useMemo } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useEffectOnce, useLocalStorage } from 'usehooks-ts';
-import { useQueryParam } from 'utils/hooks';
+import { useLocalStorageQueryParam } from 'utils/hooks';
 import { errorToString, LODESTONE_PORT } from 'utils/util';
 import Dashboard from 'pages/dashboard';
 import Home from 'pages/home';
@@ -33,10 +33,10 @@ const queryClient = new QueryClient({
 
 export default function App() {
   /* Start Core */
-  const [address, setAddress] = useQueryParam('address', 'localhost');
-  const [port, setPort] = useQueryParam('port', LODESTONE_PORT.toString());
-  const [protocol, setProtocol] = useQueryParam('protocol', 'http');
-  const [apiVersion, setApiVersion] = useQueryParam('apiVersion', 'v1');
+  const [address, setAddress] = useLocalStorageQueryParam('address', 'localhost');
+  const [port, setPort] = useLocalStorageQueryParam('port', LODESTONE_PORT.toString());
+  const [protocol, setProtocol] = useLocalStorageQueryParam('protocol', 'http');
+  const [apiVersion, setApiVersion] = useLocalStorageQueryParam('apiVersion', 'v1');
   const core: CoreConnectionInfo = useMemo(
     () => ({
       address,
