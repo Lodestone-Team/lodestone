@@ -3,7 +3,7 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Switch } from '@headlessui/react';
 
-export default function SelectBox({
+export default function ToggleBox({
   label,
   value: initialValue,
   className,
@@ -101,7 +101,6 @@ export default function SelectBox({
           } relative inline-flex h-6 w-11 items-center rounded-full`}
           disabled={disabled || isLoading}
         >
-          <span className="sr-only">Enable notifications</span>
           <span
             className={`${value ? 'translate-x-6' : 'translate-x-1'} ${
               disabled || isLoading ? 'bg-gray-faded/40' : 'bg-white'
