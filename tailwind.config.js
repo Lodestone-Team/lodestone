@@ -12,24 +12,33 @@ module.exports = {
       transparent: 'transparent',
       current: 'currentColor',
       blue: {
+        200: '#59B2F3',
+        300: '#1D8EB2',
         DEFAULT: '#1D8EB2',
+        400: '#037AA0',
+        500: '#13668A',
+        600: '#334675',
         faded: '#3C85BA',
-        accent: '#59B2F3'
       },
       green: {
-        DEFAULT: '#62DD76',
+        200: '#2AF588',
+        300: '#6DD277',
+        DEFAULT: '#6DD277',
+        400: '#3DAE5E',
         faded: '#61AE32',
-        accent: '#2AF588',
         enabled: '#48F077'
       },
-      ochre: {
+      red: {
+        200: '#FF5C5C',
+        300: '#CF4545',
+        DEFAULT: '#CF4545',
+        400: '#B63737',
+        faded: '#AE3232',
+      },
+      yellow: {
+        300: '#EFB440',
         DEFAULT: '#EFB440',
         faded: '#AE8B32',
-      },
-      red: {
-        DEFAULT: '#DD6262',
-        faded: '#AE3232',
-        accent: '#FF5C5C',
       },
       gray: {
         300: '#E3E3E4',
@@ -44,6 +53,8 @@ module.exports = {
         faded: '#A5A5AC',
       },
       white: '#FFFFFF',
+      violet: '#8736C7',
+      ultramarine: '#273EB9',
     },
     fontFamily: {
       sans: ['Satoshi', ...defaultTheme.fontFamily.sans],

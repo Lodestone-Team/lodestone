@@ -169,7 +169,7 @@ const Dashboard = () => {
                 className={({ selected }) =>
                   `text-medium font-semibold tracking-tight focus-visible:outline-none ${
                     selected
-                      ? 'border-b-2 border-blue-accent text-blue-accent'
+                      ? 'border-b-2 border-blue-200 text-blue-200'
                       : 'mb-0.5 text-gray-500'
                   }`
                 }

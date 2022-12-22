@@ -48,8 +48,8 @@ export const asyncCallWithTimeout = async (
 // instancestatus is a union type
 export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   Running: 'green',
-  Starting: 'ochre',
-  Stopping: 'ochre',
+  Starting: 'yellow',
+  Stopping: 'yellow',
   Stopped: 'gray',
   Error: 'red',
   // Loading: 'gray',

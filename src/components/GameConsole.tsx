@@ -72,20 +72,20 @@ export default function GameConsole() {
       break;
     case 'live':
       consoleStatusMessage = 'Console is live';
-      consoleStatusColor = 'text-green-accent';
+      consoleStatusColor = 'text-green-200';
       break;
     case 'live-no-buffer':
       consoleStatusMessage =
         'Console is live but failed to fetch history. Your internet connection may be unstable';
-      consoleStatusColor = 'text-ochre';
+      consoleStatusColor = 'text-yellow';
       break;
     case 'closed':
       consoleStatusMessage = 'Console is closed';
-      consoleStatusColor = 'text-red-accent';
+      consoleStatusColor = 'text-red-200';
       break;
     case 'error':
       consoleStatusMessage = 'Connection lost or error';
-      consoleStatusColor = 'text-red-accent';
+      consoleStatusColor = 'text-red-200';
   }
   // overwrites
   if (instance.state !== 'Running') {

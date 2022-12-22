@@ -56,7 +56,7 @@ const Button = forwardRef(
           }[size],
           {
             gray: 'text-gray-300 child:text-white/50 disabled:text-white/50',
-            red: 'text-red-accent child:text-red-accent/50 disabled:text-red/50',
+            red: 'text-red-200 child:text-red-200/50 disabled:text-red/50',
             primary: 'text-gray-300 child:text-white/50 disabled:text-white/50',
           }[color],
           {
@@ -78,7 +78,7 @@ const Button = forwardRef(
           variant !== 'text' &&          {
             gray: 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
             red: 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
-            primary: 'outline outline-1 outline-blue-faded/50 enabled:hover:outline-blue-accent/75', //TODO: remove hardcoded colors
+            primary: 'outline outline-1 outline-blue-faded/50 enabled:hover:outline-blue-200/75', //TODO: remove hardcoded colors
           }[color],
           className
         )}

@@ -323,7 +323,7 @@ export default function FileViewer() {
         <span
           className={
             path !== '' || openedFile
-              ? 'cursor-pointer text-blue-accent hover:underline'
+              ? 'cursor-pointer text-blue-200 hover:underline'
               : 'text-gray-300'
           }
           onClick={() => {
@@ -346,7 +346,7 @@ export default function FileViewer() {
                 <span
                   className={
                     i !== arr.length - 1 || openedFile
-                      ? 'cursor-pointer text-blue-accent hover:underline'
+                      ? 'cursor-pointer text-blue-200 hover:underline'
                       : 'text-gray-300'
                   }
                   onClick={() => {
@@ -394,7 +394,7 @@ export default function FileViewer() {
       </div>
       <div className="w-3">
         {file.file_type === 'Directory' && (
-          <FontAwesomeIcon icon={faFolder} className="text-blue-accent" />
+          <FontAwesomeIcon icon={faFolder} className="text-blue-200" />
         )}
         {file.file_type === 'File' && (
           <FontAwesomeIcon
@@ -403,12 +403,12 @@ export default function FileViewer() {
           />
         )}
         {file.file_type === 'Unknown' && (
-          <FontAwesomeIcon icon={faClipboardQuestion} className="text-ochre" />
+          <FontAwesomeIcon icon={faClipboardQuestion} className="text-yellow" />
         )}
       </div>
       <p
         className={clsx(
-          'truncate text-gray-300 hover:cursor-pointer hover:text-blue-accent hover:underline',
+          'truncate text-gray-300 hover:cursor-pointer hover:text-blue-200 hover:underline',
           openedFile?.path === file.path && 'italic'
         )}
         onClick={() => {
@@ -438,7 +438,7 @@ export default function FileViewer() {
         {!atTopLevel ? (
           <div
             key={'..'}
-            className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-accent hover:underline"
+            className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-200 hover:underline"
             onClick={() => {
               setPath(parentPath(path));
             }}

@@ -4,12 +4,12 @@
 
 export type LabelSize = 'small' | 'large';
 
-export type LabelColor = 'green' | 'ochre' | 'red' | 'gray';
+export type LabelColor = 'green' | 'yellow' | 'red' | 'gray';
 
 // a map from labelcolor to css classes
 const labelColorMap = {
   green: 'bg-green-faded/25 text-green',
-  ochre: 'bg-ochre-faded/25 text-ochre',
+  yellow: 'bg-yellow-faded/25 text-yellow',
   red: 'bg-red-faded/25 text-red',
   gray: 'bg-gray-faded/30 text-gray-300', //TODO: make the gray color also semi-transparent
 };

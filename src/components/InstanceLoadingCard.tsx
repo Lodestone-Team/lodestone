@@ -12,7 +12,7 @@ const NotificationLevelToBgColorClass = (
 ) => {
   switch (level) {
     case 'Warning':
-      return 'bg-ochre';
+      return 'bg-yellow';
     case 'Error':
       return 'bg-red';
     default:
@@ -23,7 +23,7 @@ const NotificationLevelToBgColorClass = (
           return 'bg-red';
         case 'ongoing':
         default:
-          return 'bg-blue-accent/50';
+          return 'bg-blue-200/50';
       }
   }
 };

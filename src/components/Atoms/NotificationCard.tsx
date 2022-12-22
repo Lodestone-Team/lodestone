@@ -10,7 +10,7 @@ const NotificationLevelToBgColorClass = (
 ) => {
   switch (level) {
     case 'Warning':
-      return 'bg-ochre';
+      return 'bg-yellow';
     case 'Error':
       return 'bg-red';
     default:
