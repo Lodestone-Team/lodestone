@@ -21,6 +21,7 @@ body {
   min-height: 100%;
   overscroll-behavior: none;
   overflow: overlay;
+  @apply text-gray-300 font-sans
 }
 
 * {
