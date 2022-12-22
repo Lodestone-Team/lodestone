@@ -2,7 +2,7 @@ import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { catchAsyncToString, parseintStrict } from 'utils/util';
+import { catchAsyncToString, DISABLE_AUTOFILL, parseintStrict } from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 
@@ -227,7 +227,7 @@ export default function InputBox({
           }}
           disabled={disabled}
           type={type}
-          autoComplete="nope"
+          autoComplete={DISABLE_AUTOFILL}
         />
       </form>
     </div>

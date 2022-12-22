@@ -1,3 +1,4 @@
+import { isEdge } from 'react-device-detect';
 import { LabelColor } from 'components/Atoms/Label';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
@@ -6,6 +7,7 @@ import { ClientFile } from 'bindings/ClientFile';
 import { QueryClient } from '@tanstack/react-query';
 import { Base64 } from 'js-base64';
 
+export const DISABLE_AUTOFILL = isEdge ? 'off-random-string-edge-stop-ignoring-autofill-off' : 'off';
 export const LODESTONE_PORT = 16662;
 
 export const capitalizeFirstLetter = (string: string) => {

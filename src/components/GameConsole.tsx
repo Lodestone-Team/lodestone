@@ -8,6 +8,7 @@ import Tooltip from 'rc-tooltip';
 import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
+import { DISABLE_AUTOFILL } from 'utils/util';
 
 const autoScrollThreshold = 100;
 
@@ -152,7 +153,7 @@ export default function GameConsole() {
       <div className="font-mono text-small">
         <form
           noValidate
-          autoComplete="nope"
+          autoComplete={DISABLE_AUTOFILL}
           onSubmit={(e: React.SyntheticEvent) => {
             e.preventDefault();
             sendCommand(command);
