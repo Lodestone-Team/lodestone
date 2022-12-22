@@ -45,7 +45,7 @@ export default function NotificationCard({
   return (
     <div className="overflow-hidden rounded-md bg-gray-900">
       <div
-        className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-white hover:bg-gray-900`}
+        className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-gray-300 hover:bg-gray-900`}
       >
         <LoadingStatusIcon level={level} state={state} />
         <div className="flex flex-col items-start">

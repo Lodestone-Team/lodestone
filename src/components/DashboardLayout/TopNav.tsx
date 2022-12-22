@@ -67,7 +67,7 @@ export default function TopNav({
         icon={faBell}
         className={`w-4 select-none hover:cursor-pointer ${
           showNotifications
-            ? 'text-white hover:text-white/75'
+            ? 'text-gray-300 hover:text-white/75'
             : 'text-gray-faded/50 hover:text-white/75'
         }`}
         onClick={() => setShowNotifications(!showNotifications)}
