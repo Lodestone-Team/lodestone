@@ -3,7 +3,7 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Switch } from '@headlessui/react';
 
-export default function SelectBox({
+export default function ToggleBox({
   label,
   value: initialValue,
   className,
@@ -52,24 +52,25 @@ export default function SelectBox({
     ? descriptionFunc?.(initialValue || value) ?? description
     : 'No permission';
 
-  const status = (isLoading || isLoadingProp) ? (
-    <BeatLoader
-      key="loading"
-      size="0.25rem"
-      cssOverride={{
-        width: '2rem',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        margin: `0 -0.5rem`,
-      }}
-      color="#6b7280"
-    />
-  ) : (
-    <p className="text-small font-medium italic text-white/50">
-      {disabled ? '' : value ? 'Enabled' : 'Disabled'}
-    </p>
-  );
+  const status =
+    isLoading || isLoadingProp ? (
+      <BeatLoader
+        key="loading"
+        size="0.25rem"
+        cssOverride={{
+          width: '2rem',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          margin: `0 -0.5rem`,
+        }}
+        color="#6b7280"
+      />
+    ) : (
+      <p className="text-small font-medium italic text-white/50">
+        {disabled ? '' : value ? 'Enabled' : 'Disabled'}
+      </p>
+    );
 
   return (
     <div
@@ -98,10 +99,9 @@ export default function SelectBox({
               : value
               ? 'bg-green-enabled/50'
               : 'bg-white/50'
-          } relative inline-flex h-6 w-11 items-center rounded-full`}
+          } relative inline-flex h-6 w-11 items-center rounded-full outline-0 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50`}
           disabled={disabled || isLoading}
         >
-          <span className="sr-only">Enable notifications</span>
           <span
             className={`${value ? 'translate-x-6' : 'translate-x-1'} ${
               disabled || isLoading ? 'bg-gray-faded/40' : 'bg-white'

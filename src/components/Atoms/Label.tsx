@@ -1,23 +1,8 @@
-// A styled label component
-
-// declare labelsize as either small or large
+import clsx from 'clsx';
 
 export type LabelSize = 'small' | 'large';
 
-export type LabelColor = 'green' | 'ochre' | 'red' | 'gray';
-
-// a map from labelcolor to css classes
-const labelColorMap = {
-  green: 'bg-green-faded/25 text-green',
-  ochre: 'bg-ochre-faded/25 text-ochre',
-  red: 'bg-red-faded/25 text-red',
-  gray: 'bg-gray-faded/30 text-gray-300', //TODO: make the gray color also semi-transparent
-};
-
-const labelSizeMap = {
-  small: 'text-smaller py-[0.25em] px-1',
-  large: 'text-small py-1 px-2',
-};
+export type LabelColor = 'green' | 'yellow' | 'red' | 'gray';
 
 export default function Label({
   size = 'small',
@@ -33,7 +18,20 @@ export default function Label({
 }) {
   return (
     <span
-      className={`h-fit select-none whitespace-nowrap rounded-full font-bold tracking-medium ${labelSizeMap[size]} ${labelColorMap[color]} ${className}`}
+      className={clsx(
+        `h-fit select-none whitespace-nowrap rounded-full font-bold tracking-medium`,
+        {
+          small: 'py-[0.25em] px-1 text-smaller',
+          large: 'py-1 px-2 text-small',
+        }[size],
+        {
+          green: 'bg-green-faded/25 text-green',
+          yellow: 'bg-yellow-faded/25 text-yellow',
+          red: 'bg-red-faded/25 text-red',
+          gray: 'bg-gray-faded/30 text-gray-300',
+        }[color],
+        className
+      )}
       {...rest}
     >
       {children}

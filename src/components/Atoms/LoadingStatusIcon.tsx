@@ -24,7 +24,7 @@ export default function LoadingStatusIcon({
   ) => {
     switch (level) {
       case 'Warning':
-        return 'text-ochre';
+        return 'text-yellow';
       case 'Error':
         return 'text-red';
       default:

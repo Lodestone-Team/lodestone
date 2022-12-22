@@ -85,7 +85,7 @@ export default function RadioField(props: RadioFieldProps) {
                           ? 'bg-blue-faded/30 text-white/50'
                           : 'bg-gray-800 text-white/50'
                         : checked
-                        ? 'bg-[#2B4554] text-white'
+                        ? 'bg-[#2B4554] text-gray-300'
                         : 'text-white/75'
                     }`}
                   >

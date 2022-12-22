@@ -10,9 +10,9 @@ import GameIcon from './Atoms/GameIcon';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string } = {
-  Starting: 'outline-ochre ring-ochre-faded/25',
+  Starting: 'outline-yellow ring-yellow-faded/25',
   Running: 'outline-green ring-green-faded/25',
-  Stopping: 'outline-ochre ring-ochre-faded/25',
+  Stopping: 'outline-yellow ring-yellow-faded/25',
   Stopped: 'outline-gray-300 ring-gray-500',
   Error: 'outline-red ring-red-faded/25',
   // Loading: 'outline-gray-300 ring-gray-500',

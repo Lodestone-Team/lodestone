@@ -261,7 +261,7 @@ export default function MinecraftSettingCard() {
           <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-base">
             <div className="flex min-w-0 grow flex-col">
               {can_delete_instance ? (
-                <label className="text-base font-medium text-red-accent">
+                <label className="text-base font-medium text-red-200">
                   Delete Instance
                 </label>
               ) : (
@@ -282,7 +282,7 @@ export default function MinecraftSettingCard() {
             <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
               <Button
                 label="Delete"
-                color="red"
+                color="danger"
                 disabled={!can_delete_instance}
                 onClick={() => {
                   axiosWrapper({

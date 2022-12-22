@@ -21,6 +21,7 @@ body {
   min-height: 100%;
   overscroll-behavior: none;
   overflow: overlay;
+  @apply text-gray-300 font-sans
 }
 
 * {
@@ -52,7 +53,7 @@ body {
   }
 
   .input-base.border-normal {
-    @apply outline-gray-faded/30 invalid:outline-red invalid:focus-visible:outline-red enabled:focus-visible:ring-blue/30;
+    @apply outline-gray-faded/30 invalid:outline-red invalid:focus-visible:outline-red enabled:focus-visible:ring-blue-faded/50;
   }
 
   .input-base.border-error {
@@ -64,7 +65,7 @@ body {
   }
 
   .input-base.enabled.border-normal {
-    @apply focus-visible:ring-blue/30;
+    @apply focus-visible:ring-blue-faded/50;
   }
 
   .input-base.enabled.border-error {

@@ -60,7 +60,7 @@ export default function NotificationPanel({
             .reverse()
         ) : (
           <div
-            className={`justify-stretch flex flex-col items-start px-4 py-3 text-white`}
+            className={`justify-stretch flex flex-col items-start px-4 py-3 text-gray-300`}
           >
             <p className="w-full text-base">No notifications at the moment!</p>
           </div>
