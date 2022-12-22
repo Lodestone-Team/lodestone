@@ -1,18 +1,21 @@
 import SettingField from 'components/SettingField';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import { parse } from 'minecraft-motd-util';
 import { MOTDRender } from 'components/Atoms/MOTDRender';
 import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryClient } from '@tanstack/react-query';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 
 export default function MinecraftSettingCard() {
-  const { selectedInstance: instance, selectInstance } = useContext(InstanceContext);
+  const { selectedInstance: instance, selectInstance } =
+    useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const supportedOptions = manifest?.supported_operations
     ? manifest.supported_operations
     : [];
@@ -178,6 +181,34 @@ export default function MinecraftSettingCard() {
 
   return (
     <>
+      <ConfirmDialog
+        title={`Delete "${instance.name}"`}
+        type={'danger'}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={() => {
+          axiosWrapper({
+            method: 'DELETE',
+            url: `/instance/${instance.uuid}`,
+          })
+            .then(() => {
+              queryClient.invalidateQueries(['instances', 'list']);
+              selectInstance(undefined);
+            })
+            .catch((err) => {
+              const err_message = errorToString(err);
+              alert(err_message);
+            })
+            .finally(() => {
+              setShowDeleteDialog(false);
+            });
+        }}
+        confirmButtonText="I understand, delete this instance"
+        isOpen={showDeleteDialog}
+      >
+        <span className="font-bold">This action cannot be undone.</span>{' '}
+        This instance&#39;s settings, worlds and backups will be permanently
+        deleted. Please backup any important data before proceeding.
+      </ConfirmDialog>
       <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
           <h1 className="text-large font-black"> Common Settings </h1>
@@ -285,18 +316,7 @@ export default function MinecraftSettingCard() {
                 color="danger"
                 disabled={!can_delete_instance}
                 onClick={() => {
-                  axiosWrapper({
-                    method: 'DELETE',
-                    url: `/instance/${instance.uuid}`,
-                  })
-                    .then(() => {
-                      queryClient.invalidateQueries(['instances', 'list']);
-                      selectInstance(undefined);
-                    })
-                    .catch((err) => {
-                      const err_message = errorToString(err);
-                      alert(err_message);
-                    });
+                  setShowDeleteDialog(true);
                 }}
               />
             </div>
