@@ -674,7 +674,7 @@ export default function FileViewer() {
                           ? 'Deselect all'
                           : 'Select all'
                       }
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      className="w-full items-start whitespace-nowrap py-1.5"
                       onClick={() => {
                         if (!fileList) return;
                         if (tickedFiles.length === fileList.length) {
@@ -694,7 +694,7 @@ export default function FileViewer() {
                 <Menu.Item disabled={tickedFiles.length === 0 || !canRead}>
                   {({ active, disabled }) => (
                     <Button
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      className="w-full items-start whitespace-nowrap py-1.5"
                       label="Download selected"
                       icon={faDownload}
                       onClick={downloadTickedFiles}
@@ -711,7 +711,7 @@ export default function FileViewer() {
                   {({ active, disabled }) => (
                     <Button
                       label="New file"
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      className="w-full items-start whitespace-nowrap py-1.5"
                       onClick={() => setCreateFileModalOpen(true)}
                       iconComponent={fileCheckIcon}
                       variant="text"
@@ -725,7 +725,7 @@ export default function FileViewer() {
                   {({ active, disabled }) => (
                     <Button
                       label="New folder"
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      className="w-full items-start whitespace-nowrap py-1.5"
                       onClick={() => setCreateFolderModalOpen(true)}
                       icon={faFolderPlus}
                       variant="text"
@@ -741,12 +741,12 @@ export default function FileViewer() {
                   {({ active, disabled }) => (
                     <Button
                       label="Delete selected"
-                      className="w-full items-start whitespace-nowrap py-1.5 font-normal"
+                      className="w-full items-start whitespace-nowrap py-1.5"
                       onClick={deleteTickedFiles}
                       icon={faTrashCan}
                       variant="text"
                       align="start"
-                      color="red"
+                      color="danger"
                       disabled={disabled}
                       active={active}
                     />
