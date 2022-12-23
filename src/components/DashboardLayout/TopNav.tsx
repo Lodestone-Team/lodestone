@@ -14,6 +14,9 @@ import Avatar from 'boring-avatars';
 import { Menu, Transition } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
+import { AxiosError } from 'axios';
+import Label, { LabelColor } from 'components/Atoms/Label';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -31,6 +34,19 @@ export default function TopNav({
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { selectInstance } = useContext(InstanceContext);
+  const { status: fetchingStatus, data: coreData } = useCoreInfo();
+
+  const statusMap = {
+    "loading": "Connecting",
+    "error": "Error",
+    "success": "Connected"
+  }  
+  
+  const colorMap: Record<string, LabelColor> = {
+    "loading": "yellow",
+    "error": "red",
+    "success": "green"
+  }
 
   useEffect(() => {
     if (!token) {
@@ -57,6 +73,16 @@ export default function TopNav({
             selectInstance(undefined);
           }}
         />
+      </div>
+      <div className="flex flex-row items-baseline flex-wrap gap-1">
+        <p className="font-medium text-base text-center text-white/50">{coreData?.core_name ?? "..."}:</p>
+        <Label
+          size = 'small'
+          color = {colorMap[fetchingStatus]}
+          className = 'w-16 text-center'
+        >
+          {statusMap[fetchingStatus]}
+        </Label>
       </div>
       <FontAwesomeIcon
         icon={faCog}
