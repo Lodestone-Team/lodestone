@@ -1,14 +1,7 @@
-// A react component that renders the left and top navbar for the dashboard.
-// Also provides the instance context
-
-import NoSSR from 'react-no-ssr';
 import LeftNav from './LeftNav';
 import TopNav from './TopNav';
 import { useContext } from 'react';
-import {
-  useLocalStorage,
-  useWindowSize,
-} from 'usehooks-ts';
+import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
 import { useCoreInfo } from 'data/SystemInfo';
 import { InstanceContext } from 'data/InstanceContext';
@@ -26,9 +19,7 @@ export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
   const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
   const userLoggedIn = useUserLoggedIn();
-  const {
-    data: dataInstances,
-  } = useInstanceList(userLoggedIn);
+  const { data: dataInstances } = useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
   );
@@ -72,12 +63,10 @@ export default function DashboardLayout() {
       }}
     >
       <div className="flex h-screen flex-col">
-        <NoSSR>
-          <TopNav
-            showNotifications={showNotifications}
-            setShowNotifications={setShowNotifications}
-          />
-        </NoSSR>
+        <TopNav
+          showNotifications={showNotifications}
+          setShowNotifications={setShowNotifications}
+        />
         <div className="relative flex min-h-0 w-full grow flex-row bg-gray-850">
           <div className="flex grow flex-row justify-center gap-[1vw]">
             <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
@@ -91,31 +80,29 @@ export default function DashboardLayout() {
               </div>
             </div>
           </div>
-          <NoSSR>
-            {showNotifications &&
-              (width > 1280 ? (
-                <ResizePanel
-                  direction="w"
-                  maxSize={500}
-                  minSize={200}
-                  size={rightNavSize}
-                  validateSize={false}
-                  onResize={setRightNavSize}
-                  containerClassNames="min-h-0"
-                >
-                  <NotificationPanel />
-                </ResizePanel>
-              ) : (
-                <div
-                  className="absolute right-2 -top-2 h-full w-96 rounded-lg drop-shadow-lg child:h-full"
-                  style={{
-                    width: rightNavSize,
-                  }}
-                >
-                  <NotificationPanel className="rounded-lg border" />
-                </div>
-              ))}
-          </NoSSR>
+          {showNotifications &&
+            (width > 1280 ? (
+              <ResizePanel
+                direction="w"
+                maxSize={500}
+                minSize={200}
+                size={rightNavSize}
+                validateSize={false}
+                onResize={setRightNavSize}
+                containerClassNames="min-h-0"
+              >
+                <NotificationPanel />
+              </ResizePanel>
+            ) : (
+              <div
+                className="absolute right-2 -top-2 h-full w-96 rounded-lg drop-shadow-lg child:h-full"
+                style={{
+                  width: rightNavSize,
+                }}
+              >
+                <NotificationPanel className="rounded-lg border" />
+              </div>
+            ))}
         </div>
       </div>
     </InstanceContext.Provider>

@@ -8,7 +8,6 @@ import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
 import { useCoreInfo } from 'data/SystemInfo';
-import NoSSR from 'react-no-ssr';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { DISABLE_AUTOFILL } from 'utils/util';
@@ -85,14 +84,12 @@ const LoginNewUserPage = () => {
     >
       <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
         <div className="text flex flex-col items-start">
-          <NoSSR>
-            <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
-              Sign-in to {core_name ?? '...'}
-            </h1>
-            <h2 className="h-9 text-medium font-medium tracking-medium text-gray-300">
-              Base URL: {socket}
-            </h2>
-          </NoSSR>
+          <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
+            Sign-in to {core_name ?? '...'}
+          </h1>
+          <h2 className="h-9 text-medium font-medium tracking-medium text-gray-300">
+            Base URL: {socket}
+          </h2>
         </div>
         <Formik
           initialValues={initialValues}
