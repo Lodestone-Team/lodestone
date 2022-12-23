@@ -14,6 +14,8 @@ import Avatar from 'boring-avatars';
 import { Menu, Transition } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
+import { AxiosError } from 'axios';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -31,6 +33,25 @@ export default function TopNav({
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { selectInstance } = useContext(InstanceContext);
+  const { status: fetchingStatus } = useCoreInfo();
+
+  const statusMap = {
+    "loading": "Connecting",
+    "error": "Timeout error",
+    "success": "Connected"
+  }  
+  
+  const colorMap = {
+    "loading": "rgba(174, 139, 50, 0.25)",
+    "error": "rgba(174, 50, 50, 0.25)",
+    "success": "rgba(97, 174, 50, 0.25)"
+  }
+
+  const textMap = {
+    "loading": "rgba(239, 180, 64, 1)",
+    "error": "rgba(255, 92, 92, 1)",
+    "success": "rgba(98, 221, 118, 1)"
+  }
 
   useEffect(() => {
     if (!token) {
@@ -57,6 +78,13 @@ export default function TopNav({
             selectInstance(undefined);
           }}
         />
+      </div>
+      <div className="flex flex-row flex-wrap items-center gap-3">
+        <p className="font-medium text-base text-center text-gray-400">Ubuntu's Lodestone Core:</p>
+        <span className="select-none rounded-full font-bold text-small py-1 px-2 pl-3 pr-3 w-[101px] text-center" style={{backgroundColor: colorMap[fetchingStatus], color: textMap[fetchingStatus]}}>
+          {statusMap[fetchingStatus]}
+          {/* Timeout error */}
+        </span>
       </div>
       <FontAwesomeIcon
         icon={faCog}
