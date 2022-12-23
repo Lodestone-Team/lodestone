@@ -141,13 +141,7 @@ const Dashboard = () => {
           <Label size="large" color={labelColor}>
             Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
-          <Label
-            size="large"
-            color="gray"
-            className="flex flex-row items-center gap-3"
-          >
-            <ClipboardTextfield text={`${address}:${instance.port}`} />
-          </Label>
+          <ClipboardTextfield text={`${address}:${instance.port}`} />
         </div>
         {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield

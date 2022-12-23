@@ -21,7 +21,7 @@ body {
   min-height: 100%;
   overscroll-behavior: none;
   overflow: overlay;
-  @apply text-gray-300 font-sans
+  @apply font-sans text-gray-300;
 }
 
 * {
@@ -45,7 +45,7 @@ body {
    */
 
   .input-base {
-    @apply appearance-none rounded bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 focus-visible:ring-4 enabled:text-gray-300  disabled:bg-gray-800 disabled:text-white/50 placeholder:text-white/30;
+    @apply appearance-none rounded bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 placeholder:text-white/30 focus-visible:ring-4  enabled:text-gray-300 disabled:bg-gray-800 disabled:text-white/50;
   }
 
   .input-base.disabled {
@@ -73,7 +73,7 @@ body {
   }
 }
 
-@layer utilities{
+@layer utilities {
   .overflow-overlay {
     overflow: overlay;
   }
@@ -140,7 +140,9 @@ input {
   height: 10px;
 }
 
-*:hover, *:focus, *:focus-within {
+*:hover,
+*:focus,
+*:focus-within {
   --scrollbar-color: hsla(0, 0%, 50%, 0.7) !important;
 }
 
@@ -179,12 +181,14 @@ input {
 }
 
 /* rc-tooltip */
+
 .rc-tooltip-inner {
-  @apply min-h-0 rounded px-2 py-1 text-small tracking-tight text-gray-300 shadow-none;
+  @apply min-h-0 rounded-md bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md border border-gray-faded/30;
 }
 
 .rc-tooltip {
   @apply opacity-100;
+  padding: 0px !important;
 }
 
 /* Removing the spin arrow */

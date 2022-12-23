@@ -9,12 +9,14 @@ export default function Label({
   color = 'gray',
   className = '',
   children,
+  onClick,
   ...rest
 }: {
   size: LabelSize;
   color: LabelColor;
   className?: string;
   children: React.ReactNode;
+  onClick?: (e: React.MouseEvent<HTMLSpanElement>) => void;
 }) {
   return (
     <span
@@ -32,6 +34,7 @@ export default function Label({
         }[color],
         className
       )}
+      onClick={onClick}
       {...rest}
     >
       {children}
