@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { forwardRef, useEffect } from 'react';
 import { DraggableCore } from 'react-draggable';
-import { getHeight, getWidth } from 'utils/util';
+import { getHeight, getWidth, useCombinedRefs } from 'utils/util';
 import { DraggableEvent, DraggableData } from 'react-draggable';
 import clsx from 'clsx';
 
@@ -16,7 +16,7 @@ const setCursor = (cursor: string) => {
  * To use this as a controlled component, pass in the `size` prop and the `onResize` callback
  *
  */
-export default function ResizePanel({
+const ResizePanel = forwardRef(({
   direction,
   containerClassNames: containerClassNamesProps = '',
   contentClassNames: contentClassNamesProps = '',
@@ -42,9 +42,10 @@ export default function ResizePanel({
   grow?: boolean;
   validateSize?: boolean;
   onResize?: (size: number) => void;
-}) {
+}, ref: React.Ref<HTMLDivElement>) => {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const wrapperRef = React.useRef<HTMLDivElement>(null);
+  const wrappedCombinedRef = useCombinedRefs<HTMLDivElement>(ref, wrapperRef);
 
   const isHorizontal = direction === 'w' || direction === 'e';
   const [size, setSizeState] = React.useState(0);
@@ -177,7 +178,7 @@ export default function ResizePanel({
 
   return (
     <div
-      ref={wrapperRef}
+      ref={wrappedCombinedRef}
       className={containerClassNames}
       style={containerStyle}
     >
@@ -186,4 +187,8 @@ export default function ResizePanel({
       {(direction === 'e' || direction === 's') && !grow ? handle : null}
     </div>
   );
-}
+})
+
+ResizePanel.displayName = 'ResizePanel';
+
+export default ResizePanel;

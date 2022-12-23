@@ -6,6 +6,7 @@ import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
 import { QueryClient } from '@tanstack/react-query';
 import { Base64 } from 'js-base64';
+import React from 'react';
 
 export const DISABLE_AUTOFILL = isEdge ? 'off-random-string-edge-stop-ignoring-autofill-off' : 'off';
 export const LODESTONE_PORT = 16662;
@@ -475,4 +476,24 @@ export function convertUnicode(input: string) {
       String.fromCharCode(parseInt(b, 16))
     )
     .replace(/\\+n/g, '\n');
+}
+
+// use combined refs to merge multiple refs into one
+// could take React.RefObject<T> or React.ForwardedRef<T>
+export function useCombinedRefs<T>(...refs: any[]) {
+  const targetRef = React.useRef<T>(null);
+
+  React.useEffect(() => {
+    refs.forEach((ref: any) => {
+      if (!ref) return;
+
+      if (typeof ref === 'function') {
+        ref(targetRef.current);
+      } else {
+        ref.current = targetRef.current;
+      }
+    });
+  }, [refs]);
+
+  return targetRef;
 }
