@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::traits::t_player::{TPlayer, TPlayerManagement};
 use crate::traits::ErrorInner;
@@ -8,7 +9,8 @@ use crate::Error;
 
 use super::MinecraftInstance;
 
-#[derive(Eq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Eq, Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct MinecraftPlayer {
     pub name: String,
     pub uuid: String,

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use super::ErrorInner;
 use crate::minecraft::player::MinecraftPlayer;
@@ -12,7 +13,8 @@ pub trait TPlayer {
 }
 
 #[enum_dispatch::enum_dispatch(TPlayer)]
-#[derive(Serialize, Deserialize, Debug, Eq)]
+#[derive(Serialize, Deserialize, Debug, Eq, TS)]
+#[ts(export)]
 pub enum Player {
     MinecraftPlayer,
 }
