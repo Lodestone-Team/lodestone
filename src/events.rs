@@ -63,7 +63,7 @@ pub enum UserEventInner {
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
-    PermissionChanged(UserPermission),
+    PermissionChanged(Box<UserPermission>),
 }
 
 impl AsRef<UserEventInner> for UserEventInner {
