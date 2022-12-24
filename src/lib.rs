@@ -77,16 +77,16 @@ pub struct GlobalSettings {
 
 impl GlobalSettings {
     pub async fn new() -> Self {
-        let path_to_glove_settings = PATH_TO_STORES.with(|v| v.join("global_settings.json"));
-        if path_to_glove_settings.exists() {
+        let path_to_global_settings = PATH_TO_STORES.with(|v| v.join("global_settings.json"));
+        if path_to_global_settings.exists() {
             if let Ok(v) =
-                serde_json::from_reader(std::fs::File::open(&path_to_glove_settings).unwrap())
+                serde_json::from_reader(std::fs::File::open(&path_to_global_settings).unwrap())
             {
                 return v;
             }
         }
         let ret = Self {
-            path_to_global_settings: path_to_glove_settings,
+            path_to_global_settings,
             core_name: format!("{}'s Lodestone Core", whoami::realname()),
             safe_mode: true,
         };
