@@ -14,6 +14,7 @@ pub trait TPlayer {
 
 #[enum_dispatch::enum_dispatch(TPlayer)]
 #[derive(Serialize, Deserialize, Debug, Eq, TS)]
+#[serde(tag = "type")]
 #[ts(export)]
 pub enum Player {
     MinecraftPlayer,
