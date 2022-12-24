@@ -5,6 +5,7 @@ use rand_core::OsRng;
 
 use crate::{
     auth::{permission::UserPermission, user::User},
+    events::CausedBy,
     traits::{Error, ErrorInner},
     util::rand_alphanumeric,
     AppState,
@@ -42,17 +43,11 @@ pub async fn setup_owner(
                 secret: rand_alphanumeric(32),
             };
             state
-                .users
-                .lock()
+                .users_manager
+                .write()
                 .await
-                .transform(
-                    Box::new(move |users| -> Result<(), Error> {
-                        users.insert(uid.clone(), owner.clone());
-                        Ok(())
-                    }),
-                    (),
-                )
-                .unwrap();
+                .add_user(owner, CausedBy::System)
+                .await?;
             info!("Owner password: {}", owner_setup.password);
             Ok(Json(()))
         }

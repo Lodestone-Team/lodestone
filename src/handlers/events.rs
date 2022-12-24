@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     extract::{ws::WebSocket, Path, Query, WebSocketUpgrade},
@@ -12,22 +12,20 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
-use crate::events::InstanceEventKind;
 use crate::events::UserEventKind;
+use crate::{auth::user::UsersManager, events::InstanceEventKind};
 use crate::{events::EventType, output_types::ClientEvent};
 
 use crate::{
-    auth::user::User,
     events::{Event, EventInner, EventLevel, UserEventInner},
-    stateful::Stateful,
     traits::{Error, ErrorInner},
     AppState,
 };
 use serde::Deserialize;
-use tokio::sync::{broadcast::Receiver, Mutex};
+use tokio::sync::{broadcast::Receiver, RwLock};
 use ts_rs::TS;
 
-use super::util::{can_user_view_event, parse_bearer_token, try_auth};
+use super::util::parse_bearer_token;
 #[derive(Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 struct EventQuery {
@@ -103,10 +101,15 @@ pub async fn get_event_buffer(
             detail: e.to_string(),
         }
     })?;
-    let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     Ok(Json(
         state
             .events_buffer
@@ -114,7 +117,7 @@ pub async fn get_event_buffer(
             .await
             .iter()
             .filter(|event| {
-                query.filter(ClientEvent::from(*event)) && can_user_view_event(*event, &requester)
+                query.filter(ClientEvent::from(*event)) && requester.can_view_event(*event)
             })
             .cloned()
             .collect(),
@@ -126,10 +129,15 @@ pub async fn get_console_buffer(
     AuthBearer(token): AuthBearer,
     Path(uuid): Path<String>,
 ) -> Result<Json<Vec<Event>>, Error> {
-    let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     Ok(Json(
         state
             .console_out_buffer
@@ -141,7 +149,7 @@ pub async fn get_console_buffer(
             .filter(|event| match &event.event_inner {
                 EventInner::InstanceEvent(instance_event) => {
                     (instance_event.instance_uuid == uuid || uuid == "all")
-                        && can_user_view_event(*event, &requester)
+                        && requester.can_view_event(event)
                 }
                 _ => false,
             })
@@ -171,21 +179,21 @@ pub async fn event_stream(
         inner: ErrorInner::MalformedRequest,
         detail: "No token provided".to_string(),
     })?;
-    let users = state.users.lock().await;
 
-    let user = try_auth(&token, users.get_ref()).ok_or_else(|| Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
-    drop(users);
-    let users = state.users.clone();
+    let user = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or_else(|| Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     let event_receiver = state.event_broadcaster.subscribe();
 
-    Ok(
-        ws.on_upgrade(move |socket| {
-            event_stream_ws(socket, event_receiver, query, user.uid, users)
-        }),
-    )
+    Ok(ws.on_upgrade(move |socket| {
+        event_stream_ws(socket, event_receiver, query, user.uid, state.users_manager)
+    }))
 }
 
 async fn event_stream_ws(
@@ -193,7 +201,7 @@ async fn event_stream_ws(
     mut event_receiver: Receiver<Event>,
     query: EventQuery,
     uid: String,
-    users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
+    users_manager: Arc<RwLock<UsersManager>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
     loop {
@@ -202,7 +210,13 @@ async fn event_stream_ws(
                 if event.is_event_console_message() {
                     continue;
                 }
-                if query.filter(ClientEvent::from(event.clone())) && can_user_view_event(&event, users.lock().await.get_ref().get(&uid).unwrap()) {
+                let user = match users_manager.read().await.get_user(&uid) {
+                    Some(user) => user,
+                    None => {
+                        break;
+                    }
+                };
+                if query.filter(ClientEvent::from(event.clone())) && user.can_view_event(&event) {
                     if let Err(e) = sender.send(axum::extract::ws::Message::Text(serde_json::to_string(&event).unwrap())).await {
                         error!("Error sending event to websocket: {}", e);
                         break;
@@ -226,20 +240,20 @@ pub async fn console_stream(
     Path(uuid): Path<String>,
 ) -> Result<Response, Error> {
     let uuid = uuid.as_str().to_owned();
-    let users = state.users.lock().await;
+    let users_manager = state.users_manager.read().await;
 
     let user = parse_bearer_token(query.token.as_str())
-        .and_then(|token| try_auth(&token, users.get_ref()))
+        .and_then(|token| users_manager.try_auth(&token))
         .ok_or_else(|| Error {
             inner: ErrorInner::Unauthorized,
             detail: "Token error".to_string(),
         })?;
-    drop(users);
-    let users = state.users.clone();
+    drop(users_manager);
     let event_receiver = state.event_broadcaster.subscribe();
 
-    Ok(ws
-        .on_upgrade(move |socket| console_stream_ws(socket, event_receiver, user.uid, uuid, users)))
+    Ok(ws.on_upgrade(move |socket| {
+        console_stream_ws(socket, event_receiver, user.uid, uuid, state.users_manager)
+    }))
 }
 
 async fn console_stream_ws(
@@ -247,7 +261,7 @@ async fn console_stream_ws(
     mut event_receiver: Receiver<Event>,
     uid: String,
     uuid: String,
-    users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
+    users_manager: Arc<RwLock<UsersManager>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
     loop {
@@ -255,14 +269,12 @@ async fn console_stream_ws(
             Ok(event) = event_receiver.recv() => {
                 match &event.event_inner {
                     EventInner::InstanceEvent(instance_event) => {
+                        let user = match users_manager.read().await.get_user(&uid) {
+                            Some(user) => user,
+                            None => break,
+                        };
                         if event.is_event_console_message() && (instance_event.instance_uuid == uuid || uuid == "all")
-                            && can_user_view_event(
-                                &event,
-                                match users.lock().await.get_ref().get(&uid) {
-                                    Some(user) => user,
-                                    None => break,
-                                },
-                            )
+                            && user.can_view_event(&event)
                         {
                             if let Err(e) = sender
                                 .send(axum::extract::ws::Message::Text(

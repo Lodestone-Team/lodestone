@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, TS)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, TS, Debug)]
 #[ts(export)]
 pub struct UserPermission {
     pub can_view_instance: HashSet<String>,

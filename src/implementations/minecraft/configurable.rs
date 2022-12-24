@@ -167,9 +167,9 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn change_version(&mut self, version: String) -> Result<(), Error> {
-        if self.state.lock().await.get_ref() != &State::Stopped {
+        if *self.state.lock().await != State::Stopped {
             return Err(Error {
-                inner: ErrorInner::InstanceStarted,
+                inner: ErrorInner::InvalidInstanceState,
                 detail: "Server must be stopped to change version".to_string(),
             });
         }

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use axum::{
     body::{Bytes, StreamBody},
@@ -30,7 +30,7 @@ use crate::{
     AppState,
 };
 
-use super::util::{decode_base64, try_auth};
+use super::util::decode_base64;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -89,18 +89,21 @@ async fn list_files(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if !path.exists() || !path.is_dir() {
@@ -138,18 +141,22 @@ async fn read_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if !path.exists() {
@@ -184,18 +191,22 @@ async fn write_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if !path.exists() {
@@ -230,18 +241,22 @@ async fn make_directory(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if path.exists() {
@@ -276,18 +291,21 @@ async fn remove_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if !path.exists() {
@@ -328,18 +346,21 @@ async fn remove_dir(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if !path.exists() {
@@ -382,18 +403,21 @@ async fn new_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path = PathBuf::from(absolute_path);
     if path.exists() {
@@ -430,18 +454,21 @@ async fn download_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
     let path = PathBuf::from(absolute_path);
     if !path.exists() {
         return Err(Error {
@@ -484,18 +511,21 @@ async fn upload_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Absolute path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access global files".to_string(),
         });
     }
-    drop(users);
 
     let path_to_dir = PathBuf::from(absolute_path);
     if path_to_dir.exists() && !path_to_dir.is_dir() {

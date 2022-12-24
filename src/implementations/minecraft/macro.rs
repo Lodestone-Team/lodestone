@@ -146,9 +146,15 @@ impl MinecraftInstance {
                 )
                 .expect("Failed to resolve macro invocation");
 
-                let bootstrap_options = deno_runtime::BootstrapOptions { args, ..Default::default() };
+                let bootstrap_options = deno_runtime::BootstrapOptions {
+                    args,
+                    ..Default::default()
+                };
 
-                let mut worker_options = deno_runtime::worker::WorkerOptions { bootstrap: bootstrap_options, ..Default::default() };
+                let mut worker_options = deno_runtime::worker::WorkerOptions {
+                    bootstrap: bootstrap_options,
+                    ..Default::default()
+                };
 
                 let ext = deno_core::Extension::builder()
                     .ops(vec![

@@ -1,8 +1,12 @@
+use std::collections::HashSet;
+
 use axum::{extract::Path, routing::get, Extension, Json, Router};
-use serde_json::Value;
 
 use crate::{
-    traits::{t_player::TPlayerManagement, Error, ErrorInner},
+    traits::{
+        t_player::{Player, TPlayerManagement},
+        Error, ErrorInner,
+    },
     AppState,
 };
 
@@ -64,7 +68,7 @@ pub async fn set_max_player_count(
 pub async fn get_player_list(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<String>,
-) -> Result<Json<Vec<Value>>, Error> {
+) -> Result<Json<HashSet<Player>>, Error> {
     state
         .instances
         .lock()

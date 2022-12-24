@@ -46,7 +46,7 @@ fn is_file_protected(path: impl AsRef<std::path::Path>) -> bool {
     }
 }
 
-use super::{global_fs::File, util::decode_base64, util::try_auth};
+use super::{global_fs::File, util::decode_base64};
 
 async fn list_instance_files(
     Extension(state): Extension<AppState>,
@@ -57,18 +57,21 @@ async fn list_instance_files(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::ReadInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -120,18 +123,21 @@ async fn read_instance_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::ReadInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -173,18 +179,21 @@ async fn write_instance_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -232,18 +241,21 @@ async fn make_instance_directory(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -279,18 +291,21 @@ async fn remove_instance_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -350,18 +365,21 @@ async fn remove_instance_dir(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -455,18 +473,21 @@ async fn new_instance_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -519,18 +540,21 @@ async fn download_instance_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::ReadInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -583,18 +607,21 @@ async fn upload_instance_file(
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to write instance files".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,

@@ -3,19 +3,17 @@
 use crate::{
     handlers::{
         checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
-        global_fs::get_global_fs_routes, instance::*, instance_config::get_instance_config_routes,
-        instance_fs::get_instance_fs_routes, instance_macro::get_instance_macro_routes,
-        instance_manifest::get_instance_manifest_routes,
+        global_fs::get_global_fs_routes, global_settings::get_global_settings_routes, instance::*,
+        instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
+        instance_macro::get_instance_macro_routes, instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes, global_settings::get_global_settings_routes,
+        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
-    prelude::{
-        LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS,
-    },
+    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
     util::{download_file, rand_alphanumeric},
 };
-use auth::user::User;
+use auth::user::{User, UsersManager};
 use axum::{Extension, Router};
 use events::{CausedBy, Event};
 use implementations::minecraft;
@@ -26,8 +24,6 @@ use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use stateful::Stateful;
-use ts_rs::TS;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -43,15 +39,19 @@ use tokio::{
     select,
     sync::{
         broadcast::{self, error::RecvError, Receiver, Sender},
-        Mutex,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
-use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 pub use traits::Error;
 use traits::{
     t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer, ErrorInner,
 };
+use ts_rs::TS;
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
@@ -62,7 +62,6 @@ pub mod macro_executor;
 mod output_types;
 mod port_allocator;
 pub mod prelude;
-mod stateful;
 pub mod tauri_export;
 mod traits;
 mod util;
@@ -131,7 +130,7 @@ impl GlobalSettings {
 #[derive(Clone)]
 pub struct AppState {
     instances: Arc<Mutex<HashMap<String, GameInstance>>>,
-    users: Arc<Mutex<Stateful<HashMap<String, User>, ()>>>,
+    users_manager: Arc<RwLock<UsersManager>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<Event>>>>,
     monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
@@ -194,13 +193,14 @@ async fn restore_instances(
     ret
 }
 
-async fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
+async fn restore_users() -> HashMap<String, User> {
+    let path_to_user_json = PATH_TO_USERS.with(|v| v.clone());
     // create user file if it doesn't exist
     if tokio::fs::OpenOptions::new()
         .read(true)
         .create(true)
         .write(true)
-        .open(path_to_user_json)
+        .open(&path_to_user_json)
         .await
         .unwrap()
         .metadata()
@@ -289,35 +289,9 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
 
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(256);
 
-    let stateful_users = Stateful::new(
-        restore_users(&PATH_TO_USERS.with(|v| v.to_owned())).await,
-        {
-            Box::new(move |users, _, _| {
-                serde_json::to_writer(
-                    std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
-                    users,
-                )
-                .unwrap();
-                Ok(())
-            })
-        },
-        {
-            Box::new(move |users, _, _| {
-                serde_json::to_writer(
-                    std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
-                    users,
-                )
-                .unwrap();
-                Ok(())
-            })
-        },
-    );
+    let users = restore_users().await;
 
-    let first_time_setup_key = if !stateful_users
-        .get_ref()
-        .iter()
-        .any(|(_, user)| user.is_owner)
-    {
+    let first_time_setup_key = if !users.iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
         // log the first time setup key in green so it's easy to find
         info!("\x1b[32mFirst time setup key: {}\x1b[0m", key);
@@ -344,7 +318,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
     }
     let shared_state = AppState {
         instances: Arc::new(Mutex::new(instances)),
-        users: Arc::new(Mutex::new(stateful_users)),
+        users_manager: Arc::new(RwLock::new(UsersManager::new(tx.clone(), users))),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
@@ -426,7 +400,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                     ])
                     .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
                     .allow_origin(Any);
-                
+
                 let trace = TraceLayer::new_for_http();
 
                 let api_routes = Router::new()

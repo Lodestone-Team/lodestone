@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::events::CausedBy;
+use crate::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Copy)]
 #[serde(rename = "InstanceState")]
 #[ts(export)]
 pub enum State {
@@ -15,6 +16,14 @@ pub enum State {
     Stopped,
     Error,
 }
+
+pub enum StateAction {
+    UserStart,
+    UserStop,
+    InstanceStart,
+    InstanceStop,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DiskUsage {
@@ -56,7 +65,60 @@ impl ToString for State {
     }
 }
 
+impl State {
+    pub fn try_new_state(
+        &self,
+        action: StateAction,
+        on_transit: Option<&dyn Fn(State)>,
+    ) -> Result<State, Error> {
+        let state = match (*self, action) {
+            (State::Starting, StateAction::UserStart) => Err(Error {
+                inner: ErrorInner::InvalidInstanceState,
+                detail: "Cannot start an instance that is already starting".to_string(),
+            }),
+            (State::Starting, StateAction::UserStop) => Err(Error {
+                inner: ErrorInner::InvalidInstanceState,
+                detail: "Cannot stop an instance that is starting".to_string(),
+            }),
+            (_, StateAction::InstanceStart) => Ok(State::Running),
+            (_, StateAction::InstanceStop) => Ok(State::Stopped),
+            (State::Running, StateAction::UserStart) => Err(Error {
+                inner: ErrorInner::InvalidInstanceState,
+                detail: "Cannot start an instance that is already running".to_string(),
+            }),
+            (State::Running, StateAction::UserStop) => Ok(State::Stopping),
+            (State::Stopping, StateAction::UserStart) => Err(Error {
+                inner: ErrorInner::InvalidInstanceState,
+                detail: "Cannot start an instance that is stopping".to_string(),
+            }),
+            (State::Stopping, StateAction::UserStop) => Err(Error {
+                inner: ErrorInner::InvalidInstanceState,
+                detail: "Cannot stop an instance that is already stopping".to_string(),
+            }),
+            (State::Stopped, StateAction::UserStart) => Ok(State::Starting),
+            (State::Stopped, StateAction::UserStop) => Err(Error {
+                inner: ErrorInner::InvalidInstanceState,
+                detail: "Cannot stop an instance that is already stopped".to_string(),
+            }),
+            (State::Error, StateAction::UserStart) => todo!(),
+            (State::Error, StateAction::UserStop) => todo!(),
+        }?;
+        if let Some(on_transit) = on_transit {
+            on_transit(state);
+        }
+        Ok(state)
+    }
+
+    pub fn try_transition(&mut self, action: StateAction) -> Result<(), Error> {
+        let new_state = self.try_new_state(action, None)?;
+        *self = new_state;
+        Ok(())
+    }
+}
+
 use crate::traits::GameInstance;
+
+use super::ErrorInner;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TServer {

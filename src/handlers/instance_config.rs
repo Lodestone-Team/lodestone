@@ -14,8 +14,6 @@ use crate::{
     AppState,
 };
 
-use super::util::try_auth;
-
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -41,18 +39,21 @@ pub async fn get_instance_setting(
     Path((uuid, key)): Path<(String, InstanceSetting)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to get instance setting".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -82,18 +83,21 @@ pub async fn set_instance_setting(
     Json(value): Json<Value>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to change instance setting".to_string(),
         });
     }
-    drop(users);
     let mut instances = state.instances.lock().await;
     let instance = instances.get_mut(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -177,18 +181,21 @@ pub async fn get_game_setting(
     Path((uuid, key)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to get game setting".to_string(),
         });
     }
-    drop(users);
     let instances = state.instances.lock().await;
     let instance = instances.get(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,
@@ -203,18 +210,21 @@ pub async fn set_game_setting(
     Json(value): Json<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to change game setting".to_string(),
         });
     }
-    drop(users);
     state
         .instances
         .lock()
@@ -234,18 +244,21 @@ pub async fn change_version(
     Path((uuid, new_version)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to change game setting".to_string(),
         });
     }
-    drop(users);
     state
         .instances
         .lock()

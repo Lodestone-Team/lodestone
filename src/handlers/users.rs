@@ -9,7 +9,7 @@ use crate::{
     util::{hash_password, rand_alphanumeric},
     AppState,
 };
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+
 use axum::{
     extract::Path,
     routing::{delete, get, post, put},
@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
 
-use super::util::try_auth;
 #[derive(Deserialize, Serialize)]
 pub struct Claim {
     pub uid: String,
@@ -30,17 +29,18 @@ pub struct Claim {
 }
 
 #[derive(Deserialize, Serialize)]
-struct NewUserSchema {
+pub struct NewUserSchema {
     pub username: String,
     pub password: String,
 }
 
 pub async fn new_user(
     Extension(state): Extension<AppState>,
-    Json(config): Json<Value>,
+    Json(config): Json<NewUserSchema>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<LoginReply>, Error> {
-    let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
+    let mut users_manager = state.users_manager.write().await;
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
@@ -50,58 +50,25 @@ pub async fn new_user(
             detail: "You are not authorized to create users".to_string(),
         });
     }
-    let login_request: NewUserSchema =
-        serde_json::from_value(config.clone()).map_err(|_| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request".to_string(),
-        })?;
-    let hashed_psw = hash_password(&login_request.password);
+
+    let hashed_psw = hash_password(&config.password);
     let uid = uuid::Uuid::new_v4().to_string();
-    let users = state.users.lock().await;
-    if users
-        .get_ref()
-        .iter()
-        .any(|(_, user)| user.username == login_request.username)
-    {
-        return Err(Error {
-            inner: ErrorInner::UserAlreadyExists,
-            detail: "".to_string(),
-        });
-    }
     let user = User {
         uid: uid.clone(),
-        username: login_request.username.clone(),
+        username: config.username.clone(),
         hashed_psw: hashed_psw.clone(),
         is_admin: false,
         is_owner: false,
         permissions: UserPermission::new(),
         secret: rand_alphanumeric(32),
     };
-    tokio::task::spawn({
-        let uid = uid.clone();
-        let users = state.users.clone();
-        let user = user.clone();
-        async move {
-            users
-                .lock()
-                .await
-                .transform(
-                    {
-                        let uid = uid.clone();
-                        Box::new(move |v| {
-                            v.insert(uid.clone(), user.clone());
-                            Ok(())
-                        })
-                    },
-                    (),
-                )
-                .unwrap();
-        }
-    });
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
+    users_manager
+        .add_user(user.clone(), caused_by.clone())
+        .await?;
     let _ = state
         .event_broadcaster
         .send(Event {
@@ -125,8 +92,8 @@ pub async fn delete_user(
     Path(uid): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    let mut users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+    let mut users_manager = state.users_manager.write().await;
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
@@ -137,26 +104,13 @@ pub async fn delete_user(
         });
     }
 
-    let _caused_by = CausedBy::User {
+    let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    users
-        .transform(
-            Box::new({
-                let uid = uid.clone();
-                move |v| {
-                    v.remove(&uid);
-                    Ok(())
-                }
-            }),
-            (),
-        )
-        .unwrap();
-    let caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username,
-    };
+    users_manager
+        .delete_user(uid.clone(), caused_by.clone())
+        .await?;
     let _ = state
         .event_broadcaster
         .send(Event {
@@ -177,8 +131,9 @@ pub async fn logout(
     Path(uid): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
-    let mut users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+    let mut users_manager = state.users_manager.write().await;
+
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "Token error".to_string(),
     })?;
@@ -189,23 +144,13 @@ pub async fn logout(
         });
     }
     let user_id = uid.clone();
-    let _caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
-    };
-    users
-        .transform(
-            Box::new(move |v| {
-                v.get_mut(&uid).unwrap().secret = rand_alphanumeric(32);
-                Ok(())
-            }),
-            (),
-        )
-        .unwrap();
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username,
     };
+    users_manager
+        .logout_user(uid.clone(), caused_by.clone())
+        .await?;
     let _ = state
         .event_broadcaster
         .send(Event {
@@ -227,8 +172,9 @@ pub async fn update_permissions(
     Json(new_permissions): Json<UserPermission>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    let mut users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+    let mut users_manager = state.users_manager.write().await;
+
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "".to_string(),
     })?;
@@ -238,20 +184,13 @@ pub async fn update_permissions(
             detail: "You are not authorized to update permissions".to_string(),
         });
     }
-    let _caused_by = CausedBy::User {
+    let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    users.transform(
-        Box::new(move |v| {
-            let user = v.get_mut(&uid).ok_or(Error {
-                inner: ErrorInner::UserNotFound,
-                detail: "".to_string(),
-            })?;
-            requester.update_permission(user, new_permissions.clone())
-        }),
-        (),
-    )?;
+    users_manager
+        .update_permissions(uid, new_permissions, caused_by)
+        .await?;
     Ok(Json(json!("ok")))
 }
 
@@ -259,12 +198,16 @@ pub async fn get_self_info(
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<PublicUser>, Error> {
-    let users = state.users.lock().await;
     Ok(Json(
-        (&try_auth(&token, users.get_ref()).ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?)
+        (&state
+            .users_manager
+            .read()
+            .await
+            .try_auth(&token)
+            .ok_or(Error {
+                inner: ErrorInner::Unauthorized,
+                detail: "Token error".to_string(),
+            })?)
             .into(),
     ))
 }
@@ -274,8 +217,9 @@ pub async fn get_user_info(
     Path(uid): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<PublicUser>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+    let users_manager = state.users_manager.read().await;
+
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "".to_string(),
     })?;
@@ -286,73 +230,48 @@ pub async fn get_user_info(
         });
     }
     Ok(Json(
-        users
-            .get_ref()
-            .get(&uid)
+        users_manager
+            .get_user(&uid)
             .ok_or(Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "".to_string(),
+                inner: ErrorInner::NotFound,
+                detail: "User not found".to_string(),
             })?
             .into(),
     ))
 }
 
+#[derive(Deserialize)]
+pub struct ChangePasswordConfig {
+    uid: String,
+    password: String,
+}
+
 pub async fn change_password(
     Extension(state): Extension<AppState>,
-    Json(config): Json<Value>,
+    Json(config): Json<ChangePasswordConfig>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let mut users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+    let mut users_manager = state.users_manager.write().await;
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "Invalid authorization".to_string(),
     })?;
-    let uid = config
-        .get("uid")
-        .ok_or(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request, field uid must be present".to_string(),
-        })?
-        .as_str()
-        .ok_or(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request, field uid must be a string".to_string(),
-        })?
-        .to_string();
-    if requester.uid != uid {
+
+    if requester.uid != config.uid && requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "You are not authorized to change this user's password".to_string(),
         });
     }
-    let new_psw = config
-        .get("new_psw")
-        .ok_or(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request, field new_psw must be present".to_string(),
-        })?
-        .as_str()
-        .ok_or(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request, field new_psw must be a string".to_string(),
-        })?
-        .to_string();
-    let _caused_by = CausedBy::User {
+
+    let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username,
     };
-    users
-        .transform(
-            Box::new(move |users| {
-                let user = users.get_mut(&uid).unwrap();
-                let hashed_psw = hash_password(&new_psw);
-                user.hashed_psw = hashed_psw;
-                user.secret = rand_alphanumeric(32);
-                Ok(())
-            }),
-            (),
-        )
-        .unwrap();
+    users_manager
+        .change_password(config.uid, config.password, caused_by)
+        .await?;
+
     Ok(Json(()))
 }
 
@@ -365,43 +284,25 @@ pub struct LoginReply {
 
 pub async fn login(
     Extension(state): Extension<AppState>,
-    AuthBasic((username, psw)): AuthBasic,
+    AuthBasic((username, password)): AuthBasic,
 ) -> Result<Json<LoginReply>, Error> {
-    if psw.is_none() {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request, password must be present".to_string(),
-        });
-    }
-    if let Some((_uuid, user)) = state
-        .users
-        .lock()
-        .await
-        .get_ref()
-        .iter()
-        .find(|(_, user)| user.username == username)
-    {
-        if Argon2::default()
-            .verify_password(
-                psw.unwrap().as_bytes(),
-                &PasswordHash::new(&user.hashed_psw).unwrap(),
-            )
-            .is_err()
-        {
-            Err(Error {
-                inner: ErrorInner::Unauthorized,
-                detail: "Invalid username or password".to_string(),
-            })
-        } else {
-            Ok(Json(LoginReply {
-                token: user.create_jwt()?,
-                user: user.into(),
-            }))
-        }
+    if let Some(password) = password {
+        let users_manager = state.users_manager.read().await;
+
+        Ok(Json(LoginReply {
+            token: users_manager.login(&username, &password)?,
+            user: users_manager
+                .get_user_by_username(&username)
+                .ok_or_else(|| Error {
+                    inner: ErrorInner::UserNotFound,
+                    detail: "User not found".to_string(),
+                })?
+                .into(),
+        }))
     } else {
         Err(Error {
-            inner: ErrorInner::UserNotFound,
-            detail: "".to_string(),
+            inner: ErrorInner::MalformedRequest,
+            detail: "Invalid request, password must be present".to_string(),
         })
     }
 }
@@ -410,8 +311,8 @@ pub async fn get_all_users(
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<PublicUser>>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
+    let users_manager = state.users_manager.read().await;
+    let requester = users_manager.try_auth(&token).ok_or(Error {
         inner: ErrorInner::Unauthorized,
         detail: "Invalid authorization".to_string(),
     })?;
@@ -421,12 +322,14 @@ pub async fn get_all_users(
             detail: "You are not authorized to get all users".to_string(),
         });
     }
-    let users = users
-        .get_ref()
-        .iter()
-        .map(|(_, user)| user.into())
-        .collect();
-    Ok(Json(users))
+
+    Ok(Json(
+        users_manager
+            .as_ref()
+            .iter()
+            .map(|(_, v)| v.into())
+            .collect(),
+    ))
 }
 
 // return the thing created by Router::new() so we can nest it in main

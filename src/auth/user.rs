@@ -1,9 +1,17 @@
+use std::collections::HashMap;
+
+use argon2::{Argon2, PasswordVerifier};
+use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
+use tokio::{io::AsyncWriteExt, sync::broadcast::Sender};
 use ts_rs::TS;
 
 use crate::{
+    events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     handlers::users::Claim,
+    prelude::{get_snowflake, PATH_TO_USERS},
     traits::{Error, ErrorInner},
+    util::rand_alphanumeric,
 };
 
 use super::permission::UserPermission;
@@ -155,6 +163,22 @@ impl User {
         }
     }
 
+    pub fn can_view_event(&self, event: impl AsRef<Event>) -> bool {
+        match &event.as_ref().event_inner {
+            EventInner::InstanceEvent(event) => {
+                self.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
+            }
+            EventInner::UserEvent(_event) => self.can_perform_action(&UserAction::ManageUser),
+            EventInner::FSEvent(_) => self.can_perform_action(&UserAction::ManageUser),
+            EventInner::MacroEvent(macro_event) => {
+                self.can_perform_action(&UserAction::AccessMacro(macro_event.instance_uuid.clone()))
+            }
+            EventInner::ProgressionEvent(progression_event) => self.can_perform_action(
+                &UserAction::ViewInstance(progression_event.event_id.clone()),
+            ),
+        }
+    }
+
     pub fn create_jwt(&self) -> Result<String, Error> {
         let exp = chrono::Utc::now()
             .checked_add_signed(chrono::Duration::days(60))
@@ -233,5 +257,298 @@ impl From<User> for PublicUser {
             is_admin: user.is_admin,
             permissions: user.permissions,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct UsersManager {
+    event_broadcaster: Sender<Event>,
+    users: HashMap<String, User>,
+}
+
+impl UsersManager {
+    pub fn new(event_broadcaster: Sender<Event>, users: HashMap<String, User>) -> Self {
+        Self {
+            event_broadcaster,
+            users,
+        }
+    }
+    async fn write_to_file(&self) -> Result<(), Error> {
+        let path_to_user = PATH_TO_USERS.with(|path_to_user| path_to_user.clone());
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path_to_user)
+            .await
+            .map_err(|e| Error {
+                inner: ErrorInner::InternalError,
+                detail: format!("Failed to open user file: {}", e),
+            })?;
+
+        file.write_all(serde_json::to_string(&self.users).unwrap().as_bytes())
+            .await
+            .map_err(|e| Error {
+                inner: ErrorInner::InternalError,
+                detail: format!("Failed to serialize users: {}", e),
+            })?;
+        Ok(())
+    }
+    pub fn get_user(&self, uid: impl AsRef<str>) -> Option<User> {
+        self.users.get(uid.as_ref()).cloned()
+    }
+    pub async fn add_user(&mut self, user: User, caused_by: CausedBy) -> Result<(), Error> {
+        if self.get_user_by_username(&user.username).is_some() {
+            return Err(Error {
+                inner: ErrorInner::UsernameAlreadyExists,
+                detail: "User already exists".to_string(),
+            });
+        }
+        let uid = user.uid.clone();
+        self.users.insert(uid.clone(), user);
+        match self.write_to_file().await {
+            Ok(()) => {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::UserEvent(UserEvent {
+                        user_id: uid,
+                        user_event_inner: UserEventInner::UserCreated,
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                    caused_by,
+                });
+                Ok(())
+            }
+            Err(e) => {
+                self.users.remove(&uid);
+                Err(e)
+            }
+        }
+    }
+    pub async fn delete_user(
+        &mut self,
+        uid: impl AsRef<str>,
+        caused_by: CausedBy,
+    ) -> Result<Option<User>, Error> {
+        let user = self.users.remove(uid.as_ref());
+        match self.write_to_file().await {
+            Ok(()) => {
+                if let Some(_user) = user.as_ref() {
+                    self.event_broadcaster.send(Event {
+                        event_inner: EventInner::UserEvent(UserEvent {
+                            user_id: uid.as_ref().to_owned(),
+                            user_event_inner: UserEventInner::UserDeleted,
+                        }),
+                        details: "".to_string(),
+                        snowflake: get_snowflake(),
+                        caused_by,
+                    });
+                }
+            }
+            Err(e) => {
+                self.users
+                    .insert(uid.as_ref().to_owned(), user.clone().unwrap());
+                return Err(e);
+            }
+        }
+
+        Ok(user)
+    }
+
+    pub async fn logout_user(
+        &mut self,
+        uid: impl AsRef<str>,
+        caused_by: CausedBy,
+    ) -> Result<(), Error> {
+        let old_secret = self
+            .users
+            .get_mut(uid.as_ref())
+            .ok_or_else(|| Error {
+                inner: ErrorInner::UserNotFound,
+                detail: "User not found".to_string(),
+            })?
+            .secret
+            .clone();
+        if let Some(user) = self.users.get_mut(uid.as_ref()) {
+            user.secret = rand_alphanumeric(32);
+        }
+
+        match self.write_to_file().await {
+            Ok(_) => {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::UserEvent(UserEvent {
+                        user_id: uid.as_ref().to_owned(),
+                        user_event_inner: UserEventInner::UserLoggedOut,
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                    caused_by,
+                });
+                Ok(())
+            }
+            Err(e) => {
+                if let Some(user) = self.users.get_mut(uid.as_ref()) {
+                    user.secret = old_secret
+                }
+                Err(e)
+            }
+        }
+    }
+
+    pub async fn change_password(
+        &mut self,
+        uid: impl AsRef<str>,
+        password: String,
+        caused_by: CausedBy,
+    ) -> Result<(), Error> {
+        let old_psw = self
+            .users
+            .get_mut(uid.as_ref())
+            .ok_or_else(|| Error {
+                inner: ErrorInner::UserNotFound,
+                detail: "User not found".to_string(),
+            })?
+            .hashed_psw
+            .clone();
+        if let Some(user) = self.users.get_mut(uid.as_ref()) {
+            user.hashed_psw = password;
+        }
+        match self.write_to_file().await {
+            Ok(_) => {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::UserEvent(UserEvent {
+                        user_id: uid.as_ref().to_owned(),
+                        user_event_inner: UserEventInner::UserLoggedOut,
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                    caused_by: caused_by.clone(),
+                });
+                self.logout_user(uid, caused_by).await
+            }
+            Err(_) => {
+                if let Some(user) = self.users.get_mut(uid.as_ref()) {
+                    user.hashed_psw = old_psw;
+                }
+                Err(Error {
+                    inner: ErrorInner::InternalError,
+                    detail: "Failed to write to file".to_string(),
+                })
+            }
+        }
+    }
+
+    pub fn get_user_by_username(&self, username: impl AsRef<str>) -> Option<User> {
+        self.users
+            .values()
+            .find(|user| user.username == username.as_ref())
+            .cloned()
+    }
+
+    pub async fn update_permissions(
+        &mut self,
+        uid: impl AsRef<str>,
+        new_permissions: UserPermission,
+        caused_by: CausedBy,
+    ) -> Result<(), Error> {
+        let old_permission = self
+            .users
+            .get_mut(uid.as_ref())
+            .ok_or_else(|| Error {
+                inner: ErrorInner::UserNotFound,
+                detail: "User not found".to_string(),
+            })?
+            .permissions
+            .clone();
+        if let Some(user) = self.users.get_mut(uid.as_ref()) {
+            user.permissions = new_permissions.clone();
+        }
+        match self.write_to_file().await {
+            Ok(_) => {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::UserEvent(UserEvent {
+                        user_id: uid.as_ref().to_owned(),
+                        user_event_inner: UserEventInner::PermissionChanged(new_permissions),
+                    }),
+                    details: "".to_string(),
+                    snowflake: get_snowflake(),
+                    caused_by,
+                });
+                Ok(())
+            }
+            Err(_) => {
+                if let Some(user) = self.users.get_mut(uid.as_ref()) {
+                    user.permissions = old_permission;
+                }
+                Err(Error {
+                    inner: ErrorInner::InternalError,
+                    detail: "Failed to write to file".to_string(),
+                })
+            }
+        }
+    }
+
+    pub fn try_auth(&self, token: &str) -> Option<User> {
+        let claimed_uid = decode_no_verify(token)?;
+        let claimed_requester = self.users.get(&claimed_uid)?;
+        let requester_uid = decode_token(token, &claimed_requester.secret)?;
+        if claimed_uid != requester_uid {
+            return None;
+        }
+        Some(claimed_requester.to_owned())
+    }
+
+    pub fn login(
+        &self,
+        username: impl AsRef<str>,
+        password: impl AsRef<str>,
+    ) -> Result<String, Error> {
+        let user = self
+            .users
+            .values()
+            .find(|user| user.username == username.as_ref())
+            .ok_or_else(|| Error {
+                inner: ErrorInner::UserNotFound,
+                detail: "User not found".to_string(),
+            })?;
+        Argon2::default()
+            .verify_password(
+                password.as_ref().as_bytes(),
+                &argon2::PasswordHash::new(&user.hashed_psw).unwrap(),
+            )
+            .map_err(|_| Error {
+                inner: ErrorInner::Unauthorized,
+                detail: "Wrong username or password".to_string(),
+            })?;
+        user.create_jwt()
+    }
+}
+
+fn decode_token(token: &str, jwt_secret: &str) -> Option<String> {
+    match jsonwebtoken::decode::<Claim>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &Validation::new(Algorithm::HS512),
+    ) {
+        Ok(t) => Some(t.claims.uid),
+        Err(_) => None,
+    }
+}
+
+fn decode_no_verify(token: &str) -> Option<String> {
+    let mut no_verify = Validation::new(Algorithm::HS512);
+    no_verify.insecure_disable_signature_validation();
+    match jsonwebtoken::decode::<Claim>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret("noverify".as_bytes()),
+        &no_verify,
+    ) {
+        Ok(t) => Some(t.claims.uid),
+        Err(_) => None,
+    }
+}
+
+impl AsRef<HashMap<String, User>> for UsersManager {
+    fn as_ref(&self) -> &HashMap<String, User> {
+        &self.users
     }
 }

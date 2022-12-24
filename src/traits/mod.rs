@@ -46,11 +46,7 @@ pub enum ErrorInner {
     FailedToDownload,
 
     // Instance operation errors
-    InstanceStarted,
-    InstanceStopped,
-    InstanceStarting,
-    InstanceStopping,
-    InstanceErrored,
+    InvalidInstanceState,
     InstanceNotFound,
     PortInUse,
 
@@ -85,7 +81,7 @@ pub enum ErrorInner {
 
     // User errors:
     UserNotFound,
-    UserAlreadyExists,
+    UsernameAlreadyExists,
     Unauthorized,
     PermissionDenied,
 

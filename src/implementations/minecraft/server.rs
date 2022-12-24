@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::env;
 use std::process::Stdio;
 use std::time::Duration;
@@ -8,12 +7,13 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
-use crate::implementations::minecraft::util::read_properties_from_path;
+use crate::implementations::minecraft::player::MinecraftPlayer;
+use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
 use crate::macro_executor::ExecutionInstruction;
 use crate::prelude::{get_snowflake, LODESTONE_PATH};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TMacro;
-use crate::traits::t_server::{MonitorReport, State, TServer};
+use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::traits::{Error, ErrorInner};
 use crate::util::dont_spawn_terminal;
@@ -25,7 +25,22 @@ use tokio::task;
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&mut self, cause_by: CausedBy) -> Result<(), Error> {
-        self.state.lock().await.update(State::Starting, cause_by)?;
+        self.state.lock().await.try_new_state(
+            StateAction::UserStart,
+            Some(&|state| {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::InstanceEvent(InstanceEvent {
+                        instance_name: self.config.name.clone(),
+                        instance_uuid: self.config.uuid.clone(),
+                        instance_event_inner: InstanceEventInner::StateTransition(state),
+                    }),
+                    snowflake: get_snowflake(),
+                    details: "Starting server".to_string(),
+                    caused_by: cause_by.clone(),
+                });
+            }),
+        )?;
+
         env::set_current_dir(&self.config.path).unwrap();
 
         let prelaunch = self.path().await.join("prelaunch.js");
@@ -114,14 +129,14 @@ impl TServer for MinecraftInstance {
                 task::spawn({
                     use fancy_regex::Regex;
                     use lazy_static::lazy_static;
-                    use std::collections::HashSet;
+
                     let event_broadcaster = self.event_broadcaster.clone();
                     let settings = self.settings.clone();
-                    let state = self.state.clone();
+                    let _state = self.state.clone();
                     let path_to_properties = self.path_to_properties.clone();
                     let uuid = self.config.uuid.clone();
                     let name = self.config.name.clone();
-                    let players = self.players.clone();
+                    let players_manager = self.players_manager.clone();
                     let macro_executor = self.macro_executor.clone();
                     let mut __self = self.clone();
                     async move {
@@ -293,11 +308,30 @@ impl TServer for MinecraftInstance {
 
                             if parse_server_started(&line) && !did_start {
                                 did_start = true;
-                                state
+                                self.state
                                     .lock()
                                     .await
-                                    .update(State::Running, CausedBy::System)
-                                    .expect("Failed to update state");
+                                    .try_new_state(
+                                        StateAction::InstanceStart,
+                                        Some(&|state| {
+                                            self.event_broadcaster.send(Event {
+                                                event_inner: EventInner::InstanceEvent(
+                                                    InstanceEvent {
+                                                        instance_name: self.config.name.clone(),
+                                                        instance_uuid: self.config.uuid.clone(),
+                                                        instance_event_inner:
+                                                            InstanceEventInner::StateTransition(
+                                                                state,
+                                                            ),
+                                                    },
+                                                ),
+                                                snowflake: get_snowflake(),
+                                                details: "Starting server".to_string(),
+                                                caused_by: cause_by.clone(),
+                                            });
+                                        }),
+                                    )
+                                    .unwrap();
                                 *settings.lock().await =
                                     read_properties_from_path(&path_to_properties)
                                         .await
@@ -350,21 +384,18 @@ impl TServer for MinecraftInstance {
                                     caused_by: CausedBy::System,
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
-                                    let _ = players.lock().await.transform_cmp(
-                                        Box::new(move |this: &mut HashSet<String>| {
-                                            this.insert(player_name.clone());
-                                            Ok(())
-                                        }),
-                                        CausedBy::System,
+                                    players_manager.lock().await.add_player(
+                                        MinecraftPlayer {
+                                            name: player_name.clone(),
+                                            uuid: name_to_uuid(&name).await.unwrap_or_default(),
+                                        },
+                                        self.name().await,
                                     );
                                 } else if let Some(player_name) = parse_player_left(&system_msg) {
-                                    let _ = players.lock().await.transform_cmp(
-                                        Box::new(move |this: &mut HashSet<String>| {
-                                            this.remove(&player_name);
-                                            Ok(())
-                                        }),
-                                        CausedBy::System,
-                                    );
+                                    players_manager
+                                        .lock()
+                                        .await
+                                        .remove_by_name(&player_name, self.name().await);
                                 }
                             } else if let Some((player, msg)) = parse_player_msg(&line) {
                                 let _ = event_broadcaster.send(Event {
@@ -412,13 +443,26 @@ impl TServer for MinecraftInstance {
                             }
                         }
                         info!("Instance {} process shutdown", name);
-                        let _ = state.lock().await.transform(
-                            Box::new(|v| {
-                                *v = State::Stopped;
-                                Ok(())
-                            }),
-                            CausedBy::Unknown,
-                        );
+                        self.state
+                            .lock()
+                            .await
+                            .try_new_state(
+                                StateAction::InstanceStop,
+                                Some(&|state| {
+                                    self.event_broadcaster.send(Event {
+                                        event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                            instance_name: self.config.name.clone(),
+                                            instance_uuid: self.config.uuid.clone(),
+                                            instance_event_inner:
+                                                InstanceEventInner::StateTransition(state),
+                                        }),
+                                        snowflake: get_snowflake(),
+                                        details: "Starting server".to_string(),
+                                        caused_by: cause_by.clone(),
+                                    });
+                                }),
+                            )
+                            .unwrap();
                     }
                 });
             }
@@ -428,12 +472,22 @@ impl TServer for MinecraftInstance {
                 self.state
                     .lock()
                     .await
-                    .transform(
-                        Box::new(|v: &mut State| {
-                            *v = State::Stopped;
-                            Ok(())
+                    .try_new_state(
+                        StateAction::InstanceStop,
+                        Some(&|state| {
+                            self.event_broadcaster.send(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_name: self.config.name.clone(),
+                                    instance_uuid: self.config.uuid.clone(),
+                                    instance_event_inner: InstanceEventInner::StateTransition(
+                                        state,
+                                    ),
+                                }),
+                                snowflake: get_snowflake(),
+                                details: "Starting server".to_string(),
+                                caused_by: cause_by.clone(),
+                            });
                         }),
-                        CausedBy::System,
                     )
                     .unwrap();
                 return Err(Error {
@@ -447,7 +501,21 @@ impl TServer for MinecraftInstance {
         Ok(())
     }
     async fn stop(&mut self, cause_by: CausedBy) -> Result<(), Error> {
-        self.state.lock().await.update(State::Stopping, cause_by)?;
+        self.state.lock().await.try_new_state(
+            StateAction::UserStop,
+            Some(&|state| {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::InstanceEvent(InstanceEvent {
+                        instance_name: self.config.name.clone(),
+                        instance_uuid: self.config.uuid.clone(),
+                        instance_event_inner: InstanceEventInner::StateTransition(state),
+                    }),
+                    snowflake: get_snowflake(),
+                    details: "Starting server".to_string(),
+                    caused_by: cause_by.clone(),
+                });
+            }),
+        )?;
         let name = self.config.name.clone();
         let _uuid = self.config.uuid.clone();
         self.stdin
@@ -474,19 +542,14 @@ impl TServer for MinecraftInstance {
                     detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
-        self.players.lock().await.transform(
-            Box::new(|v: &mut HashSet<String>| {
-                v.clear();
-                Ok(())
-            }),
-            CausedBy::System,
-        )
+        self.players_manager.lock().await.clear(self.name().await);
+        Ok(())
     }
-    async fn kill(&mut self, cause_by: CausedBy) -> Result<(), crate::traits::Error> {
+    async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), crate::traits::Error> {
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", self.config.name.clone());
             return Err(Error {
-                inner: ErrorInner::InstanceStopped,
+                inner: ErrorInner::InvalidInstanceState,
                 detail: "Instance is already stopped".to_string(),
             });
         }
@@ -512,54 +575,46 @@ impl TServer for MinecraftInstance {
                     self.config.name.clone()
                 );
                 Error {
-                    inner: ErrorInner::InstanceStopped,
+                    inner: ErrorInner::InvalidInstanceState,
                     detail: "Failed to kill instance, instance already existed".to_string(),
                 }
             })?;
-        self.state
-            .lock()
-            .await
-            .transform(
-                Box::new(|v: &mut State| {
-                    *v = State::Stopped;
-                    Ok(())
-                }),
-                cause_by,
-            )
-            .unwrap();
-        self.players
-            .lock()
-            .await
-            .transform(
-                Box::new(|v: &mut HashSet<String>| {
-                    v.clear();
-                    Ok(())
-                }),
-                CausedBy::System,
-            )
-            .unwrap();
+        self.players_manager.lock().await.clear(self.name().await);
+
         Ok(())
     }
 
     async fn state(&self) -> State {
-        self.state.lock().await.get()
+        *self.state.lock().await
     }
 
     async fn send_command(&self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
         if self.state().await == State::Stopped {
             Err(Error {
-                inner: ErrorInner::InstanceStopped,
+                inner: ErrorInner::InvalidInstanceState,
                 detail: "Instance not running".to_string(),
             })
         } else {
             match self.stdin.lock().await.as_mut() {
                 Some(stdin) => match {
                     if command == "stop" {
-                        self.state
-                            .lock()
-                            .await
-                            .update(State::Stopping, cause_by)
-                            .expect("Failed to update state")
+                        self.state.lock().await.try_new_state(
+                            StateAction::UserStop,
+                            Some(&|state| {
+                                self.event_broadcaster.send(Event {
+                                    event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                        instance_name: self.config.name.clone(),
+                                        instance_uuid: self.config.uuid.clone(),
+                                        instance_event_inner: InstanceEventInner::StateTransition(
+                                            state,
+                                        ),
+                                    }),
+                                    snowflake: get_snowflake(),
+                                    details: "Starting server".to_string(),
+                                    caused_by: cause_by.clone(),
+                                });
+                            }),
+                        )?;
                     }
                     stdin.write_all(format!("{}\n", command).as_bytes()).await
                 } {

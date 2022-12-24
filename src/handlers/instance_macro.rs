@@ -5,7 +5,6 @@ use axum_macros::debug_handler;
 
 use crate::{
     auth::user::UserAction,
-    handlers::util::try_auth,
     traits::{t_macro::TMacro, Error, ErrorInner},
     AppState,
 };
@@ -16,18 +15,21 @@ async fn run_macro(
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::AccessMacro(uuid.clone())) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to access macro for this instance".to_string(),
         });
     }
-    drop(users);
     let mut instances = state.instances.lock().await;
     let instance = instances.get_mut(&uuid).ok_or(Error {
         inner: ErrorInner::InstanceNotFound,

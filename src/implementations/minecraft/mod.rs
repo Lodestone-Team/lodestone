@@ -2,12 +2,13 @@ pub mod configurable;
 pub mod r#macro;
 pub mod manifest;
 pub mod player;
+mod players_manager;
 pub mod resource;
 pub mod server;
 mod util;
 pub mod versions;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +19,7 @@ use tokio::process::Child;
 use tokio::sync::Mutex;
 
 use ::serde::{Deserialize, Serialize};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde_json::to_string_pretty;
 use tokio::sync::broadcast::Sender;
 
@@ -26,19 +27,16 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::{self};
 use ts_rs::TS;
 
-use crate::events::{
-    CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner, ProgressionEvent,
-    ProgressionEventInner,
-};
+use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::{get_snowflake, PATH_TO_BINARIES};
-use crate::stateful::Stateful;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_server::State;
 use crate::traits::{Error, ErrorInner, TInstance};
 use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
 
+use self::players_manager::PlayersManager;
 use self::util::{get_fabric_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
 
 #[derive(Debug, Clone, Copy, TS, Serialize, Deserialize)]
@@ -111,7 +109,7 @@ pub struct RestoreConfig {
 #[derive(Clone)]
 pub struct MinecraftInstance {
     config: RestoreConfig,
-    state: Arc<Mutex<Stateful<State, CausedBy>>>,
+    state: Arc<Mutex<State>>,
     event_broadcaster: Sender<Event>,
     // file paths
     path_to_config: PathBuf,
@@ -129,7 +127,7 @@ pub struct MinecraftInstance {
     process: Arc<Mutex<Option<Child>>>,
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
-    players: Arc<Mutex<Stateful<HashSet<String>, CausedBy>>>,
+    players_manager: Arc<Mutex<PlayersManager>>,
     settings: Arc<Mutex<HashMap<String, String>>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
@@ -482,350 +480,7 @@ impl MinecraftInstance {
                 .await
                 .expect("failed to write to server.properties");
         };
-        let state_callback = {
-            let event_broadcaster = event_broadcaster.clone();
-            let uuid = config.uuid.clone();
-            let name = config.name.clone();
-            move |old_state: &State, new_state: &State, caused_by: &CausedBy| -> Result<(), Error> {
-                debug!(
-                    "[{}] Transitioning from {} to {}",
-                    name,
-                    old_state.to_string(),
-                    new_state.to_string()
-                );
-                let (ret, event, _details, log): (
-                    Result<(), Error>,
-                    Option<Event>,
-                    String,
-                    Box<dyn Fn()>,
-                ) = match (old_state, new_state) {
-                    (State::Starting, State::Starting) => {
-                        let err_message = "Cannot start, instance is already starting";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStarting,
-                                detail: err_message.to_owned(),
-                            }),
-                            None,
-                            err_message.to_owned(),
-                            Box::new(|| warn!("[{}] {}", &name, err_message.to_owned())),
-                        )
-                    }
-                    (State::Starting, State::Running) => {
-                        let msg = "Instance started successfully";
-                        (
-                            Ok(()),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStarted,
-                                }),
-                                details: msg.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            msg.to_owned(),
-                            Box::new(|| info!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Starting, State::Stopping) => {
-                        let msg = "Cannot stop, instance is not fully started";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStopping,
-                                detail: msg.to_owned(),
-                            }),
-                            None,
-                            msg.to_owned(),
-                            Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Starting, State::Stopped) => {
-                        let msg = "Instance exited unexpectly before fully started up";
-                        (
-                            Ok(()),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStopped,
-                                }),
-                                details: msg.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            msg.to_owned(),
-                            Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Running, State::Starting) => {
-                        let msg = "Instance is already running";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceErrored,
-                                detail: msg.to_owned(),
-                            }),
-                            None,
-                            msg.to_owned(),
-                            Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Running, State::Running) => {
-                        let msg = "Instance is already running";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStarted,
-                                detail: msg.to_owned(),
-                            }),
-                            None,
-                            msg.to_owned(),
-                            Box::new(|| warn!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Running, State::Stopping) => {
-                        let msg = "Instance is stopping";
-                        (
-                            Ok(()),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStopping,
-                                }),
-                                details: msg.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            msg.to_owned(),
-                            Box::new(|| info!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Running, State::Stopped) => {
-                        let msg = "Instance transitioned from Running to Stopped state without the Stopping state. \
-                            This is most likely caused by the server being shut down internally, and lodestone failed to detect it. \
-                            It could also mean the instance has crashed while running, or got killed by the system. \
-                            If you believe this is a bug, please report it";
-                        (
-                            Ok(()),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStopped,
-                                }),
-                                details: msg.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            msg.to_owned(),
-                            Box::new(|| error!("[{}] {}", &name, msg.to_owned())),
-                        )
-                    }
-                    (State::Stopping, State::Starting) => {
-                        let err_msg = "Cannot start, instance is stopping";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStarting,
-                                detail: err_msg.to_owned(),
-                            }),
-                            None,
-                            err_msg.to_owned(),
-                            Box::new(|| error!("[{}] {}", &name, err_msg.to_owned())),
-                        )
-                    }
-                    (State::Stopping, State::Running) => {
-                        error!("Attempting to switch to Running while stopping, this is a bug, please report it");
-                        panic!("Irrecoverable error, please report this bug");
-                    }
-                    (State::Stopping, State::Stopping) => {
-                        let err_message = "Instance is already stopping";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStopping,
-                                detail: err_message.to_owned(),
-                            }),
-                            None,
-                            err_message.to_owned(),
-                            Box::new({
-                                let name = name.clone();
-                                // let err_message = err_message.clone();
-                                move || warn!("[{}] {}", &name, &err_message)
-                            }),
-                        )
-                    }
-                    (State::Stopping, State::Stopped) => {
-                        let msg = "Instance stopped";
-                        (
-                            Ok(()),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStopped,
-                                }),
-                                details: msg.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            msg.to_owned(),
-                            Box::new({
-                                let name = name.clone();
-                                move || info!("[{}] {}", &name, &msg)
-                            }),
-                        )
-                    }
-                    (State::Stopped, State::Starting) => {
-                        let msg = "Instance is starting";
-                        (
-                            Ok(()),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceStarting,
-                                }),
-                                details: msg.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            msg.to_owned(),
-                            Box::new({
-                                let name = name.clone();
-                                move || info!("[{}] {}", &name, &msg)
-                            }),
-                        )
-                    }
-                    (State::Stopped, State::Running) => todo!(),
-                    (State::Stopped, State::Stopping) => {
-                        let err_msg = "Instance is already stopped";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStopped,
-                                detail: err_msg.to_owned(),
-                            }),
-                            None,
-                            err_msg.to_owned(),
-                            Box::new({
-                                let name = name.clone();
-                                move || warn!("[{}] {}", &name, &err_msg)
-                            }),
-                        )
-                    }
-                    (State::Stopped, State::Stopped) => {
-                        let err_message = "Instance is already stopped";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceStopped,
-                                detail: err_message.to_owned(),
-                            }),
-                            None,
-                            err_message.to_owned(),
-                            Box::new({
-                                let name = name.clone();
-                                // let err_message = err_message.clone();
-                                move || warn!("[{}] {}", &name, &err_message)
-                            }),
-                        )
-                    }
-                    (State::Error, State::Error) => {
-                        let err_message = "The instance errored, and somehow it launched, and errored again. Idk how you managed to get here, but please report this bug";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceErrored,
-                                detail: err_message.to_owned(),
-                            }),
-                            None,
-                            err_message.to_owned(),
-                            Box::new(|| error!("[{}] {}", &name, err_message.to_owned())),
-                        )
-                    }
-                    (_, State::Error) => {
-                        let err_message =
-                            "Instance entering error state. To protect your server, it will not be able to start again until Lodestone is restarted. A manual inspection of the instance is highly recommended.";
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceErrored,
-                                detail: err_message.to_owned(),
-                            }),
-                            Some(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_name: name.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceError,
-                                }),
-                                details: err_message.to_owned(),
-                                snowflake: get_snowflake(),
-                                caused_by: caused_by.to_owned(),
-                            }),
-                            err_message.to_owned(),
-                            Box::new({
-                                let name = name.clone();
-                                // let err_message = err_message.clone();
-                                move || error!("[{}] {}", &name, &err_message)
-                            }),
-                        )
-                    }
-                    (State::Error, _) => {
-                        let err_message = format!(
-                            "Cannot transit from Error state to {}, please inspect your instance manually and restart Lodestone",
-                            new_state.to_string()
-                        );
-
-                        (
-                            Err(Error {
-                                inner: ErrorInner::InstanceErrored,
-                                detail: "instance errored".to_string(),
-                            }),
-                            None,
-                            err_message.clone(),
-                            Box::new({
-                                let err_message = err_message;
-                                let name = name.clone();
-
-                                move || error!("[{}] {}", &name, &err_message)
-                            }),
-                        )
-                    }
-                };
-                log();
-                event.map(|e| {
-                    event_broadcaster
-                        .send(e)
-                        .map_err(|e| error!("Failed to update state: {}", e))
-                });
-                ret
-            }
-        };
-        let state = Arc::new(Mutex::new(Stateful::new(
-            State::Stopped,
-            Box::new(state_callback),
-            Box::new({
-                let instance_uuid = config.uuid.clone();
-                let instance_name = config.name.clone();
-                let event_broadcaster = event_broadcaster.clone();
-                move |_, new_state, caused_by: &CausedBy| {
-                    let instance_event_inner = match new_state {
-                        State::Starting => InstanceEventInner::InstanceStarting,
-                        State::Running => InstanceEventInner::InstanceStarted,
-                        State::Stopping => InstanceEventInner::InstanceStopping,
-                        State::Stopped => InstanceEventInner::InstanceStopped,
-                        State::Error => InstanceEventInner::InstanceError,
-                    };
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: instance_uuid.clone(),
-                            instance_name: instance_name.clone(),
-                            instance_event_inner,
-                        }),
-                        details: "Instance state changed".to_string(),
-                        snowflake: get_snowflake(),
-                        caused_by: caused_by.to_owned(),
-                    });
-                    Ok(())
-                }
-            }),
-        )));
+        let state = Arc::new(Mutex::new(State::Stopped));
         let (backup_tx, mut backup_rx): (
             UnboundedSender<BackupInstruction>,
             UnboundedReceiver<BackupInstruction>,
@@ -894,7 +549,7 @@ impl MinecraftInstance {
                            }
                            _ = tokio::time::sleep(Duration::from_secs(1)) => {
                              if let Some(period) = backup_period {
-                                 if state.lock().await.get_ref() == &State::Running {
+                                 if *state.lock().await == State::Running {
                                      debug!("counter is {}", counter);
                                      counter += 1;
                                      if counter >= period {
@@ -909,57 +564,61 @@ impl MinecraftInstance {
             }
         });
 
-        let players_callback = {
-            let event_broadcaster = event_broadcaster.clone();
-            let uuid = config.uuid.clone();
-            let name = config.name.clone();
-            move |old_players: &HashSet<String>,
-                  new_players: &HashSet<String>,
-                  _cause: &CausedBy| {
-                if old_players.len() > new_players.len() {
-                    let player_diff = old_players.difference(new_players);
-                    // debug!("[{}] Detected player joined: {}", name, player_diff.last().unwrap());
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: uuid.clone(),
-                            instance_name: name.clone(),
-                            instance_event_inner: InstanceEventInner::PlayerChange {
-                                player_list: new_players.clone(),
-                                players_joined: player_diff.map(|s| s.to_owned()).collect(),
-                                players_left: HashSet::new(),
-                            },
-                        }),
-                        details: "".to_string(),
-                        snowflake: get_snowflake(),
-                        caused_by: CausedBy::Unknown,
-                    });
-                } else if old_players.len() < new_players.len() {
-                    let player_diff = new_players.difference(old_players);
-                    // debug!("[{}] Detected player left: {}", name, player_diff);
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: uuid.clone(),
-                            instance_name: name.clone(),
-                            instance_event_inner: InstanceEventInner::PlayerChange {
-                                player_list: new_players.clone(),
-                                players_joined: HashSet::new(),
-                                players_left: player_diff.map(|s| s.to_owned()).collect(),
-                            },
-                        }),
-                        details: "".to_string(),
-                        snowflake: get_snowflake(),
-                        caused_by: CausedBy::Unknown,
-                    });
-                }
-                Ok(())
-            }
-        };
+        // let players_callback = {
+        //     let event_broadcaster = event_broadcaster.clone();
+        //     let uuid = config.uuid.clone();
+        //     let name = config.name.clone();
+        //     move |old_players: &HashSet<String>,
+        //           new_players: &HashSet<String>,
+        //           _cause: &CausedBy| {
+        //         if old_players.len() > new_players.len() {
+        //             let player_diff = old_players.difference(new_players);
+        //             // debug!("[{}] Detected player joined: {}", name, player_diff.last().unwrap());
+        //             let _ = event_broadcaster.send(Event {
+        //                 event_inner: EventInner::InstanceEvent(InstanceEvent {
+        //                     instance_uuid: uuid.clone(),
+        //                     instance_name: name.clone(),
+        //                     instance_event_inner: InstanceEventInner::PlayerChange {
+        //                         player_list: new_players.clone(),
+        //                         players_joined: player_diff.map(|s| s.to_owned()).collect(),
+        //                         players_left: HashSet::new(),
+        //                     },
+        //                 }),
+        //                 details: "".to_string(),
+        //                 snowflake: get_snowflake(),
+        //                 caused_by: CausedBy::Unknown,
+        //             });
+        //         } else if old_players.len() < new_players.len() {
+        //             let player_diff = new_players.difference(old_players);
+        //             // debug!("[{}] Detected player left: {}", name, player_diff);
+        //             let _ = event_broadcaster.send(Event {
+        //                 event_inner: EventInner::InstanceEvent(InstanceEvent {
+        //                     instance_uuid: uuid.clone(),
+        //                     instance_name: name.clone(),
+        //                     instance_event_inner: InstanceEventInner::PlayerChange {
+        //                         player_list: new_players.clone(),
+        //                         players_joined: HashSet::new(),
+        //                         players_left: player_diff.map(|s| s.to_owned()).collect(),
+        //                     },
+        //                 }),
+        //                 details: "".to_string(),
+        //                 snowflake: get_snowflake(),
+        //                 caused_by: CausedBy::Unknown,
+        //             });
+        //         }
+        //         Ok(())
+        //     }
+        // };
 
         let mut instance = MinecraftInstance {
-            state,
+            state: Arc::new(Mutex::new(State::Stopped)),
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
             backup_period: config.backup_period,
+            players_manager: Arc::new(Mutex::new(PlayersManager::new(
+                event_broadcaster.clone(),
+                config.uuid.clone(),
+            ))),
             config,
             path_to_config,
             path_to_properties,
@@ -968,11 +627,7 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-            players: Arc::new(Mutex::new(Stateful::new(
-                HashSet::new(),
-                Box::new(players_callback.clone()),
-                Box::new(players_callback),
-            ))),
+
             settings: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),

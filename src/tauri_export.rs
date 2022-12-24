@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{permission::UserPermission, user::User},
+    events::CausedBy,
     traits::{Error, ErrorInner},
     util::{hash_password, rand_alphanumeric},
     AppState,
@@ -9,10 +10,10 @@ use crate::{
 
 pub async fn get_owner_jwt(app_state: &AppState) -> Option<String> {
     app_state
-        .users
-        .lock()
+        .users_manager
+        .read()
         .await
-        .get_ref()
+        .as_ref()
         .iter()
         .find(|(_, user)| user.is_owner)
         .and_then(|(_, user)| user.create_jwt().ok())
@@ -20,10 +21,10 @@ pub async fn get_owner_jwt(app_state: &AppState) -> Option<String> {
 
 pub async fn is_owner_account_present(app_state: &AppState) -> bool {
     app_state
-        .users
-        .lock()
+        .users_manager
+        .read()
         .await
-        .get_ref()
+        .as_ref()
         .iter()
         .any(|(_, user)| user.is_owner)
 }
@@ -40,7 +41,6 @@ pub async fn setup_owner_account(
         });
     }
     let hashed_psw = hash_password(&password);
-    let mut users = app_state.users.lock().await;
     let user = User::new(
         Uuid::new_v4().to_string(),
         username,
@@ -50,15 +50,12 @@ pub async fn setup_owner_account(
         UserPermission::new(),
         rand_alphanumeric(32),
     );
-    users
-        .transform(
-            Box::new(move |v| {
-                v.insert(user.uid.clone(), user.clone());
-                Ok(())
-            }),
-            (),
-        )
-        .unwrap();
+    app_state
+        .users_manager
+        .write()
+        .await
+        .add_user(user, CausedBy::System)
+        .await?;
     app_state.first_time_setup_key.lock().await.take();
     Ok(())
 }

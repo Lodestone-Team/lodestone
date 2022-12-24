@@ -3,7 +3,12 @@ use std::{collections::HashSet, path::PathBuf};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceInfo};
+use crate::{
+    auth::permission::UserPermission,
+    output_types::ClientEvent,
+    prelude::get_snowflake,
+    traits::{t_server::State, InstanceInfo},
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -11,10 +16,7 @@ use crate::{output_types::ClientEvent, prelude::get_snowflake, traits::InstanceI
 #[derive(enum_kinds::EnumKind)]
 #[enum_kind(InstanceEventKind, derive(Serialize, Deserialize, TS))]
 pub enum InstanceEventInner {
-    InstanceStarting,
-    InstanceStarted,
-    InstanceStopping,
-    InstanceStopped,
+    StateTransition(State),
     InstanceWarning,
     InstanceError,
     InstanceInput {
@@ -61,6 +63,7 @@ pub enum UserEventInner {
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
+    PermissionChanged(UserPermission),
 }
 
 impl AsRef<UserEventInner> for UserEventInner {
