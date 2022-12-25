@@ -278,8 +278,8 @@ pub async fn change_password(
 #[derive(Serialize, TS)]
 #[ts(export)]
 pub struct LoginReply {
-    token: String,
-    user: PublicUser,
+    pub token: String,
+    pub user: PublicUser,
 }
 
 pub async fn login(

@@ -12,6 +12,8 @@ use crate::{
     AppState,
 };
 
+use super::users::LoginReply;
+
 #[derive(serde::Deserialize)]
 pub struct OwnerSetup {
     username: String,
@@ -22,7 +24,7 @@ pub async fn setup_owner(
     Extension(state): Extension<AppState>,
     Path(key): Path<String>,
     Json(owner_setup): Json<OwnerSetup>,
-) -> Result<Json<()>, Error> {
+) -> Result<Json<LoginReply>, Error> {
     let mut setup_key_lock = state.first_time_setup_key.lock().await;
     match setup_key_lock.clone() {
         Some(k) if k == key => {
@@ -47,10 +49,13 @@ pub async fn setup_owner(
                 .users_manager
                 .write()
                 .await
-                .add_user(owner, CausedBy::System)
+                .add_user(owner.clone(), CausedBy::System)
                 .await?;
             info!("Owner password: {}", owner_setup.password);
-            Ok(Json(()))
+            Ok(Json(LoginReply {
+                token: owner.create_jwt()?,
+                user: owner.into(),
+            }))
         }
         None => Err(Error {
             inner: ErrorInner::MalformedRequest,
