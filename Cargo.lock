@@ -2596,6 +2596,7 @@ dependencies = [
  "sanitize-filename",
  "semver 1.0.14",
  "serde",
+ "serde-aux",
  "serde_json",
  "sysinfo",
  "tempdir",
@@ -3959,6 +3960,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-aux"
+version = "4.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c599b3fd89a75e0c18d6d2be693ddb12cccaf771db4ff9e39097104808a014c0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "serde_bytes"
 version = "0.11.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5063,9 +5075,9 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "ts-rs"
-version = "6.2.0"
+version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc59f479df54269b400dd95bc3b7e81623b3e4b9c70c8ca7125ab8341eafa64e"
+checksum = "4added4070a4fdf9df03457206cd2e4b12417c8560a2954d91ffcbe60177a56a"
 dependencies = [
  "thiserror",
  "ts-rs-macros",
