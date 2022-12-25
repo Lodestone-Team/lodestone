@@ -323,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_jre_url() {
         assert_eq!(super::get_jre_url("1.18.2").await, Some(("https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 17)));
-        assert_eq!(super::get_jre_url("21w44a").await, Some(("https://api.adoptium.net/v3/binary/latest/16/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 16)));
+        assert_eq!(super::get_jre_url("21w44a").await, Some(("https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 17)));
         assert_eq!(super::get_jre_url("1.8.4").await, Some(("https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 8)));
 
         assert_eq!(super::get_jre_url("1.8.4asdasd").await, None);
@@ -339,12 +339,6 @@ mod tests {
                     .to_string()
             )
         );
-        assert_eq!(
-            super::get_fabric_jar_url("21w44a", None, None).await,
-            Some(
-                "https://meta.fabricmc.net/v2/versions/loader/21w44a/0.14.8/0.11.0/server/jar"
-                    .to_string()
-            )
-        );
+        assert!(super::get_fabric_jar_url("21w44a", None, None).await.is_some());
     }
 }
