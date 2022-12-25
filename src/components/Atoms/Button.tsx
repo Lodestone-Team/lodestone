@@ -2,6 +2,7 @@ import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { DOMAttributes, forwardRef } from 'react';
 import clsx from 'clsx';
+import { BeatLoader } from 'react-spinners';
 
 // A styled button component
 const Button = forwardRef(
@@ -55,19 +56,21 @@ const Button = forwardRef(
             medium: 'gap-1.5 rounded py-1 px-2 text-base',
             large: 'gap-1.5 rounded py-1.5 px-3 text-base',
           }[size],
-          color==='danger' ? 'font-bold' : {
-            slim: 'font-normal',
-            medium: 'font-medium',
-            large: 'font-medium',
-          }[size],
+          color === 'danger'
+            ? 'font-bold'
+            : {
+                slim: 'font-normal',
+                medium: 'font-medium',
+                large: 'font-medium',
+              }[size],
           {
-            plain: 'text-gray-300 disabled:text-white/50 child:text-white/50',
+            plain: 'text-gray-300 disabled:text-white/50',
             danger:
               variant === 'text'
-                ? 'text-red-200 disabled:text-red/50 child:text-red-200/50'
-                : 'text-red-200 hover:text-white active:text-white disabled:text-white/50 child:text-red-200/50 hover:child:text-white/50 active:hover:child:text-white/50 disabled:child:text-white/50',
-            primary: 'text-gray-300 disabled:text-white/50 child:text-white/50',
-          }[color],
+                ? 'text-red-200 disabled:text-red/50'
+                : 'text-red-200 hover:text-white active:text-white disabled:text-white/50',
+            primary: 'text-gray-300 disabled:text-white/50',
+          }[color], //icon color, text color is set separately
           active &&
             {
               plain: 'bg-gray-700',
@@ -103,9 +106,15 @@ const Button = forwardRef(
         {...props}
       >
         {iconComponent}
-        {icon && <FontAwesomeIcon icon={icon} className="w-4" />}
-        {loading ? '...' : label}
-        {iconRight && <FontAwesomeIcon icon={iconRight} className="w-4" />}
+        {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
+        <div className={`flex justify-${align} items-center`}>
+          {loading && (
+            <BeatLoader size={5} color="#6b7280" className="absolute" />
+          )}
+          <span className={clsx(loading && 'opacity-0')}>{label}</span>
+        </div>
+
+        {iconRight && <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />}
       </button>
     );
   }
