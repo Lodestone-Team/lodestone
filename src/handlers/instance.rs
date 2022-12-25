@@ -18,7 +18,7 @@ use crate::implementations::minecraft::{Flavour, SetupConfig};
 use crate::prelude::PATH_TO_INSTANCES;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
-use crate::types::Snowflake;
+use crate::types::{InstanceUuid, Snowflake};
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
@@ -53,7 +53,7 @@ pub async fn get_instance_list(
 }
 
 pub async fn get_instance_info(
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<InstanceInfo>, Error> {
@@ -106,7 +106,7 @@ pub struct MinecraftSetupConfigPrimitive {
 
 impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
     fn from(config: MinecraftSetupConfigPrimitive) -> Self {
-        let uuid = uuid::Uuid::new_v4().to_string();
+        let uuid = InstanceUuid::default();
         SetupConfig {
             name: config.name.clone(),
             version: config.version,
@@ -127,7 +127,7 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             game_type: "minecraft".to_string(),
             uuid: uuid.clone(),
             path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, &uuid[0..8]))),
+                .with(|path| path.join(format!("{}-{}", config.name, &uuid.to_string()[0..8]))),
         }
     }
 }
@@ -135,7 +135,7 @@ pub async fn create_minecraft_instance(
     Extension(state): Extension<AppState>,
     Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<String>, Error> {
+) -> Result<Json<InstanceUuid>, Error> {
     let requester = state
         .users_manager
         .read()
@@ -171,10 +171,14 @@ pub async fn create_minecraft_instance(
         if path == setup_config.path {
             while path == setup_config.path {
                 info!("You just hit the lottery");
-                setup_config.uuid = uuid::Uuid::new_v4().to_string();
-                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid[0..5]);
+                setup_config.uuid = InstanceUuid::default();
+                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.to_string()[0..5]);
                 setup_config.path = PATH_TO_INSTANCES.with(|path| {
-                    path.join(format!("{}-{}", name_with_uuid, &setup_config.uuid[0..5]))
+                    path.join(format!(
+                        "{}-{}",
+                        name_with_uuid,
+                        &setup_config.uuid.to_string()[0..5]
+                    ))
                 });
             }
         }
@@ -198,7 +202,7 @@ pub async fn create_minecraft_instance(
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: format!("Setting up Minecraft server {}", name),
-                        producer_id: uuid.clone(),
+                        producer_id: Some(uuid.clone()),
                         total: Some(10.0),
                         inner: Some(ProgressionStartValue::InstanceCreation {
                             instance_uuid: uuid.clone(),
@@ -279,7 +283,7 @@ pub async fn create_minecraft_instance(
 
 pub async fn delete_instance(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state
@@ -316,7 +320,7 @@ pub async fn delete_instance(
                     event_id: progression_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: format!("Deleting instance {}", instance.name().await),
-                        producer_id: uuid.clone(),
+                        producer_id: Some(uuid.clone()),
                         total: Some(10.0),
                         inner: None,
                     },

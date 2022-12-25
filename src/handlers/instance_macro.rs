@@ -6,11 +6,12 @@ use axum_macros::debug_handler;
 use crate::{
     auth::user::UserAction,
     traits::{t_macro::TMacro, Error, ErrorInner},
+    types::InstanceUuid,
     AppState,
 };
 #[debug_handler]
 async fn run_macro(
-    Path((uuid, macro_name)): Path<(String, String)>,
+    Path((uuid, macro_name)): Path<(InstanceUuid, String)>,
     Json(args): Json<Vec<String>>,
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,

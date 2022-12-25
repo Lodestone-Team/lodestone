@@ -52,6 +52,7 @@ use traits::{
     t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer, ErrorInner,
 };
 use ts_rs::TS;
+use types::{InstanceUuid, UserId};
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
@@ -130,11 +131,11 @@ impl GlobalSettings {
 
 #[derive(Clone)]
 pub struct AppState {
-    instances: Arc<Mutex<HashMap<String, GameInstance>>>,
+    instances: Arc<Mutex<HashMap<InstanceUuid, GameInstance>>>,
     users_manager: Arc<RwLock<UsersManager>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
-    console_out_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<Event>>>>,
-    monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
+    console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
+    monitor_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<MonitorReport>>>>,
     event_broadcaster: Sender<Event>,
     uuid: String,
     up_since: i64,
@@ -148,8 +149,8 @@ pub struct AppState {
 async fn restore_instances(
     lodestone_path: &Path,
     event_broadcaster: &Sender<Event>,
-) -> HashMap<String, GameInstance> {
-    let mut ret: HashMap<String, GameInstance> = HashMap::new();
+) -> HashMap<InstanceUuid, GameInstance> {
+    let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
 
     for instance_future in list_dir(&lodestone_path.join("instances"), Some(true))
         .await
@@ -189,12 +190,12 @@ async fn restore_instances(
         })
     {
         let instance = instance_future.await;
-        ret.insert(instance.uuid().await.to_string(), instance.into());
+        ret.insert(instance.uuid().await, instance.into());
     }
     ret
 }
 
-async fn restore_users() -> HashMap<String, User> {
+async fn restore_users() -> HashMap<UserId, User> {
     let path_to_user_json = PATH_TO_USERS.with(|v| v.clone());
     // create user file if it doesn't exist
     if tokio::fs::OpenOptions::new()
@@ -212,7 +213,7 @@ async fn restore_users() -> HashMap<String, User> {
     {
         return HashMap::new();
     }
-    let users: HashMap<String, User> = serde_json::from_reader(
+    let users: HashMap<UserId, User> = serde_json::from_reader(
         tokio::fs::File::open(path_to_user_json)
             .await
             .unwrap()

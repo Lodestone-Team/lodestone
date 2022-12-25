@@ -12,9 +12,12 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
-use crate::events::UserEventKind;
 use crate::{auth::user::UsersManager, events::InstanceEventKind};
 use crate::{events::EventType, output_types::ClientEvent};
+use crate::{
+    events::UserEventKind,
+    types::{InstanceUuid, UserId},
+};
 
 use crate::{
     events::{Event, EventInner, EventLevel, UserEventInner},
@@ -33,7 +36,7 @@ struct EventQuery {
     pub event_types: Option<Vec<EventType>>,
     pub instance_event_types: Option<Vec<InstanceEventKind>>,
     pub user_event_types: Option<Vec<UserEventKind>>,
-    pub event_instance_ids: Option<Vec<String>>,
+    pub event_instance_ids: Option<Vec<InstanceUuid>>,
     pub bearer_token: Option<String>,
 }
 
@@ -127,7 +130,7 @@ pub async fn get_event_buffer(
 pub async fn get_console_buffer(
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<Vec<Event>>, Error> {
     let requester = state
         .users_manager
@@ -200,7 +203,7 @@ async fn event_stream_ws(
     stream: WebSocket,
     mut event_receiver: Receiver<Event>,
     query: EventQuery,
-    uid: String,
+    uid: UserId,
     users_manager: Arc<RwLock<UsersManager>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
@@ -237,9 +240,8 @@ pub async fn console_stream(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
     query: Query<WebsocketQuery>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Response, Error> {
-    let uuid = uuid.as_str().to_owned();
     let users_manager = state.users_manager.read().await;
 
     let user = parse_bearer_token(query.token.as_str())
@@ -259,8 +261,8 @@ pub async fn console_stream(
 async fn console_stream_ws(
     stream: WebSocket,
     mut event_receiver: Receiver<Event>,
-    uid: String,
-    uuid: String,
+    uid: UserId,
+    uuid: InstanceUuid,
     users_manager: Arc<RwLock<UsersManager>>,
 ) {
     let (mut sender, mut receiver) = stream.split();

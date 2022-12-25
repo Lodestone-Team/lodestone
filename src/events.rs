@@ -7,7 +7,7 @@ use crate::{
     auth::permission::UserPermission,
     output_types::ClientEvent,
     traits::{t_server::State, InstanceInfo},
-    types::Snowflake,
+    types::{InstanceUuid, Snowflake, UserId},
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -49,7 +49,7 @@ impl AsRef<InstanceEventInner> for InstanceEventInner {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct InstanceEvent {
-    pub instance_uuid: String,
+    pub instance_uuid: InstanceUuid,
     pub instance_name: String,
     pub instance_event_inner: InstanceEventInner,
 }
@@ -75,7 +75,7 @@ impl AsRef<UserEventInner> for UserEventInner {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct UserEvent {
-    pub user_id: String,
+    pub user_id: UserId,
     pub user_event_inner: UserEventInner,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -91,7 +91,7 @@ pub enum MacroEventInner {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct MacroEvent {
-    pub instance_uuid: String,
+    pub instance_uuid: InstanceUuid,
     pub macro_pid: usize,
     pub macro_event_inner: MacroEventInner,
 }
@@ -114,7 +114,7 @@ impl Into<Event> for MacroEvent {
 #[serde(tag = "type")]
 pub enum ProgressionEndValue {
     InstanceCreation(InstanceInfo),
-    InstanceDelete { instance_uuid: String },
+    InstanceDelete { instance_uuid: InstanceUuid },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -122,14 +122,14 @@ pub enum ProgressionEndValue {
 #[serde(tag = "type")]
 pub enum ProgressionStartValue {
     InstanceCreation {
-        instance_uuid: String,
+        instance_uuid: InstanceUuid,
         instance_name: String,
         port: u32,
         flavour: String,
         game_type: String,
     },
     InstanceDelete {
-        instance_uuid: String,
+        instance_uuid: InstanceUuid,
     },
 }
 
@@ -140,7 +140,7 @@ pub enum ProgressionStartValue {
 pub enum ProgressionEventInner {
     ProgressionStart {
         progression_name: String,
-        producer_id: String,
+        producer_id: Option<InstanceUuid>,
         total: Option<f64>,
         inner: Option<ProgressionStartValue>,
     },
@@ -225,8 +225,8 @@ fn event_type_export() {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum CausedBy {
-    User { user_id: String, user_name: String },
-    Instance { instance_uuid: String },
+    User { user_id: UserId, user_name: String },
+    Instance { instance_uuid: InstanceUuid },
     Macro { macro_pid: usize },
     System,
     Unknown,
@@ -301,7 +301,7 @@ impl Event {
             _ => None,
         }
     }
-    pub fn get_instance_uuid(&self) -> Option<String> {
+    pub fn get_instance_uuid(&self) -> Option<InstanceUuid> {
         match &self.event_inner {
             EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
             _ => None,

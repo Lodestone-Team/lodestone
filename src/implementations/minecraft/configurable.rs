@@ -8,6 +8,7 @@ use crate::traits::t_server::State;
 use crate::traits::{self, t_configurable::TConfigurable, ErrorInner};
 
 use crate::traits::Error;
+use crate::types::InstanceUuid;
 use crate::util::download_file;
 
 use super::util::{get_fabric_jar_url, get_vanilla_jar_url};
@@ -15,7 +16,7 @@ use super::{BackupInstruction, MinecraftInstance};
 
 #[async_trait]
 impl TConfigurable for MinecraftInstance {
-    async fn uuid(&self) -> String {
+    async fn uuid(&self) -> InstanceUuid {
         self.config.uuid.clone()
     }
 

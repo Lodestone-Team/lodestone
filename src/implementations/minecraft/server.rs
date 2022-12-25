@@ -46,14 +46,14 @@ impl TServer for MinecraftInstance {
 
         let prelaunch = self.path().await.join("prelaunch.js");
         if prelaunch.exists() {
-            let uuid = self.macro_executor.spawn(ExecutionInstruction {
+            self.macro_executor.spawn(ExecutionInstruction {
                 name: "prelaunch".to_string(),
                 args: vec![],
                 executor: None,
                 runtime: self.macro_std(),
                 is_in_game: false,
+                instance_uuid : self.config.uuid.clone(),
             });
-            let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",

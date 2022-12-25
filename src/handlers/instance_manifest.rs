@@ -2,11 +2,12 @@ use axum::{extract::Path, routing::get, Extension, Json, Router};
 
 use crate::{
     traits::{t_manifest::Manifest, t_manifest::TManifest, Error, ErrorInner},
+    types::InstanceUuid,
     AppState,
 };
 
 pub async fn get_instance_manifest(
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     Extension(state): Extension<AppState>,
 ) -> Result<Json<Manifest>, Error> {
     Ok(Json(

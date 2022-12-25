@@ -9,7 +9,7 @@ use axum_auth::AuthBearer;
 
 use serde_json::{json, Value};
 
-use crate::{auth::user::UserAction, events::CausedBy};
+use crate::{auth::user::UserAction, events::CausedBy, types::InstanceUuid};
 
 use crate::{
     traits::{t_configurable::TConfigurable, t_server::TServer, Error, ErrorInner},
@@ -18,7 +18,7 @@ use crate::{
 
 pub async fn start_instance(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let requester = state
@@ -57,7 +57,7 @@ pub async fn start_instance(
 
 pub async fn stop_instance(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let requester = state
@@ -95,7 +95,7 @@ pub async fn stop_instance(
 
 pub async fn kill_instance(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let requester = state
@@ -133,7 +133,7 @@ pub async fn kill_instance(
 
 pub async fn send_command(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     Json(command): Json<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -172,7 +172,7 @@ pub async fn send_command(
 
 pub async fn get_instance_state(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let requester = state

@@ -11,14 +11,14 @@ use crate::{
     handlers::users::Claim,
     prelude::PATH_TO_USERS,
     traits::{Error, ErrorInner},
-    types::Snowflake,
+    types::{InstanceUuid, Snowflake, UserId},
     util::rand_alphanumeric,
 };
 
 use super::permission::UserPermission;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct User {
-    pub uid: String,
+    pub uid: UserId,
     pub username: String,
     pub hashed_psw: String,
     pub is_owner: bool,
@@ -29,7 +29,7 @@ pub struct User {
 
 impl User {
     pub fn new(
-        uid: String,
+        uid: UserId,
         username: String,
         hashed_psw: String,
         is_owner: bool,
@@ -206,16 +206,16 @@ impl User {
 
 pub enum UserAction {
     // instance specific actions:
-    ViewInstance(String),
-    StartInstance(String),
-    StopInstance(String),
-    AccessConsole(String),
-    AccessSetting(String),
-    ReadResource(String),
-    WriteResource(String),
-    AccessMacro(String),
-    ReadInstanceFile(String),
-    WriteInstanceFile(String),
+    ViewInstance(InstanceUuid),
+    StartInstance(InstanceUuid),
+    StopInstance(InstanceUuid),
+    AccessConsole(InstanceUuid),
+    AccessSetting(InstanceUuid),
+    ReadResource(InstanceUuid),
+    WriteResource(InstanceUuid),
+    AccessMacro(InstanceUuid),
+    ReadInstanceFile(InstanceUuid),
+    WriteInstanceFile(InstanceUuid),
 
     // global actions:
     CreateInstance,
@@ -229,7 +229,7 @@ pub enum UserAction {
 #[derive(Serialize, Deserialize, Clone, TS)]
 #[ts(export)]
 pub struct PublicUser {
-    pub uid: String,
+    pub uid: UserId,
     pub username: String,
     pub is_owner: bool,
     pub is_admin: bool,
@@ -263,11 +263,11 @@ impl From<User> for PublicUser {
 #[derive(Clone)]
 pub struct UsersManager {
     event_broadcaster: Sender<Event>,
-    users: HashMap<String, User>,
+    users: HashMap<UserId, User>,
 }
 
 impl UsersManager {
-    pub fn new(event_broadcaster: Sender<Event>, users: HashMap<String, User>) -> Self {
+    pub fn new(event_broadcaster: Sender<Event>, users: HashMap<UserId, User>) -> Self {
         Self {
             event_broadcaster,
             users,
@@ -293,7 +293,7 @@ impl UsersManager {
             })?;
         Ok(())
     }
-    pub fn get_user(&self, uid: impl AsRef<str>) -> Option<User> {
+    pub fn get_user(&self, uid: impl AsRef<UserId>) -> Option<User> {
         self.users.get(uid.as_ref()).cloned()
     }
     pub async fn add_user(&mut self, user: User, caused_by: CausedBy) -> Result<(), Error> {
@@ -326,7 +326,7 @@ impl UsersManager {
     }
     pub async fn delete_user(
         &mut self,
-        uid: impl AsRef<str>,
+        uid: impl AsRef<UserId>,
         caused_by: CausedBy,
     ) -> Result<Option<User>, Error> {
         let user = self.users.remove(uid.as_ref());
@@ -356,7 +356,7 @@ impl UsersManager {
 
     pub async fn logout_user(
         &mut self,
-        uid: impl AsRef<str>,
+        uid: impl AsRef<UserId>,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
         let old_secret = self
@@ -396,7 +396,7 @@ impl UsersManager {
 
     pub async fn change_password(
         &mut self,
-        uid: impl AsRef<str>,
+        uid: impl AsRef<UserId>,
         password: String,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
@@ -446,7 +446,7 @@ impl UsersManager {
 
     pub async fn update_permissions(
         &mut self,
-        uid: impl AsRef<str>,
+        uid: impl AsRef<UserId>,
         new_permissions: UserPermission,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
@@ -525,7 +525,7 @@ impl UsersManager {
     }
 }
 
-fn decode_token(token: &str, jwt_secret: &str) -> Option<String> {
+fn decode_token(token: &str, jwt_secret: &str) -> Option<UserId> {
     match jsonwebtoken::decode::<Claim>(
         token,
         &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
@@ -536,7 +536,7 @@ fn decode_token(token: &str, jwt_secret: &str) -> Option<String> {
     }
 }
 
-fn decode_no_verify(token: &str) -> Option<String> {
+fn decode_no_verify(token: &str) -> Option<UserId> {
     let mut no_verify = Validation::new(Algorithm::HS512);
     no_verify.insecure_disable_signature_validation();
     match jsonwebtoken::decode::<Claim>(
@@ -549,8 +549,8 @@ fn decode_no_verify(token: &str) -> Option<String> {
     }
 }
 
-impl AsRef<HashMap<String, User>> for UsersManager {
-    fn as_ref(&self) -> &HashMap<String, User> {
+impl AsRef<HashMap<UserId, User>> for UsersManager {
+    fn as_ref(&self) -> &HashMap<UserId, User> {
         &self.users
     }
 }

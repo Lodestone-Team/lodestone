@@ -14,13 +14,14 @@ use tokio::sync::Mutex;
 use crate::{
     prelude::GameInstance,
     traits::{t_server::MonitorReport, t_server::TServer, Error, ErrorInner},
+    types::InstanceUuid,
     AppState,
 };
 
 pub async fn monitor(
     ws: WebSocketUpgrade,
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Response, Error> {
     let instance = state
         .instances
@@ -44,9 +45,9 @@ pub async fn monitor(
 
 async fn monitor_ws(
     stream: WebSocket,
-    monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
+    monitor_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<MonitorReport>>>>,
     instance: GameInstance,
-    uuid: String,
+    uuid: InstanceUuid,
 ) {
     let (mut tx, mut rx) = stream.split();
     if let Some(buffer) = monitor_buffer.lock().await.get(&uuid) {

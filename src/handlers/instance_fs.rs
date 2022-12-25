@@ -18,7 +18,7 @@ use crate::{
         ProgressionEventInner,
     },
     traits::{t_configurable::TConfigurable, Error, ErrorInner},
-    types::Snowflake,
+    types::{InstanceUuid, Snowflake},
     util::{list_dir, rand_alphanumeric, scoped_join_win_safe},
     AppState,
 };
@@ -50,7 +50,7 @@ use super::{global_fs::File, util::decode_base64};
 
 async fn list_instance_files(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -116,7 +116,7 @@ async fn list_instance_files(
 
 async fn read_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -171,7 +171,7 @@ async fn read_instance_file(
 
 async fn write_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     body: Bytes,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -234,7 +234,7 @@ async fn write_instance_file(
 
 async fn make_instance_directory(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -284,7 +284,7 @@ async fn make_instance_directory(
 
 async fn remove_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -358,7 +358,7 @@ async fn remove_instance_file(
 
 async fn remove_instance_dir(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -466,7 +466,7 @@ async fn remove_instance_dir(
 
 async fn new_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -533,7 +533,7 @@ async fn new_instance_file(
 
 async fn download_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
@@ -598,7 +598,7 @@ async fn download_instance_file(
 
 async fn upload_instance_file(
     Extension(state): Extension<AppState>,
-    Path((uuid, base64_relative_path)): Path<(String, String)>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     headers: HeaderMap,
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
@@ -655,7 +655,7 @@ async fn upload_instance_file(
             event_id,
             progression_event_inner: ProgressionEventInner::ProgressionStart {
                 progression_name: "Uploading files".to_string(),
-                producer_id: "".to_string(),
+                producer_id: None,
                 total,
                 inner: None,
             },

@@ -259,6 +259,7 @@ impl TMacro for MinecraftInstance {
             executor: executor.map(|s| s.to_string()),
             runtime: self.macro_std(),
             is_in_game,
+            instance_uuid : self.config.uuid.clone(),
         };
 
         self.macro_executor.spawn(exec_instruction);

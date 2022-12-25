@@ -1,9 +1,8 @@
-use uuid::Uuid;
-
 use crate::{
     auth::{permission::UserPermission, user::User},
     events::CausedBy,
     traits::{Error, ErrorInner},
+    types::UserId,
     util::{hash_password, rand_alphanumeric},
     AppState,
 };
@@ -42,7 +41,7 @@ pub async fn setup_owner_account(
     }
     let hashed_psw = hash_password(&password);
     let user = User::new(
-        Uuid::new_v4().to_string(),
+        UserId::default(),
         username,
         hashed_psw,
         true,

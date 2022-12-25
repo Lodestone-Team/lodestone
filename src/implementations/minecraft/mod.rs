@@ -34,7 +34,7 @@ use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_server::State;
 use crate::traits::{Error, ErrorInner, TInstance};
-use crate::types::Snowflake;
+use crate::types::{InstanceUuid, Snowflake};
 use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
 
 use self::players_manager::PlayersManager;
@@ -64,7 +64,7 @@ impl ToString for Flavour {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetupConfig {
     pub game_type: String,
-    pub uuid: String,
+    pub uuid: InstanceUuid,
     pub name: String,
     pub version: String,
     pub flavour: Flavour,
@@ -86,7 +86,7 @@ pub struct SetupConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RestoreConfig {
     pub game_type: String,
-    pub uuid: String,
+    pub uuid: InstanceUuid,
     pub name: String,
     pub version: String,
     pub fabric_loader_version: Option<String>,

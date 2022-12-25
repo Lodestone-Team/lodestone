@@ -5,7 +5,7 @@ use tokio::sync::broadcast::Sender;
 use crate::{
     events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner},
     traits::t_player::Player,
-    types::Snowflake,
+    types::{InstanceUuid, Snowflake},
 };
 
 use super::player::MinecraftPlayer;
@@ -14,11 +14,11 @@ use super::player::MinecraftPlayer;
 pub struct PlayersManager {
     players: HashSet<MinecraftPlayer>,
     event_broadcaster: Sender<Event>,
-    instance_uuid: String,
+    instance_uuid: InstanceUuid,
 }
 
 impl PlayersManager {
-    pub fn new(event_broadcaster: Sender<Event>, instance_uuid: String) -> Self {
+    pub fn new(event_broadcaster: Sender<Event>, instance_uuid: InstanceUuid) -> Self {
         Self {
             players: HashSet::new(),
             event_broadcaster,

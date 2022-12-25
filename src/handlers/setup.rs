@@ -7,6 +7,7 @@ use crate::{
     auth::{permission::UserPermission, user::User},
     events::CausedBy,
     traits::{Error, ErrorInner},
+    types::UserId,
     util::rand_alphanumeric,
     AppState,
 };
@@ -32,7 +33,7 @@ pub async fn setup_owner(
                 .hash_password(owner_setup.password.as_bytes(), &salt)
                 .unwrap()
                 .to_string();
-            let uid = uuid::Uuid::new_v4().to_string();
+            let uid = UserId::default();
             let owner = User {
                 username: owner_setup.username,
                 is_owner: true,

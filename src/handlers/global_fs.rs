@@ -554,7 +554,7 @@ async fn upload_file(
             event_id,
             progression_event_inner: ProgressionEventInner::ProgressionStart {
                 progression_name: "Uploading files".to_string(),
-                producer_id: "".to_string(),
+                producer_id: None,
                 total,
                 inner: None,
             },

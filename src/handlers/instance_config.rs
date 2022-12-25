@@ -11,6 +11,7 @@ use ts_rs::TS;
 use crate::{
     auth::user::UserAction,
     traits::{t_configurable::TConfigurable, Error, ErrorInner},
+    types::InstanceUuid,
     AppState,
 };
 
@@ -36,7 +37,7 @@ pub enum InstanceSetting {
 
 pub async fn get_instance_setting(
     Extension(state): Extension<AppState>,
-    Path((uuid, key)): Path<(String, InstanceSetting)>,
+    Path((uuid, key)): Path<(InstanceUuid, InstanceSetting)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let requester = state
@@ -79,7 +80,7 @@ pub async fn get_instance_setting(
 
 pub async fn set_instance_setting(
     Extension(state): Extension<AppState>,
-    Path((uuid, key)): Path<(String, InstanceSetting)>,
+    Path((uuid, key)): Path<(InstanceUuid, InstanceSetting)>,
     Json(value): Json<Value>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -178,7 +179,7 @@ pub async fn set_instance_setting(
 
 pub async fn get_game_setting(
     Extension(state): Extension<AppState>,
-    Path((uuid, key)): Path<(String, String)>,
+    Path((uuid, key)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
     let requester = state
@@ -206,7 +207,7 @@ pub async fn get_game_setting(
 
 pub async fn set_game_setting(
     Extension(state): Extension<AppState>,
-    Path((uuid, key)): Path<(String, String)>,
+    Path((uuid, key)): Path<(InstanceUuid, String)>,
     Json(value): Json<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -241,7 +242,7 @@ pub async fn set_game_setting(
 
 pub async fn change_version(
     Extension(state): Extension<AppState>,
-    Path((uuid, new_version)): Path<(String, String)>,
+    Path((uuid, new_version)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state

@@ -7,12 +7,13 @@ use crate::{
         t_player::{Player, TPlayerManagement},
         Error, ErrorInner,
     },
+    types::InstanceUuid,
     AppState,
 };
 
 pub async fn get_player_count(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
     state
         .instances
@@ -30,7 +31,7 @@ pub async fn get_player_count(
 
 pub async fn get_max_player_count(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
     state
         .instances
@@ -48,7 +49,7 @@ pub async fn get_max_player_count(
 
 pub async fn set_max_player_count(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
     Json(count): Json<u32>,
 ) -> Result<Json<()>, Error> {
     state
@@ -67,7 +68,7 @@ pub async fn set_max_player_count(
 
 pub async fn get_player_list(
     Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<HashSet<Player>>, Error> {
     state
         .instances

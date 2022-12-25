@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::traits::GameInstance;
 use crate::traits::MinecraftInstance;
+use crate::types::InstanceUuid;
 use crate::Error;
 
 use super::ErrorInner;
@@ -15,7 +16,7 @@ use super::ErrorInner;
 #[enum_dispatch::enum_dispatch]
 pub trait TConfigurable {
     // getters
-    async fn uuid(&self) -> String;
+    async fn uuid(&self) -> InstanceUuid;
     async fn name(&self) -> String;
     async fn flavour(&self) -> String;
     async fn game_type(&self) -> String;

@@ -2,22 +2,24 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::types::InstanceUuid;
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, TS, Debug)]
 #[ts(export)]
 pub struct UserPermission {
-    pub can_view_instance: HashSet<String>,
-    pub can_start_instance: HashSet<String>,
-    pub can_stop_instance: HashSet<String>,
-    pub can_access_instance_console: HashSet<String>,
-    pub can_access_instance_setting: HashSet<String>,
-    pub can_read_instance_resource: HashSet<String>,
+    pub can_view_instance: HashSet<InstanceUuid>,
+    pub can_start_instance: HashSet<InstanceUuid>,
+    pub can_stop_instance: HashSet<InstanceUuid>,
+    pub can_access_instance_console: HashSet<InstanceUuid>,
+    pub can_access_instance_setting: HashSet<InstanceUuid>,
+    pub can_read_instance_resource: HashSet<InstanceUuid>,
     // unsafe permission, owner exclusive unless explicitly granted
-    pub can_write_instance_resource: HashSet<String>,
+    pub can_write_instance_resource: HashSet<InstanceUuid>,
     // unsafe permission, owner exclusive unless explicitly granted
-    pub can_access_instance_macro: HashSet<String>,
-    pub can_read_instance_file: HashSet<String>,
+    pub can_access_instance_macro: HashSet<InstanceUuid>,
+    pub can_read_instance_file: HashSet<InstanceUuid>,
     // unsafe permission, owner exclusive unless explicitly granted
-    pub can_write_instance_file: HashSet<String>,
+    pub can_write_instance_file: HashSet<InstanceUuid>,
 
     pub can_create_instance: bool,
     pub can_delete_instance: bool,

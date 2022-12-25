@@ -5,7 +5,7 @@ use crate::{
     },
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     traits::{Error, ErrorInner},
-    types::Snowflake,
+    types::{Snowflake, UserId},
     util::{hash_password, rand_alphanumeric},
     AppState,
 };
@@ -24,7 +24,7 @@ use ts_rs::TS;
 
 #[derive(Deserialize, Serialize)]
 pub struct Claim {
-    pub uid: String,
+    pub uid: UserId,
     pub exp: usize,
 }
 
@@ -52,7 +52,7 @@ pub async fn new_user(
     }
 
     let hashed_psw = hash_password(&config.password);
-    let uid = uuid::Uuid::new_v4().to_string();
+    let uid = UserId::default();
     let user = User {
         uid: uid.clone(),
         username: config.username.clone(),
@@ -89,7 +89,7 @@ pub async fn new_user(
 
 pub async fn delete_user(
     Extension(state): Extension<AppState>,
-    Path(uid): Path<String>,
+    Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let mut users_manager = state.users_manager.write().await;
@@ -128,7 +128,7 @@ pub async fn delete_user(
 
 pub async fn logout(
     Extension(state): Extension<AppState>,
-    Path(uid): Path<String>,
+    Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
     let mut users_manager = state.users_manager.write().await;
@@ -168,7 +168,7 @@ pub async fn logout(
 
 pub async fn update_permissions(
     Extension(state): Extension<AppState>,
-    Path(uid): Path<String>,
+    Path(uid): Path<UserId>,
     Json(new_permissions): Json<UserPermission>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -214,7 +214,7 @@ pub async fn get_self_info(
 
 pub async fn get_user_info(
     Extension(state): Extension<AppState>,
-    Path(uid): Path<String>,
+    Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<PublicUser>, Error> {
     let users_manager = state.users_manager.read().await;
@@ -242,7 +242,7 @@ pub async fn get_user_info(
 
 #[derive(Deserialize)]
 pub struct ChangePasswordConfig {
-    uid: String,
+    uid: UserId,
     password: String,
 }
 

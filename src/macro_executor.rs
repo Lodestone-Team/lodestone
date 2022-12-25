@@ -18,7 +18,7 @@ use tokio::{
 
 use crate::{
     events::{MacroEvent, MacroEventInner},
-    traits::{Error, ErrorInner},
+    traits::{Error, ErrorInner}, types::InstanceUuid,
 };
 
 use std::pin::Pin;
@@ -172,6 +172,7 @@ pub struct ExecutionInstruction {
     pub executor: Option<String>,
     pub args: Vec<String>,
     pub is_in_game: bool,
+    pub instance_uuid : InstanceUuid,
 }
 
 pub enum Instruction {
@@ -229,6 +230,7 @@ impl MacroExecutor {
                                     args,
                                     executor,
                                     is_in_game,
+                                    instance_uuid
                                 } = exec_instruction;
                                 let executor = executor.unwrap_or_default();
                                 // inject exectuor into the js runtime
@@ -261,7 +263,7 @@ impl MacroExecutor {
                                         let _ = event_broadcaster.send(MacroEvent {
                                             macro_pid: process_id.load(Ordering::SeqCst),
                                             macro_event_inner: MacroEventInner::MacroStopped,
-                                            instance_uuid: "".to_string(),
+                                            instance_uuid,
                                         });
                                     }
                                 });

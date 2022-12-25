@@ -123,7 +123,7 @@ impl IntoResponse for Error {
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct InstanceInfo {
-    pub uuid: String,
+    pub uuid: InstanceUuid,
     pub name: String,
     pub flavour: String,
     pub game_type: String,
@@ -143,6 +143,7 @@ pub struct InstanceInfo {
 }
 use crate::minecraft::MinecraftInstance;
 use crate::prelude::GameInstance;
+use crate::types::InstanceUuid;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TInstance:
