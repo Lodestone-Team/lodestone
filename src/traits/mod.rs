@@ -120,7 +120,7 @@ impl IntoResponse for Error {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct InstanceInfo {
     pub uuid: InstanceUuid,

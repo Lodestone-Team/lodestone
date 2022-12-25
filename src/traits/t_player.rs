@@ -13,7 +13,7 @@ pub trait TPlayer {
 }
 
 #[enum_dispatch::enum_dispatch(TPlayer)]
-#[derive(Serialize, Deserialize, Debug, Eq, TS)]
+#[derive(Serialize, Deserialize, Debug, Eq, TS, Clone)]
 #[serde(tag = "type")]
 #[ts(export)]
 pub enum Player {
