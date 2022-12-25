@@ -107,7 +107,7 @@ const Button = forwardRef(
         {icon && <FontAwesomeIcon icon={icon} className="w-4" />}
         <div className={`flex justify-${align}`}>
           {loading && (
-            <div className={`flex absolute my-2`}><BeatLoader size={5} color="#36d7b7"/></div>
+            <div className={`flex absolute my-2`}><BeatLoader size={5} color="#6b7280"/></div>
           )}
           <span className={clsx(loading && 'opacity-0')}>{label}</span>
         </div>
