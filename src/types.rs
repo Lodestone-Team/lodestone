@@ -6,9 +6,13 @@ use serde_aux::prelude::*;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Copy)]
-#[serde(into = "String")]
 #[ts(export)]
-pub struct Snowflake(#[serde(deserialize_with = "deserialize_number_from_string")] i64);
+#[serde(into = "String")]
+pub struct Snowflake(
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[ts(type = "string")]
+    i64
+);
 
 impl From<Snowflake> for String {
     fn from(snowflake: Snowflake) -> Self {
