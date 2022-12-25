@@ -6,11 +6,11 @@ use ts_rs::TS;
 use crate::{
     auth::permission::UserPermission,
     output_types::ClientEvent,
-    traits::{t_server::State, InstanceInfo},
+    traits::{t_server::State, InstanceInfo, t_player::Player},
     types::{InstanceUuid, Snowflake, UserId},
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 #[derive(enum_kinds::EnumKind)]
@@ -29,9 +29,9 @@ pub enum InstanceEventInner {
         message: String,
     },
     PlayerChange {
-        player_list: HashSet<String>,
-        players_joined: HashSet<String>,
-        players_left: HashSet<String>,
+        player_list: HashSet<Player>,
+        players_joined: HashSet<Player>,
+        players_left: HashSet<Player>,
     },
 
     PlayerMessage {
@@ -46,14 +46,14 @@ impl AsRef<InstanceEventInner> for InstanceEventInner {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct InstanceEvent {
     pub instance_uuid: InstanceUuid,
     pub instance_name: String,
     pub instance_event_inner: InstanceEventInner,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 #[derive(enum_kinds::EnumKind)]
@@ -72,13 +72,13 @@ impl AsRef<UserEventInner> for UserEventInner {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct UserEvent {
     pub user_id: UserId,
     pub user_event_inner: UserEventInner,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 #[derive(enum_kinds::EnumKind)]
@@ -88,7 +88,7 @@ pub enum MacroEventInner {
     MacroStopped,
     MacroErrored { error_msg: String },
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct MacroEvent {
     pub instance_uuid: InstanceUuid,
@@ -109,7 +109,7 @@ impl Into<Event> for MacroEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionEndValue {
@@ -117,7 +117,7 @@ pub enum ProgressionEndValue {
     InstanceDelete { instance_uuid: InstanceUuid },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionStartValue {
@@ -134,7 +134,7 @@ pub enum ProgressionStartValue {
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionEventInner {
@@ -154,7 +154,7 @@ pub enum ProgressionEventInner {
         inner: Option<ProgressionEndValue>,
     },
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub enum FSOperation {
     Read,
@@ -165,14 +165,14 @@ pub enum FSOperation {
     Download,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[serde(tag = "type", content = "path")]
 #[ts(export)]
 pub enum FSTarget {
     File(PathBuf),
     Directory(PathBuf),
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct FSEvent {
     pub operation: FSOperation,
@@ -188,14 +188,14 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct ProgressionEvent {
     pub event_id: Snowflake,
     pub progression_event_inner: ProgressionEventInner,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 #[derive(enum_kinds::EnumKind)]
@@ -221,7 +221,7 @@ fn event_type_export() {
     let _ = UserEventKind::export();
     let _ = InstanceEventKind::export();
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum CausedBy {
@@ -232,7 +232,7 @@ pub enum CausedBy {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[serde(into = "ClientEvent")]
 pub struct Event {
     pub event_inner: EventInner,
