@@ -18,7 +18,8 @@ use tokio::{
 
 use crate::{
     events::{MacroEvent, MacroEventInner},
-    traits::{Error, ErrorInner}, types::InstanceUuid,
+    traits::{Error, ErrorInner},
+    types::InstanceUuid,
 };
 
 use std::pin::Pin;
@@ -160,19 +161,14 @@ impl ModuleLoader for TypescriptModuleLoader {
 
 pub struct ExecutionInstruction {
     pub runtime: Box<
-        dyn Fn(
-                String,
-                String,
-                Vec<String>,
-                bool,
-            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
+        dyn Fn(String, String, Vec<String>, bool) -> (deno_runtime::worker::MainWorker, PathBuf)
             + Send,
     >,
     pub name: String,
     pub executor: Option<String>,
     pub args: Vec<String>,
     pub is_in_game: bool,
-    pub instance_uuid : InstanceUuid,
+    pub instance_uuid: InstanceUuid,
 }
 
 pub enum Instruction {
@@ -230,13 +226,12 @@ impl MacroExecutor {
                                     args,
                                     executor,
                                     is_in_game,
-                                    instance_uuid
+                                    instance_uuid,
                                 } = exec_instruction;
                                 let executor = executor.unwrap_or_default();
                                 // inject exectuor into the js runtime
                                 let (mut runtime, path_to_main_module) =
-                                    runtime(name, executor, args, is_in_game)
-                                        .expect("Failed to create runtime");
+                                    runtime(name, executor, args, is_in_game);
                                 let isolate_handle =
                                     runtime.js_runtime.v8_isolate().thread_safe_handle();
                                 let handle = tokio::task::spawn_local({
@@ -328,11 +323,14 @@ impl MacroExecutor {
             .terminate_execution();
         Ok(())
     }
-    pub async fn wait_with_timeout(
-        &self,
-        macro_pid: usize,
-        timeout: Option<f64>,
-    ) -> Result<(), ()> {
+    /// wait for a macro to finish
+    ///
+    /// if timeout is None, wait forever
+    ///
+    /// if timeout is Some, wait for the specified amount of time
+    ///
+    /// returns true if the macro finished, false if the timeout was reached
+    pub async fn wait_with_timeout(&self, macro_pid: usize, timeout: Option<f64>) -> bool {
         let mut rx = self.event_broadcaster.subscribe();
         tokio::select! {
             _ = async {
@@ -345,7 +343,7 @@ impl MacroExecutor {
 
                 }
             } => {
-                Err(())
+                false
             }
             _ = {
                 async {loop {
@@ -355,7 +353,7 @@ impl MacroExecutor {
                     }
                 }
             }} => {
-                Ok(())
+                true
             }
         }
     }
@@ -373,5 +371,13 @@ impl MacroExecutor {
 impl Default for MacroExecutor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+mod tests {
+    #[tokio::test]
+    async fn test_macro_executor() {
+        // construct a macro executor
+        let executor = super::MacroExecutor::new();
     }
 }

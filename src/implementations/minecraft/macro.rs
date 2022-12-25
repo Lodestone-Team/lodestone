@@ -123,12 +123,7 @@ impl MinecraftInstance {
     pub fn macro_std(
         &self,
     ) -> Box<
-        dyn Fn(
-                String,
-                String,
-                Vec<String>,
-                bool,
-            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
+        dyn Fn(String, String, Vec<String>, bool) -> (deno_runtime::worker::MainWorker, PathBuf)
             + Send,
     > {
         Box::new({
@@ -138,7 +133,7 @@ impl MinecraftInstance {
                   executor: String,
                   args: Vec<String>,
                   is_in_game: bool|
-                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
+                  -> (deno_runtime::worker::MainWorker, PathBuf) {
                 let path_to_main_module = macro_executor::resolve_macro_invocation(
                     &path_to_macros,
                     &macro_name,
@@ -174,10 +169,7 @@ impl MinecraftInstance {
                 worker_options.extensions.push(ext);
                 worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader);
                 let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
-                    .map_err(|e| Error {
-                    inner: ErrorInner::IOError,
-                    detail: format!("Failed to resolve path: {}", e),
-                })?;
+                    .expect("Failed to resolve path");
                 // todo(CheatCod3) : limit the permissions
                 let permissions = deno_runtime::permissions::Permissions::allow_all();
                 let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
@@ -188,17 +180,14 @@ impl MinecraftInstance {
                 let js = include_str!("js_macro/runtime.js");
                 worker
                     .execute_script("[lodestone:runtime.js]", js)
-                    .map_err(|e| Error {
-                        inner: ErrorInner::FailedToRun,
-                        detail: format!("Failed to execute runtime.js: {}", e),
-                    })?;
+                    .expect("Failed to execute runtime.js");
                 worker
                     .execute_script(
                         "[dep_inject]",
                         format!("const executor = \"{}\";", executor).as_str(),
                     )
                     .expect("Failed to inject executor");
-                Ok((worker, path_to_main_module))
+                (worker, path_to_main_module)
             }
         })
     }
@@ -259,7 +248,7 @@ impl TMacro for MinecraftInstance {
             executor: executor.map(|s| s.to_string()),
             runtime: self.macro_std(),
             is_in_game,
-            instance_uuid : self.config.uuid.clone(),
+            instance_uuid: self.config.uuid.clone(),
         };
 
         self.macro_executor.spawn(exec_instruction);
