@@ -64,6 +64,7 @@ mod port_allocator;
 pub mod prelude;
 pub mod tauri_export;
 mod traits;
+pub mod types;
 mod util;
 
 #[derive(Serialize, Deserialize, Clone, TS)]

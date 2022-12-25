@@ -295,13 +295,17 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
 pub async fn name_to_uuid(name: impl AsRef<str>) -> Option<String> {
     // GET https://api.mojang.com/users/profiles/minecraft/<username>
     let client = reqwest::Client::new();
-    let res : Value = client
+    let res: Value = client
         .get(format!(
             "https://api.mojang.com/users/profiles/minecraft/{}",
             name.as_ref()
         ))
         .send()
-        .await.ok()?.json().await.ok()?;
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
     Some(res["id"].as_str()?.to_owned())
 }
 

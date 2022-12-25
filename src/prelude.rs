@@ -31,10 +31,6 @@ lazy_static! {
         ));
 }
 
-pub fn get_snowflake() -> i64 {
-    SNOWFLAKE_GENERATOR.lock().unwrap().real_time_generate()
-}
-
 use crate::minecraft::MinecraftInstance;
 #[enum_dispatch::enum_dispatch(
     TInstance,

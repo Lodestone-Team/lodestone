@@ -6,8 +6,8 @@ use ts_rs::TS;
 use crate::{
     auth::permission::UserPermission,
     output_types::ClientEvent,
-    prelude::get_snowflake,
     traits::{t_server::State, InstanceInfo},
+    types::Snowflake,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -100,7 +100,7 @@ impl Into<Event> for MacroEvent {
     fn into(self) -> Event {
         Event {
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             event_inner: EventInner::MacroEvent(self.clone()),
             caused_by: CausedBy::Macro {
                 macro_pid: self.macro_pid,
@@ -182,7 +182,7 @@ pub struct FSEvent {
 pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedBy) -> Event {
     Event {
         details: "".to_string(),
-        snowflake: get_snowflake(),
+        snowflake: Snowflake::default(),
         event_inner: EventInner::FSEvent(FSEvent { operation, target }),
         caused_by,
     }
@@ -191,12 +191,8 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct ProgressionEvent {
-    pub event_id: String,
+    pub event_id: Snowflake,
     pub progression_event_inner: ProgressionEventInner,
-}
-
-pub fn new_progression_event_id() -> String {
-    format!("PROG_{}", get_snowflake())
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -241,7 +237,7 @@ pub enum CausedBy {
 pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
-    pub snowflake: i64,
+    pub snowflake: Snowflake,
     pub caused_by: CausedBy,
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq, Eq)]

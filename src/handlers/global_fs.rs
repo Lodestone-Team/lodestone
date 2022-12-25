@@ -21,11 +21,11 @@ use ts_rs::TS;
 use crate::{
     auth::user::UserAction,
     events::{
-        new_fs_event, new_progression_event_id, CausedBy, Event, EventInner, FSOperation, FSTarget,
-        ProgressionEvent, ProgressionEventInner,
+        new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEvent,
+        ProgressionEventInner,
     },
-    prelude::get_snowflake,
     traits::{Error, ErrorInner},
+    types::Snowflake,
     util::{list_dir, rand_alphanumeric},
     AppState,
 };
@@ -548,10 +548,10 @@ async fn upload_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<f64>().ok());
 
-    let event_id = new_progression_event_id();
+    let event_id = Snowflake::default();
     let _ = state.event_broadcaster.send(Event {
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-            event_id: event_id.clone(),
+            event_id,
             progression_event_inner: ProgressionEventInner::ProgressionStart {
                 progression_name: "Uploading files".to_string(),
                 producer_id: "".to_string(),
@@ -560,7 +560,7 @@ async fn upload_file(
             },
         }),
         details: "".to_string(),
-        snowflake: get_snowflake(),
+        snowflake: Snowflake::default(),
         caused_by: CausedBy::User {
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),
@@ -605,7 +605,7 @@ async fn upload_file(
             std::fs::remove_file(&path).ok();
             let _ = state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: event_id.clone(),
+                    event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionEnd {
                         success: false,
                         message: Some(e.to_string()),
@@ -613,7 +613,7 @@ async fn upload_file(
                     },
                 }),
                 details: "".to_string(),
-                snowflake: get_snowflake(),
+                snowflake: Snowflake::default(),
                 caused_by: CausedBy::User {
                     user_id: requester.uid.clone(),
                     user_name: requester.username.clone(),
@@ -626,14 +626,14 @@ async fn upload_file(
         })? {
             let _ = state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: event_id.clone(),
+                    event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                         progress_message: format!("Uploading {}", name),
                         progress: chunk.len() as f64,
                     },
                 }),
                 details: "".to_string(),
-                snowflake: get_snowflake(),
+                snowflake: Snowflake::default(),
                 caused_by: CausedBy::User {
                     user_id: requester.uid.clone(),
                     user_name: requester.username.clone(),
@@ -661,7 +661,7 @@ async fn upload_file(
     }
     let _ = state.event_broadcaster.send(Event {
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-            event_id: event_id.clone(),
+            event_id,
             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                 success: true,
                 message: Some("Upload complete".to_string()),
@@ -669,7 +669,7 @@ async fn upload_file(
             },
         }),
         details: "".to_string(),
-        snowflake: get_snowflake(),
+        snowflake: Snowflake::default(),
         caused_by: CausedBy::User {
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),

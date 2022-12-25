@@ -10,14 +10,15 @@ use ts_rs::TS;
 
 use crate::auth::user::UserAction;
 use crate::events::{
-    new_progression_event_id, CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent,
-    ProgressionEventInner, ProgressionStartValue,
+    CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
+    ProgressionStartValue,
 };
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
-use crate::prelude::{get_snowflake, PATH_TO_INSTANCES};
+use crate::prelude::PATH_TO_INSTANCES;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
+use crate::types::Snowflake;
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
@@ -191,10 +192,10 @@ pub async fn create_minecraft_instance(
             user_name: requester.username.clone(),
         };
         async move {
-            let progression_event_id = new_progression_event_id();
+            let progression_event_id = Snowflake::default();
             let _ = event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id.clone(),
+                    event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: format!("Setting up Minecraft server {}", name),
                         producer_id: uuid.clone(),
@@ -209,12 +210,12 @@ pub async fn create_minecraft_instance(
                     },
                 }),
                 details: "".to_string(),
-                snowflake: get_snowflake(),
+                snowflake: Snowflake::default(),
                 caused_by: caused_by.clone(),
             });
             let minecraft_instance = match minecraft::MinecraftInstance::new(
                 setup_config.clone(),
-                progression_event_id.clone(),
+                progression_event_id,
                 state.event_broadcaster.clone(),
             )
             .await
@@ -222,7 +223,7 @@ pub async fn create_minecraft_instance(
                 Ok(v) => {
                     let _ = event_broadcaster.send(Event {
                         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                            event_id: progression_event_id.clone(),
+                            event_id: progression_event_id,
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: true,
                                 message: Some("Instance creation success".to_string()),
@@ -232,7 +233,7 @@ pub async fn create_minecraft_instance(
                             },
                         }),
                         details: "".to_string(),
-                        snowflake: get_snowflake(),
+                        snowflake: Snowflake::default(),
                         caused_by: caused_by.clone(),
                     });
                     v
@@ -240,7 +241,7 @@ pub async fn create_minecraft_instance(
                 Err(e) => {
                     let _ = event_broadcaster.send(Event {
                         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                            event_id: progression_event_id.clone(),
+                            event_id: progression_event_id,
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: false,
                                 message: Some(format!("Instance creation failed: {:?}", e)),
@@ -248,7 +249,7 @@ pub async fn create_minecraft_instance(
                             },
                         }),
                         details: "".to_string(),
-                        snowflake: get_snowflake(),
+                        snowflake: Snowflake::default(),
                         caused_by: caused_by.clone(),
                     });
                     tokio::fs::remove_dir_all(setup_config.path)
@@ -308,11 +309,11 @@ pub async fn delete_instance(
                 detail: "Instance is running, cannot remove".to_string(),
             })
         } else {
-            let progression_id = new_progression_event_id();
+            let progression_id = Snowflake::default();
             let event_broadcaster = state.event_broadcaster.clone();
             let _ = event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_id.clone(),
+                    event_id: progression_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: format!("Deleting instance {}", instance.name().await),
                         producer_id: uuid.clone(),
@@ -321,7 +322,7 @@ pub async fn delete_instance(
                     },
                 }),
                 details: "".to_string(),
-                snowflake: get_snowflake(),
+                snowflake: Snowflake::default(),
                 caused_by: caused_by.clone(),
             });
             tokio::fs::remove_file(instance.path().await.join(".lodestone_config"))
@@ -329,7 +330,7 @@ pub async fn delete_instance(
                 .map_err(|e| {
                     let _ = event_broadcaster.send(Event {
                         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                            event_id: new_progression_event_id(),
+                            event_id: Snowflake::default(),
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                                 success: false,
                                 message: Some(
@@ -340,7 +341,7 @@ pub async fn delete_instance(
                             },
                         }),
                         details: "".to_string(),
-                        snowflake: get_snowflake(),
+                        snowflake: Snowflake::default(),
                         caused_by: caused_by.clone(),
                     });
                     Error {
@@ -369,7 +370,7 @@ pub async fn delete_instance(
             if res.is_ok() {
                 let _ = event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                        event_id: progression_id.clone(),
+                        event_id: progression_id,
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
                             success: true,
                             message: Some("Deleted instance".to_string()),
@@ -379,13 +380,13 @@ pub async fn delete_instance(
                         },
                     }),
                     details: "".to_string(),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     caused_by: caused_by.clone(),
                 });
             } else {
                 let _ = event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                        event_id: progression_id.clone(),
+                        event_id: progression_id,
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
                             success: false,
                             message: Some(
@@ -395,7 +396,7 @@ pub async fn delete_instance(
                         },
                     }),
                     details: "".to_string(),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     caused_by: caused_by.clone(),
                 });
             }

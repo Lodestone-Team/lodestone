@@ -4,8 +4,8 @@ use crate::{
         user::{PublicUser, User, UserAction},
     },
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
-    prelude::get_snowflake,
     traits::{Error, ErrorInner},
+    types::Snowflake,
     util::{hash_password, rand_alphanumeric},
     AppState,
 };
@@ -77,7 +77,7 @@ pub async fn new_user(
                 user_event_inner: UserEventInner::UserCreated,
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by,
         })
         .map_err(|e| error!("Error sending event: {}", e));
@@ -119,7 +119,7 @@ pub async fn delete_user(
                 user_event_inner: UserEventInner::UserDeleted,
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by,
         })
         .map_err(|e| error!("Error sending event: {}", e));
@@ -159,7 +159,7 @@ pub async fn logout(
                 user_event_inner: UserEventInner::UserLoggedOut,
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by,
         })
         .map_err(|e| error!("Error sending event: {}", e));

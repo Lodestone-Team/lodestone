@@ -1,12 +1,11 @@
 use std::collections::HashSet;
 
-use serde_json::Value;
 use tokio::sync::broadcast::Sender;
 
 use crate::{
     events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner},
-    prelude::get_snowflake,
     traits::t_player::Player,
+    types::Snowflake,
 };
 
 use super::player::MinecraftPlayer;
@@ -40,7 +39,7 @@ impl PlayersManager {
                 },
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by: CausedBy::Instance {
                 instance_uuid: self.instance_uuid.clone(),
             },
@@ -60,7 +59,7 @@ impl PlayersManager {
                     },
                 }),
                 details: "".to_string(),
-                snowflake: get_snowflake(),
+                snowflake: Snowflake::default(),
                 caused_by: CausedBy::Instance {
                     instance_uuid: self.instance_uuid.clone(),
                 },
@@ -69,7 +68,12 @@ impl PlayersManager {
     }
 
     pub fn remove_by_name(&mut self, player_name: impl AsRef<str>, instance_name: String) {
-        if let Some(player) = self.players.iter().find(|p| p.name == player_name.as_ref()).cloned() {
+        if let Some(player) = self
+            .players
+            .iter()
+            .find(|p| p.name == player_name.as_ref())
+            .cloned()
+        {
             self.remove_player(player, instance_name);
         }
     }
@@ -90,15 +94,13 @@ impl PlayersManager {
                 },
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by: CausedBy::Instance {
                 instance_uuid: self.instance_uuid.clone(),
             },
         });
         self.players.clear();
     }
-
-    
 }
 
 impl AsRef<HashSet<MinecraftPlayer>> for PlayersManager {

@@ -9,8 +9,9 @@ use ts_rs::TS;
 use crate::{
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     handlers::users::Claim,
-    prelude::{get_snowflake, PATH_TO_USERS},
+    prelude::PATH_TO_USERS,
     traits::{Error, ErrorInner},
+    types::Snowflake,
     util::rand_alphanumeric,
 };
 
@@ -173,9 +174,8 @@ impl User {
             EventInner::MacroEvent(macro_event) => {
                 self.can_perform_action(&UserAction::AccessMacro(macro_event.instance_uuid.clone()))
             }
-            EventInner::ProgressionEvent(progression_event) => self.can_perform_action(
-                &UserAction::ViewInstance(progression_event.event_id.clone()),
-            ),
+            // TODO!,
+            EventInner::ProgressionEvent(_progression_event) => true,
         }
     }
 
@@ -313,7 +313,7 @@ impl UsersManager {
                         user_event_inner: UserEventInner::UserCreated,
                     }),
                     details: "".to_string(),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     caused_by,
                 });
                 Ok(())
@@ -339,7 +339,7 @@ impl UsersManager {
                             user_event_inner: UserEventInner::UserDeleted,
                         }),
                         details: "".to_string(),
-                        snowflake: get_snowflake(),
+                        snowflake: Snowflake::default(),
                         caused_by,
                     });
                 }
@@ -380,7 +380,7 @@ impl UsersManager {
                         user_event_inner: UserEventInner::UserLoggedOut,
                     }),
                     details: "".to_string(),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     caused_by,
                 });
                 Ok(())
@@ -420,7 +420,7 @@ impl UsersManager {
                         user_event_inner: UserEventInner::UserLoggedOut,
                     }),
                     details: "".to_string(),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     caused_by: caused_by.clone(),
                 });
                 self.logout_user(uid, caused_by).await
@@ -467,10 +467,12 @@ impl UsersManager {
                 self.event_broadcaster.send(Event {
                     event_inner: EventInner::UserEvent(UserEvent {
                         user_id: uid.as_ref().to_owned(),
-                        user_event_inner: UserEventInner::PermissionChanged(Box::new(new_permissions)),
+                        user_event_inner: UserEventInner::PermissionChanged(Box::new(
+                            new_permissions,
+                        )),
                     }),
                     details: "".to_string(),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     caused_by,
                 });
                 Ok(())

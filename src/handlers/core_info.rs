@@ -4,7 +4,6 @@ use crate::{prelude::VERSION, AppState};
 use axum::{routing::get, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};
-use ts_rs::TS;
 
 #[derive(Serialize, Deserialize)]
 pub struct CoreInfo {

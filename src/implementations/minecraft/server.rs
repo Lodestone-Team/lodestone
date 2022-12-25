@@ -10,12 +10,13 @@ use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInn
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
 use crate::macro_executor::ExecutionInstruction;
-use crate::prelude::{get_snowflake, LODESTONE_PATH};
+use crate::prelude::LODESTONE_PATH;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TMacro;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::traits::{Error, ErrorInner};
+use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
 use super::MinecraftInstance;
@@ -34,7 +35,7 @@ impl TServer for MinecraftInstance {
                         instance_uuid: self.config.uuid.clone(),
                         instance_event_inner: InstanceEventInner::StateTransition(state),
                     }),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     details: "Starting server".to_string(),
                     caused_by: cause_by.clone(),
                 });
@@ -302,7 +303,7 @@ impl TServer for MinecraftInstance {
                                     instance_name: name.clone(),
                                 }),
                                 details: "".to_string(),
-                                snowflake: get_snowflake(),
+                                snowflake: Snowflake::default(),
                                 caused_by: CausedBy::System,
                             });
 
@@ -325,7 +326,7 @@ impl TServer for MinecraftInstance {
                                                             ),
                                                     },
                                                 ),
-                                                snowflake: get_snowflake(),
+                                                snowflake: Snowflake::default(),
                                                 details: "Starting server".to_string(),
                                                 caused_by: cause_by.clone(),
                                             });
@@ -380,7 +381,7 @@ impl TServer for MinecraftInstance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     caused_by: CausedBy::System,
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
@@ -408,7 +409,7 @@ impl TServer for MinecraftInstance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     caused_by: CausedBy::System,
                                 });
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {
@@ -456,7 +457,7 @@ impl TServer for MinecraftInstance {
                                             instance_event_inner:
                                                 InstanceEventInner::StateTransition(state),
                                         }),
-                                        snowflake: get_snowflake(),
+                                        snowflake: Snowflake::default(),
                                         details: "Starting server".to_string(),
                                         caused_by: cause_by.clone(),
                                     });
@@ -483,7 +484,7 @@ impl TServer for MinecraftInstance {
                                         state,
                                     ),
                                 }),
-                                snowflake: get_snowflake(),
+                                snowflake: Snowflake::default(),
                                 details: "Starting server".to_string(),
                                 caused_by: cause_by.clone(),
                             });
@@ -510,7 +511,7 @@ impl TServer for MinecraftInstance {
                         instance_uuid: self.config.uuid.clone(),
                         instance_event_inner: InstanceEventInner::StateTransition(state),
                     }),
-                    snowflake: get_snowflake(),
+                    snowflake: Snowflake::default(),
                     details: "Starting server".to_string(),
                     caused_by: cause_by.clone(),
                 });
@@ -609,7 +610,7 @@ impl TServer for MinecraftInstance {
                                             state,
                                         ),
                                     }),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     details: "Starting server".to_string(),
                                     caused_by: cause_by.clone(),
                                 });

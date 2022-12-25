@@ -29,11 +29,12 @@ use ts_rs::TS;
 
 use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
 use crate::macro_executor::MacroExecutor;
-use crate::prelude::{get_snowflake, PATH_TO_BINARIES};
+use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_server::State;
 use crate::traits::{Error, ErrorInner, TInstance};
+use crate::types::Snowflake;
 use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
 
 use self::players_manager::PlayersManager;
@@ -145,7 +146,7 @@ enum BackupInstruction {
 impl MinecraftInstance {
     pub async fn new(
         config: SetupConfig,
-        progression_event_id: String,
+        progression_event_id: Snowflake,
         event_broadcaster: Sender<Event>,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = config.path.join(".lodestone_config");
@@ -157,14 +158,14 @@ impl MinecraftInstance {
 
         let _ = event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id.clone(),
+                event_id: progression_event_id,
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                     progress: 1.0,
                     progress_message: "1/4: Creating directories".to_string(),
                 },
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by: CausedBy::Unknown,
         });
         tokio::fs::create_dir_all(&config.path)
@@ -196,7 +197,7 @@ impl MinecraftInstance {
             //         },
             //     }),
             //     details: "".to_string(),
-            //     snowflake: get_snowflake(),
+            //     snowflake: Snowflake::default(),
             // });
             Error {
                 inner: ErrorInner::VersionNotFound,
@@ -208,7 +209,7 @@ impl MinecraftInstance {
             .join(format!("jre{}", jre_major_version))
             .exists()
         {
-            let _progression_parent_id = progression_event_id.clone();
+            let _progression_parent_id = progression_event_id;
             let downloaded = download_file(
                 &url,
                 &path_to_runtimes.join("java"),
@@ -216,12 +217,12 @@ impl MinecraftInstance {
                 {
                     let event_broadcaster = event_broadcaster.clone();
                     let _uuid = config.uuid.clone();
-                    let progression_event_id = progression_event_id.clone();
+                    let progression_event_id = progression_event_id;
                     &move |dl| {
                         if let Some(total) = dl.total {
                             let _ = event_broadcaster.send(Event {
                                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                    event_id: progression_event_id.clone(),
+                                    event_id: progression_event_id,
                                     progression_event_inner:
                                         ProgressionEventInner::ProgressionUpdate {
                                             progress: (dl.step as f64 / total as f64) * 4.0,
@@ -232,7 +233,7 @@ impl MinecraftInstance {
                                         },
                                 }),
                                 details: "".to_string(),
-                                snowflake: get_snowflake(),
+                                snowflake: Snowflake::default(),
                                 caused_by: CausedBy::Unknown,
                             });
                         }
@@ -271,14 +272,14 @@ impl MinecraftInstance {
         } else {
             let _ = event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id.clone(),
+                    event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                         progress: 4.0,
                         progress_message: "2/4: JRE already downloaded".to_string(),
                     },
                 }),
                 details: "".to_string(),
-                snowflake: get_snowflake(),
+                snowflake: Snowflake::default(),
                 caused_by: CausedBy::Unknown,
             });
         }
@@ -302,12 +303,12 @@ impl MinecraftInstance {
                     Some("server.jar"),
                     {
                         let event_broadcaster = event_broadcaster.clone();
-                        let progression_event_id = progression_event_id.clone();
+                        let progression_event_id = progression_event_id;
                         &move |dl| {
                             if let Some(total) = dl.total {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id.clone(),
+                                        event_id: progression_event_id,
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: (dl.step as f64 / total as f64) * 5.0,
@@ -318,13 +319,13 @@ impl MinecraftInstance {
                                             },
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     caused_by: CausedBy::Unknown,
                                 });
                             } else {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id.clone(),
+                                        event_id: progression_event_id,
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: 0.0,
@@ -335,7 +336,7 @@ impl MinecraftInstance {
                                             },
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     caused_by: CausedBy::Unknown,
                                 });
                             }
@@ -368,12 +369,12 @@ impl MinecraftInstance {
                     Some("server.jar"),
                     {
                         let event_broadcaster = event_broadcaster.clone();
-                        let progression_event_id = progression_event_id.clone();
+                        let progression_event_id = progression_event_id;
                         &move |dl| {
                             if let Some(total) = dl.total {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id.clone(),
+                                        event_id: progression_event_id,
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: (dl.step as f64 / total as f64) * 5.0,
@@ -384,13 +385,13 @@ impl MinecraftInstance {
                                             },
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     caused_by: CausedBy::Unknown,
                                 });
                             } else {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id.clone(),
+                                        event_id: progression_event_id,
                                         progression_event_inner:
                                             ProgressionEventInner::ProgressionUpdate {
                                                 progress: 0.0,
@@ -401,7 +402,7 @@ impl MinecraftInstance {
                                             },
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
+                                    snowflake: Snowflake::default(),
                                     caused_by: CausedBy::Unknown,
                                 });
                             }
@@ -417,14 +418,14 @@ impl MinecraftInstance {
 
         let _ = event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id.clone(),
+                event_id: progression_event_id,
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
                     progress: 1.0,
                     progress_message: "4/4: Finishing up".to_string(),
                 },
             }),
             details: "".to_string(),
-            snowflake: get_snowflake(),
+            snowflake: Snowflake::default(),
             caused_by: CausedBy::Unknown,
         });
 
@@ -585,7 +586,7 @@ impl MinecraftInstance {
         //                     },
         //                 }),
         //                 details: "".to_string(),
-        //                 snowflake: get_snowflake(),
+        //                 snowflake: Snowflake::default(),
         //                 caused_by: CausedBy::Unknown,
         //             });
         //         } else if old_players.len() < new_players.len() {
@@ -602,7 +603,7 @@ impl MinecraftInstance {
         //                     },
         //                 }),
         //                 details: "".to_string(),
-        //                 snowflake: get_snowflake(),
+        //                 snowflake: Snowflake::default(),
         //                 caused_by: CausedBy::Unknown,
         //             });
         //         }
