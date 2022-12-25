@@ -339,6 +339,8 @@ mod tests {
                     .to_string()
             )
         );
-        assert!(super::get_fabric_jar_url("21w44a", None, None).await.is_some());
+        assert!(super::get_fabric_jar_url("21w44a", None, None)
+            .await
+            .is_some());
     }
 }

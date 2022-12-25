@@ -52,7 +52,7 @@ impl TServer for MinecraftInstance {
                 executor: None,
                 runtime: self.macro_std(),
                 is_in_game: false,
-                instance_uuid : self.config.uuid.clone(),
+                instance_uuid: self.config.uuid.clone(),
             });
         } else {
             info!(

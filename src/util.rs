@@ -130,7 +130,7 @@ pub async fn download_file(
             downloaded = new_downloaded;
         }
 
-        pb.set_position(new_downloaded as u64);
+        pb.set_position(new_downloaded);
     }
     Ok(path.join(&file_name))
 }

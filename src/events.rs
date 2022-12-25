@@ -6,7 +6,7 @@ use ts_rs::TS;
 use crate::{
     auth::permission::UserPermission,
     output_types::ClientEvent,
-    traits::{t_server::State, InstanceInfo, t_player::Player},
+    traits::{t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake, UserId},
 };
 
@@ -96,14 +96,14 @@ pub struct MacroEvent {
     pub macro_event_inner: MacroEventInner,
 }
 
-impl Into<Event> for MacroEvent {
-    fn into(self) -> Event {
+impl From<MacroEvent> for Event {
+    fn from(val: MacroEvent) -> Self {
         Event {
             details: "".to_string(),
             snowflake: Snowflake::default(),
-            event_inner: EventInner::MacroEvent(self.clone()),
+            event_inner: EventInner::MacroEvent(val.clone()),
             caused_by: CausedBy::Macro {
-                macro_pid: self.macro_pid,
+                macro_pid: val.macro_pid,
             },
         }
     }

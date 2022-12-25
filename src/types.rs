@@ -11,7 +11,7 @@ use ts_rs::TS;
 pub struct Snowflake(
     #[serde(deserialize_with = "deserialize_number_from_string")]
     #[ts(type = "string")]
-    i64
+    i64,
 );
 
 impl From<Snowflake> for String {

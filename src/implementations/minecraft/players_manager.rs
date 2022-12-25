@@ -109,9 +109,9 @@ impl AsRef<HashSet<MinecraftPlayer>> for PlayersManager {
     }
 }
 
-impl Into<HashSet<Player>> for PlayersManager {
-    fn into(self) -> HashSet<Player> {
-        self.players
+impl From<PlayersManager> for HashSet<Player> {
+    fn from(val: PlayersManager) -> Self {
+        val.players
             .into_iter()
             .map(Player::MinecraftPlayer)
             .collect()
@@ -119,14 +119,14 @@ impl Into<HashSet<Player>> for PlayersManager {
 }
 
 mod tests {
-    use std::collections::HashSet;
 
     use tokio;
 
-    use crate::{events::InstanceEventInner, traits::t_player::Player};
     #[tokio::test]
     async fn test_players_manager() {
         use crate::types::InstanceUuid;
+        use crate::{events::InstanceEventInner, traits::t_player::Player};
+        use std::collections::HashSet;
         use tokio::sync::broadcast::channel;
 
         let mock_instance = (InstanceUuid::default(), "mock_instance".to_string());
@@ -137,7 +137,7 @@ mod tests {
         players_manager.add_player(
             super::MinecraftPlayer {
                 name: "player1".to_string(),
-                uuid : "uuid1".to_string(),
+                uuid: "uuid1".to_string(),
             },
             mock_instance.1.clone(),
         );
@@ -145,7 +145,7 @@ mod tests {
         players_manager.add_player(
             super::MinecraftPlayer {
                 name: "player2".to_string(),
-                uuid : "uuid2".to_string(),
+                uuid: "uuid2".to_string(),
             },
             mock_instance.1.clone(),
         );
@@ -153,7 +153,7 @@ mod tests {
         players_manager.add_player(
             super::MinecraftPlayer {
                 name: "player3".to_string(),
-                uuid : "uuid3".to_string(),
+                uuid: "uuid3".to_string(),
             },
             mock_instance.1.clone(),
         );
@@ -168,116 +168,100 @@ mod tests {
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player1".to_string(),
-                    uuid : "uuid1".to_string(),
+                    uuid: "uuid1".to_string(),
                 })]),
                 players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player1".to_string(),
-                    uuid : "uuid1".to_string(),
+                    uuid: "uuid1".to_string(),
                 })]),
                 players_left: HashSet::new(),
             },
-
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::from([
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player1".to_string(),
-                        uuid : "uuid1".to_string(),
+                        uuid: "uuid1".to_string(),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player2".to_string(),
-                        uuid : "uuid2".to_string(),
+                        uuid: "uuid2".to_string(),
                     }),
                 ]),
                 players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player2".to_string(),
-                    uuid : "uuid2".to_string(),
+                    uuid: "uuid2".to_string(),
                 })]),
                 players_left: HashSet::new(),
             },
-
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::from([
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player1".to_string(),
-                        uuid : "uuid1".to_string(),
+                        uuid: "uuid1".to_string(),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player2".to_string(),
-                        uuid : "uuid2".to_string(),
+                        uuid: "uuid2".to_string(),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player3".to_string(),
-                        uuid : "uuid3".to_string(),
+                        uuid: "uuid3".to_string(),
                     }),
                 ]),
                 players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player3".to_string(),
-                    uuid : "uuid3".to_string(),
+                    uuid: "uuid3".to_string(),
                 })]),
                 players_left: HashSet::new(),
             },
-
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::from([
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player1".to_string(),
-                        uuid : "uuid1".to_string(),
+                        uuid: "uuid1".to_string(),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player3".to_string(),
-                        uuid : "uuid3".to_string(),
+                        uuid: "uuid3".to_string(),
                     }),
                 ]),
                 players_joined: HashSet::new(),
                 players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player2".to_string(),
-                    uuid : "uuid2".to_string(),
+                    uuid: "uuid2".to_string(),
                 })]),
             },
-
             InstanceEventInner::PlayerChange {
-                player_list: HashSet::from([
-                    Player::MinecraftPlayer(super::MinecraftPlayer {
-                        name: "player1".to_string(),
-                        uuid : "uuid1".to_string(),
-                    }),
-                ]),
+                player_list: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player1".to_string(),
+                    uuid: "uuid1".to_string(),
+                })]),
                 players_joined: HashSet::new(),
-                players_left: HashSet::from([
-                    Player::MinecraftPlayer(super::MinecraftPlayer {
-                        name: "player3".to_string(),
-                        uuid : "uuid3".to_string(),
-                    }),
-                ]),
+                players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player3".to_string(),
+                    uuid: "uuid3".to_string(),
+                })]),
             },
-
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::new(),
                 players_joined: HashSet::new(),
-                players_left: HashSet::from([
-                    Player::MinecraftPlayer(super::MinecraftPlayer {
-                        name: "player1".to_string(),
-                        uuid : "uuid1".to_string(),
-                    }),
-                ]),
+                players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player1".to_string(),
+                    uuid: "uuid1".to_string(),
+                })]),
             },
-
         ];
 
         for expected in expected {
             let event = rx.recv().await.unwrap();
-                match event.event_inner {
-                    crate::events::EventInner::InstanceEvent(instance_event) => {
-                        assert_eq!(instance_event.instance_uuid, mock_instance.0);
-                        assert_eq!(instance_event.instance_name, mock_instance.1);
-                        assert_eq!(instance_event.instance_event_inner, expected);
-                    }
-                    _ => panic!("Unexpected event"),
+            match event.event_inner {
+                crate::events::EventInner::InstanceEvent(instance_event) => {
+                    assert_eq!(instance_event.instance_uuid, mock_instance.0);
+                    assert_eq!(instance_event.instance_name, mock_instance.1);
+                    assert_eq!(instance_event.instance_event_inner, expected);
                 }
+                _ => panic!("Unexpected event"),
+            }
         }
-        
-        
     }
-
-
 }

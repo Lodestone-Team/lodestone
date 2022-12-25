@@ -507,7 +507,7 @@ impl MinecraftInstance {
                         copy_option.copy_inside = true;
                         move || {
                             fs_extra::dir::copy(
-                                &path_to_instance.join("world"),
+                                path_to_instance.join("world"),
                                 &backup_path,
                                 &copy_option,
                             )
