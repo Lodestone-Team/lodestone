@@ -10,7 +10,7 @@ import {
 import { useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
-const SelectUserPage = () => {
+const UserSelectExisting = () => {
   const { setPathname } = useContext(BrowserLocationContext);
   const { setToken, core } = useContext(LodestoneContext);
   const { address, port } = core;
@@ -73,4 +73,4 @@ const SelectUserPage = () => {
   );
 };
 
-export default SelectUserPage;
+export default UserSelectExisting;

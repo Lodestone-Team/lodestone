@@ -14,6 +14,7 @@ import NotificationPanel from './NotificationPanel';
 import { useUserLoggedIn } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Outlet } from 'react-router-dom';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 
 export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
@@ -28,13 +29,18 @@ export default function DashboardLayout() {
     'showNotifications',
     false
   );
+  const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const { width, height } = useWindowSize();
 
   const instances = userLoggedIn ? dataInstances : undefined;
 
-  // called for side effects
   useEventStream();
-  useCoreInfo();
+  const { data: coreInfo } = useCoreInfo();
+  useEffect(() => {
+    if (coreInfo?.is_setup === false) {
+      setShowSetupPrompt(true);
+    }
+  }, [coreInfo]);
 
   useEffect(() => {
     if (queryUuid && instances && queryUuid in instances)
@@ -62,6 +68,18 @@ export default function DashboardLayout() {
         selectInstance: setInstance,
       }}
     >
+      <ConfirmDialog
+        isOpen={showSetupPrompt}
+        title="Setup Required"
+        type="info"
+        onClose={() => {
+          setPathname('/login/core/first_setup');
+          setShowSetupPrompt(false);
+        }}
+        closeButtonText="Setup"
+      >
+        This core is not setup yet. Please complete the setup process.
+      </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav
           showNotifications={showNotifications}

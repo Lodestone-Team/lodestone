@@ -1,16 +1,13 @@
-import axios, { AxiosError } from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { ClientError } from 'bindings/ClientError';
-import { LoginReply } from 'bindings/LoginReply';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
 import { useCoreInfo } from 'data/SystemInfo';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { DISABLE_AUTOFILL } from 'utils/util';
+import { DISABLE_AUTOFILL, loginToCore } from 'utils/util';
 
 type LoginValues = {
   username: string;
@@ -22,7 +19,7 @@ const validationSchema = yup.object({
   password: yup.string().required('Password is required'),
 });
 
-const LoginNewUserPage = () => {
+const UserLogin = () => {
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { setToken, core } = useContext(LodestoneContext);
   const { address, port } = core;
@@ -40,38 +37,22 @@ const LoginNewUserPage = () => {
     actions: FormikHelpers<LoginValues>
   ) => {
     // login using basic auth
-    axios
-      .post<LoginReply>(
-        '/user/login',
-        {},
-        {
-          auth: values,
+    loginToCore(values.password, values.username).then(
+      (response) => {
+        if(!response){
+          // this should never end
+          actions.setErrors({password: 'Login failed'});
+          actions.setSubmitting(false);
+          return;
         }
-      )
-      .then((response) => {
-        // set the token cookie
-        setToken(response.data.token, socket);
-        // redirect to the home page, and set the query
+        setToken(response.token, socket);
         setPathname('/');
-      })
-      .catch((error: AxiosError<ClientError>) => {
-        if (axios.isAxiosError(error) && error.response) {
-          if (
-            error.response.status === 401 ||
-            error.response.status === 403 ||
-            error.response.status === 500
-          ) {
-            alert(
-              `Error: ${error.response.data.inner}: ${error.response.data.detail}`
-            );
-          }
-        } else {
-          alert(`Login failed: ${error.message}`);
-        }
-      })
-      .finally(() => {
         actions.setSubmitting(false);
-      });
+      }
+    ).catch((error: string) => {
+      actions.setErrors({password: error});
+      actions.setSubmitting(false);
+    });
   };
 
   return (
@@ -130,4 +111,4 @@ const LoginNewUserPage = () => {
   );
 };
 
-export default LoginNewUserPage;
+export default UserLogin;

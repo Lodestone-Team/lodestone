@@ -17,10 +17,12 @@ import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import DashboardLayout from 'components/DashboardLayout';
 import SettingsPage from 'pages/settings';
-import SelectCorePage from 'pages/login/SelectCorePage';
-import ConnectNewCorePage from 'pages/login/ConnectNewCorePage';
-import SelectUserPage from 'pages/login/SelectUserPage';
-import LoginNewUserPage from 'pages/login/LoginNewUserPage';
+import CoreSelectExisting from 'pages/login/CoreSelectExisting';
+import CoreConnect from 'pages/login/CoreConnect';
+import UserSelectExisting from 'pages/login/UserSelectExisting';
+import UserLogin from 'pages/login/UserLogin';
+import CoreSetupNew from 'pages/login/CoreSetupNew';
+import CoreConfigNew from 'pages/login/CoreConfigNew';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -181,10 +183,12 @@ export default function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/" element={<Home />} />
             </Route>
-            <Route path="/login/core/select" element={<SelectCorePage />} />
-            <Route path="/login/core/new" element={<ConnectNewCorePage />} />
-            <Route path="/login/user/select" element={<SelectUserPage />} />
-            <Route path="/login/user/new" element={<LoginNewUserPage />} />
+            <Route path="/login/core/select" element={<CoreSelectExisting />} />
+            <Route path="/login/core/new" element={<CoreConnect />} />
+            <Route path="/login/core/first_setup" element={<CoreSetupNew />} />
+            <Route path="/login/core/first_config" element={<CoreConfigNew />} />
+            <Route path="/login/user/select" element={<UserSelectExisting />} />
+            <Route path="/login/user/new" element={<UserLogin />} />
           </Routes>
         </NotificationContext.Provider>
       </LodestoneContext.Provider>

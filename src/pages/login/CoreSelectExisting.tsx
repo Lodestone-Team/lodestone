@@ -1,54 +1,72 @@
 import axios from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
-import { DISABLE_AUTOFILL, errorToString, LODESTONE_PORT } from 'utils/util';
+import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
-import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
-import SelectField from 'components/Atoms/Form/SelectField';
-import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
+import {
+  faArrowLeft,
+  faArrowRight,
+  faClone,
+} from '@fortawesome/free-solid-svg-icons';
+import SelectCoreField from 'components/Atoms/Form/SelectCoreField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { CoreInfo } from 'data/SystemInfo';
+type SelectCoreValue = {
+  core: CoreConnectionInfo;
+};
 
 const validationSchema = yup.object({
-  address: yup.string().required('Required'),
-  port: yup.number().required('Required'),
-  apiVersion: yup.string().required('Required'),
-  protocol: yup.string().required('Required'),
+  core: yup
+    .object({
+      address: yup.string().required('Required'),
+      port: yup.number().required('Required'),
+      apiVersion: yup.string().required('Required'),
+      protocol: yup.string().required('Required'),
+    })
+    .required('Required'),
 });
 
-const ConnectNewCorePage = () => {
-  const { navigateBack, setPathname } = useContext(BrowserLocationContext);
-  const { setCore } = useContext(LodestoneContext);
+const CoreSelectExisting = () => {
+  const { setPathname, navigateBack } = useContext(BrowserLocationContext);
+  const { core, setCore, coreList } = useContext(LodestoneContext);
 
-  const initialValues: CoreConnectionInfo = {
-    address: '',
-    port: LODESTONE_PORT.toString(),
-    apiVersion: 'v1',
-    protocol: 'http', //change to https when supported
+  const initialValues: SelectCoreValue = {
+    core,
   };
 
   const onSubmit = (
-    values: CoreConnectionInfo,
-    actions: FormikHelpers<CoreConnectionInfo>
+    values: SelectCoreValue,
+    actions: FormikHelpers<SelectCoreValue>
   ) => {
+    const { core } = values;
     // check if core can be reached
     axios
-      .get(`/info`, {
-        baseURL: `${values.protocol}://${values.address}:${values.port}/api/${values.apiVersion}`,
+      .get<CoreInfo>(`/info`, {
+        baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
       })
       .then((res) => {
         if (res.status !== 200)
           throw new Error('Invalid response, setup may be invalid');
-      })
-      .then(() => {
-        setCore(values);
-        setPathname('/login/user/select');
+        setCore(core);
+        if(res.data.is_setup === false){
+          setPathname('/login/core/first_setup');
+        }else{
+          setPathname('/login/user/select');
+        }
         actions.setSubmitting(false);
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setErrors({ address: errorMessages }); //TODO: put the error in a better place, it's not just an address problem
+        actions.setErrors({
+          core: {
+            address: errorMessages,
+            port: errorMessages,
+            apiVersion: errorMessages,
+            protocol: errorMessages,
+          },
+        });
         actions.setSubmitting(false);
         return;
       });
@@ -73,8 +91,6 @@ const ConnectNewCorePage = () => {
           initialValues={initialValues}
           validationSchema={validationSchema}
           onSubmit={onSubmit}
-          validateOnBlur={false}
-          validateOnChange={false}
         >
           {({ isSubmitting }) => (
             <Form
@@ -82,25 +98,19 @@ const ConnectNewCorePage = () => {
               className="flex flex-col gap-12"
               autoComplete={DISABLE_AUTOFILL}
             >
-              <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
-                <SelectField
-                  name="apiVersion"
-                  className="grow"
-                  options={['v1']}
-                  label="API Version"
+              <div className="flex h-32 flex-row items-baseline gap-8">
+                <SelectCoreField
+                  name="core"
+                  className="flex-1 grow"
+                  options={coreList}
+                  label="Select Core"
                 />
-                <SelectField
-                  name="protocol"
-                  className="grow"
-                  options={['http', 'https']}
-                  label="Protocol"
-                />
-                <InputField type="number" name="port" label="Port" />
-                <InputField
-                  type="text"
-                  name="address"
-                  label="IP Address/Domain"
-                  placeholder='e.g. 123.123.123.123 or "myserver.com"'
+                <p>OR</p>
+                <Button
+                  icon={faClone}
+                  label="Connect a new core"
+                  className="flex-1 grow"
+                  onClick={() => setPathname('/login/core/new')}
                 />
               </div>
               <div className="flex w-full flex-row justify-end gap-4">
@@ -125,4 +135,4 @@ const ConnectNewCorePage = () => {
   );
 };
 
-export default ConnectNewCorePage;
+export default CoreSelectExisting;
