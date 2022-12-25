@@ -304,7 +304,7 @@ export default function FileViewer() {
       role="img"
       focusable="false"
       aria-hidden="true"
-      className={`svg-inline--fa`}
+      className={`svg-inline--fa w-4`}
     >
       <path
         d="M453.8 149.8L304 0V99.8C304 127.4 326.4 149.8 354 149.8H453.8Z"
