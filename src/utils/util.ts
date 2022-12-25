@@ -1,14 +1,17 @@
 import { isEdge } from 'react-device-detect';
 import { LabelColor } from 'components/Atoms/Label';
-import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
 import { QueryClient } from '@tanstack/react-query';
 import { Base64 } from 'js-base64';
 import React from 'react';
+import { LoginReply } from 'bindings/LoginReply';
 
-export const DISABLE_AUTOFILL = isEdge ? 'off-random-string-edge-stop-ignoring-autofill-off' : 'off';
+export const DISABLE_AUTOFILL = isEdge
+  ? 'off-random-string-edge-stop-ignoring-autofill-off'
+  : 'off';
 export const LODESTONE_PORT = 16662;
 
 export const capitalizeFirstLetter = (string: string) => {
@@ -70,7 +73,6 @@ export function errorToString(error: unknown): string {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let data: any = error.response.data;
 
-
       /* if response.data is a string parse it as a JSON object */
       if (typeof data === 'string') {
         // spaghetti code
@@ -80,7 +82,6 @@ export function errorToString(error: unknown): string {
         data = JSON.parse(data);
       }
 
-
       /* if response.data is a blob parse it as a JSON object */
       if (data instanceof Blob) {
         const reader = new FileReader();
@@ -89,7 +90,7 @@ export function errorToString(error: unknown): string {
         //   data = JSON.parse(reader.result as string);
         // };
       }
-      
+
       if (data && data.inner) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(data);
@@ -496,4 +497,41 @@ export function useCombinedRefs<T>(...refs: any[]) {
   }, [refs]);
 
   return targetRef;
+}
+
+/**
+ * @throws string
+ */
+export async function loginToCore(
+  username: string,
+  password: string
+): Promise<LoginReply | undefined> {
+  try {
+    return await axios
+      .post<LoginReply>(
+        '/user/login',
+        {},
+        {
+          auth: {
+            username,
+            password,
+          },
+        }
+      )
+      .then((response) => {
+        return response.data;
+      });
+  } catch (error) {
+    if (isAxiosError<ClientError>(error) && error.response) {
+      if (
+        error.response.status === 401 ||
+        error.response.status === 403 ||
+        error.response.status === 500
+      ) {
+        throw `Error: ${error.response.data.inner}: ${error.response.data.detail}`;
+      }
+    } else {
+      throw `Login failed: ${errorToString(error)}`;
+    }
+  }
 }

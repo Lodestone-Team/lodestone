@@ -84,7 +84,19 @@ module.exports = {
       'md': '0 3px 6px #111114',
       'lg': '0 8px 24px #111114',
       'xl': '0 12px 48px #111114',
-    }
+    },
+    fontWeight: {
+      'medium-semi-bold': 550,
+      ...defaultTheme.fontWeight,
+    },
+    extend: {
+      transitionProperty: {
+        'height': 'height',
+        'width': 'width',
+        'spacing': 'margin, padding',
+        'dimensions': 'height, width',
+      },
+    },
   },
   plugins: [
     function ({ addVariant }) {
