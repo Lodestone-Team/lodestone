@@ -33,8 +33,8 @@ impl PlayersManager {
                 instance_uuid: self.instance_uuid.clone(),
                 instance_name,
                 instance_event_inner: InstanceEventInner::PlayerChange {
-                    player_list: self.players.iter().map(|p| p.name.to_owned()).collect(),
-                    players_joined: HashSet::from([player.name]),
+                    player_list: self.players.iter().map(|p| p.clone().into()).collect(),
+                    players_joined: HashSet::from([player.into()]),
                     players_left: HashSet::new(),
                 },
             }),
@@ -53,9 +53,9 @@ impl PlayersManager {
                     instance_uuid: self.instance_uuid.clone(),
                     instance_name,
                     instance_event_inner: InstanceEventInner::PlayerChange {
-                        player_list: self.players.iter().map(|p| p.name.to_owned()).collect(),
+                        player_list: self.players.iter().map(|p| p.clone().into()).collect(),
                         players_joined: HashSet::new(),
-                        players_left: HashSet::from([player.name]),
+                        players_left: HashSet::from([player.into()]),
                     },
                 }),
                 details: "".to_string(),
@@ -90,7 +90,7 @@ impl PlayersManager {
                 instance_event_inner: InstanceEventInner::PlayerChange {
                     player_list: HashSet::new(),
                     players_joined: HashSet::new(),
-                    players_left: self.players.iter().map(|p| p.name.to_owned()).collect(),
+                    players_left: self.players.iter().map(|p| p.clone().into()).collect(),
                 },
             }),
             details: "".to_string(),
@@ -116,4 +116,168 @@ impl Into<HashSet<Player>> for PlayersManager {
             .map(Player::MinecraftPlayer)
             .collect()
     }
+}
+
+mod tests {
+    use std::collections::HashSet;
+
+    use tokio;
+
+    use crate::{events::InstanceEventInner, traits::t_player::Player};
+    #[tokio::test]
+    async fn test_players_manager() {
+        use crate::types::InstanceUuid;
+        use tokio::sync::broadcast::channel;
+
+        let mock_instance = (InstanceUuid::default(), "mock_instance".to_string());
+
+        let (tx, mut rx) = channel(10);
+        let mut players_manager = super::PlayersManager::new(tx, mock_instance.0.clone());
+
+        players_manager.add_player(
+            super::MinecraftPlayer {
+                name: "player1".to_string(),
+                uuid : "uuid1".to_string(),
+            },
+            mock_instance.1.clone(),
+        );
+
+        players_manager.add_player(
+            super::MinecraftPlayer {
+                name: "player2".to_string(),
+                uuid : "uuid2".to_string(),
+            },
+            mock_instance.1.clone(),
+        );
+
+        players_manager.add_player(
+            super::MinecraftPlayer {
+                name: "player3".to_string(),
+                uuid : "uuid3".to_string(),
+            },
+            mock_instance.1.clone(),
+        );
+
+        players_manager.remove_by_name("player2", mock_instance.1.clone());
+
+        players_manager.remove_by_name("player3", mock_instance.1.clone());
+
+        players_manager.clear(mock_instance.1.clone());
+
+        let expected = vec![
+            InstanceEventInner::PlayerChange {
+                player_list: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player1".to_string(),
+                    uuid : "uuid1".to_string(),
+                })]),
+                players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player1".to_string(),
+                    uuid : "uuid1".to_string(),
+                })]),
+                players_left: HashSet::new(),
+            },
+
+            InstanceEventInner::PlayerChange {
+                player_list: HashSet::from([
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player1".to_string(),
+                        uuid : "uuid1".to_string(),
+                    }),
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player2".to_string(),
+                        uuid : "uuid2".to_string(),
+                    }),
+                ]),
+                players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player2".to_string(),
+                    uuid : "uuid2".to_string(),
+                })]),
+                players_left: HashSet::new(),
+            },
+
+            InstanceEventInner::PlayerChange {
+                player_list: HashSet::from([
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player1".to_string(),
+                        uuid : "uuid1".to_string(),
+                    }),
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player2".to_string(),
+                        uuid : "uuid2".to_string(),
+                    }),
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player3".to_string(),
+                        uuid : "uuid3".to_string(),
+                    }),
+                ]),
+                players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player3".to_string(),
+                    uuid : "uuid3".to_string(),
+                })]),
+                players_left: HashSet::new(),
+            },
+
+            InstanceEventInner::PlayerChange {
+                player_list: HashSet::from([
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player1".to_string(),
+                        uuid : "uuid1".to_string(),
+                    }),
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player3".to_string(),
+                        uuid : "uuid3".to_string(),
+                    }),
+                ]),
+                players_joined: HashSet::new(),
+                players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
+                    name: "player2".to_string(),
+                    uuid : "uuid2".to_string(),
+                })]),
+            },
+
+            InstanceEventInner::PlayerChange {
+                player_list: HashSet::from([
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player1".to_string(),
+                        uuid : "uuid1".to_string(),
+                    }),
+                ]),
+                players_joined: HashSet::new(),
+                players_left: HashSet::from([
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player3".to_string(),
+                        uuid : "uuid3".to_string(),
+                    }),
+                ]),
+            },
+
+            InstanceEventInner::PlayerChange {
+                player_list: HashSet::new(),
+                players_joined: HashSet::new(),
+                players_left: HashSet::from([
+                    Player::MinecraftPlayer(super::MinecraftPlayer {
+                        name: "player1".to_string(),
+                        uuid : "uuid1".to_string(),
+                    }),
+                ]),
+            },
+
+        ];
+
+        for expected in expected {
+            let event = rx.recv().await.unwrap();
+                match event.event_inner {
+                    crate::events::EventInner::InstanceEvent(instance_event) => {
+                        assert_eq!(instance_event.instance_uuid, mock_instance.0);
+                        assert_eq!(instance_event.instance_name, mock_instance.1);
+                        assert_eq!(instance_event.instance_event_inner, expected);
+                    }
+                    _ => panic!("Unexpected event"),
+                }
+        }
+        
+        
+    }
+
+
 }
