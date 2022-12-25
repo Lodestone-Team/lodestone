@@ -9,65 +9,63 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import Avatar from 'components/Atoms/Avatar';
 
 const UserSelectExisting = () => {
-  const { setPathname } = useContext(BrowserLocationContext);
-  const { setToken, core } = useContext(LodestoneContext);
+  const { setPathname, navigateBack } = useContext(BrowserLocationContext);
+  const { setToken, token, core } = useContext(LodestoneContext);
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
-  const { data: userInfo } = useUserInfo();
+  const { data: userInfo, isLoading: isUserInfoLoading } = useUserInfo();
 
   return (
-    <div
-      className="flex h-screen flex-col items-center justify-center p-8"
-      style={{
-        background: "url('/login_background.svg')",
-        backgroundSize: 'cover',
-      }}
-    >
-      <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
-        <div className="text flex flex-col items-start">
-          <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
-            Sign-in to {core_name ?? '...'}
-          </h1>
-          <h2 className="h-9 text-medium font-medium tracking-medium text-gray-300">
-            Base URL: {socket}
-          </h2>
-        </div>
-        <div className="flex h-32 flex-row items-baseline gap-8">
-          {userInfo?.username ? (
-            <Button
-              icon={faUser}
-              label={`Log in as ${userInfo?.username ?? '...'}`}
-              onClick={() => setPathname('/')}
-            />
-          ) : (
-            <Button
-              icon={faUser}
-              label={`Log in as guest`}
-              onClick={() => {
-                setToken('', socket);
-                setPathname('/');
-              }}
-            />
-          )}
-          <p>OR</p>
+    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">
+      <div className="text flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-9 w-40" />
+        <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
+          Sign in
+        </h1>
+        <h2 className="text-medium font-semibold tracking-medium text-white/50">
+          {core_name} ({socket})
+        </h2>
+      </div>
+      <div className="flex flex-row items-baseline gap-8">
+        {token ? (
           <Button
-            icon={faClone}
-            label="Login as another user"
-            className=""
-            onClick={() => setPathname('/login/user/new')}
+            iconComponent={<Avatar name={userInfo?.uid} />}
+            className="flex-1"
+            label={`Sign in as ${userInfo?.username ?? 'current user'}`}
+            loading={isUserInfoLoading}
+            onClick={() => setPathname('/')}
           />
-        </div>
-        <div className="flex w-full flex-row justify-end gap-4">
+        ) : (
           <Button
+            icon={faUser}
+            className="flex-1"
+            label={`Sign in as guest`}
+            onClick={() => {
+              setToken('', socket);
+              setPathname('/');
+            }}
+          />
+        )}
+        <p>OR</p>
+        <Button
+          icon={faClone}
+          label="Sign in as another user"
+          className="flex-1"
+          onClick={() => setPathname('/login/user/new')}
+        />
+      </div>
+      <div className="flex w-full flex-row justify-start gap-4">
+        <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+        {/* <Button
             icon={faArrowLeft}
             label="Change Core"
             onClick={() => setPathname('/login/core/select')}
-          />
-        </div>
+          /> */}
       </div>
     </div>
   );

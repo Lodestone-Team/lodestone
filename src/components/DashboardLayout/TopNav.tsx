@@ -10,13 +10,13 @@ import {
   faRightFromBracket,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import Avatar from 'boring-avatars';
 import { Menu, Transition } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
 import { AxiosError } from 'axios';
 import Label, { LabelColor } from 'components/Atoms/Label';
+import Avatar from 'components/Atoms/Avatar';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -37,16 +37,16 @@ export default function TopNav({
   const { status: fetchingStatus, data: coreData } = useCoreInfo();
 
   const statusMap = {
-    "loading": "Connecting",
-    "error": "Error",
-    "success": "Connected"
-  }  
-  
+    loading: 'Connecting',
+    error: 'Error',
+    success: 'Connected',
+  };
+
   const colorMap: Record<string, LabelColor> = {
-    "loading": "yellow",
-    "error": "red",
-    "success": "green"
-  }
+    loading: 'yellow',
+    error: 'red',
+    success: 'green',
+  };
 
   useEffect(() => {
     if (!token) {
@@ -74,12 +74,14 @@ export default function TopNav({
           }}
         />
       </div>
-      <div className="flex flex-row items-baseline flex-wrap gap-1">
-        <p className="font-medium text-base text-center text-white/50">{coreData?.core_name ?? "..."}:</p>
+      <div className="flex flex-row flex-wrap items-baseline gap-1">
+        <p className="text-center text-base font-medium text-white/50">
+          {coreData?.core_name ?? '...'}:
+        </p>
         <Label
-          size = 'small'
-          color = {colorMap[fetchingStatus]}
-          className = 'w-16 text-center'
+          size="small"
+          color={colorMap[fetchingStatus]}
+          className="w-16 text-center"
         >
           {statusMap[fetchingStatus]}
         </Label>
@@ -109,14 +111,7 @@ export default function TopNav({
               : 'Not logged in'
           }
           iconComponent={
-            userState == 'logged-in' && (
-              <Avatar
-                size={20}
-                name={user?.uid}
-                variant="beam"
-                colors={['#62DD76', '#1D8EB2', '#EFB440', '#DD6262', '#dd62c6']}
-              />
-            )
+            userState == 'logged-in' && <Avatar name={user?.uid} />
           }
           iconRight={faCaretDown}
           className="font-medium text-gray-300"
@@ -136,7 +131,7 @@ export default function TopNav({
                 {({ active, disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
-                    label={userState === 'logged-in' ? 'Logout' : 'Login'}
+                    label={userState === 'logged-in' ? 'Sign in' : 'SIgn out'}
                     loading={userState === 'loading'}
                     iconRight={faRightFromBracket}
                     onClick={() => {

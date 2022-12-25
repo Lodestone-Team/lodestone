@@ -23,6 +23,7 @@ import UserSelectExisting from 'pages/login/UserSelectExisting';
 import UserLogin from 'pages/login/UserLogin';
 import CoreSetupNew from 'pages/login/CoreSetupNew';
 import CoreConfigNew from 'pages/login/CoreConfigNew';
+import LoginLayout from 'components/LoginLayout';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,10 +36,19 @@ const queryClient = new QueryClient({
 
 export default function App() {
   /* Start Core */
-  const [address, setAddress] = useLocalStorageQueryParam('address', 'localhost');
-  const [port, setPort] = useLocalStorageQueryParam('port', LODESTONE_PORT.toString());
+  const [address, setAddress] = useLocalStorageQueryParam(
+    'address',
+    'localhost'
+  );
+  const [port, setPort] = useLocalStorageQueryParam(
+    'port',
+    LODESTONE_PORT.toString()
+  );
   const [protocol, setProtocol] = useLocalStorageQueryParam('protocol', 'http');
-  const [apiVersion, setApiVersion] = useLocalStorageQueryParam('apiVersion', 'v1');
+  const [apiVersion, setApiVersion] = useLocalStorageQueryParam(
+    'apiVersion',
+    'v1'
+  );
   const core: CoreConnectionInfo = useMemo(
     () => ({
       address,
@@ -183,12 +193,26 @@ export default function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/" element={<Home />} />
             </Route>
-            <Route path="/login/core/select" element={<CoreSelectExisting />} />
-            <Route path="/login/core/new" element={<CoreConnect />} />
-            <Route path="/login/core/first_setup" element={<CoreSetupNew />} />
-            <Route path="/login/core/first_config" element={<CoreConfigNew />} />
-            <Route path="/login/user/select" element={<UserSelectExisting />} />
-            <Route path="/login/user/new" element={<UserLogin />} />
+            <Route element={<LoginLayout />}>
+              <Route
+                path="/login/core/select"
+                element={<CoreSelectExisting />}
+              />
+              <Route path="/login/core/new" element={<CoreConnect />} />
+              <Route
+                path="/login/core/first_setup"
+                element={<CoreSetupNew />}
+              />
+              <Route
+                path="/login/core/first_config"
+                element={<CoreConfigNew />}
+              />
+              <Route
+                path="/login/user/select"
+                element={<UserSelectExisting />}
+              />
+              <Route path="/login/user/new" element={<UserLogin />} />
+            </Route>
           </Routes>
         </NotificationContext.Provider>
       </LodestoneContext.Provider>

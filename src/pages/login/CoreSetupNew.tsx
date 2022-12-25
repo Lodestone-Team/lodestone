@@ -95,65 +95,57 @@ const CoreSetupNew = () => {
   };
 
   return (
-    <div
-      className="flex h-screen flex-col items-center justify-center p-8"
-      style={{
-        background: "url('/login_background.svg')",
-        backgroundSize: 'cover',
-      }}
-    >
-      <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
-        <div className="text flex flex-col items-start">
-          <img src="/logo.svg" alt="logo" className="h-9 w-40" />
-          <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
-            Create an owner&#39;s account
-          </h1>
-          <p>
-            Check the console output of the core to find the &#34;First time
-            setup key&#34;. You will need it to create an owner&#39;s account.
-          </p>
-        </div>
-        <Formik
-          initialValues={initialValues}
-          validationSchema={validationSchema}
-          onSubmit={onSubmit}
-          validateOnBlur={false}
-          validateOnChange={false}
-        >
-          {({ isSubmitting }) => (
-            <Form
-              id="setupOwnerForm"
-              className="flex flex-col gap-12"
-              autoComplete={DISABLE_AUTOFILL}
-            >
-              <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
-                <InputField type="text" name="username" label="Username" />
-                <InputField type="password" name="password" label="Password" />
-                <InputField
-                  type="password"
-                  name="passwordConfirm"
-                  label="Confirm Password"
-                />
-                <InputField type="text" name="setupKey" label="Setup Key" />
-              </div>
-              <div className="flex w-full flex-row justify-end gap-4">
-                <Button
-                  iconRight={faArrowLeft}
-                  label="Back"
-                  onClick={navigateBack}
-                />
-                <Button
-                  type="submit"
-                  color="primary"
-                  label="Submit"
-                  iconRight={faArrowRight}
-                  loading={isSubmitting}
-                />
-              </div>
-            </Form>
-          )}
-        </Formik>
+    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
+      <div className="text flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-9 w-40" />
+        <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
+          Create an owner&#39;s account
+        </h1>
+        <h2 className="text-medium font-semibold tracking-medium text-white/50">
+          Check the console output of the core to find the &#34;First time setup
+          key&#34;.
+        </h2>
       </div>
+      <Formik
+        initialValues={initialValues}
+        validationSchema={validationSchema}
+        onSubmit={onSubmit}
+        validateOnBlur={false}
+        validateOnChange={false}
+      >
+        {({ isSubmitting }) => (
+          <Form
+            id="setupOwnerForm"
+            className="flex flex-col gap-12"
+            autoComplete={DISABLE_AUTOFILL}
+          >
+            <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
+              <InputField type="text" name="username" label="Username" />
+              <InputField type="text" name="setupKey" label="Setup Key" />
+              <InputField type="password" name="password" label="Password" />
+              <InputField
+                type="password"
+                name="passwordConfirm"
+                label="Confirm Password"
+              />
+            </div>
+            <div className="flex w-full flex-row justify-between gap-4">
+              <Button
+                iconRight={faArrowLeft}
+                label="Back"
+                onClick={navigateBack}
+              />
+              <Button
+                type="submit"
+                color="primary"
+                label="Submit"
+                iconRight={faArrowRight}
+                loading={isSubmitting}
+              />
+            </div>
+          </Form>
+        )}
+      </Formik>
     </div>
   );
 };

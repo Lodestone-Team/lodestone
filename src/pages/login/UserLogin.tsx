@@ -37,76 +37,65 @@ const UserLogin = () => {
     actions: FormikHelpers<LoginValues>
   ) => {
     // login using basic auth
-    loginToCore(values.password, values.username).then(
-      (response) => {
-        if(!response){
+    loginToCore(values.password, values.username)
+      .then((response) => {
+        if (!response) {
           // this should never end
-          actions.setErrors({password: 'Login failed'});
+          actions.setErrors({ password: 'Sign in failed' });
           actions.setSubmitting(false);
           return;
         }
         setToken(response.token, socket);
         setPathname('/');
         actions.setSubmitting(false);
-      }
-    ).catch((error: string) => {
-      actions.setErrors({password: error});
-      actions.setSubmitting(false);
-    });
+      })
+      .catch((error: string) => {
+        actions.setErrors({ password: error });
+        actions.setSubmitting(false);
+      });
   };
 
   return (
-    <div
-      className="flex h-screen flex-col items-center justify-center p-8"
-      style={{
-        background: "url('/login_background.svg')",
-        backgroundSize: 'cover',
-      }}
-    >
-      <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
-        <div className="text flex flex-col items-start">
-          <h1 className=" font-title text-2xlarge font-medium tracking-medium text-gray-300">
-            Sign-in to {core_name ?? '...'}
-          </h1>
-          <h2 className="h-9 text-medium font-medium tracking-medium text-gray-300">
-            Base URL: {socket}
-          </h2>
-        </div>
-        <Formik
-          initialValues={initialValues}
-          validationSchema={validationSchema}
-          onSubmit={onSubmit}
-          validateOnBlur={false}
-          validateOnChange={false}
-        >
-          {({ isSubmitting }) => (
-            <Form
-              id="loginForm"
-              className="flex flex-col gap-12"
-              autoComplete={DISABLE_AUTOFILL}
-            >
-              <div className="grid h-32 grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
-                <InputField type="text" name="username" label="Username" />
-                <InputField type="password" name="password" label="Password" />
-              </div>
-              <div className="flex w-full flex-row justify-end gap-4">
-                <Button
-                  icon={faArrowLeft}
-                  label="Back"
-                  onClick={navigateBack}
-                />
-                <Button
-                  type="submit"
-                  color="primary"
-                  icon={faArrowRight}
-                  label="Login"
-                  loading={isSubmitting}
-                />
-              </div>
-            </Form>
-          )}
-        </Formik>
+    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">
+      <div className="text flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-9 w-40" />
+        <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
+          Sign in
+        </h1>
+        <h2 className="text-medium font-semibold tracking-medium text-white/50">
+          {core_name} ({socket})
+        </h2>
       </div>
+      <Formik
+        initialValues={initialValues}
+        validationSchema={validationSchema}
+        onSubmit={onSubmit}
+        validateOnBlur={false}
+        validateOnChange={false}
+      >
+        {({ isSubmitting }) => (
+          <Form
+            id="loginForm"
+            className="flex flex-col gap-12"
+            autoComplete={DISABLE_AUTOFILL}
+          >
+            <div className="grid grid-cols-1 gap-y-14 gap-x-8 ">
+              <InputField type="text" name="username" label="Username" />
+              <InputField type="password" name="password" label="Password" />
+            </div>
+            <div className="flex w-full flex-row justify-between gap-4">
+              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+              <Button
+                type="submit"
+                color="primary"
+                iconRight={faArrowRight}
+                label="Sign in"
+                loading={isSubmitting}
+              />
+            </div>
+          </Form>
+        )}
+      </Formik>
     </div>
   );
 };
