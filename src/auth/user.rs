@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use argon2::{Argon2, PasswordVerifier};
 use jsonwebtoken::{Algorithm, Validation};
@@ -9,7 +9,6 @@ use ts_rs::TS;
 use crate::{
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     handlers::users::Claim,
-    prelude::PATH_TO_USERS,
     traits::{Error, ErrorInner},
     types::{InstanceUuid, Snowflake, UserId},
     util::rand_alphanumeric,
@@ -264,21 +263,67 @@ impl From<User> for PublicUser {
 pub struct UsersManager {
     event_broadcaster: Sender<Event>,
     users: HashMap<UserId, User>,
+    path_to_users: PathBuf,
 }
 
 impl UsersManager {
-    pub fn new(event_broadcaster: Sender<Event>, users: HashMap<UserId, User>) -> Self {
+    pub fn new(
+        event_broadcaster: Sender<Event>,
+        users: HashMap<UserId, User>,
+        path_to_users: PathBuf,
+    ) -> Self {
         Self {
             event_broadcaster,
             users,
+            path_to_users,
         }
     }
+    pub async fn load_users(&mut self) -> Result<(), Error> {
+        if tokio::fs::OpenOptions::new()
+            .read(true)
+            .create(true)
+            .write(true)
+            .open(&self.path_to_users)
+            .await
+            .map_err(|e| Error {
+                inner: ErrorInner::FailedToReadFileOrDir,
+                detail: format!("Failed to open user file: {}", e),
+            })?
+            .metadata()
+            .await
+            .map_err(|e| Error {
+                inner: ErrorInner::MalformedFile,
+                detail: format!("Failed to read metadata : {}", e),
+            })?
+            .len()
+            == 0
+        {
+            self.users = HashMap::new();
+        } else {
+            let users: HashMap<UserId, User> = serde_json::from_reader(
+                tokio::fs::File::open(&self.path_to_users)
+                    .await
+                    .map_err(|e| Error {
+                        inner: ErrorInner::FailedToReadFileOrDir,
+                        detail: format!("Failed to open user file: {}", e),
+                    })?
+                    .into_std()
+                    .await,
+            )
+            .map_err(|e| Error {
+                inner: ErrorInner::MalformedFile,
+                detail: format!("Failed to deserialize users: {}", e),
+            })?;
+            self.users = users;
+        }
+        Ok(())
+    }
+
     async fn write_to_file(&self) -> Result<(), Error> {
-        let path_to_user = PATH_TO_USERS.with(|path_to_user| path_to_user.clone());
         let mut file = tokio::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .open(path_to_user)
+            .open(&self.path_to_users)
             .await
             .map_err(|e| Error {
                 inner: ErrorInner::InternalError,
