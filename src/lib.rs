@@ -1,6 +1,7 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
 use crate::{
+    global_settings::GlobalSettingsData,
     handlers::{
         checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
         global_fs::get_global_fs_routes, global_settings::get_global_settings_routes, instance::*,
@@ -10,19 +11,22 @@ use crate::{
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
-    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
+    prelude::{
+        LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_GLOBAL_SETTINGS, PATH_TO_STORES, PATH_TO_USERS,
+    },
     util::{download_file, rand_alphanumeric},
 };
-use auth::user::{User, UsersManager};
+use auth::user::UsersManager;
 use axum::{Extension, Router};
 use events::{CausedBy, Event};
+use global_settings::GlobalSettings;
 use implementations::minecraft;
 use log::{debug, error, info, warn};
 use port_allocator::PortAllocator;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use serde::{Deserialize, Serialize};
+
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -34,7 +38,6 @@ use std::{
 use sysinfo::SystemExt;
 use tokio::{
     fs::create_dir_all,
-    io::AsyncWriteExt,
     process::Command,
     select,
     sync::{
@@ -48,15 +51,14 @@ use tower_http::{
     trace::TraceLayer,
 };
 pub use traits::Error;
-use traits::{
-    t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer, ErrorInner,
-};
+use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use ts_rs::TS;
-use types::{InstanceUuid, UserId};
+use types::InstanceUuid;
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
 mod events;
+pub mod global_settings;
 mod handlers;
 mod implementations;
 pub mod macro_executor;
@@ -67,67 +69,6 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 mod util;
-
-#[derive(Serialize, Deserialize, Clone, TS)]
-#[ts(export)]
-pub struct GlobalSettings {
-    #[serde(skip)]
-    path_to_global_settings: PathBuf,
-    core_name: String,
-    safe_mode: bool,
-}
-
-impl GlobalSettings {
-    pub async fn new() -> Self {
-        let path_to_global_settings = PATH_TO_STORES.with(|v| v.join("global_settings.json"));
-        if path_to_global_settings.exists() {
-            if let Ok(v) =
-                serde_json::from_reader(std::fs::File::open(&path_to_global_settings).unwrap())
-            {
-                return v;
-            }
-        }
-        let ret = Self {
-            path_to_global_settings,
-            core_name: format!("{}'s Lodestone Core", whoami::realname()),
-            safe_mode: true,
-        };
-        ret.save().await.unwrap();
-        ret
-    }
-    async fn save(&self) -> Result<(), Error> {
-        let mut file = tokio::fs::File::create(&self.path_to_global_settings)
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToCreateFileOrDir,
-                detail: "Failed to create global settings file".to_string(),
-            })?;
-        file.write_all(serde_json::to_string_pretty(self).unwrap().as_bytes())
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToWriteFileOrDir,
-                detail: "Failed to write to global settings file".to_string(),
-            })?;
-        Ok(())
-    }
-    pub async fn set_core_name(&mut self, name: String) -> Result<(), Error> {
-        self.core_name = name;
-        self.save().await
-    }
-
-    pub fn core_name(&self) -> String {
-        self.core_name.clone()
-    }
-
-    pub async fn set_safe_mode(&mut self, safe_mode: bool) -> Result<(), Error> {
-        self.safe_mode = safe_mode;
-        self.save().await
-    }
-
-    pub fn safe_mode(&self) -> bool {
-        self.safe_mode
-    }
-}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -193,35 +134,6 @@ async fn restore_instances(
         ret.insert(instance.uuid().await, instance.into());
     }
     ret
-}
-
-async fn restore_users() -> HashMap<UserId, User> {
-    let path_to_user_json = PATH_TO_USERS.with(|v| v.clone());
-    // create user file if it doesn't exist
-    if tokio::fs::OpenOptions::new()
-        .read(true)
-        .create(true)
-        .write(true)
-        .open(&path_to_user_json)
-        .await
-        .unwrap()
-        .metadata()
-        .await
-        .unwrap()
-        .len()
-        == 0
-    {
-        return HashMap::new();
-    }
-    let users: HashMap<UserId, User> = serde_json::from_reader(
-        tokio::fs::File::open(path_to_user_json)
-            .await
-            .unwrap()
-            .into_std()
-            .await,
-    )
-    .unwrap();
-    users
 }
 
 async fn download_dependencies() -> Result<(), Error> {
@@ -291,9 +203,23 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
 
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(256);
 
-    let users = restore_users().await;
+    let mut users_manager = UsersManager::new(
+        tx.clone(),
+        HashMap::new(),
+        PATH_TO_USERS.with(|path| path.clone()),
+    );
 
-    let first_time_setup_key = if !users.iter().any(|(_, user)| user.is_owner) {
+    users_manager.load_users().await.unwrap();
+
+    let mut global_settings = GlobalSettings::new(
+        PATH_TO_GLOBAL_SETTINGS.with(|path| path.clone()),
+        tx.clone(),
+        GlobalSettingsData::default(),
+    );
+
+    global_settings.load_from_file().await.unwrap();
+
+    let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
         // log the first time setup key in green so it's easy to find
         info!("\x1b[32mFirst time setup key: {}\x1b[0m", key);
@@ -320,7 +246,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
     }
     let shared_state = AppState {
         instances: Arc::new(Mutex::new(instances)),
-        users_manager: Arc::new(RwLock::new(UsersManager::new(tx.clone(), users))),
+        users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
@@ -331,7 +257,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
-        global_settings: Arc::new(Mutex::new(GlobalSettings::new().await)),
+        global_settings: Arc::new(Mutex::new(global_settings)),
     };
 
     let event_buffer_task = {

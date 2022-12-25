@@ -4,12 +4,12 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 
-use crate::{traits::ErrorInner, AppState, Error, GlobalSettings};
+use crate::{traits::ErrorInner, AppState, Error, GlobalSettingsData};
 
 pub async fn get_core_settings(
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<GlobalSettings>, Error> {
+) -> Result<Json<GlobalSettingsData>, Error> {
     state
         .users_manager
         .read()
@@ -20,7 +20,7 @@ pub async fn get_core_settings(
             detail: "Token error".to_string(),
         })?;
 
-    Ok(Json(state.global_settings.lock().await.clone()))
+    Ok(Json(state.global_settings.lock().await.as_ref().clone()))
 }
 
 pub async fn change_core_name(
@@ -93,9 +93,51 @@ pub async fn change_core_safe_mode(
     Ok(())
 }
 
+pub async fn change_domain(
+    Extension(state): Extension<AppState>,
+    AuthBearer(token): AuthBearer,
+    Json(new_domain): Json<String>,
+) -> Result<(), Error> {
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+    if !requester.is_owner {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to change core domain".to_string(),
+        });
+    }
+    if new_domain.len() > 32 {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Domain too long".to_string(),
+        });
+    }
+    if new_domain.is_empty() {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Domain too short".to_string(),
+        });
+    }
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_domain(new_domain)
+        .await?;
+    Ok(())
+}
+
 pub fn get_global_settings_routes() -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
         .route("/global_settings/name", put(change_core_name))
         .route("/global_settings/safe_mode", put(change_core_safe_mode))
+        .route("/global_settings/domain", put(change_domain))
 }
