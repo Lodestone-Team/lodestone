@@ -1,4 +1,4 @@
-import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faSort, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Listbox } from '@headlessui/react';
 import { useEffect, useState } from 'react';
@@ -70,7 +70,7 @@ export default function SelectBox({
   ) : (
     <FontAwesomeIcon
       key="icon"
-      icon={faCaretDown}
+      icon={faSort}
       className={
         'w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
       }
