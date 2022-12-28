@@ -139,25 +139,18 @@ export default function ComboField(props: ComboFieldProps) {
             className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto py-3 p-0 shadow-md rounded-md`}
           >
             {allowCustom && query.length > 0 && (
-              <Combobox.Option
-                value={query}
-                className={({ active }) => {
-                  return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
-                    active ? 'bg-gray-800' : 'bg-gray-900'
-                  }`;
-                }}
-              >
-                {({ selected }) => (
-                  <>
-                    <span
-                      className={`block truncate ${
-                        selected ? 'font-medium' : 'font-normal'
-                      }`}
-                    >
-                      Add &#34;{query}&#34;
-                    </span>
-                  </>
-                )}
+                <Combobox.Option
+                  value={query}
+                  className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
+                >
+                  {({ active }) => (
+                    <div className="flex flex-row justify-between">
+                      <span className="block truncate pr-1">
+                        Add &#34;{query}&#34;
+                      </span>
+                      <div onClick={itemAction} className="right-3 absolute">{active && itemActionIcon}</div>
+                    </div>
+                  )}
               </Combobox.Option>
             )}
             {filteredOptions.length === 0 && query.length > 0 ? (
@@ -175,9 +168,7 @@ export default function ComboField(props: ComboFieldProps) {
                 >
                   {({ active }) => (
                     <div className="flex flex-row justify-between">
-                      <span
-                        className="block truncate pr-1"
-                      >
+                      <span className="block truncate pr-1">
                         {option}
                       </span>
                       <div onClick={itemAction} className="right-3 absolute">{active && itemActionIcon}</div>
