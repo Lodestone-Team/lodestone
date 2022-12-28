@@ -180,38 +180,3 @@ export function usePrevious(value: unknown) {
   });
   return ref.current;
 }
-
-/**
- * Similar to useNavigate from react-router-dom
- * but the default behavior is to not change the search params or merge them with the new path
- */
-// export const useMyNavigate = () => {
-//   const navigate = useNavigate();
-//   const [searchParams, setSearchParams] = useSearchParams();
-
-//   const myNavigate = (to: To, options?: NavigateOptions) => {
-//     if (typeof to === 'number') {
-//       navigate(to, options);
-//     } else if (typeof to === 'string') {
-//       navigate(to, options);
-//     } else {
-//       const { search, ...rest } = to;
-//       if (!search) {
-//         navigate(rest, options);
-//       } else {
-//         const newSearchParams = new URLSearchParams(search);
-//         // generate a new search params object that is the combination of the current search params and the new search params
-//         const combinedSearchParams = new URLSearchParams();
-//         for (const [key, value] of searchParams) {
-//           combinedSearchParams.set(key, value);
-//         }
-//         for (const [key, value] of newSearchParams) {
-//           combinedSearchParams.set(key, value);
-//         }
-//         navigate({ ...rest, search: combinedSearchParams.toString() }, options);
-//       }
-//     }
-//   };
-
-//   return myNavigate;
-// };
