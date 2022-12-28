@@ -133,8 +133,8 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
 }
 pub async fn create_minecraft_instance(
     Extension(state): Extension<AppState>,
-    Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
     AuthBearer(token): AuthBearer,
+    Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state
         .users_manager

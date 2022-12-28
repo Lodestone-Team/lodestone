@@ -184,8 +184,8 @@ async fn read_file(
 async fn write_file(
     Extension(state): Extension<AppState>,
     Path(base64_absolute_path): Path<String>,
-    body: Bytes,
     AuthBearer(token): AuthBearer,
+    body: Bytes,
 ) -> Result<Json<()>, Error> {
     let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
         inner: ErrorInner::MalformedRequest,

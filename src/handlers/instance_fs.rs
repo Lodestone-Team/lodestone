@@ -172,8 +172,8 @@ async fn read_instance_file(
 async fn write_instance_file(
     Extension(state): Extension<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
-    body: Bytes,
     AuthBearer(token): AuthBearer,
+    body: Bytes,
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
         inner: ErrorInner::MalformedRequest,

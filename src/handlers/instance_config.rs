@@ -81,8 +81,8 @@ pub async fn get_instance_setting(
 pub async fn set_instance_setting(
     Extension(state): Extension<AppState>,
     Path((uuid, key)): Path<(InstanceUuid, InstanceSetting)>,
-    Json(value): Json<Value>,
     AuthBearer(token): AuthBearer,
+    Json(value): Json<Value>,
 ) -> Result<Json<()>, Error> {
     let requester = state
         .users_manager
@@ -208,8 +208,8 @@ pub async fn get_game_setting(
 pub async fn set_game_setting(
     Extension(state): Extension<AppState>,
     Path((uuid, key)): Path<(InstanceUuid, String)>,
-    Json(value): Json<String>,
     AuthBearer(token): AuthBearer,
+    Json(value): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state
         .users_manager

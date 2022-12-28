@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    auth::permission::UserPermission,
+    auth::{permission::UserPermission, user_id::UserId},
     output_types::ClientEvent,
     traits::{t_player::Player, t_server::State, InstanceInfo},
-    types::{InstanceUuid, Snowflake, UserId},
+    types::{InstanceUuid, Snowflake},
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]

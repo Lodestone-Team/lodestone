@@ -1,7 +1,7 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{extract::Path, routing::get, Extension, Router, Json};
 
 use axum_auth::AuthBearer;
-use axum_macros::debug_handler;
+
 
 use crate::{
     auth::user::UserAction,
@@ -9,12 +9,12 @@ use crate::{
     types::InstanceUuid,
     AppState,
 };
-#[debug_handler]
-async fn run_macro(
+
+pub async fn run_macro(
     Path((uuid, macro_name)): Path<(InstanceUuid, String)>,
-    Json(args): Json<Vec<String>>,
     Extension(state): Extension<AppState>,
     AuthBearer(token): AuthBearer,
+    Json(args): Json<Vec<String>>,
 ) -> Result<Json<()>, Error> {
     let requester = state
         .users_manager

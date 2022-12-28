@@ -134,8 +134,8 @@ pub async fn kill_instance(
 pub async fn send_command(
     Extension(state): Extension<AppState>,
     Path(uuid): Path<InstanceUuid>,
-    Json(command): Json<String>,
     AuthBearer(token): AuthBearer,
+    Json(command): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state
         .users_manager
