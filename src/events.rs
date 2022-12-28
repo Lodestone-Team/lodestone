@@ -16,7 +16,9 @@ use crate::{
 #[derive(enum_kinds::EnumKind)]
 #[enum_kind(InstanceEventKind, derive(Serialize, Deserialize, TS))]
 pub enum InstanceEventInner {
-    StateTransition(State),
+    StateTransition {
+        to: State,
+    },
     InstanceWarning,
     InstanceError,
     InstanceInput {
