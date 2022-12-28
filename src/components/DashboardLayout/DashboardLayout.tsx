@@ -125,7 +125,7 @@ export default function DashboardLayout() {
             </Popover.Panel>
             {/* very scuff way to align the notification panel with icon */}
             <div className="opacity-none pointer-events-none -z-10 select-none">
-              {userInfo?.username ? `Hi, ${userInfo.username}` : 'Not logged in'}
+              {userInfo?.username ? `Hi, ${userInfo.username}` : 'Not logg'}
             </div>
           </div>
           {/* ))} */}
