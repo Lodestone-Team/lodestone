@@ -109,8 +109,12 @@ impl State {
         Ok(state)
     }
 
-    pub fn try_transition(&mut self, action: StateAction) -> Result<(), Error> {
-        let new_state = self.try_new_state(action, None)?;
+    pub fn try_transition(
+        &mut self,
+        action: StateAction,
+        on_transit: Option<&dyn Fn(State)>,
+    ) -> Result<(), Error> {
+        let new_state = self.try_new_state(action, on_transit)?;
         *self = new_state;
         Ok(())
     }

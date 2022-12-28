@@ -26,7 +26,7 @@ use tokio::task;
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&mut self, cause_by: CausedBy) -> Result<(), Error> {
-        self.state.lock().await.try_new_state(
+        self.state.lock().await.try_transition(
             StateAction::UserStart,
             Some(&|state| {
                 self.event_broadcaster.send(Event {
@@ -312,7 +312,7 @@ impl TServer for MinecraftInstance {
                                 self.state
                                     .lock()
                                     .await
-                                    .try_new_state(
+                                    .try_transition(
                                         StateAction::InstanceStart,
                                         Some(&|state| {
                                             self.event_broadcaster.send(Event {
@@ -447,7 +447,7 @@ impl TServer for MinecraftInstance {
                         self.state
                             .lock()
                             .await
-                            .try_new_state(
+                            .try_transition(
                                 StateAction::InstanceStop,
                                 Some(&|state| {
                                     self.event_broadcaster.send(Event {
@@ -473,7 +473,7 @@ impl TServer for MinecraftInstance {
                 self.state
                     .lock()
                     .await
-                    .try_new_state(
+                    .try_transition(
                         StateAction::InstanceStop,
                         Some(&|state| {
                             self.event_broadcaster.send(Event {
@@ -502,7 +502,7 @@ impl TServer for MinecraftInstance {
         Ok(())
     }
     async fn stop(&mut self, cause_by: CausedBy) -> Result<(), Error> {
-        self.state.lock().await.try_new_state(
+        self.state.lock().await.try_transition(
             StateAction::UserStop,
             Some(&|state| {
                 self.event_broadcaster.send(Event {
