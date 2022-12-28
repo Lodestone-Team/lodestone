@@ -26,6 +26,13 @@ async fn setup_owner_account(
 }
 
 #[tauri::command]
+async fn get_first_time_setup_key(state: tauri::State<'_, AppState>) -> Result<String, ()> {
+    lodestone_client::tauri_export::get_first_time_setup_key(state.inner())
+        .await
+        .ok_or(())
+}
+
+#[tauri::command]
 async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<String, ()> {
     lodestone_client::tauri_export::get_owner_jwt(state.inner())
         .await
@@ -55,7 +62,8 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             is_setup,
             setup_owner_account,
-            get_owner_jwt
+            get_owner_jwt,
+            get_first_time_setup_key
         ])
         .run(context)
         .expect("error while running tauri application");

@@ -10,6 +10,8 @@ import {
 import { useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import Avatar from 'components/Atoms/Avatar';
+import { useEffectOnce } from 'usehooks-ts';
+import { tauri } from 'utils/tauriUtil';
 
 const UserSelectExisting = () => {
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
@@ -19,6 +21,21 @@ const UserSelectExisting = () => {
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
   const { data: userInfo, isLoading: isUserInfoLoading } = useUserInfo();
+
+  useEffectOnce(() => {
+    if (token) return;
+    if (!tauri) return;
+    tauri
+      ?.invoke<string | null>('get_owner_jwt')
+      .then((token) => {
+        if (token) {
+          setToken(token, socket);
+        }
+      })
+      .catch((err: any) => {
+        console.log('Tauri call failed get_owner_jwt', err);
+      });
+  });
 
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">

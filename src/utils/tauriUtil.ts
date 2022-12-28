@@ -14,3 +14,5 @@ const globalTauriExists: boolean =
   !!window.__TAURI__.tauri; // Check whether the Tauri API is available on the `window` object
 
 export const tauri = globalTauriExists ? window.__TAURI__ : undefined; // Export the `__TAURI__` object from the `window` object if it exists, or `undefined` if it doesn't
+
+export const useTauri = (): tauri | undefined => tauri; // Export a hook that returns the `tauri` object
