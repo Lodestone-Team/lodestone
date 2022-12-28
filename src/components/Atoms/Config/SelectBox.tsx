@@ -1,4 +1,4 @@
-import { faSort, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faSort, faTrashAlt } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Listbox } from '@headlessui/react';
 import { useEffect, useState } from 'react';
@@ -77,6 +77,28 @@ export default function SelectBox({
     />
   );
 
+  const itemActionIcon = (isLoading || isLoadingProp) ? (
+    <BeatLoader
+      key="loading"
+      size="0.25rem"
+      cssOverride={{
+        width: '2rem',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        margin: `0 -0.5rem`,
+      }}
+    />
+  ) : (
+    <FontAwesomeIcon
+      key="icon"
+      icon={faTrashAlt}
+      className={
+        'w-4 text-white/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
+      }
+    />
+  );
+
   return (
     <div
       className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
@@ -112,7 +134,7 @@ export default function SelectBox({
           <Listbox.Options
             className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-2 shadow-md`}
           >
-            {options.map((option) => (
+            {options.map((option ) => (
               <Listbox.Option
                 key={option}
                 value={option}
@@ -122,21 +144,22 @@ export default function SelectBox({
                   }`;
                 }}
               >
-                {({ selected }) => (
-                  <>
-                    <span
-                      className={`block truncate ${
-                        selected ? 'font-bold' : 'font-normal'
-                      }`}
-                    >
-                      {option}
-                    </span>
-                  </>
+                {({ active, selected }) => (
+                    <div className="flex flex-row justify-between">
+                      <span
+                        className={`block truncate ${
+                          selected ? 'font-bold' : 'font-normal'
+                        }`}
+                      >
+                        {option}
+                      </span>
+                      <div className="right-0">{active ? itemActionIcon : ''}</div>
+                    </div>
                 )}
               </Listbox.Option>
             ))}
             {(initialValue === undefined || initialValue.length === 0) && (
-              <Listbox.Option
+              <Listbox.Option 
                 key={'Select...'}
                 value={''}
                 className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
