@@ -9,7 +9,7 @@ export type InputFieldProps = FieldHookConfig<string> & {
 };
 
 export default function InputField(props: InputFieldProps) {
-  const { className, label, type, ...rest } = props;
+  const { className, label, type, disabled, ...rest } = props;
   const [field, meta] = useField(props);
   const isError = at(meta, 'touched', 'error').every((v) => v);
   const errorText = isError ? meta.error : '';
@@ -35,6 +35,7 @@ export default function InputField(props: InputFieldProps) {
           name={field.name}
           autoComplete={DISABLE_AUTOFILL}
           placeholder={props.placeholder}
+          disabled={disabled}
         />
         {errorText && (
           <div
