@@ -4,6 +4,7 @@ import { Listbox } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
+import { pass } from 'variant';
 
 export default function SelectBox({
   label,
@@ -99,6 +100,10 @@ export default function SelectBox({
     />
   );
 
+  function itemAction() {
+    pass
+  }
+
   return (
     <div
       className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
@@ -122,7 +127,7 @@ export default function SelectBox({
           disabled={disabled || isLoading}
         >
           <Listbox.Button
-            className={`input-base group w-full ${
+            className={`ui-open:bg-gray-700 input-base group w-full ${
               errorText ? 'border-error' : 'border-normal'
             }`}
           >
@@ -138,22 +143,16 @@ export default function SelectBox({
               <Listbox.Option
                 key={option}
                 value={option}
-                className={({ active, selected }) => {
-                  return `border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ${
-                    selected ? 'bg-gray-600' : active ? 'bg-gray-800' : 'bg-gray-900'
-                  }`;
-                }}
+                className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-bold ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
               >
-                {({ active, selected }) => (
+                {({ active }) => (
                     <div className="flex flex-row justify-between">
                       <span
-                        className={`block truncate ${
-                          selected ? 'font-bold' : 'font-normal'
-                        }`}
+                        className="block truncate pr-1"
                       >
                         {option}
                       </span>
-                      <div className="right-0">{active ? itemActionIcon : ''}</div>
+                      <div onClick={itemAction} className="right-3 absolute cursor-pointer">{active && itemActionIcon}</div>
                     </div>
                 )}
               </Listbox.Option>
