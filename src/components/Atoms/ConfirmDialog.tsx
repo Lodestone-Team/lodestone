@@ -11,6 +11,7 @@ export interface DialogProps {
   onConfirm?: () => void;
   onClose: () => void;
   isOpen: boolean;
+  zIndex?: number;
 }
 
 export default function ConfirmDialog({
@@ -22,6 +23,7 @@ export default function ConfirmDialog({
   onConfirm,
   onClose,
   isOpen,
+  zIndex = 10,
 }: DialogProps) {
   return (
     <Transition
@@ -35,7 +37,14 @@ export default function ConfirmDialog({
       leaveFrom="opacity-100"
       leaveTo="opacity-0"
     >
-      <Dialog as="div" className="relative z-10" onClose={onClose}>
+      <Dialog
+        as="div"
+        className="relative"
+        style={{
+          zIndex,
+        }}
+        onClose={onClose}
+      >
         <div className="fixed inset-0 bg-gray-900/60" />
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center">

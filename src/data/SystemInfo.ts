@@ -1,3 +1,4 @@
+import { LODESTONE_PORT } from 'utils/util';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 
@@ -12,9 +13,8 @@ export interface MemInfo {
 }
 
 export const useMemInfo = () => {
-  return useQuery<MemInfo, AxiosError>(
-    ['systeminfo', 'meminfo'],
-    () => axios.get<MemInfo>(`/system/memory`).then((res) => res.data),
+  return useQuery<MemInfo, AxiosError>(['systeminfo', 'meminfo'], () =>
+    axios.get<MemInfo>(`/system/memory`).then((res) => res.data)
   );
 };
 
@@ -24,9 +24,8 @@ export interface DiskInfo {
 }
 
 export const useDiskInfo = () => {
-  return useQuery<DiskInfo, AxiosError>(
-    ['systeminfo', 'diskinfo'],
-    () => axios.get<DiskInfo>(`/system/disk`).then((res) => res.data),
+  return useQuery<DiskInfo, AxiosError>(['systeminfo', 'diskinfo'], () =>
+    axios.get<DiskInfo>(`/system/disk`).then((res) => res.data)
   );
 };
 
@@ -37,9 +36,8 @@ export interface CPUInfo {
 }
 
 export const useCPUInfo = () => {
-  return useQuery<CPUInfo, AxiosError>(
-    ['systeminfo', 'cpuinfo'],
-    () => axios.get<CPUInfo>(`/system/cpu`).then((res) => res.data),
+  return useQuery<CPUInfo, AxiosError>(['systeminfo', 'cpuinfo'], () =>
+    axios.get<CPUInfo>(`/system/cpu`).then((res) => res.data)
   );
 };
 
@@ -59,8 +57,26 @@ export interface CoreInfo {
 }
 
 export const useCoreInfo = () => {
+  return useQuery<CoreInfo, AxiosError>(['systeminfo', 'CoreInfo'], () =>
+    axios.get<CoreInfo>(`/info`).then((res) => res.data)
+  );
+};
+
+// this should only be used to check if the core is setup or not
+// it refetches frequently to check if any new core shows up
+export const useLocalCoreInfo = () => {
+  //change to https when we default to it in core
   return useQuery<CoreInfo, AxiosError>(
-    ['systeminfo', 'CoreInfo'],
-    () => axios.get<CoreInfo>(`/info`).then((res) => res.data),
+    ['systeminfo', 'LocalCoreInfo'],
+    () =>
+      axios
+        .get<CoreInfo>(`/info`, {
+          baseURL: `http://localhost:${LODESTONE_PORT}/api/v1`,
+          timeout: 3000,
+        })
+        .then((res) => res.data),
+    {
+      refetchInterval: 3000,
+    }
   );
 };

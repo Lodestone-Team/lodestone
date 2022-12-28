@@ -11,6 +11,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import { useEffectOnce } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
+import { useQueryClient } from '@tanstack/react-query';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -36,6 +37,7 @@ const CoreSetupNew = () => {
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { data: coreInfo } = useCoreInfo();
   const { setToken, core } = useContext(LodestoneContext);
+  const queryClient = useQueryClient();
   const [setupKey, setSetupKey] = useState<string>('');
   const { address, port } = core;
   const tauri = useTauri();
@@ -100,6 +102,7 @@ const CoreSetupNew = () => {
       // })
       .then(() => {
         setPathname('/login/user/select');
+        queryClient.invalidateQueries();
         actions.setSubmitting(false);
       })
       .catch((err) => {
@@ -120,7 +123,7 @@ const CoreSetupNew = () => {
         <h2 className="text-medium font-semibold tracking-medium text-white/50">
           {tauri && setupKey
             ? "Setup key is automatically filled in because you're using the desktop app"
-            : 'Check the console output of the core to find the &#34;First time setup key&#34;.'}
+            : 'Check the console output of the core to find the \"First time setup key\"'}
         </h2>
       </div>
       <Formik

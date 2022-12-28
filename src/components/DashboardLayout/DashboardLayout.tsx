@@ -3,7 +3,7 @@ import TopNav from './TopNav';
 import { useContext } from 'react';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 import { useEventStream } from 'data/EventStream';
-import { useCoreInfo } from 'data/SystemInfo';
+import { useCoreInfo, useLocalCoreInfo } from 'data/SystemInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useEffect, useState } from 'react';
@@ -15,9 +15,12 @@ import { useUserLoggedIn } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Outlet } from 'react-router-dom';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { LODESTONE_PORT } from 'utils/util';
+import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
+  const { setCore } = useContext(LodestoneContext);
   const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
   const userLoggedIn = useUserLoggedIn();
   const { data: dataInstances } = useInstanceList(userLoggedIn);
@@ -30,17 +33,25 @@ export default function DashboardLayout() {
     false
   );
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
+  const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
   const { width, height } = useWindowSize();
 
   const instances = userLoggedIn ? dataInstances : undefined;
 
   useEventStream();
   const { data: coreInfo } = useCoreInfo();
+  const { data: localCoreInfo } = useLocalCoreInfo();
   useEffect(() => {
     if (coreInfo?.is_setup === false) {
       setShowSetupPrompt(true);
     }
   }, [coreInfo]);
+
+  useEffect(() => {
+    if (localCoreInfo?.is_setup === false) {
+      if (!showSetupPrompt) setShowLocalSetupPrompt(true);
+    }
+  }, [localCoreInfo, showSetupPrompt]);
 
   useEffect(() => {
     if (queryUuid && instances && queryUuid in instances)
@@ -69,14 +80,43 @@ export default function DashboardLayout() {
       }}
     >
       <ConfirmDialog
+        isOpen={showLocalSetupPrompt}
+        title="New Local Core Detected"
+        type="info"
+        confirmButtonText="Setup"
+        onConfirm={() => {
+          setCore({
+            address: 'localhost',
+            port: LODESTONE_PORT.toString(),
+            protocol: 'http',
+            apiVersion: 'v1',
+          });
+          setPathname('/login/core/first_setup');
+          setShowLocalSetupPrompt(false);
+        }}
+        closeButtonText="Skip"
+        onClose={() => {
+          setShowLocalSetupPrompt(false);
+        }}
+      >
+        Detected a local core that is not setup yet. Would you like to setup
+        this core?
+      </ConfirmDialog>
+      <ConfirmDialog
         isOpen={showSetupPrompt}
         title="Setup Required"
         type="info"
-        onClose={() => {
+        z-index="20"
+        confirmButtonText="Setup"
+        onConfirm={() => {
           setPathname('/login/core/first_setup');
           setShowSetupPrompt(false);
         }}
-        closeButtonText="Setup"
+        closeButtonText="Change Core"
+        onClose={() => {
+          setPathname('/login/core/select');
+          setShowSetupPrompt(false);
+        }}
       >
         This core is not setup yet. Please complete the setup process.
       </ConfirmDialog>
