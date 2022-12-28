@@ -392,12 +392,14 @@ impl Default for MacroExecutor {
     }
 }
 
+#[allow(unused_imports)]
 mod tests {
     use std::{path::PathBuf, rc::Rc};
 
-    use crate::{types::InstanceUuid, Error};
-
+    use crate::Error;
+    use crate::types::InstanceUuid;
     use super::{resolve_macro_invocation, TypescriptModuleLoader};
+
 
     #[tokio::test]
     async fn test_macro_executor() {
@@ -460,32 +462,30 @@ mod tests {
         };
         executor.spawn(instruction);
 
-
         let path_to_loop_js = path_to_macros.join("loop.js");
 
         std::fs::write(
             path_to_loop_js,
             "
+            let total = 0;
             console.log('starting loop');
             for (let i = 0; i < 1000; i++) {
                 // await new Promise(r => setTimeout(r, 0));
-                console.log(i);
+                total++;
             }",
         )
         .unwrap();
 
-        for _ in 0..1000 {
-            tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.1)).await;
-            let instruction = super::ExecutionInstruction {
-                runtime: runtime.clone(),
-                name: "loop".to_owned(),
-                args: vec![],
-                executor: None,
-                is_in_game: false,
-                instance_uuid: InstanceUuid::default(),
-            };
-            executor.spawn(instruction);
-        }
+        tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.1)).await;
+        let instruction = super::ExecutionInstruction {
+            runtime: runtime.clone(),
+            name: "loop".to_owned(),
+            args: vec![],
+            executor: None,
+            is_in_game: false,
+            instance_uuid: InstanceUuid::default(),
+        };
+        executor.spawn(instruction);
 
         // let pid = executor.spawn(instruction);
 
@@ -506,6 +506,6 @@ mod tests {
         // executor.spawn(instruction);
         // println!("{}", executor.wait_with_timeout(1, Some(1.0)).await);
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+        // tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
     }
 }
