@@ -33,7 +33,7 @@ impl TServer for MinecraftInstance {
                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                         instance_name: self.config.name.clone(),
                         instance_uuid: self.config.uuid.clone(),
-                        instance_event_inner: InstanceEventInner::StateTransition(state),
+                        instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
                     snowflake: Snowflake::default(),
                     details: "Starting server".to_string(),
@@ -321,9 +321,9 @@ impl TServer for MinecraftInstance {
                                                         instance_name: self.config.name.clone(),
                                                         instance_uuid: self.config.uuid.clone(),
                                                         instance_event_inner:
-                                                            InstanceEventInner::StateTransition(
-                                                                state,
-                                                            ),
+                                                            InstanceEventInner::StateTransition {
+                                                                to: state,
+                                                            },
                                                     },
                                                 ),
                                                 snowflake: Snowflake::default(),
@@ -455,7 +455,7 @@ impl TServer for MinecraftInstance {
                                             instance_name: self.config.name.clone(),
                                             instance_uuid: self.config.uuid.clone(),
                                             instance_event_inner:
-                                                InstanceEventInner::StateTransition(state),
+                                                InstanceEventInner::StateTransition { to: state },
                                         }),
                                         snowflake: Snowflake::default(),
                                         details: "Starting server".to_string(),
@@ -480,9 +480,9 @@ impl TServer for MinecraftInstance {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                                     instance_name: self.config.name.clone(),
                                     instance_uuid: self.config.uuid.clone(),
-                                    instance_event_inner: InstanceEventInner::StateTransition(
-                                        state,
-                                    ),
+                                    instance_event_inner: InstanceEventInner::StateTransition {
+                                        to: state,
+                                    },
                                 }),
                                 snowflake: Snowflake::default(),
                                 details: "Starting server".to_string(),
@@ -509,7 +509,7 @@ impl TServer for MinecraftInstance {
                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                         instance_name: self.config.name.clone(),
                         instance_uuid: self.config.uuid.clone(),
-                        instance_event_inner: InstanceEventInner::StateTransition(state),
+                        instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
                     snowflake: Snowflake::default(),
                     details: "Starting server".to_string(),
@@ -606,9 +606,9 @@ impl TServer for MinecraftInstance {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                                         instance_name: self.config.name.clone(),
                                         instance_uuid: self.config.uuid.clone(),
-                                        instance_event_inner: InstanceEventInner::StateTransition(
-                                            state,
-                                        ),
+                                        instance_event_inner: InstanceEventInner::StateTransition {
+                                            to: state,
+                                        },
                                     }),
                                     snowflake: Snowflake::default(),
                                     details: "Starting server".to_string(),

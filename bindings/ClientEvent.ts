@@ -4,4 +4,4 @@ import type { EventInner } from "./EventInner";
 import type { EventLevel } from "./EventLevel";
 import type { Snowflake } from "./Snowflake";
 
-export interface ClientEvent { event_inner: EventInner, details: string, snowflake: Snowflake, snowflake_str: string, level: EventLevel, caused_by: CausedBy, }
+export interface ClientEvent { event_inner: EventInner, details: string, snowflake: Snowflake, level: EventLevel, caused_by: CausedBy, }

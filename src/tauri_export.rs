@@ -58,3 +58,7 @@ pub async fn setup_owner_account(
     app_state.first_time_setup_key.lock().await.take();
     Ok(())
 }
+
+pub async fn get_first_time_setup_key(app_state: &AppState) -> Option<String> {
+    app_state.first_time_setup_key.lock().await.clone()
+}
