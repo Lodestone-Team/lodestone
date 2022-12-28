@@ -69,9 +69,3 @@ impl AsRef<ClientEvent> for ClientEvent {
         self
     }
 }
-
-impl AsRef<Event> for ClientEvent {
-    fn as_ref(&self) -> &Event {
-        unsafe { std::mem::transmute(self) }
-    }
-}
