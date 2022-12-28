@@ -2,11 +2,11 @@ use crate::{
     auth::{
         permission::UserPermission,
         user::{PublicUser, User, UserAction},
+        user_id::UserId, jwt_token::JwtToken,
     },
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     traits::{Error, ErrorInner},
-    types::{Snowflake, UserId},
-    util::{hash_password, rand_alphanumeric},
+    types::Snowflake,
     AppState,
 };
 
@@ -23,21 +23,15 @@ use serde_json::{json, Value};
 use ts_rs::TS;
 
 #[derive(Deserialize, Serialize)]
-pub struct Claim {
-    pub uid: UserId,
-    pub exp: usize,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct NewUserSchema {
+pub struct NewUser {
     pub username: String,
     pub password: String,
 }
 
 pub async fn new_user(
     Extension(state): Extension<AppState>,
-    Json(config): Json<NewUserSchema>,
     AuthBearer(token): AuthBearer,
+    Json(config): Json<NewUser>,
 ) -> Result<Json<LoginReply>, Error> {
     let mut users_manager = state.users_manager.write().await;
     let requester = users_manager.try_auth(&token).ok_or(Error {
@@ -50,18 +44,13 @@ pub async fn new_user(
             detail: "You are not authorized to create users".to_string(),
         });
     }
-
-    let hashed_psw = hash_password(&config.password);
-    let uid = UserId::default();
-    let user = User {
-        uid: uid.clone(),
-        username: config.username.clone(),
-        hashed_psw: hashed_psw.clone(),
-        is_admin: false,
-        is_owner: false,
-        permissions: UserPermission::new(),
-        secret: rand_alphanumeric(32),
-    };
+    let user = User::new(
+        config.username,
+        config.password,
+        false,
+        false,
+        UserPermission::default(),
+    );
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -73,7 +62,7 @@ pub async fn new_user(
         .event_broadcaster
         .send(Event {
             event_inner: EventInner::UserEvent(UserEvent {
-                user_id: uid.clone(),
+                user_id: user.uid.clone(),
                 user_event_inner: UserEventInner::UserCreated,
             }),
             details: "".to_string(),
@@ -169,9 +158,9 @@ pub async fn logout(
 pub async fn update_permissions(
     Extension(state): Extension<AppState>,
     Path(uid): Path<UserId>,
-    Json(new_permissions): Json<UserPermission>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Value>, Error> {
+    Json(new_permissions): Json<UserPermission>,
+) -> Result<Json<()>, Error> {
     let mut users_manager = state.users_manager.write().await;
 
     let requester = users_manager.try_auth(&token).ok_or(Error {
@@ -191,7 +180,7 @@ pub async fn update_permissions(
     users_manager
         .update_permissions(uid, new_permissions, caused_by)
         .await?;
-    Ok(Json(json!("ok")))
+    Ok(Json(()))
 }
 
 pub async fn get_self_info(
@@ -248,8 +237,8 @@ pub struct ChangePasswordConfig {
 
 pub async fn change_password(
     Extension(state): Extension<AppState>,
-    Json(config): Json<ChangePasswordConfig>,
     AuthBearer(token): AuthBearer,
+    Json(config): Json<ChangePasswordConfig>,
 ) -> Result<Json<()>, Error> {
     let mut users_manager = state.users_manager.write().await;
     let requester = users_manager.try_auth(&token).ok_or(Error {
@@ -278,7 +267,7 @@ pub async fn change_password(
 #[derive(Serialize, TS)]
 #[ts(export)]
 pub struct LoginReply {
-    pub token: String,
+    pub token: JwtToken,
     pub user: PublicUser,
 }
 

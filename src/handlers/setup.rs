@@ -1,14 +1,14 @@
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+
 use axum::{extract::Path, Extension, Json, Router};
 use log::info;
-use rand_core::OsRng;
+
 
 use crate::{
-    auth::{permission::UserPermission, user::User},
+    auth::{
+        permission::UserPermission, user::User,
+    },
     events::CausedBy,
     traits::{Error, ErrorInner},
-    types::UserId,
-    util::rand_alphanumeric,
     AppState,
 };
 
@@ -29,22 +29,13 @@ pub async fn setup_owner(
     match setup_key_lock.clone() {
         Some(k) if k == key => {
             setup_key_lock.take();
-            let salt = SaltString::generate(&mut OsRng);
-            let argon2 = Argon2::default();
-            let hashed_psw = argon2
-                .hash_password(owner_setup.password.as_bytes(), &salt)
-                .unwrap()
-                .to_string();
-            let uid = UserId::default();
-            let owner = User {
-                username: owner_setup.username,
-                is_owner: true,
-                permissions: UserPermission::new(),
-                uid: uid.clone(),
-                hashed_psw,
-                is_admin: false,
-                secret: rand_alphanumeric(32),
-            };
+            let owner = User::new(
+                owner_setup.username,
+                &owner_setup.password,
+                true,
+                false,
+                UserPermission::default(),
+            );
             state
                 .users_manager
                 .write()

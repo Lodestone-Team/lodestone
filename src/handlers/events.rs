@@ -12,12 +12,9 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
-use crate::{auth::user::UsersManager, events::InstanceEventKind};
+use crate::{auth::{user::UsersManager, user_id::UserId}, events::InstanceEventKind};
 use crate::{events::EventType, output_types::ClientEvent};
-use crate::{
-    events::UserEventKind,
-    types::{InstanceUuid, UserId},
-};
+use crate::{events::UserEventKind, types::InstanceUuid};
 
 use crate::{
     events::{Event, EventInner, EventLevel, UserEventInner},

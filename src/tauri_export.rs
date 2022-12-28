@@ -1,13 +1,11 @@
 use crate::{
-    auth::{permission::UserPermission, user::User},
+    auth::{jwt_token::JwtToken, permission::UserPermission, user::User},
     events::CausedBy,
     traits::{Error, ErrorInner},
-    types::UserId,
-    util::{hash_password, rand_alphanumeric},
     AppState,
 };
 
-pub async fn get_owner_jwt(app_state: &AppState) -> Option<String> {
+pub async fn get_owner_jwt(app_state: &AppState) -> Option<JwtToken> {
     app_state
         .users_manager
         .read()
@@ -39,16 +37,7 @@ pub async fn setup_owner_account(
             detail: "Owner account already exists.".to_string(),
         });
     }
-    let hashed_psw = hash_password(&password);
-    let user = User::new(
-        UserId::default(),
-        username,
-        hashed_psw,
-        true,
-        false,
-        UserPermission::new(),
-        rand_alphanumeric(32),
-    );
+    let user = User::new(username, password, true, false, UserPermission::default());
     app_state
         .users_manager
         .write()

@@ -1,6 +1,6 @@
-use argon2::password_hash::SaltString;
-use argon2::{Argon2, PasswordHasher};
-use rand_core::OsRng;
+
+
+
 use std::collections::HashSet;
 use tempdir::TempDir;
 use tokio::fs::File;
@@ -407,9 +407,3 @@ pub fn format_byte(bytes: u64) -> String {
     format!("{:.1} {}", bytes, unit)
 }
 
-pub fn hash_password(password: &str) -> String {
-    Argon2::default()
-        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
-        .unwrap()
-        .to_string()
-}

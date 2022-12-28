@@ -8,42 +8,50 @@ use ts_rs::TS;
 
 use crate::{
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
-    handlers::users::Claim,
     traits::{Error, ErrorInner},
-    types::{InstanceUuid, Snowflake, UserId},
-    util::rand_alphanumeric,
+    types::{InstanceUuid, Snowflake},
 };
 
-use super::permission::UserPermission;
+use super::{
+    hashed_password::{hash_password, HashedPassword},
+    jwt_token::JwtToken,
+    permission::UserPermission,
+    user_id::UserId,
+    user_secrets::UserSecret,
+};
+
+#[derive(Deserialize, Serialize)]
+pub struct Claim {
+    pub uid: UserId,
+    pub exp: usize,
+}
 #[derive(Serialize, Deserialize, Clone)]
 pub struct User {
     pub uid: UserId,
     pub username: String,
-    pub hashed_psw: String,
+    pub hashed_psw: HashedPassword,
     pub is_owner: bool,
     pub is_admin: bool,
     pub permissions: UserPermission,
-    pub secret: String,
+    pub secret: UserSecret,
 }
 
 impl User {
     pub fn new(
-        uid: UserId,
         username: String,
-        hashed_psw: String,
+        password: impl AsRef<str>,
         is_owner: bool,
         is_admin: bool,
         permissions: UserPermission,
-        secret: String,
     ) -> Self {
         User {
-            uid,
+            uid: UserId::default(),
             username,
-            hashed_psw,
+            hashed_psw: hash_password(password),
             is_owner,
             is_admin,
             permissions,
-            secret,
+            secret: UserSecret::default(),
         }
     }
     fn get_permission_level(&self) -> u8 {
@@ -178,7 +186,7 @@ impl User {
         }
     }
 
-    pub fn create_jwt(&self) -> Result<String, Error> {
+    pub fn create_jwt(&self) -> Result<JwtToken, Error> {
         let exp = chrono::Utc::now()
             .checked_add_signed(chrono::Duration::days(60))
             .ok_or(Error {
@@ -190,16 +198,8 @@ impl User {
             uid: self.uid.clone(),
             exp: exp as usize,
         };
-        let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512);
-        jsonwebtoken::encode(
-            &header,
-            &claim,
-            &jsonwebtoken::EncodingKey::from_secret(self.secret.as_bytes()),
-        )
-        .map_err(|e| Error {
-            inner: ErrorInner::InternalError,
-            detail: format!("Failed to generate JWT: {}", e),
-        })
+
+        JwtToken::new(claim, self.secret.clone())
     }
 }
 
@@ -414,7 +414,7 @@ impl UsersManager {
             .secret
             .clone();
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
-            user.secret = rand_alphanumeric(32);
+            user.secret = UserSecret::default();
         }
 
         match self.write_to_file().await {
@@ -455,7 +455,7 @@ impl UsersManager {
             .hashed_psw
             .clone();
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
-            user.hashed_psw = password;
+            user.hashed_psw = hash_password(password);
         }
         match self.write_to_file().await {
             Ok(_) => {
@@ -548,7 +548,7 @@ impl UsersManager {
         &self,
         username: impl AsRef<str>,
         password: impl AsRef<str>,
-    ) -> Result<String, Error> {
+    ) -> Result<JwtToken, Error> {
         let user = self
             .users
             .values()
@@ -560,7 +560,7 @@ impl UsersManager {
         Argon2::default()
             .verify_password(
                 password.as_ref().as_bytes(),
-                &argon2::PasswordHash::new(&user.hashed_psw).unwrap(),
+                &argon2::PasswordHash::new(user.hashed_psw.as_ref()).unwrap(),
             )
             .map_err(|_| Error {
                 inner: ErrorInner::Unauthorized,
@@ -570,10 +570,10 @@ impl UsersManager {
     }
 }
 
-fn decode_token(token: &str, jwt_secret: &str) -> Option<UserId> {
+fn decode_token(token: &str, jwt_secret: &UserSecret) -> Option<UserId> {
     match jsonwebtoken::decode::<Claim>(
         token,
-        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_ref().as_bytes()),
         &Validation::new(Algorithm::HS512),
     ) {
         Ok(t) => Some(t.claims.uid),
@@ -597,5 +597,69 @@ fn decode_no_verify(token: &str) -> Option<UserId> {
 impl AsRef<HashMap<UserId, User>> for UsersManager {
     fn as_ref(&self) -> &HashMap<UserId, User> {
         &self.users
+    }
+}
+
+mod tests {
+
+    #[tokio::test]
+    async fn test_login() {
+        use super::*;
+        // create a temporary folder
+        let temp_dir = tempdir::TempDir::new("test_login").unwrap().into_path();
+        let (tx, _rx) = tokio::sync::broadcast::channel(10);
+        let mut users_manager =
+            UsersManager::new(tx.clone(), HashMap::new(), temp_dir.join("users.json"));
+        let test_user1 = User::new(
+            "test_user1".to_string(),
+            "12345",
+            true,
+            false,
+            UserPermission::default(),
+        );
+
+        users_manager
+            .add_user(test_user1.clone(), CausedBy::System)
+            .await
+            .unwrap();
+
+        users_manager.login("test_user1", "12345").unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_persistent() {
+        use super::*;
+        // create a temporary folder
+        let temp_dir = tempdir::TempDir::new("test_login").unwrap().into_path();
+        let (tx, _rx) = tokio::sync::broadcast::channel(10);
+        let mut users_manager =
+            UsersManager::new(tx.clone(), HashMap::new(), temp_dir.join("users.json"));
+        let test_user1 = User::new(
+            "test_user1".to_string(),
+            "12345",
+            true,
+            false,
+            UserPermission::default(),
+        );
+
+        users_manager
+            .add_user(test_user1.clone(), CausedBy::System)
+            .await
+            .unwrap();
+
+        users_manager.get_user_by_username("test_user1").unwrap();
+
+        drop(users_manager);
+
+        let (tx, _rx) = tokio::sync::broadcast::channel(10);
+
+        let mut users_manager =
+            UsersManager::new(tx, HashMap::new(), temp_dir.join("users.json"));
+
+        assert!(users_manager.get_user_by_username("test_user1").is_none());
+
+        users_manager.load_users().await.unwrap();
+
+        assert!(users_manager.get_user_by_username("test_user1").is_some());
     }
 }
