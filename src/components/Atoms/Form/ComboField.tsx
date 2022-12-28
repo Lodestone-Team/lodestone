@@ -4,7 +4,7 @@ import { FieldHookConfig, useField } from 'formik';
 import { Combobox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { faCaretDown, faCheck, faSort } from '@fortawesome/free-solid-svg-icons';
+import { faSort, faTrashAlt } from '@fortawesome/free-solid-svg-icons';
 
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -76,6 +76,32 @@ export default function ComboField(props: ComboFieldProps) {
     />
   );
 
+  const itemActionIcon = loadingVisual ? (
+    <BeatLoader
+      key="loading"
+      size="0.25rem"
+      cssOverride={{
+        width: '2rem',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        margin: `0 -0.5rem`,
+      }}
+    />
+  ) : (
+    <FontAwesomeIcon
+      key="icon"
+      icon={faTrashAlt}
+      className={
+        'w-4 text-gray-faded/30 cursor-pointer hover:text-gray-500'
+      }
+    />
+  );
+
+  function itemAction() {
+    // pass
+  }
+
   return (
     <div
       className={`flex flex-col gap-1 ${className} group relative text-base`}
@@ -146,17 +172,17 @@ export default function ComboField(props: ComboFieldProps) {
                   key={option}
                   value={option}
                   className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
-                  // className={({ active, selected }) => {
-                  //   return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
-                  //     active ? 'bg-gray-800' : 'bg-gray-900'
-                  //   }`;
-                  // }}
                 >
-                  <span
-                    className="block truncate"
-                  >
-                    {option}
-                  </span>
+                  {({ active }) => (
+                    <div className="flex flex-row justify-between">
+                      <span
+                        className="block truncate pr-1"
+                      >
+                        {option}
+                      </span>
+                      <div onClick={itemAction} className="right-3 absolute">{active && itemActionIcon}</div>
+                    </div>
+                  )}
                 </Combobox.Option>
               ))
             )}
