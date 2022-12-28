@@ -2,6 +2,7 @@
 import type { EventLevel } from './EventLevel';
 import type { EventType } from './EventType';
 import type { InstanceEventKind } from './InstanceEventKind';
+import type { InstanceUuid } from './InstanceUuid';
 import type { UserEventKind } from './UserEventKind';
 
 export interface EventQuery {
@@ -9,6 +10,6 @@ export interface EventQuery {
   event_types: Array<EventType> | null;
   instance_event_types: Array<InstanceEventKind> | null;
   user_event_types: Array<UserEventKind> | null;
-  event_instance_ids: Array<string> | null;
+  event_instance_ids: Array<InstanceUuid> | null;
   bearer_token: string | null;
 }

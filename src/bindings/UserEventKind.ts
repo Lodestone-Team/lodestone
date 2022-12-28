@@ -4,4 +4,5 @@ export type UserEventKind =
   | 'UserCreated'
   | 'UserDeleted'
   | 'UserLoggedIn'
-  | 'UserLoggedOut';
+  | 'UserLoggedOut'
+  | 'PermissionChanged';
