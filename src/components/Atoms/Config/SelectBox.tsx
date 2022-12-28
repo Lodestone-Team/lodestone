@@ -110,15 +110,15 @@ export default function SelectBox({
             </div>
           </Listbox.Button>
           <Listbox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-1 shadow-md`}
+            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-2 shadow-md`}
           >
             {options.map((option) => (
               <Listbox.Option
                 key={option}
                 value={option}
-                className={({ active }) => {
-                  return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
-                    active ? 'bg-gray-800' : 'bg-gray-900'
+                className={({ active, selected }) => {
+                  return `border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ${
+                    selected ? 'bg-gray-600' : active ? 'bg-gray-800' : 'bg-gray-900'
                   }`;
                 }}
               >
@@ -126,16 +126,11 @@ export default function SelectBox({
                   <>
                     <span
                       className={`block truncate ${
-                        selected ? 'font-medium' : 'font-normal'
+                        selected ? 'font-bold' : 'font-normal'
                       }`}
                     >
                       {option}
                     </span>
-                    {selected && (
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-200">
-                        <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
-                      </span>
-                    )}
                   </>
                 )}
               </Listbox.Option>
