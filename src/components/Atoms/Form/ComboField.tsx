@@ -4,7 +4,7 @@ import { FieldHookConfig, useField } from 'formik';
 import { Combobox } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faCaretDown, faCheck, faSort } from '@fortawesome/free-solid-svg-icons';
 
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -69,7 +69,7 @@ export default function ComboField(props: ComboFieldProps) {
   ) : (
     <FontAwesomeIcon
       key="icon"
-      icon={faCaretDown}
+      icon={faSort}
       className={`w-4 text-gray-faded/30 ${
         disabledVisual || 'group-hover:cursor-pointer group-hover:text-gray-500'
       }`}
@@ -100,7 +100,7 @@ export default function ComboField(props: ComboFieldProps) {
           disabled={disabledVisual}
         >
           <Combobox.Input
-            className={`input-base group min-h-[1em] w-full py-1.5 px-3 ${
+            className={`ui-open:bg-gray-700 ui-not-open:bg-gray-900 input-base group min-h-[1em] w-full py-1.5 px-3 ${
               errorText ? 'border-error' : 'border-normal'
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
             onChange={(event) => setQuery(event.target.value)}
@@ -110,7 +110,7 @@ export default function ComboField(props: ComboFieldProps) {
             {icon}
           </Combobox.Button>
           <Combobox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto py-1 shadow-md`}
+            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto py-3 p-0 shadow-md rounded-md`}
           >
             {allowCustom && query.length > 0 && (
               <Combobox.Option
@@ -130,11 +130,6 @@ export default function ComboField(props: ComboFieldProps) {
                     >
                       Add &#34;{query}&#34;
                     </span>
-                    {selected && (
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-200">
-                        <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
-                      </span>
-                    )}
                   </>
                 )}
               </Combobox.Option>
@@ -150,28 +145,18 @@ export default function ComboField(props: ComboFieldProps) {
                 <Combobox.Option
                   key={option}
                   value={option}
-                  className={({ active }) => {
-                    return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
-                      active ? 'bg-gray-800' : 'bg-gray-900'
-                    }`;
-                  }}
+                  className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
+                  // className={({ active, selected }) => {
+                  //   return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
+                  //     active ? 'bg-gray-800' : 'bg-gray-900'
+                  //   }`;
+                  // }}
                 >
-                  {({ selected }) => (
-                    <>
-                      <span
-                        className={`block truncate ${
-                          selected ? 'font-medium' : 'font-normal'
-                        }`}
-                      >
-                        {option}
-                      </span>
-                      {selected && (
-                        <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-200">
-                          <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
-                        </span>
-                      )}
-                    </>
-                  )}
+                  <span
+                    className="block truncate"
+                  >
+                    {option}
+                  </span>
                 </Combobox.Option>
               ))
             )}
