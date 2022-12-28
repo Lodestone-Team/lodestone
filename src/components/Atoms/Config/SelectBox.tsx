@@ -95,7 +95,7 @@ export default function SelectBox({
       key="icon"
       icon={faTrashAlt}
       className={
-        'w-4 text-white/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
+        'w-4 text-gray-faded/30 cursor-pointer hover:text-gray-500'
       }
     />
   );
@@ -152,7 +152,7 @@ export default function SelectBox({
                       >
                         {option}
                       </span>
-                      <div onClick={itemAction} className="right-3 absolute cursor-pointer">{active && itemActionIcon}</div>
+                      <div onClick={itemAction} className="right-3 absolute">{active && itemActionIcon}</div>
                     </div>
                 )}
               </Listbox.Option>
