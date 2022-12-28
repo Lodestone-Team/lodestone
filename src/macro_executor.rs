@@ -69,7 +69,7 @@ pub fn resolve_macro_invocation(
             return Some(index_js);
         }
     } else if !is_in_game {
-        return resolve_macro_invocation(&path_to_macro.join("in_game"), macro_name, false);
+        return resolve_macro_invocation(&path_to_macro.join("in_game"), macro_name, true);
     };
     None
 }
@@ -161,7 +161,12 @@ impl ModuleLoader for TypescriptModuleLoader {
 
 pub struct ExecutionInstruction {
     pub runtime: Box<
-        dyn Fn(String, String, Vec<String>, bool) -> (deno_runtime::worker::MainWorker, PathBuf)
+        dyn Fn(
+                String,
+                String,
+                Vec<String>,
+                bool,
+            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
             + Send,
     >,
     pub name: String,
@@ -229,19 +234,31 @@ impl MacroExecutor {
                                     instance_uuid,
                                 } = exec_instruction;
                                 let executor = executor.unwrap_or_default();
-                                // inject exectuor into the js runtime
                                 let (mut runtime, path_to_main_module) =
-                                    runtime(name, executor, args, is_in_game);
+                                    match runtime(name, executor, args, is_in_game) {
+                                        Ok((runtime, path_to_main_module)) => {
+                                            (runtime, path_to_main_module)
+                                        }
+                                        Err(e) => {
+                                            error!("Error creating runtime: {}", e);
+                                            continue;
+                                        }
+                                    };
                                 let isolate_handle =
                                     runtime.js_runtime.v8_isolate().thread_safe_handle();
                                 let handle = tokio::task::spawn_local({
                                     let event_broadcaster = event_broadcaster.clone();
                                     let process_id = process_id.clone();
                                     async move {
-                                        let main_module = deno_core::resolve_path(
+                                        let main_module = match deno_core::resolve_path(
                                             &path_to_main_module.to_string_lossy(),
-                                        )
-                                        .unwrap();
+                                        ) {
+                                            Ok(v) => v,
+                                            Err(e) => {
+                                                error!("Error resolving main module: {}", e);
+                                                return;
+                                            }
+                                        };
 
                                         let _ = runtime
                                             .execute_main_module(&main_module)
@@ -308,8 +325,6 @@ impl MacroExecutor {
     }
 
     /// abort a macro execution
-    ///
-    /// Note that if a macro is blocking the executor, it will not be aborted
     pub async fn abort_macro(&self, pid: &usize) -> Result<(), Error> {
         self.macro_process_table
             .lock()
@@ -346,10 +361,13 @@ impl MacroExecutor {
                 false
             }
             _ = {
-                async {loop {
+                async {
+                    loop {
                     let event = rx.recv().await.unwrap();
-                    if event.macro_pid == macro_pid {
-                        break;
+                    if let MacroEventInner::MacroStopped = event.macro_event_inner {
+                        if event.macro_pid == macro_pid {
+                            break;
+                        }
                     }
                 }
             }} => {
@@ -375,9 +393,119 @@ impl Default for MacroExecutor {
 }
 
 mod tests {
+    use std::{path::PathBuf, rc::Rc};
+
+    use crate::{types::InstanceUuid, Error};
+
+    use super::{resolve_macro_invocation, TypescriptModuleLoader};
+
     #[tokio::test]
     async fn test_macro_executor() {
         // construct a macro executor
         let executor = super::MacroExecutor::new();
+
+        // create a temp directory
+        let path_to_macros = tempdir::TempDir::new("macro_executor_test")
+            .unwrap()
+            .into_path();
+        // create test js file
+
+        let runtime = Box::new({
+            let path_to_macros = path_to_macros.clone();
+            move |macro_name: String,
+                  _executor: String,
+                  args: Vec<String>,
+                  is_in_game: bool|
+                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
+                let path_to_main_module =
+                    resolve_macro_invocation(&path_to_macros, &macro_name, is_in_game)
+                        .expect("Failed to resolve macro invocation");
+
+                let bootstrap_options = deno_runtime::BootstrapOptions {
+                    args,
+                    ..Default::default()
+                };
+
+                let mut worker_options = deno_runtime::worker::WorkerOptions {
+                    bootstrap: bootstrap_options,
+                    ..Default::default()
+                };
+
+                worker_options.module_loader = Rc::new(TypescriptModuleLoader);
+                let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
+                    .expect("Failed to resolve path");
+                // todo(CheatCod3) : limit the permissions
+                let permissions = deno_runtime::permissions::Permissions::allow_all();
+                let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
+                    main_module,
+                    permissions,
+                    worker_options,
+                );
+
+                Ok((worker, path_to_main_module))
+            }
+        });
+
+        let path_to_basic_js = path_to_macros.join("basic.js");
+
+        std::fs::write(path_to_basic_js, "console.log('hello world')").unwrap();
+
+        let instruction = super::ExecutionInstruction {
+            runtime: runtime.clone(),
+            name: "basic".to_owned(),
+            args: vec![],
+            executor: None,
+            is_in_game: false,
+            instance_uuid: InstanceUuid::default(),
+        };
+        executor.spawn(instruction);
+
+
+        let path_to_loop_js = path_to_macros.join("loop.js");
+
+        std::fs::write(
+            path_to_loop_js,
+            "
+            console.log('starting loop');
+            for (let i = 0; i < 1000; i++) {
+                // await new Promise(r => setTimeout(r, 0));
+                console.log(i);
+            }",
+        )
+        .unwrap();
+
+        for _ in 0..1000 {
+            tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.1)).await;
+            let instruction = super::ExecutionInstruction {
+                runtime: runtime.clone(),
+                name: "loop".to_owned(),
+                args: vec![],
+                executor: None,
+                is_in_game: false,
+                instance_uuid: InstanceUuid::default(),
+            };
+            executor.spawn(instruction);
+        }
+
+        // let pid = executor.spawn(instruction);
+
+        // tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.01)).await;
+
+        // executor.abort_macro(&pid).await.unwrap();
+
+        // tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.001)).await;
+
+        // let instruction = super::ExecutionInstruction {
+        //     runtime: runtime.clone(),
+        //     name: "loop".to_owned(),
+        //     args: vec![],
+        //     executor: None,
+        //     is_in_game: false,
+        //     instance_uuid: InstanceUuid::default(),
+        // };
+        // executor.spawn(instruction);
+        // println!("{}", executor.wait_with_timeout(1, Some(1.0)).await);
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
     }
 }

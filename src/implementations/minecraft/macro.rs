@@ -123,7 +123,12 @@ impl MinecraftInstance {
     pub fn macro_std(
         &self,
     ) -> Box<
-        dyn Fn(String, String, Vec<String>, bool) -> (deno_runtime::worker::MainWorker, PathBuf)
+        dyn Fn(
+                String,
+                String,
+                Vec<String>,
+                bool,
+            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
             + Send,
     > {
         Box::new({
@@ -133,13 +138,16 @@ impl MinecraftInstance {
                   executor: String,
                   args: Vec<String>,
                   is_in_game: bool|
-                  -> (deno_runtime::worker::MainWorker, PathBuf) {
+                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
                 let path_to_main_module = macro_executor::resolve_macro_invocation(
                     &path_to_macros,
                     &macro_name,
                     is_in_game,
                 )
-                .expect("Failed to resolve macro invocation");
+                .ok_or_else(|| Error {
+                    inner: ErrorInner::MacroNotFound,
+                    detail: "Macro not found".to_string(),
+                })?;
 
                 let bootstrap_options = deno_runtime::BootstrapOptions {
                     args,
@@ -169,7 +177,10 @@ impl MinecraftInstance {
                 worker_options.extensions.push(ext);
                 worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader);
                 let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
-                    .expect("Failed to resolve path");
+                    .map_err(|_| Error {
+                        inner: ErrorInner::MacroNotFound,
+                        detail: "Deno failed to resolve main module".to_string(),
+                    })?;
                 // todo(CheatCod3) : limit the permissions
                 let permissions = deno_runtime::permissions::Permissions::allow_all();
                 let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
@@ -187,7 +198,7 @@ impl MinecraftInstance {
                         format!("const executor = \"{}\";", executor).as_str(),
                     )
                     .expect("Failed to inject executor");
-                (worker, path_to_main_module)
+                Ok((worker, path_to_main_module))
             }
         })
     }
