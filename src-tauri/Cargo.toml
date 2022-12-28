@@ -21,7 +21,7 @@ tauri = { version = "1.1.1", features = ["api-all", "devtools"] }
 tauri-plugin-localhost = "0.1.0"
 portpicker = "0.1"
 lodestone_client = {git = "https://github.com/Lodestone-Team/client", branch = "0.4.0"}
-tokio = { version = "1.21.2", features = ["macros", "rt"] }
+tokio = { version = "1.21.1", features = ["macros", "rt"] }
 
 [features]
 # by default Tauri runs in production mode
