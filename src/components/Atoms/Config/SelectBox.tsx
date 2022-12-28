@@ -127,7 +127,7 @@ export default function SelectBox({
           disabled={disabled || isLoading}
         >
           <Listbox.Button
-            className={`ui-open:bg-gray-700 input-base group w-full ${
+            className={`ui-open:bg-gray-700 ui-not-open:bg-gray-900 input-base group w-full ${
               errorText ? 'border-error' : 'border-normal'
             }`}
           >
@@ -143,7 +143,7 @@ export default function SelectBox({
               <Listbox.Option
                 key={option}
                 value={option}
-                className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-bold ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
+                className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
               >
                 {({ active }) => (
                     <div className="flex flex-row justify-between">
