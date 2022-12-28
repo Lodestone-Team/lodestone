@@ -1,7 +1,7 @@
 use axum::{
     extract::Path,
     routing::{get, put},
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::AuthBearer;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ pub enum InstanceSetting {
 }
 
 pub async fn get_instance_setting(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, key)): Path<(InstanceUuid, InstanceSetting)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -79,7 +79,7 @@ pub async fn get_instance_setting(
 }
 
 pub async fn set_instance_setting(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, key)): Path<(InstanceUuid, InstanceSetting)>,
     AuthBearer(token): AuthBearer,
     Json(value): Json<Value>,
@@ -178,7 +178,7 @@ pub async fn set_instance_setting(
 }
 
 pub async fn get_game_setting(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, key)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
@@ -206,7 +206,7 @@ pub async fn get_game_setting(
 }
 
 pub async fn set_game_setting(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, key)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
     Json(value): Json<String>,
@@ -241,7 +241,7 @@ pub async fn set_game_setting(
 }
 
 pub async fn change_version(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, new_version)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -274,7 +274,7 @@ pub async fn change_version(
     Ok(Json(()))
 }
 
-pub fn get_instance_config_routes() -> Router {
+pub fn get_instance_config_routes(state : AppState) -> Router {
     Router::new()
         .route(
             "/instance/:uuid/:key",
@@ -285,4 +285,5 @@ pub fn get_instance_config_routes() -> Router {
             get(get_game_setting).put(set_game_setting),
         )
         .route("/instance/:uuid/version/:new_version", put(change_version))
+        .with_state(state)
 }

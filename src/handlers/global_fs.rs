@@ -5,7 +5,7 @@ use axum::{
     extract::{Multipart, Path},
     http,
     routing::{delete, get, put},
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::AuthBearer;
 
@@ -81,7 +81,7 @@ impl From<&std::path::Path> for File {
 }
 
 async fn list_files(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
@@ -133,7 +133,7 @@ async fn list_files(
 }
 
 async fn read_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
@@ -182,7 +182,7 @@ async fn read_file(
 }
 
 async fn write_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
     body: Bytes,
@@ -233,7 +233,7 @@ async fn write_file(
 }
 
 async fn make_directory(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -283,7 +283,7 @@ async fn make_directory(
 }
 
 async fn remove_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -338,7 +338,7 @@ async fn remove_file(
 }
 
 async fn remove_dir(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -395,7 +395,7 @@ async fn remove_dir(
 }
 
 async fn new_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -446,7 +446,7 @@ async fn new_file(
 }
 
 async fn download_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
@@ -501,7 +501,7 @@ async fn download_file(
 }
 
 async fn upload_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     headers: HeaderMap,
     AuthBearer(token): AuthBearer,
@@ -680,7 +680,7 @@ async fn upload_file(
 }
 
 async fn download(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(key): Path<String>,
 ) -> Result<
     (
@@ -729,7 +729,7 @@ async fn download(
     }
 }
 
-pub fn get_global_fs_routes() -> Router {
+pub fn get_global_fs_routes(state : AppState) -> Router {
     Router::new()
         .route("/fs/:base64_absolute_path/ls", get(list_files))
         .route("/fs/:base64_absolute_path/read", get(read_file))
@@ -741,4 +741,5 @@ pub fn get_global_fs_routes() -> Router {
         .route("/fs/:base64_absolute_path/download", get(download_file))
         .route("/fs/:base64_absolute_path/upload", put(upload_file))
         .route("/file/:key", get(download))
+        .with_state(state)
 }

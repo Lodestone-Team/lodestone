@@ -1,13 +1,13 @@
 use axum::{
     routing::{get, put},
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::AuthBearer;
 
 use crate::{traits::ErrorInner, AppState, Error, GlobalSettingsData};
 
 pub async fn get_core_settings(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<GlobalSettingsData>, Error> {
     state
@@ -24,7 +24,7 @@ pub async fn get_core_settings(
 }
 
 pub async fn change_core_name(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Json(new_name): Json<String>,
 ) -> Result<(), Error> {
@@ -65,7 +65,7 @@ pub async fn change_core_name(
 }
 
 pub async fn change_core_safe_mode(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Json(safe_mode): Json<bool>,
 ) -> Result<(), Error> {
@@ -94,7 +94,7 @@ pub async fn change_core_safe_mode(
 }
 
 pub async fn change_domain(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Json(new_domain): Json<String>,
 ) -> Result<(), Error> {
@@ -134,10 +134,11 @@ pub async fn change_domain(
     Ok(())
 }
 
-pub fn get_global_settings_routes() -> Router {
+pub fn get_global_settings_routes(state : AppState) -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
         .route("/global_settings/name", put(change_core_name))
         .route("/global_settings/safe_mode", put(change_core_safe_mode))
         .route("/global_settings/domain", put(change_domain))
+        .with_state(state)
 }

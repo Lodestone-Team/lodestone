@@ -4,7 +4,7 @@ use axum::{
     extract::{ws::WebSocket, Path, Query, WebSocketUpgrade},
     response::Response,
     routing::get,
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::AuthBearer;
 
@@ -89,7 +89,7 @@ pub struct EventQueryWrapper {
 }
 
 pub async fn get_event_buffer(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     query: Query<EventQueryWrapper>,
 ) -> Result<Json<Vec<Event>>, Error> {
@@ -125,7 +125,7 @@ pub async fn get_event_buffer(
 }
 
 pub async fn get_console_buffer(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<Vec<Event>>, Error> {
@@ -165,7 +165,7 @@ pub struct WebsocketQuery {
 
 pub async fn event_stream(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     query: Query<EventQueryWrapper>,
 ) -> Result<Response, Error> {
     let query: EventQuery = serde_json::from_str(query.filter.as_str()).map_err(|e| {
@@ -235,7 +235,7 @@ async fn event_stream_ws(
 
 pub async fn console_stream(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     query: Query<WebsocketQuery>,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Response, Error> {
@@ -311,10 +311,11 @@ async fn console_stream_ws(
     }
 }
 
-pub fn get_events_routes() -> Router {
+pub fn get_events_routes(state : AppState) -> Router {
     Router::new()
         .route("/events/:uuid/stream", get(event_stream))
         .route("/events/:uuid/buffer", get(get_event_buffer))
         .route("/instance/:uuid/console/stream", get(console_stream))
         .route("/instance/:uuid/console/buffer", get(get_console_buffer))
+        .with_state(state)
 }

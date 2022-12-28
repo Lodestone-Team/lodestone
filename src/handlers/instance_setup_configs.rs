@@ -43,4 +43,5 @@ pub fn get_instance_setup_config_routes() -> Router {
             "/games/minecraft/flavours/:flavour/versions",
             get(get_minecraft_versions),
         )
+        .with_state(())
 }

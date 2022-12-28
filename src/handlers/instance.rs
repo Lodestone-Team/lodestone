@@ -1,6 +1,6 @@
 use axum::routing::{delete, get, post};
 use axum::Router;
-use axum::{extract::Path, Extension, Json};
+use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
 use log::info;
@@ -26,7 +26,7 @@ use crate::{
 };
 
 pub async fn get_instance_list(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<InstanceInfo>>, Error> {
     let requester = state
@@ -54,7 +54,7 @@ pub async fn get_instance_list(
 
 pub async fn get_instance_info(
     Path(uuid): Path<InstanceUuid>,
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<InstanceInfo>, Error> {
     let requester = state
@@ -132,7 +132,7 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
     }
 }
 pub async fn create_minecraft_instance(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
 ) -> Result<Json<InstanceUuid>, Error> {
@@ -282,7 +282,7 @@ pub async fn create_minecraft_instance(
 }
 
 pub async fn delete_instance(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -414,10 +414,11 @@ pub async fn delete_instance(
     }
 }
 
-pub fn get_instance_routes() -> Router {
+pub fn get_instance_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/list", get(get_instance_list))
         .route("/instance/minecraft", post(create_minecraft_instance))
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))
+        .with_state(state)
 }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{extract::Path, routing::get, Json, Router};
 
 use crate::{
     traits::{
@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub async fn get_player_count(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
     state
@@ -30,7 +30,7 @@ pub async fn get_player_count(
 }
 
 pub async fn get_max_player_count(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
     state
@@ -48,7 +48,7 @@ pub async fn get_max_player_count(
 }
 
 pub async fn set_max_player_count(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     Json(count): Json<u32>,
 ) -> Result<Json<()>, Error> {
@@ -67,7 +67,7 @@ pub async fn set_max_player_count(
 }
 
 pub async fn get_player_list(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<HashSet<Player>>, Error> {
     state
@@ -84,7 +84,7 @@ pub async fn get_player_list(
         .map(Json)
 }
 
-pub fn get_instance_players_routes() -> Router {
+pub fn get_instance_players_routes(state : AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/players/count", get(get_player_count))
         .route(
@@ -92,4 +92,5 @@ pub fn get_instance_players_routes() -> Router {
             get(get_max_player_count).put(set_max_player_count),
         )
         .route("/instance/:uuid/players", get(get_player_list))
+        .with_state(state)
 }

@@ -17,7 +17,7 @@ use crate::{
     util::{download_file, rand_alphanumeric},
 };
 use auth::user::UsersManager;
-use axum::{Extension, Router};
+use axum::Router;
 use events::{CausedBy, Event};
 use global_settings::GlobalSettings;
 use implementations::minecraft;
@@ -332,24 +332,23 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                 let trace = TraceLayer::new_for_http();
 
                 let api_routes = Router::new()
-                    .merge(get_events_routes())
+                    .merge(get_events_routes(shared_state.clone()))
                     .merge(get_instance_setup_config_routes())
-                    .merge(get_instance_manifest_routes())
-                    .merge(get_instance_server_routes())
-                    .merge(get_instance_config_routes())
-                    .merge(get_instance_players_routes())
-                    .merge(get_instance_routes())
-                    .merge(get_system_routes())
-                    .merge(get_checks_routes())
-                    .merge(get_user_routes())
-                    .merge(get_core_info_routes())
-                    .merge(get_setup_route())
-                    .merge(get_monitor_routes())
-                    .merge(get_instance_macro_routes())
-                    .merge(get_instance_fs_routes())
-                    .merge(get_global_fs_routes())
-                    .merge(get_global_settings_routes())
-                    .layer(Extension(shared_state.clone()))
+                    .merge(get_instance_manifest_routes(shared_state.clone()))
+                    .merge(get_instance_server_routes(shared_state.clone()))
+                    .merge(get_instance_config_routes(shared_state.clone()))
+                    .merge(get_instance_players_routes(shared_state.clone()))
+                    .merge(get_instance_routes(shared_state.clone()))
+                    .merge(get_system_routes(shared_state.clone()))
+                    .merge(get_checks_routes(shared_state.clone()))
+                    .merge(get_user_routes(shared_state.clone()))
+                    .merge(get_core_info_routes(shared_state.clone()))
+                    .merge(get_setup_route(shared_state.clone()))
+                    .merge(get_monitor_routes(shared_state.clone()))
+                    .merge(get_instance_macro_routes(shared_state.clone()))
+                    .merge(get_instance_fs_routes(shared_state.clone()))
+                    .merge(get_global_fs_routes(shared_state.clone()))
+                    .merge(get_global_settings_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);

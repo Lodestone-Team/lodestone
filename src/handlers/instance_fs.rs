@@ -2,7 +2,7 @@ use axum::{
     body::Bytes,
     extract::{Multipart, Path},
     routing::{delete, get, put},
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::AuthBearer;
 use headers::HeaderMap;
@@ -49,7 +49,7 @@ fn is_file_protected(path: impl AsRef<std::path::Path>) -> bool {
 use super::{global_fs::File, util::decode_base64};
 
 async fn list_instance_files(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
@@ -115,7 +115,7 @@ async fn list_instance_files(
 }
 
 async fn read_instance_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
@@ -170,7 +170,7 @@ async fn read_instance_file(
 }
 
 async fn write_instance_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
     body: Bytes,
@@ -233,7 +233,7 @@ async fn write_instance_file(
 }
 
 async fn make_instance_directory(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -283,7 +283,7 @@ async fn make_instance_directory(
 }
 
 async fn remove_instance_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -357,7 +357,7 @@ async fn remove_instance_file(
 }
 
 async fn remove_instance_dir(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -465,7 +465,7 @@ async fn remove_instance_dir(
 }
 
 async fn new_instance_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
@@ -532,7 +532,7 @@ async fn new_instance_file(
 }
 
 async fn download_instance_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
@@ -597,7 +597,7 @@ async fn download_instance_file(
 }
 
 async fn upload_instance_file(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     headers: HeaderMap,
     AuthBearer(token): AuthBearer,
@@ -804,7 +804,7 @@ async fn upload_instance_file(
     Ok(Json(()))
 }
 
-pub fn get_instance_fs_routes() -> Router {
+pub fn get_instance_fs_routes(state : AppState) -> Router {
     Router::new()
         .route(
             "/instance/:uuid/fs/:base64_relative_path/ls",
@@ -842,4 +842,5 @@ pub fn get_instance_fs_routes() -> Router {
             "/instance/:uuid/fs/:base64_relative_path/upload",
             put(upload_instance_file),
         )
+        .with_state(state)
 }

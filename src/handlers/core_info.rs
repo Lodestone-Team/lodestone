@@ -1,7 +1,7 @@
 use std::env;
 
 use crate::{prelude::VERSION, AppState};
-use axum::{routing::get, Extension, Json, Router};
+use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 
@@ -21,7 +21,7 @@ pub struct CoreInfo {
     up_since: i64,
 }
 
-pub async fn get_core_info(Extension(state): Extension<AppState>) -> Json<CoreInfo> {
+pub async fn get_core_info(axum::extract::State(state): axum::extract::State<AppState>) -> Json<CoreInfo> {
     let sys = System::new_all();
     Json(CoreInfo {
         version: VERSION.with(|v| v.clone()),
@@ -51,6 +51,7 @@ pub async fn get_core_info(Extension(state): Extension<AppState>) -> Json<CoreIn
     })
 }
 
-pub fn get_core_info_routes() -> Router {
+pub fn get_core_info_routes(state : AppState) -> Router {
     Router::new().route("/info", get(get_core_info))
+    .with_state(state)
 }

@@ -4,7 +4,7 @@ use axum::{
     extract::{ws::WebSocket, Path, WebSocketUpgrade},
     response::Response,
     routing::get,
-    Extension, Router,
+    Router,
 };
 use futures::{SinkExt, StreamExt};
 use log::error;
@@ -20,7 +20,7 @@ use crate::{
 
 pub async fn monitor(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Response, Error> {
     let instance = state
@@ -87,6 +87,7 @@ async fn monitor_ws(
     }
 }
 
-pub fn get_monitor_routes() -> Router {
+pub fn get_monitor_routes(state : AppState) -> Router {
     Router::new().route("/monitor/:uuid", get(monitor))
+    .with_state(state)
 }

@@ -1,7 +1,7 @@
 use axum::{
     extract::Path,
     routing::{get, post, put},
-    Extension, Router,
+    Router,
 };
 
 use axum::Json;
@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub async fn start_instance(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -56,7 +56,7 @@ pub async fn start_instance(
 }
 
 pub async fn stop_instance(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -94,7 +94,7 @@ pub async fn stop_instance(
 }
 
 pub async fn kill_instance(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -132,7 +132,7 @@ pub async fn kill_instance(
 }
 
 pub async fn send_command(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
     Json(command): Json<String>,
@@ -171,7 +171,7 @@ pub async fn send_command(
 }
 
 pub async fn get_instance_state(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -205,11 +205,12 @@ pub async fn get_instance_state(
     )))
 }
 
-pub fn get_instance_server_routes() -> Router {
+pub fn get_instance_server_routes(state : AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/start", put(start_instance))
         .route("/instance/:uuid/stop", put(stop_instance))
         .route("/instance/:uuid/kill", put(kill_instance))
         .route("/instance/:uuid/console", post(send_command))
         .route("/instance/:uuid/state", get(get_instance_state))
+        .with_state(state)
 }

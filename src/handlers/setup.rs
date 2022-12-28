@@ -1,5 +1,5 @@
 
-use axum::{extract::Path, Extension, Json, Router};
+use axum::{extract::Path, Json, Router};
 use log::info;
 
 
@@ -21,7 +21,7 @@ pub struct OwnerSetup {
 }
 
 pub async fn setup_owner(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(key): Path<String>,
     Json(owner_setup): Json<OwnerSetup>,
 ) -> Result<Json<LoginReply>, Error> {
@@ -59,6 +59,7 @@ pub async fn setup_owner(
     }
 }
 
-pub fn get_setup_route() -> Router {
+pub fn get_setup_route(state : AppState) -> Router {
     Router::new().route("/setup/:key", axum::routing::post(setup_owner))
+    .with_state(state)
 }

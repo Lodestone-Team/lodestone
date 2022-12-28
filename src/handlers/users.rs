@@ -13,7 +13,7 @@ use crate::{
 use axum::{
     extract::Path,
     routing::{delete, get, post, put},
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::{AuthBasic, AuthBearer};
 
@@ -29,7 +29,7 @@ pub struct NewUser {
 }
 
 pub async fn new_user(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Json(config): Json<NewUser>,
 ) -> Result<Json<LoginReply>, Error> {
@@ -77,7 +77,7 @@ pub async fn new_user(
 }
 
 pub async fn delete_user(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
@@ -116,7 +116,7 @@ pub async fn delete_user(
 }
 
 pub async fn logout(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
@@ -156,7 +156,7 @@ pub async fn logout(
 }
 
 pub async fn update_permissions(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
     Json(new_permissions): Json<UserPermission>,
@@ -184,7 +184,7 @@ pub async fn update_permissions(
 }
 
 pub async fn get_self_info(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<PublicUser>, Error> {
     Ok(Json(
@@ -202,7 +202,7 @@ pub async fn get_self_info(
 }
 
 pub async fn get_user_info(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<PublicUser>, Error> {
@@ -236,7 +236,7 @@ pub struct ChangePasswordConfig {
 }
 
 pub async fn change_password(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Json(config): Json<ChangePasswordConfig>,
 ) -> Result<Json<()>, Error> {
@@ -272,7 +272,7 @@ pub struct LoginReply {
 }
 
 pub async fn login(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBasic((username, password)): AuthBasic,
 ) -> Result<Json<LoginReply>, Error> {
     if let Some(password) = password {
@@ -297,7 +297,7 @@ pub async fn login(
 }
 
 pub async fn get_all_users(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<PublicUser>>, Error> {
     let users_manager = state.users_manager.read().await;
@@ -322,7 +322,7 @@ pub async fn get_all_users(
 }
 
 // return the thing created by Router::new() so we can nest it in main
-pub fn get_user_routes() -> Router {
+pub fn get_user_routes(state : AppState) -> Router {
     Router::new()
         .route("/user/list", get(get_all_users))
         .route("/user", post(new_user))
@@ -333,4 +333,5 @@ pub fn get_user_routes() -> Router {
         .route("/user/password", put(change_password))
         .route("/user/login", post(login))
         .route("/user/logout/:uid", post(logout))
+        .with_state(state)
 }
