@@ -15,7 +15,6 @@ pub struct ClientEvent {
     pub event_inner: EventInner,
     pub details: String,
     pub snowflake: Snowflake,
-    pub snowflake_str: String,
     pub level: EventLevel,
     pub caused_by: CausedBy,
 }
@@ -51,7 +50,6 @@ impl From<&Event> for ClientEvent {
             event_inner: event.event_inner.clone(),
             details: event.details.clone(),
             snowflake: event.snowflake,
-            snowflake_str: event.snowflake.to_string(),
             level,
             caused_by: event.caused_by.clone(),
         }
