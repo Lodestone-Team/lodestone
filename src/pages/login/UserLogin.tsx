@@ -9,7 +9,7 @@ import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { DISABLE_AUTOFILL, loginToCore } from 'utils/util';
 
-type LoginValues = {
+export type LoginValues = {
   username: string;
   password: string;
 };
@@ -37,7 +37,7 @@ const UserLogin = () => {
     actions: FormikHelpers<LoginValues>
   ) => {
     // login using basic auth
-    loginToCore(values.password, values.username)
+    loginToCore(values)
       .then((response) => {
         if (!response) {
           // this should never end

@@ -8,6 +8,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { Base64 } from 'js-base64';
 import React from 'react';
 import { LoginReply } from 'bindings/LoginReply';
+import { LoginValues } from 'pages/login/UserLogin';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
@@ -503,8 +504,7 @@ export function useCombinedRefs<T>(...refs: any[]) {
  * @throws string
  */
 export async function loginToCore(
-  username: string,
-  password: string
+  loginValue : LoginValues
 ): Promise<LoginReply | undefined> {
   try {
     return await axios
@@ -513,8 +513,8 @@ export async function loginToCore(
         {},
         {
           auth: {
-            username,
-            password,
+            username : loginValue.username,
+            password : loginValue.password,
           },
         }
       )
