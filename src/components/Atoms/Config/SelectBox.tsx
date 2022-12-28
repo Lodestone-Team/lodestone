@@ -4,7 +4,6 @@ import { Listbox } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
-import { pass } from 'variant';
 
 export default function SelectBox({
   label,
@@ -101,7 +100,7 @@ export default function SelectBox({
   );
 
   function itemAction() {
-    pass
+    // pass
   }
 
   return (
