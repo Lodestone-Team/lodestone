@@ -129,7 +129,7 @@ export default function TopNav() {
                 {({ active, disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
-                    label={userState === 'logged-in' ? 'Sign in' : 'SIgn out'}
+                    label={userState === 'logged-in' ? 'Sign out' : 'Sign in'}
                     loading={userState === 'loading'}
                     iconRight={faRightFromBracket}
                     onClick={() => {
