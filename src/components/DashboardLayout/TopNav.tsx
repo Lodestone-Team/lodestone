@@ -10,7 +10,7 @@ import {
   faRightFromBracket,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Menu, Transition } from '@headlessui/react';
+import { Menu, Popover, Transition } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
@@ -20,13 +20,14 @@ import Avatar from 'components/Atoms/Avatar';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
-export default function TopNav({
-  showNotifications,
-  setShowNotifications,
-}: {
-  showNotifications: boolean;
-  setShowNotifications: (show: boolean) => void;
-}) {
+export default function TopNav() {
+  //   {
+  //   showNotifications,
+  //   setShowNotifications,
+  // }: {
+  //   showNotifications: boolean;
+  //   setShowNotifications: (show: boolean) => void;
+  // }
   const { setPathname } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
@@ -91,14 +92,11 @@ export default function TopNav({
         className="w-4 select-none text-white/50 hover:cursor-pointer hover:text-white/75"
         onClick={() => setPathname('/settings')}
       />
-      <FontAwesomeIcon
+      <Popover.Button
+        as={FontAwesomeIcon}
         icon={faBell}
-        className={`w-4 select-none hover:cursor-pointer ${
-          showNotifications
-            ? 'text-gray-300 hover:text-white/75'
-            : 'text-white/50 hover:text-white/75'
-        }`}
-        onClick={() => setShowNotifications(!showNotifications)}
+        className="w-4 select-none hover:cursor-pointer hover:text-white/75 ui-open:text-gray-300 ui-not-open:text-white/50"
+        // onClick={() => setShowNotifications(!showNotifications)}
       />
       <Menu as="div" className="relative inline-block text-left">
         <Menu.Button

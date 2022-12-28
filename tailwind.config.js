@@ -103,5 +103,6 @@ module.exports = {
       addVariant('child', '& > *');
     },
     require('@tailwindcss/container-queries'),
+    require('@headlessui/tailwindcss')({ prefix: 'ui' }),
   ],
 };

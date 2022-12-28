@@ -11,24 +11,26 @@ import { useInstanceList } from 'data/InstanceList';
 import { useQueryParam } from 'utils/hooks';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import NotificationPanel from './NotificationPanel';
-import { useUserLoggedIn } from 'data/UserInfo';
+import { useUserInfo, useUserLoggedIn } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Outlet } from 'react-router-dom';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { Popover } from '@headlessui/react';
 
 export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
   const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
   const userLoggedIn = useUserLoggedIn();
   const { data: dataInstances } = useInstanceList(userLoggedIn);
+  const { data: userInfo } = useUserInfo();
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
   );
-  const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
-  const [showNotifications, setShowNotifications] = useLocalStorage(
-    'showNotifications',
-    false
-  );
+  const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 480);
+  // const [showNotifications, setShowNotifications] = useLocalStorage(
+  //   'showNotifications',
+  //   false
+  // );
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const { width, height } = useWindowSize();
 
@@ -80,12 +82,12 @@ export default function DashboardLayout() {
       >
         This core is not setup yet. Please complete the setup process.
       </ConfirmDialog>
-      <div className="flex h-screen flex-col">
+      <Popover className="relative flex h-screen flex-col">
         <TopNav
-          showNotifications={showNotifications}
-          setShowNotifications={setShowNotifications}
+        // showNotifications={showNotifications}
+        // setShowNotifications={setShowNotifications}
         />
-        <div className="relative flex min-h-0 w-full grow flex-row bg-gray-850">
+        <div className="flex min-h-0 w-full grow flex-row bg-gray-850">
           <div className="flex grow flex-row justify-center gap-[1vw]">
             <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
               <div className="h-full w-[16rem] max-w-[16rem] child:h-full">
@@ -98,31 +100,37 @@ export default function DashboardLayout() {
               </div>
             </div>
           </div>
-          {showNotifications &&
-            (width > 1280 ? (
-              <ResizePanel
-                direction="w"
-                maxSize={500}
-                minSize={200}
-                size={rightNavSize}
-                validateSize={false}
-                onResize={setRightNavSize}
-                containerClassNames="min-h-0"
-              >
-                <NotificationPanel />
-              </ResizePanel>
-            ) : (
-              <div
-                className="absolute right-2 -top-2 h-full w-96 rounded-lg drop-shadow-lg child:h-full"
-                style={{
-                  width: rightNavSize,
-                }}
-              >
-                <NotificationPanel className="rounded-lg border" />
-              </div>
-            ))}
+          {/* {showNotifications &&
+              (width > 1280 ? (
+                <ResizePanel
+                  direction="w"
+                  maxSize={700}
+                  minSize={300}
+                  size={rightNavSize}
+                  validateSize={false}
+                  onResize={setRightNavSize}
+                  containerClassNames="min-h-0"
+                >
+                  <NotificationPanel />
+                </ResizePanel>
+              ) : ( */}
+          <div className="absolute right-[5.25rem] top-10 flex h-[80vh] flex-row">
+            <Popover.Panel
+              className="h-full rounded-lg drop-shadow-lg child:h-full"
+              style={{
+                width: rightNavSize,
+              }}
+            >
+              <NotificationPanel className="rounded-lg border" />
+            </Popover.Panel>
+            {/* very scuff way to align the notification panel with icon */}
+            <div className="opacity-none pointer-events-none -z-10 select-none">
+              Hi, {userInfo?.username ?? '...'}
+            </div>
+          </div>
+          {/* ))} */}
         </div>
-      </div>
+      </Popover>
     </InstanceContext.Provider>
   );
 }
