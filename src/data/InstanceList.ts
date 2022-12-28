@@ -7,7 +7,7 @@ export const updateInstance = (
   queryClient: QueryClient,
   updater: (oldInfo: InstanceInfo) => InstanceInfo
 ) => {
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;
@@ -24,7 +24,7 @@ export const addInstance = (
   instanceInfo: InstanceInfo,
   queryClient: QueryClient
 ) => {
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;
@@ -37,7 +37,7 @@ export const addInstance = (
 };
 
 export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;

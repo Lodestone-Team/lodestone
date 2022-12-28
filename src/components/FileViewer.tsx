@@ -509,7 +509,7 @@ export default function FileViewer() {
                     actions.setErrors({ name: error });
                     actions.setSubmitting(false);
                   } else {
-                    queryClient.setQueriesData(
+                    queryClient.setQueryData(
                       ['instance', instance.uuid, 'fileList', path],
                       fileList
                         ? [
@@ -591,7 +591,7 @@ export default function FileViewer() {
                     actions.setErrors({ name: error });
                     actions.setSubmitting(false);
                   } else {
-                    queryClient.setQueriesData(
+                    queryClient.setQueryData(
                       ['instance', instance.uuid, 'fileList', path],
                       fileList
                         ? [

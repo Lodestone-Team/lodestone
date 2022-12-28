@@ -290,8 +290,8 @@ export const formatBytes = (bytes: number, decimals = 2) => {
 export const LODESTONE_EPOCH = BigInt('1667530800000');
 
 // get the timestamp from a snowflake (bitint)
-export const getSnowflakeTimestamp = (snowflake_str: string) => {
-  const snowflakeBigInt = BigInt(snowflake_str);
+export const getSnowflakeTimestamp = (snowflake: string) => {
+  const snowflakeBigInt = BigInt(snowflake);
   return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
 };
 
@@ -314,7 +314,7 @@ export const saveInstanceFile = async (
     alert(error);
     return;
   }
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instance', uuid, 'fileContent', file.path],
     content
   );
@@ -330,7 +330,7 @@ export const saveInstanceFile = async (
       };
     return f;
   });
-  queryClient.setQueriesData(fileListKey, newFileList);
+  queryClient.setQueryData(fileListKey, newFileList);
 };
 
 export const deleteInstanceFile = async (
@@ -354,7 +354,7 @@ export const deleteInstanceFile = async (
   const fileListKey = ['instance', uuid, 'fileList', directory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
   if (!fileList) return;
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     fileListKey,
     fileList?.filter((f) => f.path !== file.path)
   );
@@ -379,7 +379,7 @@ export const deleteInstanceDirectory = async (
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     fileListKey,
     fileList?.filter((file) => file.path !== directory)
   );

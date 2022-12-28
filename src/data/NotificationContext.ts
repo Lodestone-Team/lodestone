@@ -71,8 +71,8 @@ export const useNotificationReducer = () => {
     (state: NotificationItem[], action: NotificationAction) =>
       match(action, {
         add: ({ title, message, event }) => {
-          const { snowflake_str: key, level } = event;
-          const timestamp = getSnowflakeTimestamp(event.snowflake_str);
+          const { snowflake: key, level } = event;
+          const timestamp = getSnowflakeTimestamp(event.snowflake);
           if (state.some((item) => item.key === key)) {
             console.warn('Notification with duplicate key received');
             return state;
@@ -93,7 +93,7 @@ export const useNotificationReducer = () => {
 export const useOngoingNotificationReducer = () => {
   const [ongoingNotifications, ongoingDispatch] = useReducer(
     (state: OngoingNotificationItem[], action: OngoingNotificationAction) => {
-      const { snowflake_str: snowflake } = action.event;
+      const { snowflake } = action.event;
       const timestamp = getSnowflakeTimestamp(snowflake);
       const event_inner = action.progressionEvent.progression_event_inner;
       const event_id = action.progressionEvent.event_id;

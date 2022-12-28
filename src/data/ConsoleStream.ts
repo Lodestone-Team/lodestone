@@ -19,7 +19,7 @@ export type ConsoleStreamStatus =
 // simplified version of a ClientEvent with just InstanceOutput
 export type ConsoleEvent = {
   timestamp: number;
-  snowflake_str: string;
+  snowflake: string;
   detail: string;
   uuid: string;
   name: string;
@@ -53,8 +53,8 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
   );
 
   return {
-    timestamp: getSnowflakeTimestamp(event.snowflake_str),
-    snowflake_str: event.snowflake_str,
+    timestamp: getSnowflakeTimestamp(event.snowflake),
+    snowflake: event.snowflake,
     detail: event.details,
     uuid: event_inner.instance_uuid,
     name: event_inner.instance_name,
@@ -105,7 +105,7 @@ export const useConsoleStream = (uuid: string) => {
       return mergedLog.filter(
         (event, index) =>
           mergedLog.findIndex(
-            (e) => e.snowflake_str === event.snowflake_str
+            (e) => e.snowflake === event.snowflake
           ) === index
       );
     });

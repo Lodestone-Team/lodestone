@@ -9,6 +9,8 @@ import { NotificationContext } from './NotificationContext';
 import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
 import { LODESTONE_PORT } from 'utils/util';
+import { UserPermission } from 'bindings/UserPermission';
+import { PublicUser } from 'bindings/PublicUser';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -52,10 +54,25 @@ export const useEventStream = () => {
     },
     [queryClient]
   );
+  const updatePermission = useCallback(
+    (permission: UserPermission) => {
+      queryClient.setQueryData(
+        ['user', 'info'],
+        (oldInfo: PublicUser | undefined) => {
+          if (!oldInfo) return oldInfo;
+          return {
+            ...oldInfo,
+            permissions: permission,
+          };
+        }
+      );
+    },
+    [queryClient]
+  );
 
   const handleEvent = useCallback(
     (event: ClientEvent, fresh: boolean) => {
-      const { event_inner, snowflake_str } = event;
+      const { event_inner, snowflake } = event;
 
       match(event_inner, {
         InstanceEvent: ({
@@ -64,34 +81,18 @@ export const useEventStream = () => {
           instance_name: name,
         }) =>
           match(event_inner, {
-            InstanceStarting: () => {
-              if (fresh) updateInstanceState(uuid, 'Starting');
+            StateTransition: ({ to }) => {
+              if (fresh) updateInstanceState(uuid, to);
               dispatch({
-                title: `Starting instance ${name}`,
-                event,
-                type: 'add',
-              });
-            },
-            InstanceStarted: () => {
-              if (fresh) updateInstanceState(uuid, 'Running');
-              dispatch({
-                title: `Instance ${name} started`,
-                event,
-                type: 'add',
-              });
-            },
-            InstanceStopping: () => {
-              if (fresh) updateInstanceState(uuid, 'Stopping');
-              dispatch({
-                title: `Stopping instance ${name}`,
-                event,
-                type: 'add',
-              });
-            },
-            InstanceStopped: () => {
-              if (fresh) updateInstanceState(uuid, 'Stopped');
-              dispatch({
-                title: `Instance ${name} stopped`,
+                title: `Instance ${name} ${
+                  {
+                    Starting: `is starting`,
+                    Running: `started`,
+                    Stopping: `is stopping`,
+                    Stopped: `stopped`,
+                    Error: `encountered an error`,
+                  }[to]
+                }!`,
                 event,
                 type: 'add',
               });
@@ -128,9 +129,15 @@ export const useEventStream = () => {
               console.log(`${players_joined} joined ${name}`);
               console.log(`${players_left} left ${name}`);
               if (fresh) updateInstancePlayerCount(uuid, player_list.length);
+
+              // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
+              const player_list_names = player_list.map((p) => p.name);
+              const players_joined_names = players_joined.map((p) => p.name);
+              const players_left_names = players_left.map((p) => p.name);
+
               const title = `${
                 players_joined.length > 0
-                  ? `${players_joined.join(', ')} Joined ${name}`
+                  ? `${players_joined_names.join(', ')} Joined ${name}`
                   : ''
               }
               ${
@@ -140,7 +147,7 @@ export const useEventStream = () => {
               }
               ${
                 players_left.length > 0
-                  ? `${players_left.join(', ')} Left ${name}`
+                  ? `${players_left_names.join(', ')} Left ${name}`
                   : ''
               }`;
               dispatch({
@@ -192,33 +199,42 @@ export const useEventStream = () => {
                 type: 'add',
               });
             },
+            PermissionChanged: (permission) => {
+              console.log(`User ${uid} permission changed to ${permission}`);
+              updatePermission(permission);
+              dispatch({
+                title: `User ${uid}'s permission has changed`,
+                event,
+                type: 'add',
+              });
+            },
           }),
         MacroEvent: ({
           instance_uuid: uuid,
-          macro_uuid: macro_id,
+          macro_pid,
           macro_event_inner: event_inner,
         }) =>
           match(event_inner, {
             MacroStarted: () => {
-              console.log(`Macro ${macro_id} started on ${uuid}`);
+              console.log(`Macro ${macro_pid} started on ${uuid}`);
               dispatch({
-                title: `Macro ${macro_id} started on ${uuid}`,
+                title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
                 type: 'add',
               });
             },
             MacroStopped: () => {
-              console.log(`Macro ${macro_id} stopped on ${uuid}`);
+              console.log(`Macro ${macro_pid} stopped on ${uuid}`);
               dispatch({
-                title: `Macro ${macro_id} stopped on ${uuid}`,
+                title: `Macro ${macro_pid} stopped on ${uuid}`,
                 event,
                 type: 'add',
               });
             },
             MacroErrored: ({ error_msg }) => {
-              console.log(`Macro ${macro_id} errored on ${uuid}: ${error_msg}`);
+              console.log(`Macro ${macro_pid} errored on ${uuid}: ${error_msg}`);
               dispatch({
-                title: `Macro ${macro_id} errored on ${uuid}: ${error_msg}`,
+                title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
                 event,
                 type: 'add',
               });
