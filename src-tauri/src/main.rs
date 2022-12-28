@@ -62,7 +62,8 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             is_setup,
             setup_owner_account,
-            get_owner_jwt
+            get_owner_jwt,
+            get_first_time_setup_key
         ])
         .run(context)
         .expect("error while running tauri application");

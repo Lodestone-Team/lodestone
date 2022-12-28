@@ -1,6 +1,6 @@
 import axios from 'axios';
 import Button from 'components/Atoms/Button';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 import InputField from 'components/Atoms/Form/InputField';
@@ -9,6 +9,8 @@ import * as yup from 'yup';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useCoreInfo } from 'data/SystemInfo';
+import { useEffectOnce } from 'usehooks-ts';
+import { useTauri } from 'utils/tauriUtil';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -34,8 +36,22 @@ const CoreSetupNew = () => {
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { data: coreInfo } = useCoreInfo();
   const { setToken, core } = useContext(LodestoneContext);
+  const [setupKey, setSetupKey] = useState<string>('');
   const { address, port } = core;
+  const tauri = useTauri();
   const socket = `${address}:${port}`;
+
+  useEffectOnce(() => {
+    if (!tauri) return;
+    tauri
+      ?.invoke<string | null>('get_first_time_setup_key')
+      .then((setup_key) => {
+        setSetupKey(setup_key ?? '');
+      })
+      .catch((err: any) => {
+        console.log('Tauri call failed get_first_time_setup_key', err);
+      });
+  });
 
   useEffect(() => {
     if (coreInfo?.is_setup) {
@@ -47,7 +63,7 @@ const CoreSetupNew = () => {
     username: '',
     password: '',
     passwordConfirm: '',
-    setupKey: '',
+    setupKey,
   };
 
   const onSubmit = (
@@ -102,8 +118,9 @@ const CoreSetupNew = () => {
           Create an owner&#39;s account
         </h1>
         <h2 className="text-medium font-semibold tracking-medium text-white/50">
-          Check the console output of the core to find the &#34;First time setup
-          key&#34;.
+          {tauri && setupKey
+            ? "Setup key is automatically filled in because you're using the desktop app"
+            : 'Check the console output of the core to find the &#34;First time setup key&#34;.'}
         </h2>
       </div>
       <Formik
@@ -112,6 +129,7 @@ const CoreSetupNew = () => {
         onSubmit={onSubmit}
         validateOnBlur={false}
         validateOnChange={false}
+        enableReinitialize={true}
       >
         {({ isSubmitting }) => (
           <Form
@@ -121,7 +139,12 @@ const CoreSetupNew = () => {
           >
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <InputField type="text" name="username" label="Username" />
-              <InputField type="text" name="setupKey" label="Setup Key" />
+              <InputField
+                type="text"
+                name="setupKey"
+                label="Setup Key"
+                disabled={!!(tauri && setupKey)}
+              />
               <InputField type="password" name="password" label="Password" />
               <InputField
                 type="password"

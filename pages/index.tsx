@@ -148,25 +148,6 @@ export default function App() {
     useOngoingNotificationReducer();
   /* End Notifications */
 
-  /* Start Tauri */
-  useEffectOnce(() => {
-    if (tauri) {
-      console.log('globalTauri', tauri);
-      console.log('globalTauri is defined');
-      tauri
-        ?.invoke('is_setup')
-        .then((isSetup: unknown) => {
-          console.log('globalTauri isSetup', isSetup);
-        })
-        .catch((err: any) => {
-          console.log('globalTauri call failed');
-        });
-    } else {
-      console.log('globalTauri is undefined');
-    }
-  });
-  /* End Tauri */
-
   return (
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider
