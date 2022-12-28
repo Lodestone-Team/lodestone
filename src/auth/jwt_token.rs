@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{Error, traits::ErrorInner};
+use crate::{traits::ErrorInner, Error};
 
 use super::{user::Claim, user_secrets::UserSecret};
 
@@ -32,7 +32,7 @@ impl JwtToken {
     pub fn new(claim: Claim, secret: UserSecret) -> Result<JwtToken, Error> {
         Ok(JwtToken(
             jsonwebtoken::encode(
-                &jsonwebtoken::Header::default(),
+                &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS512),
                 &claim,
                 &jsonwebtoken::EncodingKey::from_secret(secret.as_ref().as_bytes()),
             )
@@ -43,5 +43,3 @@ impl JwtToken {
         ))
     }
 }
-
-

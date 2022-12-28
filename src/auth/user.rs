@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use argon2::{Argon2, PasswordVerifier};
 use jsonwebtoken::{Algorithm, Validation};
+use log::{warn, error};
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::broadcast::Sender};
 use ts_rs::TS;
@@ -25,7 +26,7 @@ pub struct Claim {
     pub uid: UserId,
     pub exp: usize,
 }
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub uid: UserId,
     pub username: String,
@@ -298,6 +299,7 @@ impl UsersManager {
             .len()
             == 0
         {
+            warn!("No user file found, creating a new one");
             self.users = HashMap::new();
         } else {
             let users: HashMap<UserId, User> = serde_json::from_reader(
@@ -549,14 +551,10 @@ impl UsersManager {
         username: impl AsRef<str>,
         password: impl AsRef<str>,
     ) -> Result<JwtToken, Error> {
-        let user = self
-            .users
-            .values()
-            .find(|user| user.username == username.as_ref())
-            .ok_or_else(|| Error {
-                inner: ErrorInner::UserNotFound,
-                detail: "User not found".to_string(),
-            })?;
+        let user = self.get_user_by_username(username).ok_or_else(|| Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Username not found".to_string(),
+        })?;
         Argon2::default()
             .verify_password(
                 password.as_ref().as_bytes(),
@@ -653,8 +651,7 @@ mod tests {
 
         let (tx, _rx) = tokio::sync::broadcast::channel(10);
 
-        let mut users_manager =
-            UsersManager::new(tx, HashMap::new(), temp_dir.join("users.json"));
+        let mut users_manager = UsersManager::new(tx, HashMap::new(), temp_dir.join("users.json"));
 
         assert!(users_manager.get_user_by_username("test_user1").is_none());
 
