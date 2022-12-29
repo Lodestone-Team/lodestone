@@ -113,7 +113,7 @@ pub async fn change_domain(
             detail: "Not authorized to change core domain".to_string(),
         });
     }
-    if new_domain.len() > 32 {
+    if new_domain.len() > 253 {
         return Err(Error {
             inner: ErrorInner::MalformedRequest,
             detail: "Domain too long".to_string(),
