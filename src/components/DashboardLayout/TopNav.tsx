@@ -90,7 +90,10 @@ export default function TopNav({
       <FontAwesomeIcon
         icon={faCog}
         className="w-4 select-none text-white/50 hover:cursor-pointer hover:text-white/75"
-        onClick={() => setPathname('/settings')}
+        onClick={() => {
+          selectInstance(undefined);
+          setPathname('/settings');
+        }}
       />
       <FontAwesomeIcon
         icon={faBell}
@@ -137,9 +140,11 @@ export default function TopNav({
                     onClick={() => {
                       // remove the current token
                       setToken('', socket);
-                      if (userState !== 'logged-in')
+                      if (userState !== 'logged-in') {
                         // redirect to login page
+                        selectInstance(undefined);
                         setPathname('/login/user/select');
+                      }
                     }}
                     variant="text"
                     align="end"
@@ -159,7 +164,10 @@ export default function TopNav({
                     align="end"
                     disabled={disabled}
                     active={active}
-                    onClick={() => setPathname('/login/core/select')}
+                    onClick={() => {
+                      selectInstance(undefined);
+                      setPathname('/login/core/select');
+                    }}
                   />
                 )}
               </Menu.Item>

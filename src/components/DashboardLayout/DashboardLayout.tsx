@@ -19,7 +19,7 @@ import { DEFAULT_LOCAL_CORE, LODESTONE_PORT } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
-  const { setPathname } = useContext(BrowserLocationContext);
+  const { setPathname, location } = useContext(BrowserLocationContext);
   const userLoggedIn = useUserLoggedIn();
   useEventStream();
 
@@ -50,7 +50,7 @@ export default function DashboardLayout() {
     if (instance === undefined) {
       setInstanceState(undefined);
       setQueryUuid('');
-      setPathname('/');
+      if (location.pathname.startsWith('/dashboard')) setPathname('/');
     } else {
       setInstanceState(instance);
       setQueryUuid(instance.uuid);

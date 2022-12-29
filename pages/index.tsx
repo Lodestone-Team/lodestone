@@ -9,7 +9,7 @@ import {
   useNotificationReducer,
   useOngoingNotificationReducer,
 } from 'data/NotificationContext';
-import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
@@ -27,6 +27,7 @@ import UserLogin from 'pages/login/UserLogin';
 import CoreSetupNew from 'pages/login/CoreSetupNew';
 import CoreConfigNew from 'pages/login/CoreConfigNew';
 import LoginLayout from 'components/LoginLayout';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +39,8 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
+  const {location, setSearchParam} = useContext(BrowserLocationContext);
+
   /* Start Core */
   const [address, setAddress] = useLocalStorageQueryParam(
     'address',
@@ -71,6 +74,7 @@ export default function App() {
   const setCore = (c: CoreConnectionInfo) => {
     queryClient.invalidateQueries();
     queryClient.clear();
+    setSearchParam('instance', undefined);
     //TODO: add core to the key of each query instead of invalidating all queries
     setAddress(c.address);
     setPort(c.port.toString());
