@@ -30,7 +30,8 @@ export default function TopNav({
   const { setPathname } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const { token, setToken, core,coreConnectionStatus } = useContext(LodestoneContext);
+  const { token, setToken, core, coreConnectionStatus } =
+    useContext(LodestoneContext);
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { selectInstance } = useContext(InstanceContext);
@@ -103,11 +104,10 @@ export default function TopNav({
       <Menu as="div" className="relative inline-block text-left">
         <Menu.Button
           as={Button}
+          loading={userState === 'loading'}
           label={
             userState === 'logged-in' && user
               ? `Hi, ${user.username}`
-              : userState === 'loading'
-              ? 'Loading...'
               : 'Not logged in'
           }
           iconComponent={
