@@ -15,11 +15,14 @@ import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceC
 import FileViewer from 'components/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
+import { useGlobalSettings } from 'data/GlobalSettings';
 
 const Dashboard = () => {
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
+  const { data: globalSettings } = useGlobalSettings();
+  const domain = globalSettings?.domain ?? address;
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
@@ -141,7 +144,7 @@ const Dashboard = () => {
           <Label size="large" color={labelColor}>
             Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
-          <ClipboardTextfield text={`${address}:${instance.port}`} />
+          <ClipboardTextfield text={`${domain}:${instance.port}`} />
         </div>
         {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield
