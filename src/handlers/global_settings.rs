@@ -119,22 +119,20 @@ pub async fn change_domain(
             detail: "Domain too long".to_string(),
         });
     }
-    if new_domain.is_empty() {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Domain too short".to_string(),
-        });
-    }
     state
         .global_settings
         .lock()
         .await
-        .set_domain(new_domain)
+        .set_domain(if new_domain.is_empty() {
+            None
+        } else {
+            Some(new_domain)
+        })
         .await?;
     Ok(())
 }
 
-pub fn get_global_settings_routes(state : AppState) -> Router {
+pub fn get_global_settings_routes(state: AppState) -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
         .route("/global_settings/name", put(change_core_name))

@@ -130,9 +130,9 @@ impl GlobalSettings {
         self.global_settings_data.safe_mode
     }
 
-    pub async fn set_domain(&mut self, domain: String) -> Result<(), Error> {
+    pub async fn set_domain(&mut self, domain: Option<String>) -> Result<(), Error> {
         let old_domain = self.global_settings_data.domain.clone();
-        self.global_settings_data.domain = Some(domain);
+        self.global_settings_data.domain = domain;
         match self.write_to_file().await {
             Ok(_) => Ok(()),
             Err(e) => {
