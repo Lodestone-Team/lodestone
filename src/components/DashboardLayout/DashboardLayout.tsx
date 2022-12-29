@@ -20,38 +20,27 @@ import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
-  const { setCore, coreConnectionStatus } = useContext(LodestoneContext);
-  const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
   const userLoggedIn = useUserLoggedIn();
-  const { data: dataInstances } = useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
-    undefined
-  );
+  useEventStream();
+  
+
+  /* Start Notification */
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
   const [showNotifications, setShowNotifications] = useLocalStorage(
     'showNotifications',
     false
   );
-  const [showSetupPrompt, setShowSetupPrompt] = useState(false);
-  const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
   const { width, height } = useWindowSize();
+  /* End Notification */
 
+
+  /* Start Instances */
+  const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
+  const { data: dataInstances } = useInstanceList(userLoggedIn);
+  const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
+    undefined
+  );
   const instances = userLoggedIn ? dataInstances : undefined;
-
-  useEventStream();
-  const { data: coreInfo } = useCoreInfo();
-  const { data: localCoreInfo } = useLocalCoreInfo();
-  useEffect(() => {
-    if (coreInfo?.is_setup === false) {
-      setShowSetupPrompt(true);
-    }
-  }, [coreInfo]);
-
-  useEffect(() => {
-    if (localCoreInfo?.is_setup === false) {
-      if (!showSetupPrompt) setShowLocalSetupPrompt(true);
-    }
-  }, [localCoreInfo, showSetupPrompt]);
 
   useEffect(() => {
     if (queryUuid && instances && queryUuid in instances)
@@ -70,7 +59,29 @@ export default function DashboardLayout() {
       setPathname('/dashboard');
     }
   }
+  /* End Instances */
 
+
+  /* Start Core */
+  const { setCore, coreConnectionStatus } = useContext(LodestoneContext);
+  const [showSetupPrompt, setShowSetupPrompt] = useState(false);
+  const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
+  const { data: coreInfo } = useCoreInfo();
+  const { data: localCoreInfo } = useLocalCoreInfo();
+  useEffect(() => {
+    if (coreInfo?.is_setup === false) {
+      setShowSetupPrompt(true);
+    }
+  }, [coreInfo]);
+
+  useEffect(() => {
+    if (localCoreInfo?.is_setup === false) {
+      if (!showSetupPrompt) setShowLocalSetupPrompt(true);
+    }
+  }, [localCoreInfo, showSetupPrompt]);
+  /* End Core */
+
+  
   return (
     <InstanceContext.Provider
       value={{
