@@ -14,7 +14,7 @@ const Button = forwardRef(
       active,
       variant = 'contained',
       align = 'center',
-      color = 'plain',
+      color = 'info',
       size = 'medium',
       className,
       onClick,
@@ -32,7 +32,7 @@ const Button = forwardRef(
       active?: boolean;
       variant?: 'contained' | 'text';
       align?: 'start' | 'center' | 'end';
-      color?: 'plain' | 'danger' | 'primary';
+      color?: 'info' | 'danger' | 'primary';
       size?: 'slim' | 'medium' | 'large';
       className?: string;
       iconComponent?: React.ReactNode;
@@ -64,7 +64,7 @@ const Button = forwardRef(
                 large: 'font-medium',
               }[size],
           {
-            plain: 'text-gray-300 disabled:text-white/50',
+            info: 'text-gray-300 disabled:text-white/50',
             danger:
               variant === 'text'
                 ? 'text-red-200 disabled:text-red/50'
@@ -73,13 +73,13 @@ const Button = forwardRef(
           }[color], //icon color, text color is set separately
           active &&
             {
-              plain: 'bg-gray-700',
+              info: 'bg-gray-700',
               danger: variant === 'text' ? 'bg-red-faded/25' : 'bg-red-300',
               primary: 'bg-blue-400',
             }[color],
           !active &&
             {
-              plain: `bg-gray-800 enabled:hover:bg-gray-700 enabled:active:bg-gray-800`,
+              info: `bg-gray-800 enabled:hover:bg-gray-700 enabled:active:bg-gray-800`,
               danger:
                 variant === 'text'
                   ? 'bg-gray-800 enabled:hover:bg-red-faded/25 enabled:active:bg-red-faded/10'
@@ -88,7 +88,7 @@ const Button = forwardRef(
             }[color],
           variant !== 'text' &&
             {
-              plain:
+              info:
                 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
               danger:
                 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',

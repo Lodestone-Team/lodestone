@@ -220,7 +220,7 @@ export default function App() {
                 path="/login/user/select"
                 element={<UserSelectExisting />}
               />
-              <Route path="/login/user/new" element={<UserLogin />} />
+              <Route path="/login/user" element={<UserLogin />} />
             </Route>
           </Routes>
         </NotificationContext.Provider>

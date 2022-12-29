@@ -4,7 +4,9 @@ import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import {
   faArrowLeft,
+  faArrowRightArrowLeft,
   faClone,
+  faRightFromBracket,
   faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { useUserInfo } from 'data/UserInfo';
@@ -53,7 +55,7 @@ const UserSelectExisting = () => {
           <Button
             iconComponent={<Avatar name={userInfo?.uid} />}
             className="flex-1"
-            label={`Sign in as ${userInfo?.username ?? 'current user'}`}
+            label={`Continue as ${userInfo?.username ?? 'current user'}`}
             loading={isUserInfoLoading}
             onClick={() => setPathname('/')}
           />
@@ -61,7 +63,7 @@ const UserSelectExisting = () => {
           <Button
             icon={faUser}
             className="flex-1"
-            label={`Sign in as guest`}
+            label={`Continue as Guest`}
             onClick={() => {
               setToken('', socket);
               setPathname('/');
@@ -70,10 +72,11 @@ const UserSelectExisting = () => {
         )}
         <p>OR</p>
         <Button
-          icon={faClone}
-          label="Sign in as another user"
+          icon={token ? faArrowRightArrowLeft : faRightFromBracket}
+          color={token ? 'info' : 'primary'}
+          label={token ? 'Switch user' : 'Sign in'}
           className="flex-1"
-          onClick={() => setPathname('/login/user/new')}
+          onClick={() => setPathname('/login/user')}
         />
       </div>
       <div className="flex w-full flex-row justify-start gap-4">

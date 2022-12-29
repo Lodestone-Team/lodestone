@@ -8,6 +8,7 @@ import {
   faBell,
   faCog,
   faRightFromBracket,
+  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
@@ -109,12 +110,14 @@ export default function TopNav({
           as={Button}
           loading={userState === 'loading'}
           label={
-            userState === 'logged-in' && user
-              ? `Hi, ${user.username}`
-              : 'Not logged in'
+            userState === 'logged-in' && user ? `Hi, ${user.username}` : 'Guest'
           }
           iconComponent={
-            userState == 'logged-in' && <Avatar name={user?.uid} />
+            userState == 'logged-in' ? (
+              <Avatar name={user?.uid} />
+            ) : (
+              <FontAwesomeIcon icon={faUser} className="w-4 opacity-50" />
+            )
           }
           iconRight={faCaretDown}
           className="font-medium text-gray-300"
@@ -134,7 +137,7 @@ export default function TopNav({
                 {({ active, disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
-                    label={userState === 'logged-in' ? 'Sign in' : 'SIgn out'}
+                    label={userState === 'logged-in' ? 'Sign out' : 'Sign in'}
                     loading={userState === 'loading'}
                     iconRight={faRightFromBracket}
                     onClick={() => {
@@ -143,7 +146,7 @@ export default function TopNav({
                       if (userState !== 'logged-in') {
                         // redirect to login page
                         selectInstance(undefined);
-                        setPathname('/login/user/select');
+                        setPathname('/login/user');
                       }
                     }}
                     variant="text"

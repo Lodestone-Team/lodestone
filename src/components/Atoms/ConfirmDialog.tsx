@@ -71,7 +71,7 @@ export default function ConfirmDialog({
                   <Button
                     label={confirmButtonText || 'Confirm'}
                     className="grow"
-                    color={type === 'danger' ? 'danger' : 'plain'}
+                    color={type === 'danger' ? 'danger' : 'info'}
                     onClick={onConfirm}
                   />
                 )}
