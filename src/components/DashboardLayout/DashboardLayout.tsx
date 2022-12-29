@@ -20,7 +20,7 @@ import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
-  const { setCore } = useContext(LodestoneContext);
+  const { setCore, coreConnectionStatus } = useContext(LodestoneContext);
   const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
   const userLoggedIn = useUserLoggedIn();
   const { data: dataInstances } = useInstanceList(userLoggedIn);
@@ -118,7 +118,25 @@ export default function DashboardLayout() {
           setShowSetupPrompt(false);
         }}
       >
-        {coreInfo?.core_name} is not setup yet. Please complete the setup process.
+        {coreInfo?.core_name} is not setup yet. Please complete the setup
+        process.
+      </ConfirmDialog>
+      <ConfirmDialog
+        isOpen={coreConnectionStatus === 'error'}
+        title="Core Connection Error"
+        type="info"
+        z-index="20"
+        confirmButtonText="Change Core"
+        onConfirm={() => {
+          setPathname('/login/core/select');
+        }}
+        closeButtonText="Refresh"
+        onClose={() => {
+          window.location.reload();
+        }}
+      >
+        There was an error connecting to the core. Please select a different
+        core, refresh the page, or simply wait for the core to come back online.
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav
