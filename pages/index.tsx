@@ -74,6 +74,8 @@ export default function App() {
     setApiVersion(c.apiVersion);
   };
   useEffect(() => {
+    // we only want to add successful cores to the list
+    if(coreConnectionStatus !== 'success') return;
     // check if core is already in the list
     // if it's exactly the same, do nothing
     if (
@@ -99,7 +101,7 @@ export default function App() {
 
     // core and corelist left out on purpose
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, apiVersion, core, port, protocol]);
+  }, [address, apiVersion, core, port, protocol, coreConnectionStatus]);
   useLayoutEffect(() => {
     axios.defaults.baseURL = `${protocol}://${socket}/api/${apiVersion}`;
     setCoreConnectionStatus('loading');
