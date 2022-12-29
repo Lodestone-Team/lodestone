@@ -1,5 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CoreConnectionInfo, CoreConnectionStatus, LodestoneContext } from 'data/LodestoneContext';
+import {
+  CoreConnectionInfo,
+  CoreConnectionStatus,
+  LodestoneContext,
+} from 'data/LodestoneContext';
 import {
   NotificationContext,
   useNotificationReducer,
@@ -7,12 +11,11 @@ import {
 } from 'data/NotificationContext';
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { useEffectOnce, useLocalStorage } from 'usehooks-ts';
+import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
 import { errorToString, LODESTONE_PORT } from 'utils/util';
 import Dashboard from 'pages/dashboard';
 import Home from 'pages/home';
-import { tauri } from 'utils/tauriUtil';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import DashboardLayout from 'components/DashboardLayout';
@@ -63,7 +66,8 @@ export default function App() {
     'cores',
     []
   );
-  const [coreConnectionStatus, setCoreConnectionStatus] = useState<CoreConnectionStatus>('loading');
+  const [coreConnectionStatus, setCoreConnectionStatus] =
+    useState<CoreConnectionStatus>('loading');
   const setCore = (c: CoreConnectionInfo) => {
     queryClient.invalidateQueries();
     queryClient.clear();
@@ -73,9 +77,10 @@ export default function App() {
     setProtocol(c.protocol);
     setApiVersion(c.apiVersion);
   };
+
   useEffect(() => {
     // we only want to add successful cores to the list
-    if(coreConnectionStatus !== 'success') return;
+    if (coreConnectionStatus !== 'success') return;
     // check if core is already in the list
     // if it's exactly the same, do nothing
     if (
@@ -106,6 +111,18 @@ export default function App() {
     axios.defaults.baseURL = `${protocol}://${socket}/api/${apiVersion}`;
     setCoreConnectionStatus('loading');
   }, [apiVersion, protocol, socket]);
+
+  // Add the core to the list if it's not already there
+  // Cores with the same address and port are considered the same
+  const addCore = (c: CoreConnectionInfo) => {
+    if (
+      coreList.some(
+        (core) => core.address === c.address && core.port === c.port
+      )
+    )
+      return;
+    setCoreList([...coreList, c]);
+  };
   /* End Core */
 
   /* Start Token */
@@ -158,6 +175,7 @@ export default function App() {
         value={{
           core,
           setCore,
+          addCore,
           coreConnectionStatus,
           setCoreConnectionStatus,
           coreList,

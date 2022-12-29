@@ -1,6 +1,7 @@
+import { CoreConnectionInfo } from 'data/LodestoneContext';
 import { isEdge } from 'react-device-detect';
 import { LabelColor } from 'components/Atoms/Label';
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
@@ -14,6 +15,12 @@ export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
   : 'off';
 export const LODESTONE_PORT = 16662;
+export const DEFAULT_LOCAL_CORE: CoreConnectionInfo = {
+  address: 'localhost',
+  port: LODESTONE_PORT.toString(),
+  protocol: 'http',
+  apiVersion: 'v1',
+};
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -504,7 +511,7 @@ export function useCombinedRefs<T>(...refs: any[]) {
  * @throws string
  */
 export async function loginToCore(
-  loginValue : LoginValues
+  loginValue: LoginValues
 ): Promise<LoginReply | undefined> {
   try {
     return await axios
@@ -513,8 +520,8 @@ export async function loginToCore(
         {},
         {
           auth: {
-            username : loginValue.username,
-            password : loginValue.password,
+            username: loginValue.username,
+            password: loginValue.password,
           },
         }
       )

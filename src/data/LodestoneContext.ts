@@ -6,6 +6,7 @@ export type CoreConnectionStatus = 'loading' | 'error' | 'success';
 interface LodestoneContext {
   core: CoreConnectionInfo;
   setCore: (core: CoreConnectionInfo) => void;
+  addCore: (core: CoreConnectionInfo) => void;
   coreList: CoreConnectionInfo[];
   coreConnectionStatus: CoreConnectionStatus;
   setCoreConnectionStatus: (status: CoreConnectionStatus) => void;
@@ -32,6 +33,9 @@ export const LodestoneContext = createContext<LodestoneContext>({
     apiVersion: 'v1',
   } as CoreConnectionInfo,
   coreConnectionStatus: 'loading',
+  addCore: () => {
+    console.error('addCore not implemented');
+  },
   setCoreConnectionStatus: () => {
     console.error('setCoreConnectionStatus not implemented');
   },

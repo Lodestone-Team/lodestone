@@ -15,14 +15,13 @@ import { useUserLoggedIn } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Outlet } from 'react-router-dom';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
-import { LODESTONE_PORT } from 'utils/util';
+import { DEFAULT_LOCAL_CORE, LODESTONE_PORT } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
   const { setPathname } = useContext(BrowserLocationContext);
   const userLoggedIn = useUserLoggedIn();
   useEventStream();
-  
 
   /* Start Notification */
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
@@ -30,9 +29,8 @@ export default function DashboardLayout() {
     'showNotifications',
     false
   );
-  const { width, height } = useWindowSize();
+  const { width } = useWindowSize();
   /* End Notification */
-
 
   /* Start Instances */
   const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
@@ -61,9 +59,9 @@ export default function DashboardLayout() {
   }
   /* End Instances */
 
-
   /* Start Core */
-  const { setCore, coreConnectionStatus } = useContext(LodestoneContext);
+  const { setCore, addCore, coreConnectionStatus } =
+    useContext(LodestoneContext);
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
   const { data: coreInfo } = useCoreInfo();
@@ -77,11 +75,12 @@ export default function DashboardLayout() {
   useEffect(() => {
     if (localCoreInfo?.is_setup === false) {
       if (!showSetupPrompt) setShowLocalSetupPrompt(true);
+    } else if (localCoreInfo?.is_setup === true) {
+      addCore(DEFAULT_LOCAL_CORE);
     }
   }, [localCoreInfo, showSetupPrompt]);
   /* End Core */
 
-  
   return (
     <InstanceContext.Provider
       value={{
@@ -96,12 +95,7 @@ export default function DashboardLayout() {
         type="info"
         confirmButtonText="Setup"
         onConfirm={() => {
-          setCore({
-            address: 'localhost',
-            port: LODESTONE_PORT.toString(),
-            protocol: 'http',
-            apiVersion: 'v1',
-          });
+          setCore(DEFAULT_LOCAL_CORE);
           setPathname('/login/core/first_setup');
           setShowLocalSetupPrompt(false);
         }}
