@@ -148,6 +148,7 @@ impl MinecraftInstance {
         config: SetupConfig,
         progression_event_id: Snowflake,
         event_broadcaster: Sender<Event>,
+        macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_eula = config.path.join("eula.txt");
@@ -463,12 +464,13 @@ impl MinecraftInstance {
             inner: ErrorInner::FailedToWriteFileOrDir,
             detail: format!("failed to write to config {}", &path_to_config.display()),
         })?;
-        Ok(MinecraftInstance::restore(restore_config, event_broadcaster).await)
+        Ok(MinecraftInstance::restore(restore_config, event_broadcaster, macro_executor).await)
     }
 
     pub async fn restore(
         config: RestoreConfig,
         event_broadcaster: Sender<Event>,
+        _macro_executor: MacroExecutor,
     ) -> MinecraftInstance {
         let path_to_config = config.path.join(".lodestone_config");
         let path_to_macros = config.path.join("macros");
@@ -636,15 +638,6 @@ impl MinecraftInstance {
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
         };
-        let event_broadcaster = instance.event_broadcaster.clone();
-        let mut rx = instance.macro_executor.event_receiver();
-        tokio::spawn(async move {
-            while let Ok(event) = rx.recv().await {
-                // TODO: this is not the best way, as the timestamp is calculated when the event is send, not when it is produced
-                let _ = event_broadcaster.send(event.into());
-            }
-            debug!("Macro event receiver exited");
-        });
         instance
             .read_properties()
             .await

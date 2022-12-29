@@ -22,6 +22,7 @@ use events::{CausedBy, Event};
 use global_settings::GlobalSettings;
 use implementations::minecraft;
 use log::{debug, error, info, warn};
+use macro_executor::MacroExecutor;
 use port_allocator::PortAllocator;
 use prelude::GameInstance;
 use reqwest::{header, Method};
@@ -52,7 +53,6 @@ use tower_http::{
 };
 pub use traits::Error;
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
-use ts_rs::TS;
 use types::InstanceUuid;
 use util::list_dir;
 use uuid::Uuid;
@@ -85,11 +85,13 @@ pub struct AppState {
     port_allocator: Arc<Mutex<PortAllocator>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
+    macro_executor: MacroExecutor,
 }
 
 async fn restore_instances(
     lodestone_path: &Path,
     event_broadcaster: &Sender<Event>,
+    macro_executor: MacroExecutor,
 ) -> HashMap<InstanceUuid, GameInstance> {
     let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
 
@@ -124,6 +126,7 @@ async fn restore_instances(
                     minecraft::MinecraftInstance::restore(
                         serde_json::from_value(config).unwrap(),
                         event_broadcaster.clone(),
+                        macro_executor.clone(),
                     )
                 }
                 _ => unimplemented!(),
@@ -227,7 +230,8 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
     } else {
         None
     };
-    let mut instances = restore_instances(&lodestone_path, &tx).await;
+    let macro_executor = MacroExecutor::new();
+    let mut instances = restore_instances(&lodestone_path, &tx, macro_executor.clone()).await;
     for (_, instance) in instances.iter_mut() {
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
@@ -258,6 +262,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         global_settings: Arc::new(Mutex::new(global_settings)),
+        macro_executor,
     };
 
     let event_buffer_task = {

@@ -221,6 +221,7 @@ pub async fn create_minecraft_instance(
                 setup_config.clone(),
                 progression_event_id,
                 state.event_broadcaster.clone(),
+                state.macro_executor.clone(),
             )
             .await
             {

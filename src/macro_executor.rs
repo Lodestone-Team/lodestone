@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use log::{debug, error, info};
+use log::{debug, error};
 use tokio::{
     runtime::Builder,
     sync::{broadcast, mpsc, oneshot, Mutex},
@@ -17,7 +17,7 @@ use tokio::{
 };
 
 use crate::{
-    events::{MacroEvent, MacroEventInner},
+    events::{Event, EventInner, MacroEvent, MacroEventInner},
     traits::{Error, ErrorInner},
     types::InstanceUuid,
 };
@@ -200,127 +200,136 @@ impl Debug for Instruction {
 #[derive(Clone)]
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<usize, (JoinHandle<()>, deno_core::v8::IsolateHandle)>>>,
-    sender: mpsc::UnboundedSender<(Instruction, usize)>,
-    event_broadcaster: broadcast::Sender<MacroEvent>,
+    senders: Vec<mpsc::UnboundedSender<(Instruction, usize)>>,
+    cur_thread: Arc<AtomicUsize>,
+    event_broadcaster: broadcast::Sender<Event>,
     next_process_id: Arc<AtomicUsize>,
 }
 
 impl MacroExecutor {
     pub fn new() -> MacroExecutor {
-        let (tx, mut rx): (
-            mpsc::UnboundedSender<(Instruction, usize)>,
-            mpsc::UnboundedReceiver<(Instruction, usize)>,
-        ) = mpsc::unbounded_channel();
-        let (event_broadcaster, _) = broadcast::channel(16);
+        const NUM_THREADS: usize = 4;
+        let mut senders = Vec::new();
         let process_table = Arc::new(Mutex::new(HashMap::new()));
-        let rt = Builder::new_current_thread().enable_all().build().unwrap();
+        let (event_broadcaster, _) = broadcast::channel(16);
         let process_id = Arc::new(AtomicUsize::new(0));
-        std::thread::spawn({
-            let process_table = process_table.clone();
-            let process_id = process_id.clone();
-            let event_broadcaster = event_broadcaster.clone();
-            move || {
-                let local = LocalSet::new();
-                local.spawn_local(async move {
-                    while let Some((new_task, pid)) = rx.recv().await {
-                        match new_task {
-                            Instruction::Spawn(exec_instruction) => {
-                                let ExecutionInstruction {
-                                    runtime,
-                                    name,
-                                    args,
-                                    executor,
-                                    is_in_game,
-                                    instance_uuid,
-                                } = exec_instruction;
-                                let executor = executor.unwrap_or_default();
-                                let (mut runtime, path_to_main_module) =
-                                    match runtime(name, executor, args, is_in_game) {
-                                        Ok((runtime, path_to_main_module)) => {
-                                            (runtime, path_to_main_module)
-                                        }
-                                        Err(e) => {
-                                            error!("Error creating runtime: {}", e);
-                                            continue;
-                                        }
-                                    };
-                                let isolate_handle =
-                                    runtime.js_runtime.v8_isolate().thread_safe_handle();
-                                let handle = tokio::task::spawn_local({
-                                    let event_broadcaster = event_broadcaster.clone();
-                                    let process_id = process_id.clone();
-                                    async move {
-                                        let main_module = match deno_core::resolve_path(
-                                            &path_to_main_module.to_string_lossy(),
-                                        ) {
-                                            Ok(v) => v,
+        for _ in 0..NUM_THREADS {
+            let (tx, mut rx): (
+                mpsc::UnboundedSender<(Instruction, usize)>,
+                mpsc::UnboundedReceiver<(Instruction, usize)>,
+            ) = mpsc::unbounded_channel();
+            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            std::thread::spawn({
+                let process_table = process_table.clone();
+                let event_broadcaster = event_broadcaster.clone();
+                move || {
+                    let local = LocalSet::new();
+                    local.spawn_local(async move {
+                        while let Some((new_task, pid)) = rx.recv().await {
+                            match new_task {
+                                Instruction::Spawn(exec_instruction) => {
+                                    let ExecutionInstruction {
+                                        runtime,
+                                        name,
+                                        args,
+                                        executor,
+                                        is_in_game,
+                                        instance_uuid,
+                                    } = exec_instruction;
+                                    let executor = executor.unwrap_or_default();
+                                    let (mut runtime, path_to_main_module) =
+                                        match runtime(name, executor, args, is_in_game) {
+                                            Ok((runtime, path_to_main_module)) => {
+                                                (runtime, path_to_main_module)
+                                            }
                                             Err(e) => {
-                                                error!("Error resolving main module: {}", e);
-                                                return;
+                                                error!("Error creating runtime: {}", e);
+                                                continue;
                                             }
                                         };
+                                    let isolate_handle =
+                                        runtime.js_runtime.v8_isolate().thread_safe_handle();
+                                    let handle = tokio::task::spawn_local({
+                                        let event_broadcaster = event_broadcaster.clone();
+                                        async move {
+                                            let main_module = match deno_core::resolve_path(
+                                                &path_to_main_module.to_string_lossy(),
+                                            ) {
+                                                Ok(v) => v,
+                                                Err(e) => {
+                                                    error!("Error resolving main module: {}", e);
+                                                    return;
+                                                }
+                                            };
 
-                                        let _ = runtime
-                                            .execute_main_module(&main_module)
-                                            .await
-                                            .map_err(|e| {
-                                                error!("Error executing main module: {}", e);
-                                                e
-                                            });
+                                            let _ = runtime
+                                                .execute_main_module(&main_module)
+                                                .await
+                                                .map_err(|e| {
+                                                    error!("Error executing main module: {}", e);
+                                                    e
+                                                });
 
-                                        let _ = runtime.run_event_loop(false).await.map_err(|e| {
-                                            error!("Error while running event loop: {}", e);
-                                        });
+                                            let _ =
+                                                runtime.run_event_loop(false).await.map_err(|e| {
+                                                    error!("Error while running event loop: {}", e);
+                                                });
 
-                                        let _ = event_broadcaster.send(MacroEvent {
-                                            macro_pid: process_id.load(Ordering::SeqCst),
-                                            macro_event_inner: MacroEventInner::MacroStopped,
-                                            instance_uuid,
-                                        });
+                                            let _ = event_broadcaster.send(
+                                                MacroEvent {
+                                                    macro_pid: pid,
+                                                    macro_event_inner:
+                                                        MacroEventInner::MacroStopped,
+                                                    instance_uuid,
+                                                }
+                                                .into(),
+                                            );
+                                        }
+                                    });
+                                    process_table
+                                        .lock()
+                                        .await
+                                        .insert(pid, (handle, isolate_handle));
+                                }
+                                Instruction::Abort(pid) => {
+                                    if let Some((_, isolate_handle)) =
+                                        process_table.lock().await.get(&pid)
+                                    {
+                                        isolate_handle.terminate_execution();
                                     }
-                                });
-                                process_table
-                                    .lock()
-                                    .await
-                                    .insert(pid, (handle, isolate_handle));
-                            }
-                            Instruction::Abort(pid) => {
-                                if let Some((_, isolate_handle)) =
-                                    process_table.lock().await.get(&pid)
-                                {
-                                    isolate_handle.terminate_execution();
                                 }
                             }
                         }
-                    }
-                    // If the while loop returns, then all the LocalSpawner
-                    // objects have been dropped.
-                });
+                        // If the while loop returns, then all the LocalSpawner
+                        // objects have been dropped.
+                    });
 
-                // This will return once all senders are dropped and all
-                // spawned tasks have returned.
-                rt.block_on(local);
-                debug!("MacroExecutor thread exited");
-            }
-        });
+                    // This will return once all senders are dropped and all
+                    // spawned tasks have returned.
+                    rt.block_on(local);
+                    debug!("MacroExecutor thread exited");
+                }
+            });
+            senders.push(tx);
+        }
+
         MacroExecutor {
             macro_process_table: process_table,
-            sender: tx,
+            senders,
             event_broadcaster,
+            cur_thread: Arc::new(AtomicUsize::new(0)),
             next_process_id: process_id,
         }
     }
 
-    pub fn event_receiver(&self) -> broadcast::Receiver<MacroEvent> {
-        self.event_broadcaster.subscribe()
-    }
-
     pub fn spawn(&self, exec_instruction: ExecutionInstruction) -> usize {
         let pid = self.next_process_id.fetch_add(1, Ordering::SeqCst);
-        self.sender
+        let thread_num = self.cur_thread.fetch_add(1, Ordering::SeqCst) % self.senders.len();
+        debug!("Spawning macro on thread {}", thread_num);
+        self.senders[thread_num]
             .send((Instruction::Spawn(exec_instruction), pid))
             .expect("Thread with LocalSet has shut down.");
-        info!("Spawned macro with pid {}", pid);
+        debug!("Spawned macro with pid {}", pid);
         pid
     }
 
@@ -345,7 +354,7 @@ impl MacroExecutor {
     /// if timeout is Some, wait for the specified amount of time
     ///
     /// returns true if the macro finished, false if the timeout was reached
-    pub async fn wait_with_timeout(&self, macro_pid: usize, timeout: Option<f64>) -> bool {
+    pub async fn wait_with_timeout(&self, taget_macro_pid: usize, timeout: Option<f64>) -> bool {
         let mut rx = self.event_broadcaster.subscribe();
         tokio::select! {
             _ = async {
@@ -364,9 +373,11 @@ impl MacroExecutor {
                 async {
                     loop {
                     let event = rx.recv().await.unwrap();
-                    if let MacroEventInner::MacroStopped = event.macro_event_inner {
-                        if event.macro_pid == macro_pid {
-                            break;
+                    if let EventInner::MacroEvent(MacroEvent { macro_pid, macro_event_inner, .. }) = event.event_inner {
+                        if taget_macro_pid == macro_pid {
+                           if let MacroEventInner::MacroStopped = macro_event_inner {
+                               break;
+                           }
                         }
                     }
                 }
@@ -396,10 +407,9 @@ impl Default for MacroExecutor {
 mod tests {
     use std::{path::PathBuf, rc::Rc};
 
-    use crate::Error;
-    use crate::types::InstanceUuid;
     use super::{resolve_macro_invocation, TypescriptModuleLoader};
-
+    use crate::types::InstanceUuid;
+    use crate::Error;
 
     #[tokio::test]
     async fn test_macro_executor() {
@@ -472,20 +482,24 @@ mod tests {
             for (let i = 0; i < 1000; i++) {
                 // await new Promise(r => setTimeout(r, 0));
                 total++;
+                // console.log('looping', total);
             }",
         )
         .unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.1)).await;
-        let instruction = super::ExecutionInstruction {
-            runtime: runtime.clone(),
-            name: "loop".to_owned(),
-            args: vec![],
-            executor: None,
-            is_in_game: false,
-            instance_uuid: InstanceUuid::default(),
-        };
-        executor.spawn(instruction);
+        let mut last_pid = 0;
+        for _ in 0..1 {
+            let instruction = super::ExecutionInstruction {
+                runtime: runtime.clone(),
+                name: "loop".to_owned(),
+                args: vec![],
+                executor: None,
+                is_in_game: false,
+                instance_uuid: InstanceUuid::default(),
+            };
+            last_pid = executor.spawn(instruction);
+        }
+        assert!(executor.wait_with_timeout(last_pid, None).await);
+        println!("done");
 
         // let pid = executor.spawn(instruction);
 
@@ -504,8 +518,80 @@ mod tests {
         //     instance_uuid: InstanceUuid::default(),
         // };
         // executor.spawn(instruction);
-        // println!("{}", executor.wait_with_timeout(1, Some(1.0)).await);
+    }
 
-        // tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+    #[tokio::test]
+    async fn test_abort() {
+        // construct a macro executor
+        let executor = super::MacroExecutor::new();
+
+        // create a temp directory
+        let path_to_macros = tempdir::TempDir::new("macro_executor_test")
+            .unwrap()
+            .into_path();
+        // create test js file
+
+        let runtime = Box::new({
+            let path_to_macros = path_to_macros.clone();
+            move |macro_name: String,
+                  _executor: String,
+                  args: Vec<String>,
+                  is_in_game: bool|
+                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
+                let path_to_main_module =
+                    resolve_macro_invocation(&path_to_macros, &macro_name, is_in_game)
+                        .expect("Failed to resolve macro invocation");
+
+                let bootstrap_options = deno_runtime::BootstrapOptions {
+                    args,
+                    ..Default::default()
+                };
+
+                let mut worker_options = deno_runtime::worker::WorkerOptions {
+                    bootstrap: bootstrap_options,
+                    ..Default::default()
+                };
+
+                worker_options.module_loader = Rc::new(TypescriptModuleLoader);
+                let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
+                    .expect("Failed to resolve path");
+                // todo(CheatCod3) : limit the permissions
+                let permissions = deno_runtime::permissions::Permissions::allow_all();
+                let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
+                    main_module,
+                    permissions,
+                    worker_options,
+                );
+
+                Ok((worker, path_to_main_module))
+            }
+        });
+
+        let path_to_basic_js = path_to_macros.join("abort.js");
+
+        std::fs::write(path_to_basic_js, "while (true) {}").unwrap();
+
+        let instruction = super::ExecutionInstruction {
+            runtime: runtime.clone(),
+            name: "abort".to_owned(),
+            args: vec![],
+            executor: None,
+            is_in_game: false,
+            instance_uuid: InstanceUuid::default(),
+        };
+
+        let pid = executor.spawn(instruction);
+
+        tokio::spawn({
+            let pid = pid;
+            let executor = executor.clone();
+            async move {
+                assert!(executor.wait_with_timeout(pid, None).await);
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_secs_f64(1.0)).await;
+
+        executor.abort_macro(&pid).await.unwrap();
     }
 }
