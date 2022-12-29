@@ -21,6 +21,7 @@ body {
   min-height: 100%;
   overscroll-behavior: none;
   overflow: overlay;
+  color-scheme: dark;
   @apply font-sans text-gray-300;
 }
 
@@ -183,7 +184,7 @@ input {
 /* rc-tooltip */
 
 .rc-tooltip-inner {
-  @apply min-h-0 rounded-md bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md border border-gray-faded/30;
+  @apply min-h-0 rounded-md border border-gray-faded/30 bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md;
 }
 
 .rc-tooltip {
@@ -203,10 +204,4 @@ input.noSpin::-webkit-inner-spin-button {
 /* Firefox */
 input.noSpin[type='number'] {
   -moz-appearance: textfield;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
 }

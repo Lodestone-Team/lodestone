@@ -2,20 +2,19 @@ import { Tab } from '@headlessui/react';
 import InputBox from 'components/Atoms/Config/InputBox';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useContext, useState } from 'react';
-import {
-  axiosPutSingleValue,
-  errorToString,
-} from 'utils/util';
+import { axiosPutSingleValue, errorToString } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserInfo } from 'data/UserInfo';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import { useCoreInfo } from 'data/SystemInfo';
 
 const SettingsPage = () => {
   const { core } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const { data: globalSettings, isLoading, error } = useGlobalSettings();
+  const { data: coreInfo } = useCoreInfo();
   const { data: userInfo, isLoading: userLoading } = useUserInfo();
   const can_change_core_settings = userInfo?.is_owner ?? false;
 
@@ -23,12 +22,15 @@ const SettingsPage = () => {
 
   const nameField = (
     <InputBox
-      label="Name"
+      label="Core Name"
       value={globalSettings?.core_name}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
+      description={
+        'A nickname for this core. This is what you and others will see when you connect to this core.'
+      }
       validate={async (name) => {
         // don't be empty
         if (name === '') throw new Error('Name cannot be empty');
@@ -41,6 +43,40 @@ const SettingsPage = () => {
         queryClient.setQueryData(['global_settings'], {
           ...globalSettings,
           core_name: name,
+        });
+        queryClient.setQueryData(['systeminfo', 'CoreInfo'], {
+          ...coreInfo,
+          core_name: name,
+        });
+      }}
+    />
+  );
+
+  const domainField = (
+    <InputBox
+      label="Public Domain/IP"
+      value={globalSettings?.domain ?? ''}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={
+        //TODO: more info needed once we add more functionality
+        'The domain or public IP address of this core.'
+      }
+      placeholder={`${core?.address}`}
+      validate={async (domain) => {
+        // can be empty
+        if (domain === '') return;
+        // don't be too long
+        if (domain.length > 253)
+          throw new Error('Domain cannot be longer than 253 characters');
+      }}
+      onSubmit={async (domain) => {
+        await axiosPutSingleValue('/global_settings/domain', domain);
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          domain: domain,
         });
       }}
     />
@@ -80,6 +116,7 @@ const SettingsPage = () => {
           </div>
           <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
             {nameField}
+            {domainField}
             {unsafeModeField}
           </div>
         </div>

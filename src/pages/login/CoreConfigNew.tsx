@@ -12,22 +12,32 @@ import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import { LodestoneContext } from 'data/LodestoneContext';
+import { useCoreInfo } from 'data/SystemInfo';
 
 type ConfigNewCoreFormValues = {
   coreName: string;
+  domain?: string;
 };
 
 const validationSchema = yup.object({
   coreName: yup.string().required('Core name is required'),
+  domain: yup.string().max(253, 'Domain cannot be longer than 253 characters'),
 });
 
 const CoreConfigNew = () => {
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
+  const { core } = useContext(LodestoneContext);
+  const { address, port } = core;
+  const socket = `${address}:${port}`;
+  const { data: coreInfo } = useCoreInfo();
+  const { core_name } = coreInfo ?? {};
   const queryClient = useQueryClient();
   const { data: globalSettings, isLoading, error } = useGlobalSettings();
 
   const initialValues: ConfigNewCoreFormValues = {
     coreName: globalSettings?.core_name || '',
+    domain: globalSettings?.domain || '',
   };
 
   const onSubmit = async (
@@ -35,28 +45,46 @@ const CoreConfigNew = () => {
     actions: FormikHelpers<ConfigNewCoreFormValues>
   ) => {
     // check if core can be reached
-    axiosPutSingleValue('/global_settings/name', values.coreName)
+    await axiosPutSingleValue('/global_settings/name', values.coreName)
       .then(() => {
         queryClient.setQueryData(['global_settings'], {
           ...globalSettings,
           core_name: values.coreName,
         });
-        setPathname('/login/user/select'); //TODO: auto login
+        queryClient.setQueryData(['systeminfo', 'CoreInfo'], {
+          ...coreInfo,
+          core_name: values.coreName,
+        });
       })
       .catch((err) => {
         actions.setSubmitting(false);
         actions.setErrors({ coreName: errorToString(err) });
       });
-    // TODO: maybe update global settings here
+    await axiosPutSingleValue('/global_settings/domain', values.domain)
+      .then(() => {
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          domain: values.domain,
+        });
+      })
+      .catch((err) => {
+        actions.setSubmitting(false);
+        actions.setErrors({ domain: errorToString(err) });
+      });
+    actions.setSubmitting(false);
+    setPathname('/');
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-14 py-20 @container">
+    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">
       <div className="text flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-9 w-40" />
         <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
           Customize your core
         </h1>
+        <h2 className="text-medium font-semibold tracking-medium text-white/50">
+          {core_name} ({socket})
+        </h2>
       </div>
       <Formik
         initialValues={initialValues}
@@ -64,6 +92,7 @@ const CoreConfigNew = () => {
         onSubmit={onSubmit}
         validateOnBlur={false}
         validateOnChange={false}
+        enableReinitialize={true}
       >
         {({ isSubmitting }) => (
           <Form
@@ -73,13 +102,9 @@ const CoreConfigNew = () => {
           >
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <InputField type="text" name="coreName" label="Core Name" />
+              <InputField type="text" name="domain" label="Public Domain/IP" />
             </div>
             <div className="flex w-full flex-row justify-end gap-4">
-              <Button
-                iconRight={faArrowLeft}
-                label="Back"
-                onClick={navigateBack}
-              />
               <Button
                 type="submit"
                 color="primary"

@@ -7,7 +7,7 @@ interface BrowserLocationContext {
   searchParams: URLSearchParams;
   setLocation: (func: (loc: Location) => Location) => void;
   setPathname: (pathname: string) => void;
-  setSearchParam: (key: string, value: string) => void;
+  setSearchParam: (key: string, value: string | undefined) => void;
   navigateBack: () => void;
 }
 
