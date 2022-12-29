@@ -100,7 +100,7 @@ export default function DashboardLayout() {
         }}
       >
         Detected a local core that is not setup yet. Would you like to setup
-        this core?
+        {localCoreInfo?.core_name}?
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={showSetupPrompt}
@@ -118,7 +118,7 @@ export default function DashboardLayout() {
           setShowSetupPrompt(false);
         }}
       >
-        This core is not setup yet. Please complete the setup process.
+        {coreInfo?.core_name} is not setup yet. Please complete the setup process.
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav

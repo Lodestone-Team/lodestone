@@ -30,11 +30,11 @@ export default function TopNav({
   const { setPathname } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const { token, setToken, core } = useContext(LodestoneContext);
+  const { token, setToken, core,coreConnectionStatus } = useContext(LodestoneContext);
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { selectInstance } = useContext(InstanceContext);
-  const { status: fetchingStatus, data: coreData } = useCoreInfo();
+  const { data: coreData } = useCoreInfo();
 
   const statusMap = {
     loading: 'Connecting',
@@ -80,10 +80,10 @@ export default function TopNav({
         </p>
         <Label
           size="small"
-          color={colorMap[fetchingStatus]}
+          color={colorMap[coreConnectionStatus]}
           className="w-16 text-center"
         >
-          {statusMap[fetchingStatus]}
+          {statusMap[coreConnectionStatus]}
         </Label>
       </div>
       <FontAwesomeIcon

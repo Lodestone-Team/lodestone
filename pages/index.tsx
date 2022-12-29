@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
+import { CoreConnectionInfo, CoreConnectionStatus, LodestoneContext } from 'data/LodestoneContext';
 import {
   NotificationContext,
   useNotificationReducer,
   useOngoingNotificationReducer,
 } from 'data/NotificationContext';
-import React, { useEffect, useLayoutEffect, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useEffectOnce, useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
@@ -63,6 +63,7 @@ export default function App() {
     'cores',
     []
   );
+  const [coreConnectionStatus, setCoreConnectionStatus] = useState<CoreConnectionStatus>('loading');
   const setCore = (c: CoreConnectionInfo) => {
     queryClient.invalidateQueries();
     queryClient.clear();
@@ -101,6 +102,7 @@ export default function App() {
   }, [address, apiVersion, core, port, protocol]);
   useLayoutEffect(() => {
     axios.defaults.baseURL = `${protocol}://${socket}/api/${apiVersion}`;
+    setCoreConnectionStatus('loading');
   }, [apiVersion, protocol, socket]);
   /* End Core */
 
@@ -154,6 +156,8 @@ export default function App() {
         value={{
           core,
           setCore,
+          coreConnectionStatus,
+          setCoreConnectionStatus,
           coreList,
           token,
           setToken,

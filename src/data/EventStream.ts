@@ -19,7 +19,7 @@ import { PublicUser } from 'bindings/PublicUser';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { token, core } = useContext(LodestoneContext);
+  const { token, core, setCoreConnectionStatus } = useContext(LodestoneContext);
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnected = useRef(false);
 
@@ -357,10 +357,12 @@ export const useEventStream = () => {
 
       websocket.onopen = () => {
         console.log('websocket opened');
+        setCoreConnectionStatus('success');
       };
 
       websocket.onerror = (event) => {
         console.error('websocket error', event);
+        setCoreConnectionStatus('error');
         websocket.close();
       };
 

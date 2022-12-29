@@ -1,6 +1,8 @@
 import { LODESTONE_PORT } from 'utils/util';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
+import { useContext } from 'react';
+import { LodestoneContext } from './LodestoneContext';
 
 export interface MemInfo {
   total: number;
@@ -56,9 +58,24 @@ export interface CoreInfo {
   up_since: number;
 }
 
+/**
+ * Uses react query to fetch the core info
+ * Will change the core status to success if the connection is successful
+ * Will change the core status to error if the connection is unsuccessful
+ */
 export const useCoreInfo = () => {
-  return useQuery<CoreInfo, AxiosError>(['systeminfo', 'CoreInfo'], () =>
-    axios.get<CoreInfo>(`/info`).then((res) => res.data)
+  const { setCoreConnectionStatus } = useContext(LodestoneContext);
+  return useQuery<CoreInfo, AxiosError>(
+    ['systeminfo', 'CoreInfo'],
+    () => axios.get<CoreInfo>(`/info`).then((res) => res.data),
+    {
+      onSuccess: () => {
+        setCoreConnectionStatus('success');
+      },
+      onError: () => {
+        setCoreConnectionStatus('error');
+      },
+    }
   );
 };
 
