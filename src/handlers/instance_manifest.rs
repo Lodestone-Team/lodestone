@@ -25,7 +25,8 @@ pub async fn get_instance_manifest(
     ))
 }
 
-pub fn get_instance_manifest_routes(state : AppState) -> Router {
-    Router::new().route("/instance/:uuid/manifest", get(get_instance_manifest))
-    .with_state(state)
+pub fn get_instance_manifest_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/instance/:uuid/manifest", get(get_instance_manifest))
+        .with_state(state)
 }

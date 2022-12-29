@@ -84,7 +84,7 @@ pub async fn get_player_list(
         .map(Json)
 }
 
-pub fn get_instance_players_routes(state : AppState) -> Router {
+pub fn get_instance_players_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/players/count", get(get_player_count))
         .route(

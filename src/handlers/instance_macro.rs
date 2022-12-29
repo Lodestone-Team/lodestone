@@ -1,7 +1,6 @@
-use axum::{extract::Path, routing::get, Router, Json};
+use axum::{extract::Path, routing::get, Json, Router};
 
 use axum_auth::AuthBearer;
-
 
 use crate::{
     auth::user::UserAction,
@@ -40,7 +39,8 @@ pub async fn run_macro(
     Ok(Json(()))
 }
 
-pub fn get_instance_macro_routes(state : AppState) -> Router {
-    Router::new().route("/instance/:uuid/macro/run/:macro_name", get(run_macro))
-    .with_state(state)
+pub fn get_instance_macro_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/instance/:uuid/macro/run/:macro_name", get(run_macro))
+        .with_state(state)
 }

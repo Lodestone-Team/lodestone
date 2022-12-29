@@ -178,9 +178,9 @@ impl MinecraftInstance {
                 worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader);
                 let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
                     .map_err(|_| Error {
-                        inner: ErrorInner::MacroNotFound,
-                        detail: "Deno failed to resolve main module".to_string(),
-                    })?;
+                    inner: ErrorInner::MacroNotFound,
+                    detail: "Deno failed to resolve main module".to_string(),
+                })?;
                 // todo(CheatCod3) : limit the permissions
                 let permissions = deno_runtime::permissions::Permissions::allow_all();
                 let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(

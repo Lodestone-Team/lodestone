@@ -21,7 +21,9 @@ pub struct CoreInfo {
     up_since: i64,
 }
 
-pub async fn get_core_info(axum::extract::State(state): axum::extract::State<AppState>) -> Json<CoreInfo> {
+pub async fn get_core_info(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<CoreInfo> {
     let sys = System::new_all();
     Json(CoreInfo {
         version: VERSION.with(|v| v.clone()),
@@ -51,7 +53,8 @@ pub async fn get_core_info(axum::extract::State(state): axum::extract::State<App
     })
 }
 
-pub fn get_core_info_routes(state : AppState) -> Router {
-    Router::new().route("/info", get(get_core_info))
-    .with_state(state)
+pub fn get_core_info_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/info", get(get_core_info))
+        .with_state(state)
 }

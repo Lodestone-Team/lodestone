@@ -24,7 +24,7 @@ pub async fn is_name_in_use(
     Json(false)
 }
 
-pub fn get_checks_routes(state : AppState) -> Router {
+pub fn get_checks_routes(state: AppState) -> Router {
     Router::new()
         .route("/check/port/:port", get(get_port_status))
         .route("/check/name/:name", get(is_name_in_use))

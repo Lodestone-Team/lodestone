@@ -205,7 +205,7 @@ pub async fn get_instance_state(
     )))
 }
 
-pub fn get_instance_server_routes(state : AppState) -> Router {
+pub fn get_instance_server_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/start", put(start_instance))
         .route("/instance/:uuid/stop", put(stop_instance))

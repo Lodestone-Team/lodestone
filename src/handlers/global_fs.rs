@@ -729,7 +729,7 @@ async fn download(
     }
 }
 
-pub fn get_global_fs_routes(state : AppState) -> Router {
+pub fn get_global_fs_routes(state: AppState) -> Router {
     Router::new()
         .route("/fs/:base64_absolute_path/ls", get(list_files))
         .route("/fs/:base64_absolute_path/read", get(read_file))

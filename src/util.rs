@@ -1,6 +1,3 @@
-
-
-
 use std::collections::HashSet;
 use tempdir::TempDir;
 use tokio::fs::File;
@@ -406,4 +403,3 @@ pub fn format_byte(bytes: u64) -> String {
     }
     format!("{:.1} {}", bytes, unit)
 }
-

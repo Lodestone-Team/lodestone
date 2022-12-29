@@ -12,7 +12,10 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
-use crate::{auth::{user::UsersManager, user_id::UserId}, events::InstanceEventKind};
+use crate::{
+    auth::{user::UsersManager, user_id::UserId},
+    events::InstanceEventKind,
+};
 use crate::{events::EventType, output_types::ClientEvent};
 use crate::{events::UserEventKind, types::InstanceUuid};
 
@@ -311,7 +314,7 @@ async fn console_stream_ws(
     }
 }
 
-pub fn get_events_routes(state : AppState) -> Router {
+pub fn get_events_routes(state: AppState) -> Router {
     Router::new()
         .route("/events/:uuid/stream", get(event_stream))
         .route("/events/:uuid/buffer", get(get_event_buffer))

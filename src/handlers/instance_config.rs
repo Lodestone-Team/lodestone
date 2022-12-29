@@ -274,7 +274,7 @@ pub async fn change_version(
     Ok(Json(()))
 }
 
-pub fn get_instance_config_routes(state : AppState) -> Router {
+pub fn get_instance_config_routes(state: AppState) -> Router {
     Router::new()
         .route(
             "/instance/:uuid/:key",

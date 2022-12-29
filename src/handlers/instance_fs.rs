@@ -804,7 +804,7 @@ async fn upload_instance_file(
     Ok(Json(()))
 }
 
-pub fn get_instance_fs_routes(state : AppState) -> Router {
+pub fn get_instance_fs_routes(state: AppState) -> Router {
     Router::new()
         .route(
             "/instance/:uuid/fs/:base64_relative_path/ls",

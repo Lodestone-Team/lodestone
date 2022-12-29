@@ -1,8 +1,9 @@
 use crate::{
     auth::{
+        jwt_token::JwtToken,
         permission::UserPermission,
         user::{PublicUser, User, UserAction},
-        user_id::UserId, jwt_token::JwtToken,
+        user_id::UserId,
     },
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
     traits::{Error, ErrorInner},
@@ -322,7 +323,7 @@ pub async fn get_all_users(
 }
 
 // return the thing created by Router::new() so we can nest it in main
-pub fn get_user_routes(state : AppState) -> Router {
+pub fn get_user_routes(state: AppState) -> Router {
     Router::new()
         .route("/user/list", get(get_all_users))
         .route("/user", post(new_user))

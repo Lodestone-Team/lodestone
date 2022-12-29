@@ -1,12 +1,8 @@
-
 use axum::{extract::Path, Json, Router};
 use log::info;
 
-
 use crate::{
-    auth::{
-        permission::UserPermission, user::User,
-    },
+    auth::{permission::UserPermission, user::User},
     events::CausedBy,
     traits::{Error, ErrorInner},
     AppState,
@@ -59,7 +55,8 @@ pub async fn setup_owner(
     }
 }
 
-pub fn get_setup_route(state : AppState) -> Router {
-    Router::new().route("/setup/:key", axum::routing::post(setup_owner))
-    .with_state(state)
+pub fn get_setup_route(state: AppState) -> Router {
+    Router::new()
+        .route("/setup/:key", axum::routing::post(setup_owner))
+        .with_state(state)
 }

@@ -87,7 +87,8 @@ async fn monitor_ws(
     }
 }
 
-pub fn get_monitor_routes(state : AppState) -> Router {
-    Router::new().route("/monitor/:uuid", get(monitor))
-    .with_state(state)
+pub fn get_monitor_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/monitor/:uuid", get(monitor))
+        .with_state(state)
 }
