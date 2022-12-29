@@ -12,6 +12,7 @@ import { useCoreInfo } from 'data/SystemInfo';
 import { useEffectOnce } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
 import { useQueryClient } from '@tanstack/react-query';
+import { LoginReply } from 'bindings/LoginReply';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -74,34 +75,18 @@ const CoreSetupNew = () => {
   ) => {
     // check if core can be reached
     axios
-      .post(`/setup/${values.setupKey}`, {
+      .post<LoginReply>(`/setup/${values.setupKey}`, {
         username: values.username,
         password: values.password,
       })
       .then((res) => {
         if (res.status !== 200)
           throw new Error('Something went wrong while setting up the core');
+        return res.data;
       })
-      // .then(() => {
-      //   loginToCore(values.password, values.username)
-      //     .then((response) => {
-      //       if (!response) {
-      //         // this should never end
-      //         actions.setErrors({ password: 'Login failed' });
-      //         actions.setSubmitting(false);
-      //         return;
-      //       }
-      //       setToken(response.token, socket);
-      //       setPathname('/login/core/first_config');
-      //       actions.setSubmitting(false);
-      //     })
-      //     .catch((error: string) => {
-      //       actions.setErrors({ password: error });
-      //       actions.setSubmitting(false);
-      //     });
-      // })
-      .then(() => {
-        setPathname('/login/user/select');
+      .then((res) => {
+        setToken(res.token, socket);
+        setPathname('/login/core/first_config');
         queryClient.invalidateQueries();
         actions.setSubmitting(false);
       })
@@ -123,7 +108,7 @@ const CoreSetupNew = () => {
         <h2 className="text-medium font-semibold tracking-medium text-white/50">
           {tauri && setupKey
             ? "Setup key is automatically filled in because you're using the desktop app"
-            : 'Check the console output of the core to find the \"First time setup key\"'}
+            : 'Check the console output of the core to find the "First time setup key"'}
         </h2>
       </div>
       <Formik

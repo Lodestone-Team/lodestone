@@ -104,7 +104,7 @@ export default function DashboardLayout() {
           setShowLocalSetupPrompt(false);
         }}
       >
-        Detected a local core that is not setup yet. Would you like to setup
+        Detected a local core that is not setup yet. Would you like to setup{' '}
         {localCoreInfo?.core_name}?
       </ConfirmDialog>
       <ConfirmDialog
