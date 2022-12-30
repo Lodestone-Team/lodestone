@@ -7,7 +7,11 @@ import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
 import SelectField from 'components/Atoms/Form/SelectField';
-import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
+import {
+  faArrowLeft,
+  faArrowRight,
+  faDownload,
+} from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 
@@ -100,15 +104,27 @@ const CoreConnect = () => {
                 placeholder='e.g. 123.123.123.123 or "myserver.com"'
               />
             </div>
-            <div className="flex w-full flex-row justify-between   gap-4">
+            <div className="flex w-full flex-row justify-between gap-4">
               <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
-              <Button
-                type="submit"
-                color="primary"
-                label="Add and Continue"
-                iconRight={faArrowRight}
-                loading={isSubmitting} //TODO: fix button size changing when loading
-              />
+              <div className="flex flex-row gap-4">
+                <Button
+                  iconRight={faDownload}
+                  label="Download Lodestone Core"
+                  onClick={() => {
+                    window.open(
+                      'https://github.com/Lodestone-Team/dashboard/releases/',
+                      '_self'
+                    );
+                  }}
+                />
+                <Button
+                  type="submit"
+                  color="primary"
+                  label="Add and Continue"
+                  iconRight={faArrowRight}
+                  loading={isSubmitting} //TODO: fix button size changing when loading
+                />
+              </div>
             </div>
           </Form>
         )}
