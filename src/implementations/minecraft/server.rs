@@ -464,6 +464,10 @@ impl TServer for MinecraftInstance {
                                 }),
                             )
                             .unwrap();
+                        self.players_manager
+                            .lock()
+                            .await
+                            .clear(name);
                     }
                 });
             }
@@ -543,7 +547,6 @@ impl TServer for MinecraftInstance {
                     detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
-        self.players_manager.lock().await.clear(self.name().await);
         Ok(())
     }
     async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), crate::traits::Error> {
@@ -580,8 +583,6 @@ impl TServer for MinecraftInstance {
                     detail: "Failed to kill instance, instance already existed".to_string(),
                 }
             })?;
-        self.players_manager.lock().await.clear(self.name().await);
-
         Ok(())
     }
 
