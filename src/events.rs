@@ -65,7 +65,9 @@ pub enum UserEventInner {
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
-    PermissionChanged(Box<UserPermission>),
+    PermissionChanged {
+        new_permissions: Box<UserPermission>,
+    },
 }
 
 impl AsRef<UserEventInner> for UserEventInner {
@@ -242,6 +244,11 @@ pub struct Event {
     pub snowflake: Snowflake,
     pub caused_by: CausedBy,
 }
+
+pub trait IntoEvent {
+    fn into_event(self, caused_by: CausedBy, details: String) -> Event;
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq, Eq)]
 #[ts(export)]
 pub enum EventLevel {

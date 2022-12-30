@@ -514,9 +514,9 @@ impl UsersManager {
                 self.event_broadcaster.send(Event {
                     event_inner: EventInner::UserEvent(UserEvent {
                         user_id: uid.as_ref().to_owned(),
-                        user_event_inner: UserEventInner::PermissionChanged(Box::new(
-                            new_permissions,
-                        )),
+                        user_event_inner: UserEventInner::PermissionChanged {
+                            new_permissions: Box::new(new_permissions),
+                        },
                     }),
                     details: "".to_string(),
                     snowflake: Snowflake::default(),
