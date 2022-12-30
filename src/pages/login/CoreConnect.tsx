@@ -20,7 +20,7 @@ const validationSchema = yup.object({
 
 const CoreConnect = () => {
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
-  const { setCore } = useContext(LodestoneContext);
+  const { setCore, addCore } = useContext(LodestoneContext);
 
   const initialValues: CoreConnectionInfo = {
     address: '',
@@ -42,6 +42,7 @@ const CoreConnect = () => {
         if (res.status !== 200)
           throw new Error('Invalid response, setup may be invalid');
         setCore(values);
+        addCore(values);
         if (res.data.is_setup === false) {
           setPathname('/login/core/first_setup');
         } else {

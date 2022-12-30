@@ -61,14 +61,12 @@ const UserSelectExisting = () => {
             onClick={() => setPathname('/')}
           />
         ) : (
+          // TODO: better design and layout in this area
           <Button
             icon={faUser}
             className="flex-1"
-            label={`Continue as Guest`}
-            onClick={() => {
-              setToken('', socket);
-              setPathname('/');
-            }}
+            label={`Continue as Current User`}
+            disabled={true}
           />
         )}
         <p>OR</p>
@@ -81,7 +79,11 @@ const UserSelectExisting = () => {
         />
       </div>
       <div className="flex w-full flex-row justify-start gap-4">
-        <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+        <Button
+          icon={faArrowLeft}
+          label="Change Core"
+          onClick={() => setPathname('/login/core/select')}
+        />
         {/* <Button
             icon={faArrowLeft}
             label="Change Core"

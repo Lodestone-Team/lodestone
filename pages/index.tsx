@@ -9,8 +9,14 @@ import {
   useNotificationReducer,
   useOngoingNotificationReducer,
 } from 'data/NotificationContext';
-import React, { useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import React, {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
 import { errorToString, LODESTONE_PORT } from 'utils/util';
@@ -28,6 +34,7 @@ import CoreSetupNew from 'pages/login/CoreSetupNew';
 import CoreConfigNew from 'pages/login/CoreConfigNew';
 import LoginLayout from 'components/LoginLayout';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import NotFound from 'pages/notfound';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,7 +46,7 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
-  const {location, setSearchParam} = useContext(BrowserLocationContext);
+  const { location, setSearchParam } = useContext(BrowserLocationContext);
 
   /* Start Core */
   const [address, setAddress] = useLocalStorageQueryParam(
@@ -197,15 +204,14 @@ export default function App() {
           }}
         >
           <Routes>
-            <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/" element={<Home />} />
-            </Route>
             <Route element={<LoginLayout />}>
               <Route
                 path="/login/core/select"
-                element={<CoreSelectExisting />}
+                element={
+                  <RequireCore redirect="/login/core/new">
+                    <CoreSelectExisting />
+                  </RequireCore>
+                }
               />
               <Route path="/login/core/new" element={<CoreConnect />} />
               <Route
@@ -218,13 +224,68 @@ export default function App() {
               />
               <Route
                 path="/login/user/select"
-                element={<UserSelectExisting />}
+                element={
+                  <RequireCore>
+                    <UserSelectExisting />
+                  </RequireCore>
+                }
               />
-              <Route path="/login/user" element={<UserLogin />} />
+              <Route
+                path="/login/user"
+                element={
+                  <RequireCore>
+                    <UserLogin />
+                  </RequireCore>
+                }
+              />
             </Route>
+            <Route
+              element={
+                <RequireCore>
+                  <RequireToken>
+                    <DashboardLayout />
+                  </RequireToken>
+                </RequireCore>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/" element={<Home />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </NotificationContext.Provider>
       </LodestoneContext.Provider>
     </QueryClientProvider>
   );
+}
+
+function RequireCore({
+  children,
+  redirect = '/login/core/select',
+}: {
+  children: React.ReactNode;
+  redirect?: string;
+}) {
+  const { coreList } = useContext(LodestoneContext);
+  return coreList.length > 0 ? <>{children}</> : <MyNavigate to={redirect} />;
+}
+
+function RequireToken({
+  children,
+  redirect = '/login/user/select',
+}: {
+  children: React.ReactNode;
+  redirect?: string;
+}) {
+  const { token } = useContext(LodestoneContext);
+  return token ? <>{children}</> : <MyNavigate to={redirect} />;
+}
+
+function MyNavigate({ to }: { to: string }) {
+  const { setPathname, location } = useContext(BrowserLocationContext);
+  useEffect(() => {
+    setPathname(to);
+  }, [to, location]);
+  return null;
 }

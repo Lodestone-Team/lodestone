@@ -51,13 +51,17 @@ export const BrowserLocationContextProvider = ({
   let location = useLocation();
   const navigate = useNavigate();
   const setLocation = (func: (loc: Location) => Location) => {
-    location = func(location);
+    const newLocation = func(location);
+    console.log('setLocation', {...location}, {...newLocation});
+    location = newLocation;
     navigate(location);
   };
   const setPathname = (pathname: string) => {
+    console.log('setPathname', pathname);
     setLocation((loc) => ({ ...loc, pathname }));
   };
   const setSearchParam = (key: string, value: string | undefined) => {
+    console.log('setSearchParam', key, value);
     setLocation((loc) => {
       const newSearch = new URLSearchParams(loc.search);
       if (value === undefined) {
@@ -69,6 +73,7 @@ export const BrowserLocationContextProvider = ({
     });
   };
   const navigateBack = () => {
+    console.log('navigateBack');
     navigate(-1);
   };
 
