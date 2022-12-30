@@ -83,7 +83,7 @@ export default function SelectField(props: SelectFieldProps) {
           disabled={disabledVisual}
         >
           <Listbox.Button
-            className={`enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 input-base group min-h-[1em] w-full py-1.5 px-3 ${
+            className={`enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 input-base group min-h-[1em] w-full py-1.5 px-3 ${
               errorText ? 'border-error' : 'border-normal'
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
           >

@@ -107,7 +107,7 @@ export default function SelectBox({
           disabled={disabled || isLoading}
         >
           <Listbox.Button
-            className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30  ${
+            className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30  ${
               errorText ? 'border-error' : 'border-normal'
             }`}
           >
