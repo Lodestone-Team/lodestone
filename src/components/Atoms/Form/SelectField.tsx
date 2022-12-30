@@ -1,19 +1,21 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Fragment } from 'react';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
-import { Listbox } from '@headlessui/react';
+import { Listbox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { faSort, faTrashAlt } from '@fortawesome/free-solid-svg-icons';
+import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 
 export type SelectFieldProps = FieldHookConfig<string> & {
   label?: string;
   loading?: boolean;
   options: string[];
+  actionIcon?: IconDefinition;
+  actionIconClick?: () => any;
 };
 
 export default function SelectField(props: SelectFieldProps) {
-  const { label, className, disabled, options, placeholder, loading, ...rest } =
+  const { label, className, disabled, options, placeholder, loading, actionIcon, actionIconClick, ...rest } =
     props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
@@ -57,32 +59,6 @@ export default function SelectField(props: SelectFieldProps) {
     />
   );
 
-  const itemActionIcon = loadingVisual ? (
-    <BeatLoader
-      key="loading"
-      size="0.25rem"
-      cssOverride={{
-        width: '2rem',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        margin: `0 -0.5rem`,
-      }}
-    />
-  ) : (
-    <FontAwesomeIcon
-      key="icon"
-      icon={faTrashAlt}
-      className={
-        'w-4 text-gray-faded/30 cursor-pointer hover:text-gray-500'
-      }
-    />
-  );
-
-  function itemAction() {
-    // pass
-  }
-
   return (
     <div
       className={`flex flex-col gap-1 ${className} group relative text-base`}
@@ -107,7 +83,7 @@ export default function SelectField(props: SelectFieldProps) {
           disabled={disabledVisual}
         >
           <Listbox.Button
-            className={`ui-open:bg-gray-700 ui-not-open:bg-gray-900 input-base group min-h-[1em] w-full ${
+            className={`enabled:ui-open:bg-gray-700 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:active:bg-gray-850 enabled:ui-open:active:bg-gray-850 input-base group min-h-[1em] w-full py-1.5 px-3 ${
               errorText ? 'border-error' : 'border-normal'
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
           >
@@ -122,28 +98,41 @@ export default function SelectField(props: SelectFieldProps) {
             </div>
           </Listbox.Button>
 
-          <Listbox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-2 shadow-md`}
+          <Transition
+            as={Fragment}
+            enter="transition ease-out duration-200"
+            enterFrom="opacity-0 -translate-y-1"
+            enterTo="opacity-100 translate-y-0"
+            leave="transition ease-in duration-150"
+            leaveFrom="opacity-100 translate-y-0"
+            leaveTo="opacity-0 -translate-y-1"
           >
-            {options.map((option) => (
-              <Listbox.Option
-                key={option}
-                value={option}
-                className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
-              >
-                {({ active }) => (
+            <Listbox.Options
+              className={`input-base border border-white/30 border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
+            >
+              {options.map((option) => (
+                <Listbox.Option
+                  key={option}
+                  value={option}
+                  className="relative cursor-default select-none border border-gray-400/30 py-2 pl-3 border-l-0 border-r-0 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850">
+                  {({ active }) => (
                     <div className="flex flex-row justify-between">
-                      <span
-                        className="block truncate pr-1"
-                      >
-                        {option}
-                      </span>
-                      <div onClick={itemAction} className="right-3 absolute">{active && itemActionIcon}</div>
+                      <span className="block truncate pr-1">{option}</span>
+                      <div onClick={actionIconClick} className="absolute right-3">
+                        {active && actionIcon && actionIconClick && (
+                          <FontAwesomeIcon
+                            key="icon"
+                            icon={actionIcon}
+                            className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                          />
+                        )}
+                      </div>
                     </div>
-                )}
-              </Listbox.Option>
-            ))}
-          </Listbox.Options>
+                  )}
+                </Listbox.Option>
+              ))}
+            </Listbox.Options>
+          </Transition>
         </Listbox>
         {errorText && (
           <div
