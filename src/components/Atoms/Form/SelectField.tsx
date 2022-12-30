@@ -15,8 +15,17 @@ export type SelectFieldProps = FieldHookConfig<string> & {
 };
 
 export default function SelectField(props: SelectFieldProps) {
-  const { label, className, disabled, options, placeholder, loading, actionIcon, actionIconClick, ...rest } =
-    props;
+  const {
+    label,
+    className,
+    disabled,
+    options,
+    placeholder,
+    loading,
+    actionIcon,
+    actionIconClick,
+    ...rest
+  } = props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [touched, error] = at(meta, 'touched', 'error');
@@ -83,7 +92,7 @@ export default function SelectField(props: SelectFieldProps) {
           disabled={disabledVisual}
         >
           <Listbox.Button
-            className={`enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 input-base group min-h-[1em] w-full py-1.5 px-3 ${
+            className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:hover:outline-white/30 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 ${
               errorText ? 'border-error' : 'border-normal'
             } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
           >
@@ -108,17 +117,21 @@ export default function SelectField(props: SelectFieldProps) {
             leaveTo="opacity-0 -translate-y-1"
           >
             <Listbox.Options
-              className={`input-base outline-gray-550 absolute z-50 mt-2 max-h-60 w-full overflow-auto bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
+              className={`input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto bg-gray-850 p-0 py-2 shadow-md outline-gray-550 drop-shadow-md`}
             >
               {options.map((option) => (
                 <Listbox.Option
                   key={option}
                   value={option}
-                  className="relative cursor-default select-none border border-b-0 border-x-0 last:border-b border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850">
+                  className="relative cursor-default select-none border border-x-0 border-b-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 last:border-b ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                >
                   {({ active }) => (
                     <div className="flex flex-row justify-between">
                       <span className="block truncate pr-1">{option}</span>
-                      <div onClick={actionIconClick} className="absolute right-3">
+                      <div
+                        onClick={actionIconClick}
+                        className="absolute right-3"
+                      >
                         {active && actionIcon && actionIconClick && (
                           <FontAwesomeIcon
                             key="icon"

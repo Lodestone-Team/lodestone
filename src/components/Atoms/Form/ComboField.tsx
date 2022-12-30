@@ -24,7 +24,7 @@ export default function ComboField(props: ComboFieldProps) {
     placeholder,
     loading,
     allowCustom,
-    actionIcon, 
+    actionIcon,
     actionIconClick,
     ...rest
   } = props;
@@ -103,10 +103,9 @@ export default function ComboField(props: ComboFieldProps) {
           }}
           disabled={disabledVisual}
         >
-
           <Combobox.Button className="w-full">
             <Combobox.Input
-              className={`enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 input-base group min-h-[1em] w-full py-1.5 px-3 ${
+              className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:hover:outline-white/30 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 ${
                 errorText ? 'border-error' : 'border-normal'
               } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
               onChange={(event) => setQuery(event.target.value)}
@@ -125,30 +124,33 @@ export default function ComboField(props: ComboFieldProps) {
             leaveFrom="opacity-100 translate-y-0"
             leaveTo="opacity-0 -translate-y-1"
           >
-
             <Combobox.Options
-              className={`drop-shadow-md overflow-y-overlay bg-gray-850 input-base outline-gray-550 absolute z-50 mt-2 max-h-60 w-full overflow-auto py-3 p-0 rounded-md`}
+              className={`overflow-y-overlay input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto rounded-md bg-gray-850 p-0 py-3 outline-gray-550 drop-shadow-md`}
             >
               {allowCustom && query.length > 0 && (
                 <Combobox.Option
                   value={query}
-                  className="relative cursor-default select-none border border-b-0 border-x-0 last:border-b border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850">
-                    {({ active }) => (
-                      <div className="flex flex-row justify-between">
-                        <span className="block truncate pr-1">
-                          Add &#34;{query}&#34;
-                        </span>
-                        <div onClick={actionIconClick} className="absolute right-3">
-                          {active && actionIcon && actionIconClick && (
-                            <FontAwesomeIcon
-                              key="icon"
-                              icon={actionIcon}
-                              className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
-                            />
-                          )}
-                        </div>
+                  className="relative cursor-default select-none border border-x-0 border-b-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 last:border-b ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                >
+                  {({ active }) => (
+                    <div className="flex flex-row justify-between">
+                      <span className="block truncate pr-1">
+                        Add &#34;{query}&#34;
+                      </span>
+                      <div
+                        onClick={actionIconClick}
+                        className="absolute right-3"
+                      >
+                        {active && actionIcon && actionIconClick && (
+                          <FontAwesomeIcon
+                            key="icon"
+                            icon={actionIcon}
+                            className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                          />
+                        )}
                       </div>
-                    )}
+                    </div>
+                  )}
                 </Combobox.Option>
               )}
               {filteredOptions.length === 0 && query.length > 0 ? (
@@ -162,21 +164,25 @@ export default function ComboField(props: ComboFieldProps) {
                   <Combobox.Option
                     key={option}
                     value={option}
-                    className="relative cursor-default select-none border border-b-0 border-x-0 last:border-b border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850">
-                      {({ active }) => (
-                        <div className="flex flex-row justify-between">
-                          <span className="block truncate pr-1">{option}</span>
-                          <div onClick={actionIconClick} className="absolute right-3">
-                            {active && actionIcon && actionIconClick && (
-                              <FontAwesomeIcon
-                                key="icon"
-                                icon={actionIcon}
-                                className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
-                              />
-                            )}
-                          </div>
+                    className="relative cursor-default select-none border border-x-0 border-b-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 last:border-b ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                  >
+                    {({ active }) => (
+                      <div className="flex flex-row justify-between">
+                        <span className="block truncate pr-1">{option}</span>
+                        <div
+                          onClick={actionIconClick}
+                          className="absolute right-3"
+                        >
+                          {active && actionIcon && actionIconClick && (
+                            <FontAwesomeIcon
+                              key="icon"
+                              icon={actionIcon}
+                              className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                            />
+                          )}
                         </div>
-                      )}
+                      </div>
+                    )}
                   </Combobox.Option>
                 ))
               )}
