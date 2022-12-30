@@ -107,8 +107,8 @@ const CoreSelectExisting = () => {
                 onClick={() => setPathname('/login/core/new')}
               />
             </div>
-            <div className="flex w-full flex-row justify-between gap-4">
-              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+            <div className="flex w-full flex-row justify-end gap-4">
+              {/* <Button icon={faArrowLeft} label="Back" onClick={navigateBack} /> */}
               <Button
                 type="submit"
                 color="primary"

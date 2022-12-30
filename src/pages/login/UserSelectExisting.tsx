@@ -15,6 +15,7 @@ import Avatar from 'components/Atoms/Avatar';
 import { useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
 import { JwtToken } from 'bindings/JwtToken';
+import { isLocalCore } from 'utils/util';
 
 const UserSelectExisting = () => {
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
@@ -27,7 +28,10 @@ const UserSelectExisting = () => {
 
   useEffectOnce(() => {
     if (token) return;
-    if (!tauri) return;
+    if (!tauri || !isLocalCore(core)) {
+      setPathname('/login/user', true);
+      return;
+    }
     tauri
       ?.invoke<JwtToken | null>('get_owner_jwt')
       .then((token) => {
@@ -84,11 +88,6 @@ const UserSelectExisting = () => {
           label="Change Core"
           onClick={() => setPathname('/login/core/select')}
         />
-        {/* <Button
-            icon={faArrowLeft}
-            label="Change Core"
-            onClick={() => setPathname('/login/core/select')}
-          /> */}
       </div>
     </div>
   );

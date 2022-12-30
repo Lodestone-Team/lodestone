@@ -5,8 +5,8 @@ import { useLocation, useNavigate, Location } from 'react-router-dom';
 interface BrowserLocationContext {
   location: Location;
   searchParams: URLSearchParams;
-  setLocation: (func: (loc: Location) => Location) => void;
-  setPathname: (pathname: string) => void;
+  setLocation: (func: (loc: Location) => Location, replace?: boolean) => void;
+  setPathname: (pathname: string, replace?: boolean) => void;
   setSearchParam: (key: string, value: string | undefined) => void;
   navigateBack: () => void;
 }
@@ -50,15 +50,15 @@ export const BrowserLocationContextProvider = ({
   // location is let since we want to manually update it
   let location = useLocation();
   const navigate = useNavigate();
-  const setLocation = (func: (loc: Location) => Location) => {
+  const setLocation = (func: (loc: Location) => Location, replace = false) => {
     const newLocation = func(location);
     console.log('setLocation', {...location}, {...newLocation});
     location = newLocation;
-    navigate(location);
+    navigate(location, { replace });
   };
-  const setPathname = (pathname: string) => {
+  const setPathname = (pathname: string, replace = false) => {
     console.log('setPathname', pathname);
-    setLocation((loc) => ({ ...loc, pathname }));
+    setLocation((loc) => ({ ...loc, pathname }), replace);
   };
   const setSearchParam = (key: string, value: string | undefined) => {
     console.log('setSearchParam', key, value);

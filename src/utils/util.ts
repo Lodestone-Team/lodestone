@@ -542,3 +542,13 @@ export async function loginToCore(
     }
   }
 }
+
+// check if a core is localhost
+export function isLocalCore(core: CoreConnectionInfo) {
+  return (
+    core.address === 'localhost' ||
+    core.address === '127.0.0.1' ||
+    core.address === '::1' ||
+    /^0+:0+:0+:0+:0+:0+:0+:1+$/.test(core.address)
+  );
+}

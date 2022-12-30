@@ -285,7 +285,7 @@ function RequireToken({
 function MyNavigate({ to }: { to: string }) {
   const { setPathname, location } = useContext(BrowserLocationContext);
   useEffect(() => {
-    setPathname(to);
+    setPathname(to, true);
   }, [to, location]);
   return null;
 }

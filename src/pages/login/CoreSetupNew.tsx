@@ -141,11 +141,11 @@ const CoreSetupNew = () => {
               />
             </div>
             <div className="flex w-full flex-row justify-between gap-4">
-              <Button
+              {/* <Button
                 iconRight={faArrowLeft}
                 label="Back"
                 onClick={navigateBack}
-              />
+              /> */}
               <Button
                 type="submit"
                 color="primary"
