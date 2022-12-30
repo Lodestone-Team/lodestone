@@ -230,7 +230,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
     } else {
         None
     };
-    let macro_executor = MacroExecutor::new();
+    let macro_executor = MacroExecutor::new(tx.clone());
     let mut instances = restore_instances(&lodestone_path, &tx, macro_executor.clone()).await;
     for (_, instance) in instances.iter_mut() {
         if instance.auto_start().await {

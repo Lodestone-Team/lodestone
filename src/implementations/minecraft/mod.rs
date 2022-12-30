@@ -627,6 +627,7 @@ impl MinecraftInstance {
             path_to_properties,
             path_to_macros,
             path_to_resources,
+            macro_executor: MacroExecutor::new(event_broadcaster.clone()),
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
@@ -634,7 +635,6 @@ impl MinecraftInstance {
             settings: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
-            macro_executor: MacroExecutor::new(),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
         };
