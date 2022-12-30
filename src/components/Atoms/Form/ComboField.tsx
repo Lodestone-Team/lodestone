@@ -103,15 +103,18 @@ export default function ComboField(props: ComboFieldProps) {
           }}
           disabled={disabledVisual}
         >
-          <Combobox.Input
-            className={`enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 input-base group min-h-[1em] w-full py-1.5 px-3 ${
-              errorText ? 'border-error' : 'border-normal'
-            } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={placeholder}
-          />
-          <Combobox.Button className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
-            {icon}
+
+          <Combobox.Button className="w-full">
+            <Combobox.Input
+              className={`enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 input-base group min-h-[1em] w-full py-1.5 px-3 ${
+                errorText ? 'border-error' : 'border-normal'
+              } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={placeholder}
+            />
+            <div className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
+              {icon}
+            </div>
           </Combobox.Button>
           <Transition
             as={Fragment}
@@ -124,7 +127,7 @@ export default function ComboField(props: ComboFieldProps) {
           >
 
             <Combobox.Options
-              className={`overflow-y-overlay bg-gray-850 input-base outline-white/30 absolute z-50 mt-2 max-h-60 w-full overflow-auto py-3 p-0 shadow-md rounded-md`}
+              className={`drop-shadow-md overflow-y-overlay bg-gray-850 input-base outline-gray-550 absolute z-50 mt-2 max-h-60 w-full overflow-auto py-3 p-0 rounded-md`}
             >
               {allowCustom && query.length > 0 && (
                 <Combobox.Option

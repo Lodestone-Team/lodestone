@@ -108,7 +108,7 @@ export default function SelectField(props: SelectFieldProps) {
             leaveTo="opacity-0 -translate-y-1"
           >
             <Listbox.Options
-              className={`input-base outline-white/30 absolute z-50 mt-2 max-h-60 w-full overflow-auto bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
+              className={`input-base outline-gray-550 absolute z-50 mt-2 max-h-60 w-full overflow-auto bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
             >
               {options.map((option) => (
                 <Listbox.Option
