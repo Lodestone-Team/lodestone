@@ -2,6 +2,7 @@ import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
 import {
   axiosPutSingleValue,
+  DEFAULT_LOCAL_CORE,
   DISABLE_AUTOFILL,
   errorToString,
 } from 'utils/util';
@@ -14,11 +15,36 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
+import { useEffectOnce } from 'usehooks-ts';
+import { tauri } from 'utils/tauriUtil';
 
 const FirstTime = () => {
-  const { navigateBack, setPathname } = useContext(BrowserLocationContext);
+  const { setPathname } = useContext(BrowserLocationContext);
+  const { coreList, addCore, setCore } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
   const { data: globalSettings, isLoading, error } = useGlobalSettings();
+
+  useEffectOnce(() => {
+    if (coreList.length > 0) {
+      setPathname('/login/core/select');
+      return;
+    }
+    if (!tauri) return;
+    tauri
+      ?.invoke<string | null>('is_setup')
+      .then((is_setup) => {
+        addCore(DEFAULT_LOCAL_CORE);
+        setCore(DEFAULT_LOCAL_CORE);
+        if (is_setup) {
+          setPathname('/');
+        } else {
+          setPathname('/login/core/first_setup');
+        }
+      })
+      .catch((err: any) => {
+        console.log('Tauri call failed is_setup', err);
+      });
+  });
 
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">

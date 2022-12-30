@@ -1,3 +1,5 @@
+// This is the only place where Tauri API import is allowed
+// eslint-disable-next-line no-restricted-imports
 import tauriApi from '@tauri-apps/api'; // Import the Tauri API
 
 export type tauri = typeof tauriApi; // Export the Tauri API as the `tauri` type

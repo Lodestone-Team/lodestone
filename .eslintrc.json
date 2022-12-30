@@ -15,6 +15,10 @@
         "message": "Please use functions from BrowserLocationContext instead"
       },
       {
+        "name": "@tauri-apps/api",
+        "message": "Please use the global tauri object from tauriUtil.ts instead"
+      },
+      {
         "name": "next/router",
         "message": "Please use react-router-dom instead"
       }

@@ -19,7 +19,7 @@ import React, {
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
-import { errorToString, LODESTONE_PORT } from 'utils/util';
+import { DEFAULT_LOCAL_CORE, errorToString, LODESTONE_PORT } from 'utils/util';
 import Dashboard from 'pages/dashboard';
 import Home from 'pages/home';
 import axios from 'axios';
@@ -52,16 +52,19 @@ export default function App() {
   /* Start Core */
   const [address, setAddress] = useLocalStorageQueryParam(
     'address',
-    'localhost'
+    DEFAULT_LOCAL_CORE.address
   );
   const [port, setPort] = useLocalStorageQueryParam(
     'port',
-    LODESTONE_PORT.toString()
+    DEFAULT_LOCAL_CORE.port
   );
-  const [protocol, setProtocol] = useLocalStorageQueryParam('protocol', 'http');
+  const [protocol, setProtocol] = useLocalStorageQueryParam(
+    'protocol',
+    DEFAULT_LOCAL_CORE.protocol
+  );
   const [apiVersion, setApiVersion] = useLocalStorageQueryParam(
     'apiVersion',
-    'v1'
+    DEFAULT_LOCAL_CORE.apiVersion
   );
   const core: CoreConnectionInfo = useMemo(
     () => ({

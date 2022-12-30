@@ -41,6 +41,7 @@ const CoreSetupNew = () => {
   const queryClient = useQueryClient();
   const [setupKey, setSetupKey] = useState<string>('');
   const { address, port } = core;
+  const { core_name } = coreInfo ?? {};
   const tauri = useTauri();
   const socket = `${address}:${port}`;
 
@@ -106,6 +107,9 @@ const CoreSetupNew = () => {
           Create an owner&#39;s account
         </h1>
         <h2 className="text-medium font-semibold tracking-medium text-white/50">
+          {core_name} ({socket})
+        </h2>
+        <h2 className="text-medium font-semibold tracking-medium text-white/50">
           {tauri && setupKey
             ? "Setup key is automatically filled in because you're using the desktop app"
             : 'Check the console output of the core to find the "First time setup key"'}
@@ -140,7 +144,7 @@ const CoreSetupNew = () => {
                 label="Confirm Password"
               />
             </div>
-            <div className="flex w-full flex-row justify-between gap-4">
+            <div className="flex w-full flex-row justify-end gap-4">
               {/* <Button
                 iconRight={faArrowLeft}
                 label="Back"
