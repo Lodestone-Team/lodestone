@@ -14,6 +14,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import Avatar from 'components/Atoms/Avatar';
 import { useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
+import { JwtToken } from 'bindings/JwtToken';
 
 const UserSelectExisting = () => {
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
@@ -28,7 +29,7 @@ const UserSelectExisting = () => {
     if (token) return;
     if (!tauri) return;
     tauri
-      ?.invoke<string | null>('get_owner_jwt')
+      ?.invoke<JwtToken | null>('get_owner_jwt')
       .then((token) => {
         if (token) {
           setToken(token, socket);
