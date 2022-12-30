@@ -1,7 +1,7 @@
-import { faSort, faTrashAlt } from '@fortawesome/free-solid-svg-icons';
+import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Listbox } from '@headlessui/react';
-import { useEffect, useState } from 'react';
+import { Listbox, Transition } from '@headlessui/react';
+import { useEffect, useState, Fragment } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 
@@ -17,6 +17,8 @@ export default function SelectBox({
   isLoading: isLoadingProp = false,
   description,
   descriptionFunc,
+  actionIcon,
+  actionIconClick,
 }: {
   label: string;
   value?: string;
@@ -29,6 +31,8 @@ export default function SelectBox({
   onChange: (arg: string) => Promise<void>;
   description?: React.ReactNode;
   descriptionFunc?: (arg: string) => React.ReactNode;
+  actionIcon?: IconDefinition;
+  actionIconClick?: () => any;
 }) {
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -52,69 +56,46 @@ export default function SelectBox({
 
   const errorText = errorProp || error;
   disabled = disabled || !canRead || isLoadingProp;
-  description = canRead ? descriptionFunc?.(initialValue || value) ?? description : "No permission";
+  description = canRead
+    ? descriptionFunc?.(initialValue || value) ?? description
+    : 'No permission';
 
-  const icon = (isLoading || isLoadingProp) ? (
-    <BeatLoader
-      key="loading"
-      size="0.25rem"
-      cssOverride={{
-        width: '2rem',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        margin: `0 -0.5rem`,
-      }}
-      color="#6b7280"
-    />
-  ) : (
-    <FontAwesomeIcon
-      key="icon"
-      icon={faSort}
-      className={
-        'w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
-      }
-    />
-  );
-
-  const itemActionIcon = (isLoading || isLoadingProp) ? (
-    <BeatLoader
-      key="loading"
-      size="0.25rem"
-      cssOverride={{
-        width: '2rem',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        margin: `0 -0.5rem`,
-      }}
-    />
-  ) : (
-    <FontAwesomeIcon
-      key="icon"
-      icon={faTrashAlt}
-      className={
-        'w-4 text-gray-faded/30 cursor-pointer hover:text-gray-500'
-      }
-    />
-  );
-
-  function itemAction() {
-    // pass
-  }
+  const icon =
+    isLoading || isLoadingProp ? (
+      <BeatLoader
+        key="loading"
+        size="0.25rem"
+        cssOverride={{
+          width: '2rem',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          margin: `0 -0.5rem`,
+        }}
+        color="#6b7280"
+      />
+    ) : (
+      <FontAwesomeIcon
+        key="icon"
+        icon={faSort}
+        className={
+          'w-4 text-gray-faded/30 group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
+        }
+      />
+    );
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
+      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-base`}
     >
-      <div className={`flex flex-col min-w-0 grow`}>
+      <div className={`flex min-w-0 grow flex-col`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
         {errorText ? (
           <div className="text-small font-medium tracking-medium text-red">
             {errorText || 'Unknown error'}
           </div>
         ) : (
-          <div className="text-small font-medium tracking-medium text-white/50 text-ellipsis overflow-hidden">
+          <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
             {description}
           </div>
         )}
@@ -126,7 +107,7 @@ export default function SelectBox({
           disabled={disabled || isLoading}
         >
           <Listbox.Button
-            className={`ui-open:bg-gray-700 ui-not-open:bg-gray-900 input-base group w-full ${
+            className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:active:bg-gray-850 ${
               errorText ? 'border-error' : 'border-normal'
             }`}
           >
@@ -135,38 +116,58 @@ export default function SelectBox({
               <div className="flex flex-row gap-2">{icon}</div>
             </div>
           </Listbox.Button>
-          <Listbox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-2 shadow-md`}
+
+          <Transition
+            as={Fragment}
+            enter="transition ease-out duration-200"
+            enterFrom="opacity-0 -translate-y-1"
+            enterTo="opacity-100 translate-y-0"
+            leave="transition ease-in duration-150"
+            leaveFrom="opacity-100 translate-y-0"
+            leaveTo="opacity-0 -translate-y-1"
           >
-            {options.map((option ) => (
-              <Listbox.Option
-                key={option}
-                value={option}
-                className="border border-gray-400/30 relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-not-selected:ui-not-active:bg-gray-900"
-              >
-                {({ active }) => (
+            <Listbox.Options
+              className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto border border-white/30 bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
+            >
+              {options.map((option) => (
+                <Listbox.Option
+                  key={option}
+                  value={option}
+                  className="relative cursor-default select-none border border-l-0 border-r-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                >
+                  {({ active }) => (
                     <div className="flex flex-row justify-between">
-                      <span
-                        className="block truncate pr-1"
+                      <span className="block truncate pr-1">{option}</span>
+                      <div
+                        onClick={actionIconClick}
+                        className="absolute right-3"
                       >
-                        {option}
-                      </span>
-                      <div onClick={itemAction} className="right-3 absolute">{active && itemActionIcon}</div>
+                        {active && actionIcon && actionIconClick && (
+                          <FontAwesomeIcon
+                            key="icon"
+                            icon={actionIcon}
+                            className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                          />
+                        )}
+                      </div>
                     </div>
-                )}
-              </Listbox.Option>
-            ))}
-            {(initialValue === undefined || initialValue.length === 0) && (
-              <Listbox.Option 
-                key={'Select...'}
-                value={''}
-                className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
-                disabled
-              >
-                <span className={`block truncate font-normal`}>Select...</span>
-              </Listbox.Option>
-            )}
-          </Listbox.Options>
+                  )}
+                </Listbox.Option>
+              ))}
+              {(initialValue === undefined || initialValue.length === 0) && (
+                <Listbox.Option
+                  key={'Select...'}
+                  value={''}
+                  className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
+                  disabled
+                >
+                  <span className={`block truncate font-normal`}>
+                    Select...
+                  </span>
+                </Listbox.Option>
+              )}
+            </Listbox.Options>
+          </Transition>
         </Listbox>
       </div>
     </div>
