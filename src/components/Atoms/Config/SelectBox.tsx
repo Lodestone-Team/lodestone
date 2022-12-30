@@ -107,7 +107,7 @@ export default function SelectBox({
           disabled={disabled || isLoading}
         >
           <Listbox.Button
-            className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:active:bg-gray-850 ${
+            className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:hover:outline-white/30 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30  ${
               errorText ? 'border-error' : 'border-normal'
             }`}
           >
@@ -127,13 +127,13 @@ export default function SelectBox({
             leaveTo="opacity-0 -translate-y-1"
           >
             <Listbox.Options
-              className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto border border-white/30 bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
+              className={`input-base outline-white/30 absolute z-50 mt-2 max-h-60 w-full overflow-auto bg-gray-850 p-0 py-2 shadow-md drop-shadow-md`}
             >
               {options.map((option) => (
                 <Listbox.Option
                   key={option}
                   value={option}
-                  className="relative cursor-default select-none border border-l-0 border-r-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                  className="relative cursor-default select-none border border-b-0 border-x-0 last:border-b border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
                 >
                   {({ active }) => (
                     <div className="flex flex-row justify-between">
