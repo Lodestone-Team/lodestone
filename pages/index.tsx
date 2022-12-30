@@ -35,6 +35,7 @@ import CoreConfigNew from 'pages/login/CoreConfigNew';
 import LoginLayout from 'components/LoginLayout';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import NotFound from 'pages/notfound';
+import FirstTime from 'pages/login/FirstTime';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -205,6 +206,7 @@ export default function App() {
         >
           <Routes>
             <Route element={<LoginLayout />}>
+              <Route path="/first_setup" element={<FirstTime />} />
               <Route
                 path="/login/core/select"
                 element={
@@ -214,6 +216,14 @@ export default function App() {
                 }
               />
               <Route path="/login/core/new" element={<CoreConnect />} />
+            </Route>
+            <Route
+              element={
+                <RequireCore>
+                  <LoginLayout />
+                </RequireCore>
+              }
+            >
               <Route
                 path="/login/core/first_setup"
                 element={<CoreSetupNew />}
@@ -224,20 +234,9 @@ export default function App() {
               />
               <Route
                 path="/login/user/select"
-                element={
-                  <RequireCore>
-                    <UserSelectExisting />
-                  </RequireCore>
-                }
+                element={<UserSelectExisting />}
               />
-              <Route
-                path="/login/user"
-                element={
-                  <RequireCore>
-                    <UserLogin />
-                  </RequireCore>
-                }
-              />
+              <Route path="/login/user" element={<UserLogin />} />
             </Route>
             <Route
               element={
@@ -262,7 +261,7 @@ export default function App() {
 
 function RequireCore({
   children,
-  redirect = '/login/core/select',
+  redirect = '/first_setup',
 }: {
   children: React.ReactNode;
   redirect?: string;

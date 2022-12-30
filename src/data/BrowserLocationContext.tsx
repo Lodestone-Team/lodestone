@@ -7,7 +7,7 @@ interface BrowserLocationContext {
   searchParams: URLSearchParams;
   setLocation: (func: (loc: Location) => Location, replace?: boolean) => void;
   setPathname: (pathname: string, replace?: boolean) => void;
-  setSearchParam: (key: string, value: string | undefined) => void;
+  setSearchParam: (key: string, value: string | undefined, replace?: boolean) => void;
   navigateBack: () => void;
 }
 
@@ -60,7 +60,7 @@ export const BrowserLocationContextProvider = ({
     console.log('setPathname', pathname);
     setLocation((loc) => ({ ...loc, pathname }), replace);
   };
-  const setSearchParam = (key: string, value: string | undefined) => {
+  const setSearchParam = (key: string, value: string | undefined, replace = false) => {
     console.log('setSearchParam', key, value);
     setLocation((loc) => {
       const newSearch = new URLSearchParams(loc.search);
@@ -70,7 +70,7 @@ export const BrowserLocationContextProvider = ({
         newSearch.set(key, value);
       }
       return { ...loc, search: newSearch.toString() };
-    });
+    }, replace);
   };
   const navigateBack = () => {
     console.log('navigateBack');
