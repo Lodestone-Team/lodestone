@@ -36,6 +36,8 @@ import LoginLayout from 'components/LoginLayout';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import NotFound from 'pages/notfound';
 import FirstTime from 'pages/login/FirstTime';
+import RequireCore from 'utils/router/RequireCore';
+import RequireToken from 'utils/router/RequireToken';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -260,34 +262,4 @@ export default function App() {
       </LodestoneContext.Provider>
     </QueryClientProvider>
   );
-}
-
-function RequireCore({
-  children,
-  redirect = '/first_setup',
-}: {
-  children: React.ReactNode;
-  redirect?: string;
-}) {
-  const { coreList } = useContext(LodestoneContext);
-  return coreList.length > 0 ? <>{children}</> : <MyNavigate to={redirect} />;
-}
-
-function RequireToken({
-  children,
-  redirect = '/login/user/select',
-}: {
-  children: React.ReactNode;
-  redirect?: string;
-}) {
-  const { token } = useContext(LodestoneContext);
-  return token ? <>{children}</> : <MyNavigate to={redirect} />;
-}
-
-function MyNavigate({ to }: { to: string }) {
-  const { setPathname, location } = useContext(BrowserLocationContext);
-  useEffect(() => {
-    setPathname(to, true);
-  }, [to, location]);
-  return null;
 }
