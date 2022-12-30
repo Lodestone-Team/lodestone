@@ -42,7 +42,7 @@ export default function MinecraftBasicForm() {
         The Basics
       </h1>
       <p>
-        Some basic information about your minecraft server.
+        Some basic information about your Minecraft server.
         <br />
       </p>
       <div className="mt-10 flex flex-col gap-16 text-left">
