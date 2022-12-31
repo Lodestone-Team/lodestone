@@ -1,4 +1,8 @@
-import { capitalizeFirstLetter, stateToLabelColor } from 'utils/util';
+import {
+  capitalizeFirstLetter,
+  errorToString,
+  stateToLabelColor,
+} from 'utils/util';
 import Button from './Atoms/Button';
 import Label from './Atoms/Label';
 import { useState } from 'react';
@@ -86,7 +90,7 @@ export default function InstanceCard({
         response.data;
       })
       .catch((error) => {
-        alert(error);
+        alert(errorToString(error));
       })
       .finally(() => {
         setLoading(false);
@@ -99,7 +103,7 @@ export default function InstanceCard({
 
   return (
     <div
-      className={`group flex w-fit border border-gray-faded/30 select-none flex-col items-stretch gap-y-4 rounded-xl bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900 ${
+      className={`group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900 ${
         focus ? `bg-gray-900 outline outline-2 ring-[6px] ${borderClass}` : ''
       }`}
       onClick={cardOnClick}
@@ -127,7 +131,7 @@ export default function InstanceCard({
         <GameIcon
           game_type={game_type}
           game_flavour={flavour}
-          className="w-8 h-8"
+          className="h-8 w-8"
         />
       </div>
     </div>
