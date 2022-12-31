@@ -5,6 +5,7 @@ import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
+import clsx from 'clsx';
 
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -74,9 +75,10 @@ export default function ComboField(props: ComboFieldProps) {
     <FontAwesomeIcon
       key="icon"
       icon={faSort}
-      className={`w-4 text-gray-faded/30 ${
-        disabledVisual || 'group-hover:cursor-pointer group-hover:text-gray-500'
-      }`}
+      className={clsx(
+        'w-4 text-gray-faded/30',
+        'group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
+      )}
     />
   );
 
@@ -105,9 +107,15 @@ export default function ComboField(props: ComboFieldProps) {
         >
           <Combobox.Button className="w-full">
             <Combobox.Input
-              className={`input-base group min-h-[1em] w-full py-1.5 px-3 enabled:hover:outline-white/30 enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700 enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30 ${
-                errorText ? 'border-error' : 'border-normal'
-              } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
+              className={clsx(
+                'input-base group min-h-[1em] w-full py-1.5 px-3',
+                'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
+                'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
+                'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
+                'enabled:ui-not-open:active:outline-white/30',
+                errorText ? 'border-error' : 'border-normal',
+                selectedValue ? 'text-gray-300' : 'text-gray-500'
+              )}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={placeholder}
             />
@@ -125,12 +133,21 @@ export default function ComboField(props: ComboFieldProps) {
             leaveTo="opacity-0 -translate-y-1"
           >
             <Combobox.Options
-              className={`overflow-y-overlay input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto rounded-md bg-gray-850 p-0 py-3 outline-gray-550 drop-shadow-md`}
+              className={clsx(
+                "overflow-y-overlay input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto rounded-md",
+                "bg-gray-850 p-0 py-3 outline-gray-550 drop-shadow-md"
+              )}
             >
               {allowCustom && query.length > 0 && (
                 <Combobox.Option
                   value={query}
-                  className="relative cursor-default select-none border border-x-0 border-b-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 last:border-b ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                  className={clsx(
+                    'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+                    'border border-x-0 border-b-0 border-gray-400/30 last:border-b',
+                    'ui-selected:font-medium ui-not-selected:font-normal',
+                    'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+                    'ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850'
+                  )}
                 >
                   {({ active }) => (
                     <div className="flex flex-row justify-between">
@@ -164,7 +181,13 @@ export default function ComboField(props: ComboFieldProps) {
                   <Combobox.Option
                     key={option}
                     value={option}
-                    className="relative cursor-default select-none border border-x-0 border-b-0 border-gray-400/30 py-2 pl-3 pr-4 text-gray-300 last:border-b ui-selected:font-medium ui-not-selected:font-normal ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800 ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850"
+                    className={clsx(
+                      'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+                      'border border-x-0 border-b-0 border-gray-400/30 last:border-b',
+                      'ui-selected:font-medium ui-not-selected:font-normal',
+                      'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+                      'ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850'
+                    )}
                   >
                     {({ active }) => (
                       <div className="flex flex-row justify-between">
