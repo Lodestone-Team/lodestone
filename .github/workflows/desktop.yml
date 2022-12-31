@@ -54,7 +54,7 @@ jobs:
       # on linux, cache appimage in src-tauri/target/release/bundle/appimage/lodestone-dashboard*.AppImage
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.platform }}-tauri
           path: |
