@@ -47,6 +47,7 @@ export default function DashboardLayout() {
   }, [instances, queryUuid]);
 
   function setInstance(instance?: InstanceInfo) {
+    console.log('setInstance', instance);
     if (instance === undefined) {
       setInstanceState(undefined);
       setQueryUuid('');

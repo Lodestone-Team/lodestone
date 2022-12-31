@@ -150,11 +150,12 @@ export const useEventStream = () => {
                   ? `${players_left_names.join(', ')} Left ${name}`
                   : ''
               }`;
-              dispatch({
-                title,
-                event,
-                type: 'add',
-              });
+              if (title.length > 0)
+                dispatch({
+                  title,
+                  event,
+                  type: 'add',
+                });
             },
             PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
@@ -232,7 +233,9 @@ export const useEventStream = () => {
               });
             },
             MacroErrored: ({ error_msg }) => {
-              console.log(`Macro ${macro_pid} errored on ${uuid}: ${error_msg}`);
+              console.log(
+                `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`
+              );
               dispatch({
                 title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
                 event,

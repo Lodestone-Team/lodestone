@@ -73,6 +73,10 @@ module.exports = {
       larger: '1.5rem',
       xlarge: '1.75rem',
       '2xlarge': '2rem',
+      '3xlarge': '2.5rem',
+      '4xlarge': '3rem',
+      '5xlarge': '3.5rem',
+      '6xlarge': '4rem',
     },
     letterSpacing: {
       tight: '-0.04em',

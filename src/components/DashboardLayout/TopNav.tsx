@@ -143,11 +143,11 @@ export default function TopNav({
                     onClick={() => {
                       // remove the current token
                       setToken('', socket);
-                      if (userState !== 'logged-in') {
-                        // redirect to login page
-                        selectInstance(undefined);
-                        setPathname('/login/user');
-                      }
+                      selectInstance(undefined);
+                      // if (userState !== 'logged-in') {
+                      //   // redirect to login page
+                      //   setPathname('/login/user');
+                      // }
                     }}
                     variant="text"
                     align="end"

@@ -9,11 +9,17 @@ import {
   useNotificationReducer,
   useOngoingNotificationReducer,
 } from 'data/NotificationContext';
-import React, { useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import React, {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
-import { errorToString, LODESTONE_PORT } from 'utils/util';
+import { DEFAULT_LOCAL_CORE, errorToString, LODESTONE_PORT } from 'utils/util';
 import Dashboard from 'pages/dashboard';
 import Home from 'pages/home';
 import axios from 'axios';
@@ -28,6 +34,10 @@ import CoreSetupNew from 'pages/login/CoreSetupNew';
 import CoreConfigNew from 'pages/login/CoreConfigNew';
 import LoginLayout from 'components/LoginLayout';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import NotFound from 'pages/notfound';
+import FirstTime from 'pages/login/FirstTime';
+import RequireCore from 'utils/router/RequireCore';
+import RequireToken from 'utils/router/RequireToken';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,21 +49,24 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
-  const {location, setSearchParam} = useContext(BrowserLocationContext);
+  const { location, setSearchParam } = useContext(BrowserLocationContext);
 
   /* Start Core */
   const [address, setAddress] = useLocalStorageQueryParam(
     'address',
-    'localhost'
+    DEFAULT_LOCAL_CORE.address
   );
   const [port, setPort] = useLocalStorageQueryParam(
     'port',
-    LODESTONE_PORT.toString()
+    DEFAULT_LOCAL_CORE.port
   );
-  const [protocol, setProtocol] = useLocalStorageQueryParam('protocol', 'http');
+  const [protocol, setProtocol] = useLocalStorageQueryParam(
+    'protocol',
+    DEFAULT_LOCAL_CORE.protocol
+  );
   const [apiVersion, setApiVersion] = useLocalStorageQueryParam(
     'apiVersion',
-    'v1'
+    DEFAULT_LOCAL_CORE.apiVersion
   );
   const core: CoreConnectionInfo = useMemo(
     () => ({
@@ -197,17 +210,25 @@ export default function App() {
           }}
         >
           <Routes>
-            <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/" element={<Home />} />
-            </Route>
             <Route element={<LoginLayout />}>
+              <Route path="/first_setup" element={<FirstTime />} />
               <Route
                 path="/login/core/select"
-                element={<CoreSelectExisting />}
+                element={
+                  <RequireCore redirect="/login/core/new">
+                    <CoreSelectExisting />
+                  </RequireCore>
+                }
               />
               <Route path="/login/core/new" element={<CoreConnect />} />
+            </Route>
+            <Route
+              element={
+                <RequireCore>
+                  <LoginLayout />
+                </RequireCore>
+              }
+            >
               <Route
                 path="/login/core/first_setup"
                 element={<CoreSetupNew />}
@@ -222,6 +243,20 @@ export default function App() {
               />
               <Route path="/login/user" element={<UserLogin />} />
             </Route>
+            <Route
+              element={
+                <RequireCore>
+                  <RequireToken>
+                    <DashboardLayout />
+                  </RequireToken>
+                </RequireCore>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/" element={<Home />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </NotificationContext.Provider>
       </LodestoneContext.Provider>

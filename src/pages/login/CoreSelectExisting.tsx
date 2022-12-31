@@ -9,6 +9,7 @@ import {
   faArrowLeft,
   faArrowRight,
   faClone,
+  faDownload,
   faPlus,
 } from '@fortawesome/free-solid-svg-icons';
 import SelectCoreField from 'components/Atoms/Form/SelectCoreField';
@@ -107,8 +108,17 @@ const CoreSelectExisting = () => {
                 onClick={() => setPathname('/login/core/new')}
               />
             </div>
-            <div className="flex w-full flex-row justify-between gap-4">
-              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+            <div className="flex w-full flex-row justify-end gap-4">
+              <Button
+                iconRight={faDownload}
+                label="Download Lodestone Core"
+                onClick={() => {
+                  window.open(
+                    'https://github.com/Lodestone-Team/dashboard/releases/',
+                    '_self'
+                  );
+                }}
+              />
               <Button
                 type="submit"
                 color="primary"

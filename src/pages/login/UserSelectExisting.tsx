@@ -15,6 +15,7 @@ import Avatar from 'components/Atoms/Avatar';
 import { useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
 import { JwtToken } from 'bindings/JwtToken';
+import { isLocalCore } from 'utils/util';
 
 const UserSelectExisting = () => {
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
@@ -27,7 +28,10 @@ const UserSelectExisting = () => {
 
   useEffectOnce(() => {
     if (token) return;
-    if (!tauri) return;
+    if (!tauri || !isLocalCore(core)) {
+      setPathname('/login/user', true);
+      return;
+    }
     tauri
       ?.invoke<JwtToken | null>('get_owner_jwt')
       .then((token) => {
@@ -61,14 +65,12 @@ const UserSelectExisting = () => {
             onClick={() => setPathname('/')}
           />
         ) : (
+          // TODO: better design and layout in this area
           <Button
             icon={faUser}
             className="flex-1"
-            label={`Continue as Guest`}
-            onClick={() => {
-              setToken('', socket);
-              setPathname('/');
-            }}
+            label={`Continue as Current User`}
+            disabled={true}
           />
         )}
         <p>OR</p>
@@ -81,12 +83,11 @@ const UserSelectExisting = () => {
         />
       </div>
       <div className="flex w-full flex-row justify-start gap-4">
-        <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
-        {/* <Button
-            icon={faArrowLeft}
-            label="Change Core"
-            onClick={() => setPathname('/login/core/select')}
-          /> */}
+        <Button
+          icon={faArrowLeft}
+          label="Change Core"
+          onClick={() => setPathname('/login/core/select')}
+        />
       </div>
     </div>
   );

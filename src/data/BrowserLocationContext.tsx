@@ -5,9 +5,9 @@ import { useLocation, useNavigate, Location } from 'react-router-dom';
 interface BrowserLocationContext {
   location: Location;
   searchParams: URLSearchParams;
-  setLocation: (func: (loc: Location) => Location) => void;
-  setPathname: (pathname: string) => void;
-  setSearchParam: (key: string, value: string | undefined) => void;
+  setLocation: (func: (loc: Location) => Location, replace?: boolean) => void;
+  setPathname: (pathname: string, replace?: boolean) => void;
+  setSearchParam: (key: string, value: string | undefined, replace?: boolean) => void;
   navigateBack: () => void;
 }
 
@@ -50,14 +50,18 @@ export const BrowserLocationContextProvider = ({
   // location is let since we want to manually update it
   let location = useLocation();
   const navigate = useNavigate();
-  const setLocation = (func: (loc: Location) => Location) => {
-    location = func(location);
-    navigate(location);
+  const setLocation = (func: (loc: Location) => Location, replace = false) => {
+    const newLocation = func(location);
+    console.log('setLocation', {...location}, {...newLocation});
+    location = newLocation;
+    navigate(location, { replace });
   };
-  const setPathname = (pathname: string) => {
-    setLocation((loc) => ({ ...loc, pathname }));
+  const setPathname = (pathname: string, replace = false) => {
+    console.log('setPathname', pathname);
+    setLocation((loc) => ({ ...loc, pathname }), replace);
   };
-  const setSearchParam = (key: string, value: string | undefined) => {
+  const setSearchParam = (key: string, value: string | undefined, replace = false) => {
+    console.log('setSearchParam', key, value);
     setLocation((loc) => {
       const newSearch = new URLSearchParams(loc.search);
       if (value === undefined) {
@@ -66,9 +70,10 @@ export const BrowserLocationContextProvider = ({
         newSearch.set(key, value);
       }
       return { ...loc, search: newSearch.toString() };
-    });
+    }, replace);
   };
   const navigateBack = () => {
+    console.log('navigateBack');
     navigate(-1);
   };
 
