@@ -207,11 +207,11 @@ export default function InputBox({
         id={id}
       >
         <div
-          className={`absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
+          className={`absolute pointer-events-none top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
             !removeArrows && type === 'number' ? 'pl-3 pr-9' : 'px-3'
           }`}
         >
-          <div className="flex flex-row gap-2">{showIcons && icons}</div>
+          <div className="flex flex-row gap-2 pointer-events-auto">{showIcons && icons}</div>
         </div>
         <input
           value={value}
