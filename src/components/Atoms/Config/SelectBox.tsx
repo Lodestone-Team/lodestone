@@ -144,8 +144,8 @@ export default function SelectBox({
           >
             <Listbox.Options
               className={clsx(
-                'input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-1',
-                'bg-gray-850 outline-gray-550 drop-shadow-md'
+                'input-base absolute z-40 mt-2 max-h-60 w-full overflow-auto p-0 py-1',
+                'bg-gray-850 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
               )}
             >
               {options.map((option) => (
@@ -154,10 +154,10 @@ export default function SelectBox({
                   value={option}
                   className={clsx(
                     'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
-                    'border border-x-0 border-b-0 border-gray-400/30 last:border-b',
+                    'border-t border-gray-faded/30 last:border-b ui-active:border-y ui-active:border-white/50 ui-active:mb-[-1px] ui-active:z-50 ui-active:last:mb-0',
                     'ui-selected:font-medium ui-not-selected:font-normal',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
-                    'ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850'
+                    'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
                   )}
                 >
                   {({ active }) => (

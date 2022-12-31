@@ -101,7 +101,7 @@ export default function SelectCoreField(props: SelectCoreFieldProps) {
             </>
           </Listbox.Button>
           <Listbox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-1 shadow-md`}
+            className={`input-base border-normal absolute z-40 mt-2 max-h-60 w-full overflow-auto p-0 py-1 shadow-md focus-visible:ring-blue-faded/50`}
           >
             {options.map((option) => (
               <Listbox.Option
