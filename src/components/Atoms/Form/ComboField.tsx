@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Fragment, useMemo } from 'react';
+import React, { useEffect, useState, Fragment, useMemo, useRef } from 'react';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Combobox, Transition } from '@headlessui/react';
@@ -6,14 +6,13 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import clsx from 'clsx';
+import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
   loading?: boolean;
   options: string[];
   allowCustom?: boolean;
-  actionIcon?: IconDefinition;
-  actionIconClick?: () => any;
   filterOptions?: (query: string, options: string[]) => string[];
 };
 
@@ -34,8 +33,6 @@ export default function ComboField(props: ComboFieldProps) {
     placeholder,
     loading,
     allowCustom,
-    actionIcon,
-    actionIconClick,
     filterOptions = defaultFilterOptions,
     ...rest
   } = props;
@@ -58,6 +55,7 @@ export default function ComboField(props: ComboFieldProps) {
           value: '',
         },
       });
+      setQuery('');
       console.log('resetting field value');
     }
   }, [options, selectedValue]);
@@ -114,7 +112,7 @@ export default function ComboField(props: ComboFieldProps) {
           }}
           disabled={disabledVisual}
         >
-          {({ open }) => (
+          {({ activeIndex }) => (
             <>
               <Combobox.Input
                 className={clsx(
@@ -140,91 +138,45 @@ export default function ComboField(props: ComboFieldProps) {
               </Combobox.Button>
               <Transition
                 as={Fragment}
-                enter="transition ease-out duration-200"
-                enterFrom="opacity-0 -translate-y-1"
-                enterTo="opacity-100 translate-y-0"
                 leave="transition ease-in duration-150"
                 leaveFrom="opacity-100 translate-y-0"
                 leaveTo="opacity-0 -translate-y-1"
+                afterLeave={() => setQuery('')}
               >
                 <Combobox.Options
                   className={clsx(
-                    'overflow-y-overlay input-base absolute z-40 mt-2 max-h-60 w-full overflow-auto rounded-md',
-                    'bg-gray-850 p-0 py-3 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
+                    'input-base absolute z-40 mt-2 w-full rounded-md',
+                    'bg-gray-850 p-0 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
                   )}
                 >
-                  {allowCustom && query.length > 0 && (
-                    <Combobox.Option
-                      value={query}
-                      className={clsx(
-                        'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
-                        'border-t border-gray-faded/30 last:border-b ui-active:border-y ui-active:border-white/50 ui-active:mb-[-1px] ui-active:z-50 ui-active:last:mb-0',
-                        'ui-selected:font-medium ui-not-selected:font-normal',
-                        'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
-                        'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
-                      )}
-                    >
-                      {({ active }) => (
-                        <div className="flex flex-row justify-between">
-                          <span className="block truncate pr-1">
-                            Add &#34;{query}&#34;
-                          </span>
-                          <div
-                            onClick={actionIconClick}
-                            className="absolute right-3"
-                          >
-                            {active && actionIcon && actionIconClick && (
-                              <FontAwesomeIcon
-                                key="icon"
-                                icon={actionIcon}
-                                className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
-                              />
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </Combobox.Option>
-                  )}
-                  {filteredOptions.length === 0 && query.length > 0 ? (
-                    allowCustom ? null : (
-                      <div className="relative cursor-default select-none bg-gray-800 py-2 pl-8 pr-4 text-gray-300">
-                        Nothing found.
-                      </div>
-                    )
-                  ) : (
-                    filteredOptions.map((option) => (
+                  {filteredOptions.length === 0 ? (
+                    allowCustom ? (
                       <Combobox.Option
-                        key={option}
-                        value={option}
+                        value={query}
                         className={clsx(
-                          'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
-                          'border-t border-gray-faded/30 last:border-b ui-active:border-y ui-active:border-white/50 ui-active:mb-[-1px] ui-active:z-50 ui-active:last:mb-0',
+                          'relative cursor-default select-none rounded-md py-2 pl-3 pr-4 text-gray-300',
+                          'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                           'ui-selected:font-medium ui-not-selected:font-normal',
                           'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
                           'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
                         )}
                       >
-                        {({ active }) => (
-                          <div className="flex flex-row justify-between">
-                            <span className="block truncate pr-1">
-                              {option}
-                            </span>
-                            <div
-                              onClick={actionIconClick}
-                              className="absolute right-3"
-                            >
-                              {active && actionIcon && actionIconClick && (
-                                <FontAwesomeIcon
-                                  key="icon"
-                                  icon={actionIcon}
-                                  className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        )}
+                        <div className="flex flex-row justify-between">
+                          <span className="block truncate pr-1">
+                            Add &#34;{query}&#34;
+                          </span>
+                        </div>
                       </Combobox.Option>
-                    ))
+                    ) : (
+                      <div className="relative cursor-default select-none rounded-md bg-gray-800 py-2 pl-3 pr-4 text-gray-300">
+                        Nothing found.
+                      </div>
+                    )
+                  ) : (
+                    <VirtualizedList
+                      items={filteredOptions}
+                      selectedValue={selectedValue}
+                    />
                   )}
                 </Combobox.Options>
               </Transition>
@@ -239,6 +191,76 @@ export default function ComboField(props: ComboFieldProps) {
             {errorText || 'Unknown error'}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function VirtualizedList({
+  items,
+  selectedValue,
+}: {
+  items: string[];
+  selectedValue: string | null;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const selectedIndex = useMemo(
+    () => items.findIndex((item) => item === selectedValue),
+    [selectedValue]
+  );
+
+  const rowVirtualizer = useVirtualizer({
+    count: items?.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 35,
+    overscan: 5,
+    paddingEnd: 8,
+    paddingStart: 8,
+    getItemKey: (index) => items[index],
+    initialOffset:
+      selectedIndex && selectedIndex > 0 ? selectedIndex * 35 - 20 : 0,
+  });
+
+  return (
+    <div
+      ref={parentRef}
+      className="overflow-y-overlay max-h-60 w-full overflow-auto rounded-md"
+    >
+      <div
+        className="relative z-40 w-full"
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow: VirtualItem) => (
+          <Combobox.Option
+            key={virtualRow.index}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: `${virtualRow.size}px`,
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+            className={clsx(
+              'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+              'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
+              'ui-selected:font-medium ui-not-selected:font-normal',
+              'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+              'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
+            )}
+            value={items?.[virtualRow.index]}
+          >
+            {({ selected, active }) => (
+              <div className="flex flex-row justify-between">
+                <span className="block truncate pr-1">
+                  {items?.[virtualRow.index]}
+                </span>
+              </div>
+            )}
+          </Combobox.Option>
+        ))}
       </div>
     </div>
   );
