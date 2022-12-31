@@ -121,8 +121,8 @@ const Dashboard = () => {
       key={uuid}
     >
       {/* main content container */}
-      <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
-        <div className="flex min-w-0 flex-row items-center gap-4">
+      <div className="flex w-full grow flex-col items-start gap-2">
+        <div className="flex w-full min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
             initialText={instance.name}

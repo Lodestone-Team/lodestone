@@ -92,7 +92,7 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`group relative flex flex-row items-center justify-start ${
+      className={`group relative flex flex-row items-center gap-1 justify-start ${
         type === 'heading'
           ? 'dashboard-instance-heading'
           : 'font-medium tracking-tight text-small italic'
