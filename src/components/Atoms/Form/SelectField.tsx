@@ -137,7 +137,7 @@ export default function SelectField(props: SelectFieldProps) {
                   key={option}
                   value={option}
                   className={clsx(
-                    'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+                    'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
                     'border border-x-0 border-b-0 border-gray-400/30 last:border-b',
                     'ui-selected:font-medium ui-not-selected:font-normal',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
