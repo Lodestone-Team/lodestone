@@ -135,7 +135,7 @@ export default function ComboField(props: ComboFieldProps) {
             <Combobox.Options
               className={clsx(
                 "overflow-y-overlay input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto rounded-md",
-                "bg-gray-850 p-0 py-3 outline-gray-550 drop-shadow-md"
+                "bg-gray-850 p-0 py-1 outline-gray-550 drop-shadow-md"
               )}
             >
               {allowCustom && query.length > 0 && (

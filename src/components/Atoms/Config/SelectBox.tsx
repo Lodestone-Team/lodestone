@@ -144,7 +144,7 @@ export default function SelectBox({
           >
             <Listbox.Options
               className={clsx(
-                'input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-2',
+                'input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto p-0 py-1',
                 'bg-gray-850 outline-gray-550 drop-shadow-md'
               )}
             >
