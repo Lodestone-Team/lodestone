@@ -43,6 +43,8 @@ body {
    * I don't like this, but I don't know how to fix it.
    *
    * Also we don't have scss/sass/less so we can't use nesting.
+   *
+   * update: lol we can use the headlessui plugin
    */
 
   .input-base {

@@ -44,6 +44,7 @@ module.exports = {
         300: '#E3E3E4',
         400: '#A5A5AC',
         500: '#767A82',
+        550: '#67686A',
         600: '#44464B',
         700: '#36393F',
         750: '#303338',
@@ -103,5 +104,6 @@ module.exports = {
       addVariant('child', '& > *');
     },
     require('@tailwindcss/container-queries'),
+    require('@headlessui/tailwindcss')({ prefix: 'ui' })
   ],
 };

@@ -1,16 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Fragment } from 'react';
 import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
-import { Combobox } from '@headlessui/react';
+import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { faCaretDown, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
+import clsx from 'clsx';
 
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
   loading?: boolean;
   options: string[];
   allowCustom?: boolean;
+  actionIcon?: IconDefinition;
+  actionIconClick?: () => any;
 };
 
 export default function ComboField(props: ComboFieldProps) {
@@ -22,6 +25,8 @@ export default function ComboField(props: ComboFieldProps) {
     placeholder,
     loading,
     allowCustom,
+    actionIcon,
+    actionIconClick,
     ...rest
   } = props;
   const [field, meta] = useField(props);
@@ -69,10 +74,11 @@ export default function ComboField(props: ComboFieldProps) {
   ) : (
     <FontAwesomeIcon
       key="icon"
-      icon={faCaretDown}
-      className={`w-4 text-gray-faded/30 ${
-        disabledVisual || 'group-hover:cursor-pointer group-hover:text-gray-500'
-      }`}
+      icon={faSort}
+      className={clsx(
+        'w-4 text-gray-faded/30',
+        'group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
+      )}
     />
   );
 
@@ -99,83 +105,112 @@ export default function ComboField(props: ComboFieldProps) {
           }}
           disabled={disabledVisual}
         >
-          <Combobox.Input
-            className={`input-base group min-h-[1em] w-full py-1.5 px-3 ${
-              errorText ? 'border-error' : 'border-normal'
-            } ${selectedValue ? 'text-gray-300' : 'text-gray-500'}`}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={placeholder}
-          />
-          <Combobox.Button className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
-            {icon}
+          <Combobox.Button className="w-full">
+            <Combobox.Input
+              className={clsx(
+                'input-base group min-h-[1em] w-full py-1.5 px-3',
+                'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
+                'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
+                'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
+                'enabled:ui-not-open:active:outline-white/30',
+                errorText ? 'border-error' : 'border-normal',
+                selectedValue ? 'text-gray-300' : 'text-gray-500'
+              )}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={placeholder}
+            />
+            <div className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
+              {icon}
+            </div>
           </Combobox.Button>
-          <Combobox.Options
-            className={`input-base border-normal absolute z-50 mt-2 max-h-60 w-full overflow-auto py-1 shadow-md`}
+          <Transition
+            as={Fragment}
+            enter="transition ease-out duration-200"
+            enterFrom="opacity-0 -translate-y-1"
+            enterTo="opacity-100 translate-y-0"
+            leave="transition ease-in duration-150"
+            leaveFrom="opacity-100 translate-y-0"
+            leaveTo="opacity-0 -translate-y-1"
           >
-            {allowCustom && query.length > 0 && (
-              <Combobox.Option
-                value={query}
-                className={({ active }) => {
-                  return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
-                    active ? 'bg-gray-800' : 'bg-gray-900'
-                  }`;
-                }}
-              >
-                {({ selected }) => (
-                  <>
-                    <span
-                      className={`block truncate ${
-                        selected ? 'font-medium' : 'font-normal'
-                      }`}
-                    >
-                      Add &#34;{query}&#34;
-                    </span>
-                    {selected && (
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-200">
-                        <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
-                      </span>
-                    )}
-                  </>
-                )}
-              </Combobox.Option>
-            )}
-            {filteredOptions.length === 0 && query.length > 0 ? (
-              allowCustom ? null : (
-                <div className="relative cursor-default select-none bg-gray-800 py-2 pl-8 pr-4 text-gray-300">
-                  Nothing found.
-                </div>
-              )
-            ) : (
-              filteredOptions.map((option) => (
+            <Combobox.Options
+              className={clsx(
+                "overflow-y-overlay input-base absolute z-50 mt-2 max-h-60 w-full overflow-auto rounded-md",
+                "bg-gray-850 p-0 py-3 outline-gray-550 drop-shadow-md"
+              )}
+            >
+              {allowCustom && query.length > 0 && (
                 <Combobox.Option
-                  key={option}
-                  value={option}
-                  className={({ active }) => {
-                    return `relative cursor-default select-none py-2 pl-8 pr-4 text-gray-300 ${
-                      active ? 'bg-gray-800' : 'bg-gray-900'
-                    }`;
-                  }}
+                  value={query}
+                  className={clsx(
+                    'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+                    'border border-x-0 border-b-0 border-gray-400/30 last:border-b',
+                    'ui-selected:font-medium ui-not-selected:font-normal',
+                    'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+                    'ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850'
+                  )}
                 >
-                  {({ selected }) => (
-                    <>
-                      <span
-                        className={`block truncate ${
-                          selected ? 'font-medium' : 'font-normal'
-                        }`}
-                      >
-                        {option}
+                  {({ active }) => (
+                    <div className="flex flex-row justify-between">
+                      <span className="block truncate pr-1">
+                        Add &#34;{query}&#34;
                       </span>
-                      {selected && (
-                        <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-green-200">
-                          <FontAwesomeIcon icon={faCheck} className="h-4 w-4" />
-                        </span>
-                      )}
-                    </>
+                      <div
+                        onClick={actionIconClick}
+                        className="absolute right-3"
+                      >
+                        {active && actionIcon && actionIconClick && (
+                          <FontAwesomeIcon
+                            key="icon"
+                            icon={actionIcon}
+                            className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                          />
+                        )}
+                      </div>
+                    </div>
                   )}
                 </Combobox.Option>
-              ))
-            )}
-          </Combobox.Options>
+              )}
+              {filteredOptions.length === 0 && query.length > 0 ? (
+                allowCustom ? null : (
+                  <div className="relative cursor-default select-none bg-gray-800 py-2 pl-8 pr-4 text-gray-300">
+                    Nothing found.
+                  </div>
+                )
+              ) : (
+                filteredOptions.map((option) => (
+                  <Combobox.Option
+                    key={option}
+                    value={option}
+                    className={clsx(
+                      'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+                      'border border-x-0 border-b-0 border-gray-400/30 last:border-b',
+                      'ui-selected:font-medium ui-not-selected:font-normal',
+                      'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+                      'ui-selected:ui-not-active:bg-gray-600 ui-not-selected:ui-not-active:bg-gray-850'
+                    )}
+                  >
+                    {({ active }) => (
+                      <div className="flex flex-row justify-between">
+                        <span className="block truncate pr-1">{option}</span>
+                        <div
+                          onClick={actionIconClick}
+                          className="absolute right-3"
+                        >
+                          {active && actionIcon && actionIconClick && (
+                            <FontAwesomeIcon
+                              key="icon"
+                              icon={actionIcon}
+                              className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </Combobox.Option>
+                ))
+              )}
+            </Combobox.Options>
+          </Transition>
         </Combobox>
         {errorText && (
           <div
