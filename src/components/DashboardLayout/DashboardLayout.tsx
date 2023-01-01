@@ -61,7 +61,7 @@ export default function DashboardLayout() {
   /* End Instances */
 
   /* Start Core */
-  const { setCore, addCore, coreConnectionStatus } =
+  const { setCore, addCore, coreConnectionStatus, core } =
     useContext(LodestoneContext);
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
@@ -141,7 +141,7 @@ export default function DashboardLayout() {
           window.location.reload();
         }}
       >
-        There was an error connecting to the core. Please select a different
+        There was an error connecting to {core.address}:{core.port}. Please select a different
         core, refresh the page, or simply wait for the core to come back online.
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
