@@ -12,7 +12,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
-import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
 import { AxiosError } from 'axios';
@@ -28,14 +27,13 @@ export default function TopNav({
   showNotifications: boolean;
   setShowNotifications: (show: boolean) => void;
 }) {
-  const { setPathname } = useContext(BrowserLocationContext);
+  const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
   const { token, setToken, core, coreConnectionStatus } =
     useContext(LodestoneContext);
   const { address, port } = core;
   const socket = `${address}:${port}`;
-  const { selectInstance } = useContext(InstanceContext);
   const { data: coreData } = useCoreInfo();
 
   const statusMap = {
@@ -72,7 +70,8 @@ export default function TopNav({
           alt="logo"
           className="w-32 hover:cursor-pointer"
           onClick={() => {
-            selectInstance(undefined);
+            setSearchParam('instance', undefined);
+            setPathname('/');
           }}
         />
       </div>
@@ -92,7 +91,6 @@ export default function TopNav({
         icon={faCog}
         className="w-4 select-none text-white/50 hover:cursor-pointer hover:text-white/75"
         onClick={() => {
-          selectInstance(undefined);
           setPathname('/settings');
         }}
       />
@@ -142,12 +140,9 @@ export default function TopNav({
                     iconRight={faRightFromBracket}
                     onClick={() => {
                       // remove the current token
+                      // a logged out user will be auto-redirected to the login page
                       setToken('', socket);
-                      selectInstance(undefined);
-                      // if (userState !== 'logged-in') {
-                      //   // redirect to login page
-                      //   setPathname('/login/user');
-                      // }
+                      setSearchParam('instance', undefined);
                     }}
                     variant="text"
                     align="end"
@@ -168,7 +163,7 @@ export default function TopNav({
                     disabled={disabled}
                     active={active}
                     onClick={() => {
-                      selectInstance(undefined);
+                      setSearchParam('instance', undefined);
                       setPathname('/login/core/select');
                     }}
                   />

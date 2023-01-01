@@ -119,6 +119,9 @@ export function useQueryParam(
         setSearchParam(key, initialValue, true);
       // if not visible, just set the value
       else setValue(initialValue);
+    }else if(!newValue){
+      // always set the internal value anyways
+      setValue(initialValue);
     }
     // if value is truthy and not the same as the current value, set the value
     if (newValue && newValue !== value) {

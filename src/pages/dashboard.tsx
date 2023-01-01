@@ -115,7 +115,6 @@ const Dashboard = () => {
   };
 
   return (
-    // used to possibly center the content
     <div
       className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
       key={uuid}
