@@ -12,7 +12,7 @@ import {
   faDownload,
   faPlus,
 } from '@fortawesome/free-solid-svg-icons';
-import SelectCoreField from 'components/Atoms/Form/SelectCoreField';
+import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 type SelectCoreValue = {
@@ -86,6 +86,9 @@ const CoreSelectExisting = () => {
         initialValues={initialValues}
         validationSchema={validationSchema}
         onSubmit={onSubmit}
+        validateOnMount={false}
+        validateOnChange={false}
+        validateOnBlur={false}
       >
         {({ isSubmitting }) => (
           <Form
@@ -94,11 +97,14 @@ const CoreSelectExisting = () => {
             autoComplete={DISABLE_AUTOFILL}
           >
             <div className="flex flex-row items-baseline gap-8">
-              <SelectCoreField
+              <SelectField
                 name="core"
                 className="flex-1"
                 options={coreList}
                 label="Select Existing Core"
+                optionLabel={(option) => {
+                  return `${option.address}:${option.port}`;
+                }}
               />
               <p>OR</p>
               <Button

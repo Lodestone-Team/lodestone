@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { RadioGroup } from '@headlessui/react';
 
@@ -13,9 +12,8 @@ export default function RadioField(props: RadioFieldProps) {
   const { label, className, disabled, options, loading, ...rest } = props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
-  const [touched, error] = at(meta, 'touched', 'error');
-  const isError = touched && error && true;
-  const errorText = isError ? error : '';
+  const isError = meta.touched && meta.error && true;
+  const errorText = isError ? meta.error : '';
   const disabledVisual = disabled || loading;
   const loadingVisual = loading && !disabled;
 

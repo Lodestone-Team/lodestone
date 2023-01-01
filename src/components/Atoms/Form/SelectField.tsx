@@ -1,5 +1,4 @@
 import React, { useEffect, Fragment } from 'react';
-import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Listbox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -7,15 +6,18 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import clsx from 'clsx';
 
-export type SelectFieldProps = FieldHookConfig<string> & {
+export type SelectFieldProps<T extends string | object> = FieldHookConfig<T> & {
   label?: string;
   loading?: boolean;
-  options: string[];
+  options: T[];
   actionIcon?: IconDefinition;
-  actionIconClick?: () => any;
+  actionIconClick?: () => void;
+  optionLabel?: (option: T) => string;
 };
 
-export default function SelectField(props: SelectFieldProps) {
+export default function SelectField<T extends string | object>(
+  props: SelectFieldProps<T>
+) {
   const {
     label,
     className,
@@ -25,13 +27,32 @@ export default function SelectField(props: SelectFieldProps) {
     loading,
     actionIcon,
     actionIconClick,
+    optionLabel = (option) => {
+      let output = '';
+      if (typeof option === 'string') {
+        output = option;
+      } else {
+        output = JSON.stringify(option);
+      }
+      console.log('optionLabel', option, output);
+      return output;
+    },
     ...rest
   } = props;
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
-  const [touched, error] = at(meta, 'touched', 'error');
-  const isError = touched && error && true;
-  const errorText = isError ? error : '';
+  const error = meta.error;
+  const isError = meta.touched && error && true;
+  let errorText = '';
+  if (isError && error) {
+    if (typeof error === 'string') {
+      errorText = error;
+    } else if (typeof error === 'object') {
+      // for some reason, error is of type "string" when it should be FormikErrors<T>
+      // this is a workaround
+      errorText = Object.values(error)[0] as string;
+    }
+  }
   const disabledVisual = disabled || loading;
   const loadingVisual = loading && !disabled;
 
@@ -107,7 +128,9 @@ export default function SelectField(props: SelectFieldProps) {
             )}
           >
             <>
-              {selectedValue ? selectedValue : placeholder || 'Select...'}
+              {selectedValue
+                ? optionLabel(selectedValue)
+                : placeholder || 'Select...'}
               <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
                 <div className="flex flex-row gap-2">{icon}</div>
               </div>
@@ -131,11 +154,11 @@ export default function SelectField(props: SelectFieldProps) {
             >
               {options.map((option) => (
                 <Listbox.Option
-                  key={option}
+                  key={optionLabel(option)}
                   value={option}
                   className={clsx(
                     'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
-                    'border-t border-gray-faded/30 last:border-b ui-active:border-y ui-active:border-white/50 ui-active:mb-[-1px] ui-active:z-50 ui-active:last:mb-0',
+                    'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                     'ui-selected:font-medium ui-not-selected:font-normal',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
                     'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
@@ -143,7 +166,9 @@ export default function SelectField(props: SelectFieldProps) {
                 >
                   {({ active }) => (
                     <div className="flex flex-row justify-between">
-                      <span className="block truncate pr-1">{option}</span>
+                      <span className="block truncate pr-1">
+                        {optionLabel(option)}
+                      </span>
                       <div
                         onClick={actionIconClick}
                         className="absolute right-3"

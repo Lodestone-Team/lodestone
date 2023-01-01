@@ -1,5 +1,4 @@
 import React, { useEffect, useState, Fragment, useMemo, useRef } from 'react';
-import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -40,9 +39,8 @@ export default function ComboField(props: ComboFieldProps) {
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
   const buttonRef = React.useRef<HTMLButtonElement>(null);
-  const [touched, error] = at(meta, 'touched', 'error');
-  const isError = touched && error && true;
-  const errorText = isError ? error : '';
+  const isError = meta.touched && meta.error && true;
+  const errorText = isError ? meta.error : '';
   const disabledVisual = disabled || loading;
   const loadingVisual = loading && !disabled;
 

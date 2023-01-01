@@ -33,7 +33,7 @@ export default function SelectBox({
   description?: React.ReactNode;
   descriptionFunc?: (arg: string) => React.ReactNode;
   actionIcon?: IconDefinition;
-  actionIconClick?: () => any;
+  actionIconClick?: () => void;
 }) {
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
