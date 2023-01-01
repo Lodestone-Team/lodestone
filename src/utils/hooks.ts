@@ -119,7 +119,7 @@ export function useQueryParam(
         setSearchParam(key, initialValue, true);
       // if not visible, just set the value
       else setValue(initialValue);
-    }else if(!newValue){
+    } else if (!newValue) {
       // always set the internal value anyways
       setValue(initialValue);
     }
