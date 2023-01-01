@@ -137,7 +137,7 @@ mod tests {
         players_manager.add_player(
             super::MinecraftPlayer {
                 name: "player1".to_string(),
-                uuid: "uuid1".to_string(),
+                uuid: Some("uuid1".to_string()),
             },
             mock_instance.1.clone(),
         );
@@ -145,7 +145,7 @@ mod tests {
         players_manager.add_player(
             super::MinecraftPlayer {
                 name: "player2".to_string(),
-                uuid: "uuid2".to_string(),
+                uuid: Some("uuid2".to_string()),
             },
             mock_instance.1.clone(),
         );
@@ -153,7 +153,7 @@ mod tests {
         players_manager.add_player(
             super::MinecraftPlayer {
                 name: "player3".to_string(),
-                uuid: "uuid3".to_string(),
+                uuid: Some("uuid3".to_string()),
             },
             mock_instance.1.clone(),
         );
@@ -168,11 +168,11 @@ mod tests {
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player1".to_string(),
-                    uuid: "uuid1".to_string(),
+                    uuid: Some("uuid1".to_string()),
                 })]),
                 players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player1".to_string(),
-                    uuid: "uuid1".to_string(),
+                    uuid: Some("uuid1".to_string()),
                 })]),
                 players_left: HashSet::new(),
             },
@@ -180,16 +180,16 @@ mod tests {
                 player_list: HashSet::from([
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player1".to_string(),
-                        uuid: "uuid1".to_string(),
+                        uuid: Some("uuid1".to_string()),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player2".to_string(),
-                        uuid: "uuid2".to_string(),
+                        uuid: Some("uuid2".to_string()),
                     }),
                 ]),
                 players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player2".to_string(),
-                    uuid: "uuid2".to_string(),
+                    uuid: Some("uuid2".to_string()),
                 })]),
                 players_left: HashSet::new(),
             },
@@ -197,20 +197,20 @@ mod tests {
                 player_list: HashSet::from([
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player1".to_string(),
-                        uuid: "uuid1".to_string(),
+                        uuid: Some("uuid1".to_string()),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player2".to_string(),
-                        uuid: "uuid2".to_string(),
+                        uuid: Some("uuid2".to_string()),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player3".to_string(),
-                        uuid: "uuid3".to_string(),
+                        uuid: Some("uuid3".to_string()),
                     }),
                 ]),
                 players_joined: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player3".to_string(),
-                    uuid: "uuid3".to_string(),
+                    uuid: Some("uuid3".to_string()),
                 })]),
                 players_left: HashSet::new(),
             },
@@ -218,28 +218,28 @@ mod tests {
                 player_list: HashSet::from([
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player1".to_string(),
-                        uuid: "uuid1".to_string(),
+                        uuid: Some("uuid1".to_string()),
                     }),
                     Player::MinecraftPlayer(super::MinecraftPlayer {
                         name: "player3".to_string(),
-                        uuid: "uuid3".to_string(),
+                        uuid: Some("uuid3".to_string()),
                     }),
                 ]),
                 players_joined: HashSet::new(),
                 players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player2".to_string(),
-                    uuid: "uuid2".to_string(),
+                    uuid: Some("uuid2".to_string()),
                 })]),
             },
             InstanceEventInner::PlayerChange {
                 player_list: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player1".to_string(),
-                    uuid: "uuid1".to_string(),
+                    uuid: Some("uuid1".to_string()),
                 })]),
                 players_joined: HashSet::new(),
                 players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player3".to_string(),
-                    uuid: "uuid3".to_string(),
+                    uuid: Some("uuid3".to_string()),
                 })]),
             },
             InstanceEventInner::PlayerChange {
@@ -247,7 +247,7 @@ mod tests {
                 players_joined: HashSet::new(),
                 players_left: HashSet::from([Player::MinecraftPlayer(super::MinecraftPlayer {
                     name: "player1".to_string(),
-                    uuid: "uuid1".to_string(),
+                    uuid: Some("uuid1".to_string()),
                 })]),
             },
         ];

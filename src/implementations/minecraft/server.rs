@@ -388,7 +388,7 @@ impl TServer for MinecraftInstance {
                                     players_manager.lock().await.add_player(
                                         MinecraftPlayer {
                                             name: player_name.clone(),
-                                            uuid: name_to_uuid(&name).await.unwrap_or_default(),
+                                            uuid: name_to_uuid(&player_name).await,
                                         },
                                         self.name().await,
                                     );

@@ -13,18 +13,23 @@ use super::MinecraftInstance;
 #[ts(export)]
 pub struct MinecraftPlayer {
     pub name: String,
-    pub uuid: String,
+    pub uuid: Option<String>,
 }
 
 impl MinecraftPlayer {
-    pub fn new(name: String, uuid: String) -> Self {
+    pub fn new(name: String, uuid: Option<String>) -> Self {
         Self { name, uuid }
     }
 }
 
 impl PartialEq for MinecraftPlayer {
     fn eq(&self, other: &Self) -> bool {
-        self.uuid == other.uuid
+        // if uuid is not set, compare by name
+        if self.uuid.is_none() || other.uuid.is_none() {
+            self.name == other.name
+        } else {
+            self.uuid == other.uuid
+        }
     }
 }
 use std::collections::HashSet;
@@ -37,7 +42,7 @@ impl Hash for MinecraftPlayer {
 
 impl TPlayer for MinecraftPlayer {
     fn get_id(&self) -> String {
-        self.uuid.clone()
+        self.uuid.clone().unwrap_or_else(|| self.name.clone())
     }
 
     fn get_name(&self) -> String {
