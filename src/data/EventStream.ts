@@ -1,3 +1,4 @@
+import { useUserInfo } from 'data/UserInfo';
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -19,7 +20,10 @@ import { PublicUser } from 'bindings/PublicUser';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { token, core, setCoreConnectionStatus } = useContext(LodestoneContext);
+  const { data: userInfo } = useUserInfo();
+  const { token, core, setCoreConnectionStatus, setToken } =
+    useContext(LodestoneContext);
+  const socket = `${core.address}:${core.port}`;
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnected = useRef(false);
 
@@ -178,6 +182,11 @@ export const useEventStream = () => {
             },
             UserDeleted: () => {
               console.log(`User ${uid} deleted`);
+              if (uid === userInfo?.uid) {
+                console.log('User deleted themselves, logging out');
+                setToken('', socket);
+                queryClient.setQueryData(['user', 'info'], undefined);
+              }
               dispatch({
                 title: `User ${uid} deleted`,
                 event,
@@ -200,9 +209,13 @@ export const useEventStream = () => {
                 type: 'add',
               });
             },
-            PermissionChanged: (permission) => {
-              console.log(`User ${uid} permission changed to ${permission}`);
-              updatePermission(permission);
+            PermissionChanged: ({ new_permissions }) => {
+              console.log(
+                `User ${uid} permission changed to ${new_permissions}`
+              );
+              if (uid === userInfo?.uid) {
+                updatePermission(new_permissions);
+              }
               dispatch({
                 title: `User ${uid}'s permission has changed`,
                 event,

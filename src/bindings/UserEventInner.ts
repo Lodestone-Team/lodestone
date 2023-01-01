@@ -6,4 +6,4 @@ export type UserEventInner =
   | { type: 'UserDeleted' }
   | { type: 'UserLoggedIn' }
   | { type: 'UserLoggedOut' }
-  | ({ type: 'PermissionChanged' } & UserPermission);
+  | { type: 'PermissionChanged'; new_permissions: UserPermission };
