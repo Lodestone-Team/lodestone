@@ -3,6 +3,13 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Switch } from '@headlessui/react';
 
+/**
+ * A self controlled toggle component meant to represent a single value of a config
+ * 
+ * It is NOT meant to be used as a form input
+ * 
+ * See ToggleField for that
+ */
 export default function ToggleBox({
   label,
   value: initialValue,

@@ -2,12 +2,23 @@ import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { catchAsyncToString, DISABLE_AUTOFILL, parseintStrict } from 'utils/util';
+import {
+  catchAsyncToString,
+  DISABLE_AUTOFILL,
+  parseintStrict,
+} from 'utils/util';
 
 const onChangeValidateTimeout = 100;
 
 export type InputBoxType = 'text' | 'number';
 
+/**
+ * A self controlled input box meant to represent a single value of a config
+ * 
+ * It is NOT meant to be used as a form input
+ * 
+ * See InputField for that
+ */
 export default function InputBox({
   label,
   placeholder,
@@ -143,7 +154,9 @@ export default function InputBox({
 
   const errorText = errorProp || error;
   disabled = disabled || !canRead || isLoadingProp;
-  description = canRead ? descriptionFunc?.(initialValue || value) ?? description : "No permission";
+  description = canRead
+    ? descriptionFunc?.(initialValue || value) ?? description
+    : 'No permission';
 
   let icons = [];
 
@@ -184,16 +197,16 @@ export default function InputBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base gap-4`}
+      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-base`}
     >
-      <div className={`flex flex-col min-w-0 grow`}>
+      <div className={`flex min-w-0 grow flex-col`}>
         <label className="text-base font-medium text-gray-300">{label}</label>
         {errorText ? (
           <div className="text-small font-medium tracking-medium text-red">
             {errorText || 'Unknown error'}
           </div>
         ) : (
-          <div className="text-small font-medium tracking-medium text-white/50 text-ellipsis overflow-hidden">
+          <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
             {description}
           </div>
         )}
@@ -207,11 +220,13 @@ export default function InputBox({
         id={id}
       >
         <div
-          className={`absolute pointer-events-none top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
+          className={`pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
             !removeArrows && type === 'number' ? 'pl-3 pr-9' : 'px-3'
           }`}
         >
-          <div className="flex flex-row gap-2 pointer-events-auto">{showIcons && icons}</div>
+          <div className="pointer-events-auto flex flex-row gap-2">
+            {showIcons && icons}
+          </div>
         </div>
         <input
           value={value}

@@ -6,6 +6,13 @@ import { useEffect, useState, Fragment } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 
+/**
+ * A self controlled dropdown meant to represent a single value of a config
+ * 
+ * It is NOT meant to be used as a form input
+ * 
+ * See SelectField for that
+ */
 export default function SelectBox({
   label,
   value: initialValue,

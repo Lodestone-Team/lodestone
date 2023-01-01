@@ -7,6 +7,13 @@ import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 
+/**
+ * A combo box field that allows the user to select from a list of options, or
+ * enter a custom value. Meant to be used with Formik.
+ * 
+ * Slightly buggy since we are using react-virtual to render the options, this 
+ * should only be used where there are a large number of options.
+ */
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
   loading?: boolean;
