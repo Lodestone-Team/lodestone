@@ -290,7 +290,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                         .lock()
                         .await
                         .entry(event.get_instance_uuid().unwrap())
-                        .or_insert_with(|| AllocRingBuffer::with_capacity(512))
+                        .or_insert_with(|| AllocRingBuffer::with_capacity(1024))
                         .push(event.clone());
                 } else {
                     event_buffer.lock().await.push(event.clone());
