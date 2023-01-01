@@ -200,7 +200,6 @@ impl Debug for Instruction {
 #[derive(Clone)]
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<usize, deno_core::v8::IsolateHandle>>>,
-    cur_thread: Arc<AtomicUsize>,
     event_broadcaster: broadcast::Sender<Event>,
     next_process_id: Arc<AtomicUsize>,
 }
@@ -212,7 +211,6 @@ impl MacroExecutor {
         MacroExecutor {
             macro_process_table: process_table,
             event_broadcaster,
-            cur_thread: Arc::new(AtomicUsize::new(0)),
             next_process_id: process_id,
         }
     }
@@ -326,7 +324,7 @@ impl MacroExecutor {
             }
         };
 
-        tokio::time::timeout(Duration::from_secs(5), fut)
+        tokio::time::timeout(Duration::from_secs(1), fut)
             .await
             .map_err(|_| Error {
                 inner: ErrorInner::InternalError,
@@ -467,7 +465,7 @@ mod tests {
             is_in_game: false,
             instance_uuid: InstanceUuid::default(),
         };
-        executor.spawn(instruction);
+        executor.spawn(instruction).await.unwrap();
 
         let path_to_loop_js = path_to_macros.join("loop.js");
 
@@ -475,16 +473,17 @@ mod tests {
             path_to_loop_js,
             "
             let total = 0;
-            console.log('starting loop');
+            console.log('starting loop in js');
             for (let i = 0; i < 100; i++) {
-                // await new Promise(r => setTimeout(r, 0));
+                await new Promise(r => setTimeout(r, 100));
                 total++;
                 console.log('looping', total);
             }",
         )
         .unwrap();
         let mut last_pid = 0;
-        for _ in 0..100 {
+        for i in 0..2 {
+            println!("starting sync loop {}", i);
             let instruction = super::ExecutionInstruction {
                 runtime: runtime.clone(),
                 name: "loop".to_owned(),
