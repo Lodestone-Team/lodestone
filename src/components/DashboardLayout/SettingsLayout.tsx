@@ -1,29 +1,24 @@
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import { PublicUser } from 'bindings/PublicUser';
 import { useAllUsers } from 'data/AllUsers';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { InstanceContext } from 'data/InstanceContext';
-import { useInstanceList } from 'data/InstanceList';
 import { SettingsContext } from 'data/SettingsContext';
-import { useUserAuthorized, useUserInfo, useUserLoggedIn } from 'data/UserInfo';
+import { useUserInfo } from 'data/UserInfo';
 import { useContext, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useQueryParam } from 'utils/hooks';
-import LeftNav from './LeftNav';
 import SettingsLeftNav from './SettingsLeftNav';
 
 export const SettingsLayout = () => {
-  const { setPathname } = useContext(BrowserLocationContext);
   const { data: userInfo } = useUserInfo();
-  const canManageuserList = userInfo?.is_owner || false;
-  const { data: dataUserList } = useAllUsers(canManageuserList);
+  const canManageUsers = userInfo?.is_owner || false;
+  const { data: dataUserList } = useAllUsers(canManageUsers);
 
   /* Start userList */
   const [queryUid, setQueryUid] = useQueryParam('user', '');
   const [selectedUser, setSelectedUser] = useState<PublicUser | undefined>(
     undefined
   );
-  const userList = canManageuserList ? dataUserList : undefined;
+  const userList = canManageUsers ? dataUserList : undefined;
 
   useEffect(() => {
     if (queryUid && userList && queryUid in userList)
