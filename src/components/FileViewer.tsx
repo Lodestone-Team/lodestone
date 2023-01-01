@@ -482,74 +482,72 @@ export default function FileViewer() {
       <div className="fixed inset-0 bg-[#000]/80" />
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel>
-            <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-              <Formik
-                initialValues={{ name: '' }}
-                validationSchema={yup.object({
-                  name: yup.string().required('Required'),
-                })}
-                onSubmit={async (
-                  values: { name: string },
-                  actions: FormikHelpers<{ name: string }>
-                ) => {
-                  actions.setSubmitting(true);
-                  const error = await createInstanceFile(
-                    instance.uuid,
-                    path,
-                    values.name
+          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+            <Formik
+              initialValues={{ name: '' }}
+              validationSchema={yup.object({
+                name: yup.string().required('Required'),
+              })}
+              onSubmit={async (
+                values: { name: string },
+                actions: FormikHelpers<{ name: string }>
+              ) => {
+                actions.setSubmitting(true);
+                const error = await createInstanceFile(
+                  instance.uuid,
+                  path,
+                  values.name
+                );
+                if (error) {
+                  actions.setErrors({ name: error });
+                  actions.setSubmitting(false);
+                } else {
+                  queryClient.setQueryData(
+                    ['instance', instance.uuid, 'fileList', path],
+                    fileList
+                      ? [
+                          ...fileList,
+                          {
+                            name: values.name,
+                            path: `${path}/${values.name}`,
+                            file_type: 'File' as FileType,
+                            creation_time: Date.now() / 1000,
+                            modification_time: Date.now() / 1000,
+                          },
+                        ].sort(fileSorter)
+                      : undefined
                   );
-                  if (error) {
-                    actions.setErrors({ name: error });
-                    actions.setSubmitting(false);
-                  } else {
-                    queryClient.setQueryData(
-                      ['instance', instance.uuid, 'fileList', path],
-                      fileList
-                        ? [
-                            ...fileList,
-                            {
-                              name: values.name,
-                              path: `${path}/${values.name}`,
-                              file_type: 'File' as FileType,
-                              creation_time: Date.now() / 1000,
-                              modification_time: Date.now() / 1000,
-                            },
-                          ].sort(fileSorter)
-                        : undefined
-                    );
-                    actions.setSubmitting(false);
-                    actions.resetForm();
-                    setCreateFileModalOpen(false);
-                  }
-                }}
-              >
-                {({ isSubmitting }) => (
-                  <Form
-                    id="create-file-form"
-                    autoComplete={DISABLE_AUTOFILL}
-                    className="flex flex-col items-stretch gap-8 text-center"
-                  >
-                    <InputField
-                      name="name"
-                      label="Name your file"
-                      placeholder="Untitled"
+                  actions.setSubmitting(false);
+                  actions.resetForm();
+                  setCreateFileModalOpen(false);
+                }
+              }}
+            >
+              {({ isSubmitting }) => (
+                <Form
+                  id="create-file-form"
+                  autoComplete={DISABLE_AUTOFILL}
+                  className="flex flex-col items-stretch gap-8 text-center"
+                >
+                  <InputField
+                    name="name"
+                    label="Name your file"
+                    placeholder="Untitled"
+                  />
+                  <div className="flex flex-row justify-between">
+                    <Button
+                      onClick={() => setCreateFileModalOpen(false)}
+                      label="Cancel"
                     />
-                    <div className="flex flex-row justify-between">
-                      <Button
-                        onClick={() => setCreateFileModalOpen(false)}
-                        label="Cancel"
-                      />
-                      <Button
-                        type="submit"
-                        label="Create file"
-                        loading={isSubmitting}
-                      />
-                    </div>
-                  </Form>
-                )}
-              </Formik>
-            </div>
+                    <Button
+                      type="submit"
+                      label="Create file"
+                      loading={isSubmitting}
+                    />
+                  </div>
+                </Form>
+              )}
+            </Formik>
           </Dialog.Panel>
         </div>
       </div>
@@ -564,74 +562,72 @@ export default function FileViewer() {
       <div className="fixed inset-0 bg-[#000]/80" />
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel>
-            <div className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-              <Formik
-                initialValues={{ name: '' }}
-                validationSchema={yup.object({
-                  name: yup.string().required('Required'),
-                })}
-                onSubmit={async (
-                  values: { name: string },
-                  actions: FormikHelpers<{ name: string }>
-                ) => {
-                  actions.setSubmitting(true);
-                  const error = await createInstanceDirectory(
-                    instance.uuid,
-                    path,
-                    values.name
+          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+            <Formik
+              initialValues={{ name: '' }}
+              validationSchema={yup.object({
+                name: yup.string().required('Required'),
+              })}
+              onSubmit={async (
+                values: { name: string },
+                actions: FormikHelpers<{ name: string }>
+              ) => {
+                actions.setSubmitting(true);
+                const error = await createInstanceDirectory(
+                  instance.uuid,
+                  path,
+                  values.name
+                );
+                if (error) {
+                  actions.setErrors({ name: error });
+                  actions.setSubmitting(false);
+                } else {
+                  queryClient.setQueryData(
+                    ['instance', instance.uuid, 'fileList', path],
+                    fileList
+                      ? [
+                          ...fileList,
+                          {
+                            name: values.name,
+                            path: `${path}/${values.name}`,
+                            file_type: 'Directory' as FileType,
+                            creation_time: Date.now() / 1000,
+                            modification_time: Date.now() / 1000,
+                          },
+                        ].sort(fileSorter)
+                      : undefined
                   );
-                  if (error) {
-                    actions.setErrors({ name: error });
-                    actions.setSubmitting(false);
-                  } else {
-                    queryClient.setQueryData(
-                      ['instance', instance.uuid, 'fileList', path],
-                      fileList
-                        ? [
-                            ...fileList,
-                            {
-                              name: values.name,
-                              path: `${path}/${values.name}`,
-                              file_type: 'Directory' as FileType,
-                              creation_time: Date.now() / 1000,
-                              modification_time: Date.now() / 1000,
-                            },
-                          ].sort(fileSorter)
-                        : undefined
-                    );
-                    actions.setSubmitting(false);
-                    actions.resetForm();
-                    setCreateFolderModalOpen(false);
-                  }
-                }}
-              >
-                {({ isSubmitting }) => (
-                  <Form
-                    id="create-folder-form"
-                    autoComplete={DISABLE_AUTOFILL}
-                    className="flex flex-col items-stretch gap-8 text-center"
-                  >
-                    <InputField
-                      name="name"
-                      label="Name your folder"
-                      placeholder="Untitled folder"
+                  actions.setSubmitting(false);
+                  actions.resetForm();
+                  setCreateFolderModalOpen(false);
+                }
+              }}
+            >
+              {({ isSubmitting }) => (
+                <Form
+                  id="create-folder-form"
+                  autoComplete={DISABLE_AUTOFILL}
+                  className="flex flex-col items-stretch gap-8 text-center"
+                >
+                  <InputField
+                    name="name"
+                    label="Name your folder"
+                    placeholder="Untitled folder"
+                  />
+                  <div className="flex flex-row justify-between">
+                    <Button
+                      onClick={() => setCreateFolderModalOpen(false)}
+                      label="Cancel"
                     />
-                    <div className="flex flex-row justify-between">
-                      <Button
-                        onClick={() => setCreateFolderModalOpen(false)}
-                        label="Cancel"
-                      />
-                      <Button
-                        type="submit"
-                        label="Create folder"
-                        loading={isSubmitting}
-                      />
-                    </div>
-                  </Form>
-                )}
-              </Formik>
-            </div>
+                    <Button
+                      type="submit"
+                      label="Create folder"
+                      loading={isSubmitting}
+                    />
+                  </div>
+                </Form>
+              )}
+            </Formik>
           </Dialog.Panel>
         </div>
       </div>
