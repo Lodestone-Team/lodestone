@@ -10,6 +10,7 @@ interface InstanceContextType {
 export const InstanceContext = createContext<InstanceContextType>({
   instanceList: {},
   selectedInstance: undefined,
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  selectInstance: () => {},
+  selectInstance: () => {
+    throw new Error('InstanceContext not initialized');
+  },
 });

@@ -39,6 +39,7 @@ import FirstTime from 'pages/login/FirstTime';
 import RequireCore from 'utils/router/RequireCore';
 import RequireToken from 'utils/router/RequireToken';
 import { InstanceViewLayout } from 'components/DashboardLayout/InstanceViewLayout';
+import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -257,7 +258,9 @@ export default function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/" element={<Home />} />
               </Route>
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route element={<SettingsLayout />}>
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

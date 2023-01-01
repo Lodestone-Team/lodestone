@@ -7,7 +7,7 @@ import { LodestoneContext } from './LodestoneContext';
 import { UserPermission } from 'bindings/UserPermission';
 
 // this won't ever change. if it does it will be invalidated manually
-export const useUserInfo = () => {
+export const useUserInfo = (enabled = true) => {
   const { token, setToken, core } = useContext(LodestoneContext);
   const { port, address } = core;
   const socket = `${address}:${port}`;
@@ -20,7 +20,7 @@ export const useUserInfo = () => {
         .then((response) => response.data);
     },
     {
-      enabled: token !== '',
+      enabled: token !== '' && enabled,
       onError: (error) => {
         if (error.response?.data?.inner === 'Unauthorized')
           // then token is invalid, delete it

@@ -12,7 +12,7 @@ export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
   const userLoggedIn = useUserLoggedIn();
   /* Start Instances */
-  const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
+  const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
   const { data: dataInstances } = useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
@@ -20,20 +20,24 @@ export const InstanceViewLayout = () => {
   const instances = userLoggedIn ? dataInstances : undefined;
 
   useEffect(() => {
-    if (queryUuid && instances && queryUuid in instances)
-      setInstanceState(instances[queryUuid]);
-    else setInstanceState(undefined);
-  }, [instances, queryUuid]);
+    if (queryInstanceId && instances && queryInstanceId in instances) {
+      setInstanceState(instances[queryInstanceId]);
+      setPathname('/dashboard');
+    } else {
+      setInstanceState(undefined);
+      if (location.pathname.startsWith('/dashboard')) setPathname('/');
+    }
+  }, [instances, queryInstanceId]);
 
-  function setInstance(instance?: InstanceInfo) {
-    console.log('setInstance', instance);
+  function selectInstance(instance?: InstanceInfo) {
+    console.log('selectInstance', instance);
     if (instance === undefined) {
       setInstanceState(undefined);
-      setQueryUuid('');
+      setQueryInstanceId('');
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
     } else {
       setInstanceState(instance);
-      setQueryUuid(instance.uuid);
+      setQueryInstanceId(instance.uuid);
       setPathname('/dashboard');
     }
   }
@@ -44,7 +48,7 @@ export const InstanceViewLayout = () => {
       value={{
         instanceList: instances || {},
         selectedInstance: instance,
-        selectInstance: setInstance,
+        selectInstance: selectInstance,
       }}
     >
       <div className="flex grow flex-row justify-center gap-[1vw]">
