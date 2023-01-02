@@ -194,7 +194,8 @@ pub async fn get_user_info(
 #[derive(Deserialize)]
 pub struct ChangePasswordConfig {
     uid: UserId,
-    password: String,
+    old_password: String,
+    new_password: String,
 }
 
 pub async fn change_password(
@@ -220,7 +221,12 @@ pub async fn change_password(
         user_name: requester.username,
     };
     users_manager
-        .change_password(config.uid, config.password, caused_by)
+        .change_password(
+            config.uid,
+            config.old_password,
+            config.new_password,
+            caused_by,
+        )
         .await?;
 
     Ok(Json(()))

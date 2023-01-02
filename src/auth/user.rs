@@ -444,10 +444,11 @@ impl UsersManager {
     pub async fn change_password(
         &mut self,
         uid: impl AsRef<UserId>,
+        old_password : impl AsRef<str>,
         password: String,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
-        let old_psw = self
+        let old_data = self
             .users
             .get_mut(uid.as_ref())
             .ok_or_else(|| Error {
@@ -456,6 +457,12 @@ impl UsersManager {
             })?
             .hashed_psw
             .clone();
+        if hash_password(old_password.as_ref()) != old_data {
+            return Err(Error {
+                inner: ErrorInner::Unauthorized,
+                detail: "Wrong password".to_string(),
+            });
+        }
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
             user.hashed_psw = hash_password(password);
         }
@@ -474,7 +481,7 @@ impl UsersManager {
             }
             Err(_) => {
                 if let Some(user) = self.users.get_mut(uid.as_ref()) {
-                    user.hashed_psw = old_psw;
+                    user.hashed_psw = old_data;
                 }
                 Err(Error {
                     inner: ErrorInner::InternalError,
