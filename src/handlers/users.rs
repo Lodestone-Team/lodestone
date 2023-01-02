@@ -80,6 +80,13 @@ pub async fn delete_user(
         });
     }
 
+    if uid == requester.uid {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "You are not authorized to delete yourself".to_string(),
+        });
+    }
+
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
