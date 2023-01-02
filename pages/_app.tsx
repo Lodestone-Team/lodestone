@@ -26,13 +26,8 @@ function MyApp({ Component, pageProps }: AppProps) {
   return (
     <NoSSR>
         <ToastContainer
-
-          // toastClassName={({type = "info" } = {type: "info"}) => {
-          //   return "bruh"
-          // }}
           toastClassName="!bg-gray-800 cursor-pointer"
           bodyClassName={() => "text-sm font-white font-med p-3 flex flex-row"}
-          // progressClassName={({ type }) => contextClass[type || "default"] + "position-relative"}
           progressClassName={(context) => {
             const type = context?.type || "info";
             return (contextClass[type] + " relative " + context?.defaultClassName)
@@ -47,7 +42,6 @@ function MyApp({ Component, pageProps }: AppProps) {
           draggable={false}
           pauseOnHover
           theme="dark"
-          // autoClose={false}
         />
       <BrowserRouter>
         <BrowserLocationContextProvider>
