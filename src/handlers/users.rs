@@ -222,8 +222,12 @@ pub async fn change_password(
     };
     users_manager
         .change_password(
-            config.uid,
-            config.old_password,
+            &config.uid,
+            if requester.uid != config.uid {
+                None
+            } else {
+                Some(config.old_password)
+            },
             config.new_password,
             caused_by,
         )
@@ -298,7 +302,7 @@ pub fn get_user_routes(state: AppState) -> Router {
         .route("/user/:uid", delete(delete_user))
         .route("/user/:uid/update_perm", put(update_permissions))
         .route("/user/info", get(get_self_info))
-        .route("/user/password", put(change_password))
+        .route("/user/:uid/password", put(change_password))
         .route("/user/login", post(login))
         .route("/user/logout/:uid", post(logout))
         .with_state(state)
