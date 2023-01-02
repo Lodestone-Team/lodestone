@@ -2,7 +2,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import Button from 'components/Atoms/Button';
 import UserBox from 'components/UserBox';
 import { SettingsContext } from 'data/SettingsContext';
-import { useUserInfo } from 'data/UserInfo';
+import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useState } from 'react';
 import CreateUserForm from './CreateUserForm';
 
@@ -11,6 +11,7 @@ export const UserSettings = () => {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const { data: userInfo } = useUserInfo();
   const canManageUsers = userInfo?.is_owner || false;
+  const uid = useUid();
 
   // TODO: add non-owner view (can't manage users, can only change their own password)
   return (
@@ -70,9 +71,9 @@ export const UserSettings = () => {
       <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
         {Object.keys(userList)
           .sort((a, b) =>
-            userList[a].username === userInfo?.username
+            userList[a].uid === uid
               ? -1
-              : userList[b].username === userInfo?.username
+              : userList[b].uid === uid
               ? 1
               : userList[a].username.localeCompare(userList[b].username)
           )

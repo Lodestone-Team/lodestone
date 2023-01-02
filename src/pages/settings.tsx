@@ -1,11 +1,12 @@
 import { Tab } from '@headlessui/react';
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { useUserInfo } from 'data/UserInfo';
 import CoreSettings from 'components/Settings/CoreSettings';
 import UserSettings from 'components/Settings/UserSettings';
+import { SettingsContext } from 'data/SettingsContext';
 
 const SettingsPage = () => {
-  const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+  const { tabIndex, setTabIndex, selectUser } = useContext(SettingsContext);
 
   const tabList = [
     {
@@ -26,8 +27,13 @@ const SettingsPage = () => {
           <h1 className="dashboard-instance-heading">Core Settings</h1>
         </div>
         <Tab.Group
-          selectedIndex={selectedTabIndex}
-          onChange={setSelectedTabIndex}
+          selectedIndex={tabIndex}
+          onChange={(i) => {
+            setTabIndex(i);
+            if (i !== 1) {
+              selectUser(undefined);
+            }
+          }}
         >
           <Tab.List className="mb-6 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
             {tabList.map((tab) => (

@@ -12,6 +12,7 @@ export const SettingsLayout = () => {
   const { data: userInfo } = useUserInfo();
   const canManageUsers = userInfo?.is_owner || false;
   const { data: dataUserList } = useAllUsers(canManageUsers);
+  const [tabIndex, setTabIndex] = useState(0);
 
   /* Start userList */
   const [queryUid, setQueryUid] = useQueryParam('user', '');
@@ -44,6 +45,8 @@ export const SettingsLayout = () => {
         selectedUser,
         selectUser,
         userList: userList || {},
+        tabIndex,
+        setTabIndex,
       }}
     >
       <div className="flex grow flex-row justify-center gap-[1vw]">

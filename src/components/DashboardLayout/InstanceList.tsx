@@ -30,6 +30,7 @@ export default function InstanceList({
       value={selectedInstance}
       onChange={selectInstance}
     >
+      <RadioGroup.Label className="sr-only">Instances</RadioGroup.Label>
       {userLoggedIn ? (
         instances &&
         Object.values(instances).map((instance) => (
