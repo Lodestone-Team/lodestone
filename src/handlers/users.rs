@@ -5,9 +5,8 @@ use crate::{
         user::{PublicUser, User, UserAction},
         user_id::UserId,
     },
-    events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
+    events::CausedBy,
     traits::{Error, ErrorInner},
-    types::Snowflake,
     AppState,
 };
 
@@ -18,7 +17,6 @@ use axum::{
 };
 use axum_auth::{AuthBasic, AuthBearer};
 
-use log::error;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
@@ -59,18 +57,6 @@ pub async fn new_user(
     users_manager
         .add_user(user.clone(), caused_by.clone())
         .await?;
-    let _ = state
-        .event_broadcaster
-        .send(Event {
-            event_inner: EventInner::UserEvent(UserEvent {
-                user_id: user.uid.clone(),
-                user_event_inner: UserEventInner::UserCreated,
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by,
-        })
-        .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(LoginReply {
         token: user.create_jwt()?,
         user: user.into(),
@@ -101,18 +87,6 @@ pub async fn delete_user(
     users_manager
         .delete_user(uid.clone(), caused_by.clone())
         .await?;
-    let _ = state
-        .event_broadcaster
-        .send(Event {
-            event_inner: EventInner::UserEvent(UserEvent {
-                user_id: uid,
-                user_event_inner: UserEventInner::UserDeleted,
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by,
-        })
-        .map_err(|e| error!("Error sending event: {}", e));
     Ok(Json(json!("ok")))
 }
 
@@ -120,7 +94,7 @@ pub async fn logout(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(uid): Path<UserId>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<String>, Error> {
+) -> Result<Json<()>, Error> {
     let mut users_manager = state.users_manager.write().await;
 
     let requester = users_manager.try_auth(&token).ok_or(Error {
@@ -133,7 +107,6 @@ pub async fn logout(
             detail: "You are not authorized to log out this user".to_string(),
         });
     }
-    let user_id = uid.clone();
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username,
@@ -141,19 +114,7 @@ pub async fn logout(
     users_manager
         .logout_user(uid.clone(), caused_by.clone())
         .await?;
-    let _ = state
-        .event_broadcaster
-        .send(Event {
-            event_inner: EventInner::UserEvent(UserEvent {
-                user_id,
-                user_event_inner: UserEventInner::UserLoggedOut,
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by,
-        })
-        .map_err(|e| error!("Error sending event: {}", e));
-    Ok(Json("ok".to_string()))
+    Ok(Json(()))
 }
 
 pub async fn update_permissions(
