@@ -37,7 +37,7 @@ export default function InstanceList({
           <RadioGroup.Option
             key={instance.uuid}
             value={instance}
-            className="child:w-full"
+            className="child:w-full outline-none"
           >
             <InstanceCard {...instance} />
           </RadioGroup.Option>
