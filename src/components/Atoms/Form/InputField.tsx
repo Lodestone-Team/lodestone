@@ -7,6 +7,9 @@ export type InputFieldProps = FieldHookConfig<string> & {
   type?: 'text' | 'number' | 'password';
 };
 
+/**
+ * A form input field, meant to be used with Formik
+ */
 export default function InputField(props: InputFieldProps) {
   const { className, label, type, disabled, ...rest } = props;
   const [field, meta] = useField(props);

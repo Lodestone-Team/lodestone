@@ -15,6 +15,9 @@ export type SelectFieldProps<T extends string | object> = FieldHookConfig<T> & {
   optionLabel?: (option: T) => string;
 };
 
+/**
+ * A dropdown meant to be used as a form input, with Formik
+ */
 export default function SelectField<T extends string | object>(
   props: SelectFieldProps<T>
 ) {

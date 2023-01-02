@@ -8,6 +8,9 @@ export type RadioFieldProps = FieldHookConfig<string> & {
   options: string[];
 };
 
+/**
+ * A radio button field, meant to be used with Formik.
+ */
 export default function RadioField(props: RadioFieldProps) {
   const { label, className, disabled, options, loading, ...rest } = props;
   const [field, meta] = useField(props);
