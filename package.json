@@ -49,6 +49,7 @@
     "react-no-ssr": "^1.1.0",
     "react-router-dom": "^6.5.0",
     "react-spinners": "^0.13.4",
+    "react-toastify": "^9.1.1",
     "storybook-addon-next-router": "^4.0.0",
     "usehooks-ts": "^2.6.0",
     "variant": "^3.0.0-dev.24",

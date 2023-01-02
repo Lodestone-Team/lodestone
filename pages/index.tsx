@@ -38,6 +38,7 @@ import NotFound from 'pages/notfound';
 import FirstTime from 'pages/login/FirstTime';
 import RequireCore from 'utils/router/RequireCore';
 import RequireToken from 'utils/router/RequireToken';
+import { toast } from 'react-toastify';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -167,7 +168,7 @@ export default function App() {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
         const message = errorToString(e);
-        alert(message);
+        toast(message);
         setToken('', socket);
         delete axios.defaults.headers.common['Authorization'];
       }

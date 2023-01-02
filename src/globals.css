@@ -207,3 +207,12 @@ input.noSpin::-webkit-inner-spin-button {
 input.noSpin[type='number'] {
   -moz-appearance: textfield;
 }
+
+/* Toastify */
+:root {
+  --toastify-font-family: Satoshi !important;
+}
+
+.Toastify__toast-icon {
+  display: block !important;
+}

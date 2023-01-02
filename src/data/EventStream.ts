@@ -12,6 +12,7 @@ import axios from 'axios';
 import { LODESTONE_PORT } from 'utils/util';
 import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
+import { toast } from 'react-toastify';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -102,7 +103,7 @@ export const useEventStream = () => {
               });
             },
             InstanceWarning: () => {
-              alert(
+              toast.error(
                 "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
               );
               dispatch({
