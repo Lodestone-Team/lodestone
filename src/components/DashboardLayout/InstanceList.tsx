@@ -1,11 +1,12 @@
 import { faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { RadioGroup } from '@headlessui/react';
 import InstanceCard from 'components/InstanceCard';
 import InstanceLoadingCard from 'components/InstanceLoadingCard';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
-import { useContext } from 'react';
+import { Fragment, useContext } from 'react';
 import { match, otherwise } from 'variant';
 
 export default function InstanceList({
@@ -24,24 +25,25 @@ export default function InstanceList({
   const userLoggedIn = useUserLoggedIn();
 
   return (
-    <div
-      className={`gap -mx-1.5 flex flex-col gap-y-4 overflow-y-auto min-h-0 px-3 child:w-full ${className}`}
+    <RadioGroup
+      className={`gap -mx-1.5 flex min-h-0 flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
+      value={selectedInstance}
+      onChange={selectInstance}
     >
       {userLoggedIn ? (
         instances &&
         Object.values(instances).map((instance) => (
-          <InstanceCard
+          <RadioGroup.Option
             key={instance.uuid}
-            focus={selectedInstance?.uuid === instance.uuid}
-            onClick={() => {
-              selectInstance(instance);
-            }}
-            {...instance}
-          />
+            value={instance}
+            className="child:w-full"
+          >
+            <InstanceCard {...instance} />
+          </RadioGroup.Option>
         ))
-    ) : (
+      ) : (
         <div
-          className={`flex w-fit select-none flex-col items-stretch rounded-xl border border-gray-faded/30 bg-gray-800 gap-4 py-4 px-6 text-base font-semibold tracking-tight`}
+          className={`flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight`}
         >
           <FontAwesomeIcon
             icon={faServer}
@@ -92,6 +94,6 @@ export default function InstanceList({
           })
           .reverse()}
       {children}
-    </div>
+    </RadioGroup>
   );
 }

@@ -11,14 +11,15 @@ import { InstanceState } from 'bindings/InstanceState';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
 import GameIcon from './Atoms/GameIcon';
+import clsx from 'clsx';
 
 // for the css style of the double border when focused
-const stateToBorderMap: { [key in InstanceState]: string } = {
-  Starting: 'outline-yellow ring-yellow-faded/25',
-  Running: 'outline-green ring-green-faded/25',
-  Stopping: 'outline-yellow ring-yellow-faded/25',
-  Stopped: 'outline-gray-300 ring-gray-500',
-  Error: 'outline-red ring-red-faded/25',
+const stateToBorderMap: { [key in InstanceState]: string[] } = {
+  Starting: ['ui-checked:outline-yellow', 'ui-checked:ring-yellow-faded/25'],
+  Running: ['ui-checked:outline-green', 'ui-checked:ring-green-faded/25'],
+  Stopping: ['ui-checked:outline-yellow', 'ui-checked:ring-yellow-faded/25'],
+  Stopped: ['ui-checked:outline-gray-300', 'ui-checked:ring-gray-500'],
+  Error: ['ui-checked:outline-red', 'ui-checked:ring-red-faded/25'],
   // Loading: 'outline-gray-300 ring-gray-500',
 };
 
@@ -103,9 +104,13 @@ export default function InstanceCard({
 
   return (
     <div
-      className={`group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900 ${
-        focus ? `bg-gray-900 outline outline-2 ring-[6px] ${borderClass}` : ''
-      }`}
+      className={clsx(
+        'group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900',
+        focus && 'bg-gray-900 outline outline-2 ring-[6px]',
+        !focus &&
+          'ui-checked:bg-gray-900 ui-checked:outline ui-checked:outline-2 ui-checked:ring-[6px]',
+        borderClass
+      )}
       onClick={cardOnClick}
     >
       <div className="flex min-w-0 grow flex-col">
