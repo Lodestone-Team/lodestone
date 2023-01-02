@@ -40,11 +40,12 @@ export default function UserBox({
   return (
     <div
       className={clsx(
-        'group relative flex flex-row items-center justify-between',
+        'group relative flex flex-row items-center justify-between cursor-pointer',
         'gap-4 bg-gray-800 px-4 py-3 text-base',
         'hover:bg-gray-700',
         className
       )}
+      onClick={onClick}
     >
       <Transition
         appear
