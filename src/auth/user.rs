@@ -458,12 +458,16 @@ impl UsersManager {
             .hashed_psw
             .clone();
         if let Some(old_password) = old_password {
-            if hash_password(old_password.as_ref()) != old_data {
-                return Err(Error {
-                    inner: ErrorInner::Unauthorized,
-                    detail: "Wrong password".to_string(),
-                });
-            }
+
+            Argon2::default()
+            .verify_password(
+                old_password.as_ref().as_bytes(),
+                &argon2::PasswordHash::new(old_data.as_ref()).unwrap(),
+            )
+            .map_err(|_| Error {
+                inner: ErrorInner::Unauthorized,
+                detail: "Wrong password".to_string(),
+            })?;
         }
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
             user.hashed_psw = hash_password(password);
@@ -631,6 +635,42 @@ mod tests {
             .unwrap();
 
         users_manager.login("test_user1", "12345").unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_change_password() {
+        use super::*;
+        // create a temporary folder
+        let temp_dir = tempdir::TempDir::new("test_login").unwrap().into_path();
+        let (tx, _rx) = tokio::sync::broadcast::channel(10);
+        let mut users_manager =
+            UsersManager::new(tx.clone(), HashMap::new(), temp_dir.join("users.json"));
+        let test_user1 = User::new(
+            "test_user1".to_string(),
+            "12345",
+            true,
+            false,
+            UserPermission::default(),
+        );
+
+        users_manager
+            .add_user(test_user1.clone(), CausedBy::System)
+            .await
+            .unwrap();
+
+        users_manager.login("test_user1", "12345").unwrap();
+
+        users_manager
+            .change_password(
+                &test_user1.uid,
+                Some("12345"),
+                "54321".to_string(),
+                CausedBy::System,
+            )
+            .await
+            .unwrap();
+
+        users_manager.login("test_user1", "54321").unwrap();
     }
 
     #[tokio::test]
