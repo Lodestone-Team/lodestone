@@ -40,6 +40,7 @@ import RequireCore from 'utils/router/RequireCore';
 import RequireToken from 'utils/router/RequireToken';
 import { InstanceViewLayout } from 'components/DashboardLayout/InstanceViewLayout';
 import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
+import { toast } from 'react-toastify';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -170,7 +171,7 @@ export default function App() {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
         const message = errorToString(e);
-        alert(message);
+        toast(message);
         setToken('', socket);
         delete axios.defaults.headers.common['Authorization'];
       }

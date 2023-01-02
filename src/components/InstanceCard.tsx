@@ -12,6 +12,7 @@ import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
 import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
+import { toast } from 'react-toastify';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -91,7 +92,7 @@ export default function InstanceCard({
         response.data;
       })
       .catch((error) => {
-        alert(errorToString(error));
+        toast.error(errorToString(error));
       })
       .finally(() => {
         setLoading(false);

@@ -9,6 +9,7 @@ import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { toast } from 'react-toastify';
 
 export default function MinecraftSettingCard() {
   const { selectedInstance: instance, selectInstance } =
@@ -196,7 +197,7 @@ export default function MinecraftSettingCard() {
             })
             .catch((err) => {
               const err_message = errorToString(err);
-              alert(err_message);
+              toast.error(err_message);
             })
             .finally(() => {
               setShowDeleteDialog(false);
