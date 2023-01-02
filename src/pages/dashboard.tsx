@@ -16,6 +16,8 @@ import FileViewer from 'components/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import { ToastContainer } from 'react-toastify';
+import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 
 const Dashboard = () => {
   const { core } = useContext(LodestoneContext);
@@ -145,6 +147,23 @@ const Dashboard = () => {
             Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
           <ClipboardTextfield text={`${domain}:${instance.port}`} />
+          {/* <ToastContainer
+            toastClassName="!bg-gray-800 cursor-pointer absolute"
+            bodyClassName={() => "text-sm font-white font-med p-3 flex flex-row"}
+            progressClassName="!bg-gray-500 position-relative"
+            icon={<LoadingStatusIcon
+              level={"Info"}
+              bright={true}
+            />}
+            position={'bottom-right'}
+            closeButton={false}
+            pauseOnFocusLoss={false}
+            draggable={false}
+            pauseOnHover
+            theme="dark"
+            autoClose={false}
+            /> */}
+
         </div>
         {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield

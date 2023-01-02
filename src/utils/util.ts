@@ -10,6 +10,7 @@ import { Base64 } from 'js-base64';
 import React from 'react';
 import { LoginReply } from 'bindings/LoginReply';
 import { LoginValues } from 'pages/login/UserLogin';
+import { toast } from 'react-toastify';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
@@ -318,8 +319,7 @@ export const saveInstanceFile = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
   queryClient.setQueryData(
@@ -354,8 +354,7 @@ export const deleteInstanceFile = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
 
@@ -381,8 +380,7 @@ export const deleteInstanceDirectory = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
@@ -429,8 +427,7 @@ export const uploadInstanceFiles = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
 

@@ -54,6 +54,7 @@ import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
 import * as toml from 'utils/monaco-languages/toml';
 import { useQueryParam } from 'utils/hooks';
+import { toast } from 'react-toastify';
 
 type Monaco = typeof monaco;
 
@@ -288,8 +289,7 @@ export default function FileViewer() {
     }
     if (missedDirectories.length > 0) {
       const missedDirectoriesString = missedDirectories.join(', ');
-      // TODO: make this a toast
-      alert(
+      toast.error(
         `Downloading a directory is not supported. The following directories were not downloaded: ${missedDirectoriesString}`
       );
     }
