@@ -4,13 +4,18 @@ import {
   faTrashCan,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Menu } from '@headlessui/react';
+import { Dialog, Menu, Transition } from '@headlessui/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { PublicUser } from 'bindings/PublicUser';
 import clsx from 'clsx';
 import { useDecodedToken, useUid } from 'data/UserInfo';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import { deleteUser } from 'utils/util';
 import Avatar from './Atoms/Avatar';
 import Button from './Atoms/Button';
+import ConfirmDialog from './Atoms/ConfirmDialog';
+import ChangeSelfPasswordForm from './Settings/ChangeSelfPasswordForm';
+import ChangeUserPasswordForm from './Settings/ChangeUserPasswordForm';
 
 export default function UserBox({
   className,
@@ -21,10 +26,14 @@ export default function UserBox({
   user: PublicUser;
   onClick: () => void;
 }) {
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showDeleteUser, setShowDeleteUser] = useState(false);
+  const queryClient = useQueryClient();
   const uid = useUid();
+  const isSelf = user.uid === uid;
 
   const userTags = [];
-  if (user.uid === uid) userTags.push('You');
+  if (isSelf) userTags.push('You');
   if (user.is_admin) userTags.push('Admin');
   if (user.is_owner) userTags.push('Owner');
 
@@ -37,6 +46,81 @@ export default function UserBox({
         className
       )}
     >
+      <Transition
+        appear
+        show={showChangePassword}
+        as={Fragment}
+        enter="ease-out duration-200"
+        enterFrom="opacity-0"
+        enterTo="opacity-100"
+        leave="ease-in duration-150"
+        leaveFrom="opacity-100"
+        leaveTo="opacity-0"
+      >
+        <Dialog
+          onClose={() => setShowChangePassword(false)}
+          className="relative z-10"
+        >
+          <div className="fixed inset-0 bg-gray-900/60" />
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4">
+              <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+                <h1 className="text-larger font-bold tracking-tight text-gray-300">
+                  Create a new user account
+                </h1>
+                <p>
+                  This user will start with no permissions. You can grant them
+                  permissions later.
+                </p>
+                {isSelf ? (
+                  <ChangeSelfPasswordForm
+                    onSuccess={() => setShowChangePassword(false)}
+                    onCancel={() => setShowChangePassword(false)}
+                  />
+                ) : (
+                  <ChangeUserPasswordForm
+                    uid={user.uid}
+                    onSuccess={() => setShowChangePassword(false)}
+                    onCancel={() => setShowChangePassword(false)}
+                  />
+                )}
+              </Dialog.Panel>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
+      <ConfirmDialog
+        title={isSelf ? "You can't delete yourself" : 'Delete User'}
+        onConfirm={
+          !isSelf
+            ? () => {
+                deleteUser(user.uid);
+                setShowDeleteUser(false);
+                queryClient.setQueryData(
+                  ['user', 'list'],
+                  (users: { [uid: string]: PublicUser } | undefined) =>
+                    users
+                      ? Object.fromEntries(
+                          Object.entries(users).filter(
+                            ([uid]) => uid !== user.uid
+                          )
+                        )
+                      : undefined
+                );
+              }
+            : undefined
+        }
+        confirmButtonText={!isSelf ? 'Delete' : undefined}
+        type="danger"
+        isOpen={showDeleteUser}
+        onClose={() => setShowDeleteUser(false)}
+        closeButtonText={!isSelf ? 'Cancel' : 'Ok'}
+      >
+        {!isSelf
+          ? `Are you sure you want to delete ${user.username}? This action cannot be
+        undone.`
+          : `You can't delete yourself.`}
+      </ConfirmDialog>
       <div className="flex min-w-0 flex-row items-center gap-4">
         <Avatar size={35} name={user.uid} />
         <div className="flex min-w-0 flex-col">
@@ -63,10 +147,7 @@ export default function UserBox({
                   className="w-full flex-nowrap whitespace-nowrap"
                   label={'Change Password'}
                   iconRight={faArrowRightArrowLeft}
-                  onClick={() => {
-                    // TODO
-                    alert('TODO');
-                  }}
+                  onClick={() => setShowChangePassword(true)}
                   variant="text"
                   align="end"
                   disabled={disabled}
@@ -83,12 +164,9 @@ export default function UserBox({
                   variant="text"
                   color="danger"
                   align="end"
-                  disabled={disabled}
+                  disabled={disabled || isSelf}
                   active={active}
-                  onClick={() => {
-                    // TODO
-                    alert('TODO');
-                  }}
+                  onClick={() => setShowDeleteUser(true)}
                 />
               )}
             </Menu.Item>

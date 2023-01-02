@@ -57,7 +57,7 @@ export default function ConfirmDialog({
               </Dialog.Title>
               <Dialog.Description
                 as="p"
-                className="text-medium tracking-medium text-gray-300"
+                className="overflow-hidden text-medium tracking-medium text-gray-300"
               >
                 {children}
               </Dialog.Description>

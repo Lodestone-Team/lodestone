@@ -4,7 +4,7 @@ import UserBox from 'components/UserBox';
 import { SettingsContext } from 'data/SettingsContext';
 import { useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useState } from 'react';
-import { CreateUserForm } from './CreateUserForm';
+import CreateUserForm from './CreateUserForm';
 
 export const UserSettings = () => {
   const { userList, selectUser, selectedUser } = useContext(SettingsContext);

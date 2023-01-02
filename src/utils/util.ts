@@ -560,6 +560,33 @@ export const createNewUser = async (values: {
   });
 };
 
+/**
+ * @throws string if error
+ * @returns undefined if success
+ */
+export const changePassword = async (values: {
+  uid: string;
+  old_password: string | null;
+  new_password: string;
+}) => {
+  return await axiosWrapper<undefined>({
+    method: 'put',
+    url: `/user/${values.uid}/password`,
+    data: values,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ */
+export const deleteUser = async (uid: string) => {
+  return await axiosWrapper<undefined>({
+    method: 'delete',
+    url: `/user/${uid}`,
+  });
+};
+
 // check if a core is localhost
 export function isLocalCore(core: CoreConnectionInfo) {
   return (

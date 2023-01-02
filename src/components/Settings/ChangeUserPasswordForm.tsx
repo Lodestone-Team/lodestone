@@ -4,17 +4,15 @@ import { PublicUser } from 'bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { createNewUser, DISABLE_AUTOFILL } from 'utils/util';
+import { changePassword, createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import * as yup from 'yup';
 
-export type CreateNewUserValues = {
-  username: string;
+export type ChangeUserPasswordValues = {
   password: string;
   password_confirm: string;
 };
 
 const validationSchema = yup.object({
-  username: yup.string().required('Username is required'),
   password: yup.string().required('Password is required'),
   password_confirm: yup
     .string()
@@ -22,44 +20,36 @@ const validationSchema = yup.object({
     .oneOf([yup.ref('password'), null], 'Passwords must match'),
 });
 
-export const CreateUserForm = ({
+export const ChangeUserPasswordForm = ({
+  uid,
   onSuccess,
   onCancel,
 }: {
-  onSuccess: (values: CreateNewUserValues) => void;
+  uid: string;
+  onSuccess: () => void;
   onCancel: () => void;
 }) => {
-  const queryClient = useQueryClient();
-  const initialValues: CreateNewUserValues = {
-    username: '',
+  const initialValues: ChangeUserPasswordValues = {
     password: '',
     password_confirm: '',
   };
 
   const onSubmit = (
-    values: CreateNewUserValues,
-    actions: FormikHelpers<CreateNewUserValues>
+    values: ChangeUserPasswordValues,
+    actions: FormikHelpers<ChangeUserPasswordValues>
   ) => {
-    createNewUser({
-      username: values.username,
-      password: values.password,
+    changePassword({
+      uid,
+      old_password: null,
+      new_password: values.password,
     })
-      .then((loginReply) => {
-        queryClient.setQueryData(
-          ['user', 'list'],
-          (oldData: { [uid: string]: PublicUser } | undefined) => {
-            return {
-              ...oldData,
-              [loginReply.user.uid]: loginReply.user,
-            };
-          }
-        );
-        onSuccess(values);
+      .then(() => {
+        onSuccess();
         actions.resetForm();
       })
       .catch((error) => {
         // TODO: better form errors
-        actions.setErrors({ username: error });
+        actions.setErrors({ password: errorToString(error) });
       })
       .finally(() => {
         actions.setSubmitting(false);
@@ -73,11 +63,10 @@ export const CreateUserForm = ({
     >
       {({ isSubmitting }) => (
         <Form
-          id="create-user-form"
+          id="change-password-form"
           autoComplete={DISABLE_AUTOFILL}
           className="mt-10 flex flex-col gap-16 text-left"
         >
-          <InputField name="username" label="Username" />
           <InputField name="password" label="Password" type="password" />
           <InputField
             name="password_confirm"
@@ -86,7 +75,11 @@ export const CreateUserForm = ({
           />
           <div className="flex flex-row justify-between">
             <Button onClick={onCancel} label="Cancel" />
-            <Button type="submit" label="Create User" loading={isSubmitting} />
+            <Button
+              type="submit"
+              label="Change Password"
+              loading={isSubmitting}
+            />
           </div>
         </Form>
       )}
@@ -94,4 +87,4 @@ export const CreateUserForm = ({
   );
 };
 
-export default CreateUserForm;
+export default ChangeUserPasswordForm;
