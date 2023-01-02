@@ -58,6 +58,12 @@ fn get_snowflake() -> i64 {
 #[ts(export)]
 pub struct InstanceUuid(String);
 
+impl InstanceUuid {
+    pub fn no_prefix(&self) -> String {
+        self.0.replace("INSTANCE_", "")
+    }
+}
+
 impl From<String> for InstanceUuid {
     fn from(uuid: String) -> Self {
         Self(uuid)

@@ -127,7 +127,7 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             game_type: "minecraft".to_string(),
             uuid: uuid.clone(),
             path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, &uuid.to_string()[0..8]))),
+                .with(|path| path.join(format!("{}-{}", config.name, &uuid.no_prefix()[0..8]))),
         }
     }
 }
@@ -172,12 +172,12 @@ pub async fn create_minecraft_instance(
             while path == setup_config.path {
                 info!("You just hit the lottery");
                 setup_config.uuid = InstanceUuid::default();
-                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.to_string()[0..5]);
+                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.no_prefix()[0..5]);
                 setup_config.path = PATH_TO_INSTANCES.with(|path| {
                     path.join(format!(
                         "{}-{}",
                         name_with_uuid,
-                        &setup_config.uuid.to_string()[0..5]
+                        &setup_config.uuid.no_prefix()[0..5]
                     ))
                 });
             }
