@@ -194,7 +194,7 @@ pub async fn get_user_info(
 #[derive(Deserialize)]
 pub struct ChangePasswordConfig {
     uid: UserId,
-    old_password: String,
+    old_password: Option<String>,
     new_password: String,
 }
 
@@ -226,7 +226,10 @@ pub async fn change_password(
             if requester.uid != config.uid {
                 None
             } else {
-                Some(config.old_password)
+                Some(config.old_password.ok_or_else(|| Error {
+                    inner: ErrorInner::MalformedRequest,
+                    detail: "Old password is required".to_string(),
+                })?)
             },
             config.new_password,
             caused_by,
