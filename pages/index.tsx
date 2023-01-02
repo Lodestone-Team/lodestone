@@ -171,7 +171,7 @@ export default function App() {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
         const message = errorToString(e);
-        toast(message);
+        toast.error(message);
         setToken('', socket);
         delete axios.defaults.headers.common['Authorization'];
       }

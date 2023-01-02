@@ -8,7 +8,7 @@ import axios from 'axios';
 import NoSSR from 'react-no-ssr';
 import { BrowserRouter } from 'react-router-dom';
 import {BrowserLocationContextProvider} from 'data/BrowserLocationContext';
-import { ToastContainer } from 'react-toastify';
+import { ToastContainer, Zoom } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 
 config.autoAddCss = false;
@@ -36,12 +36,13 @@ function MyApp({ Component, pageProps }: AppProps) {
             level={"Info"}
             bright={true}
             />}
-          position={'bottom-right'}
+          position={'bottom-center'}
           closeButton={false}
           pauseOnFocusLoss={false}
           draggable={false}
           pauseOnHover
           theme="dark"
+          transition={Zoom}
         />
       <BrowserRouter>
         <BrowserLocationContextProvider>

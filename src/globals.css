@@ -216,3 +216,7 @@ input.noSpin[type='number'] {
 .Toastify__toast-icon {
   display: block !important;
 }
+
+.Toastify--animate{
+  animation-duration: 0.3s !important;
+}
