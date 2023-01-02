@@ -1,10 +1,12 @@
+import jwt from 'jsonwebtoken';
 import { ClientError } from 'bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { PublicUser } from 'bindings/PublicUser';
-import { useContext } from 'react';
+import { useContext, useMemo } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { UserPermission } from 'bindings/UserPermission';
+import { errorToString } from 'utils/util';
 
 // this won't ever change. if it does it will be invalidated manually
 export const useUserInfo = (enabled = true) => {
@@ -72,4 +74,35 @@ export const useUserAuthorized = (
 export const useUserLoggedIn = () => {
   const { data: user } = useUserInfo();
   return !!user;
+};
+
+/**
+ * Never throws
+ * @returns JWT payload or undefined
+ */
+export const useDecodedToken = () => {
+  const { token } = useContext(LodestoneContext);
+  const decoded = useMemo(() => {
+    try {
+      const decoded = jwt.decode(token, { complete: true });
+      if (!decoded) throw new Error('Invalid token');
+      return decoded.payload;
+    } catch (e) {
+      const message = errorToString(e);
+      console.error(message);
+    }
+  }, [token]);
+  return decoded;
+};
+
+/**
+ * Parses uid from JWT token directly, might be expired or fake
+ * Don't use for high security stuff
+ * @returns uid or undefined
+ */
+export const useUid = () => {
+  const decoded = useDecodedToken();
+  if (typeof decoded === 'undefined') return undefined;
+  if (typeof decoded === 'string') return undefined;
+  return decoded?.uid;
 };

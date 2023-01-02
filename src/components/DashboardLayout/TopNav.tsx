@@ -1,6 +1,6 @@
 import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useUserInfo } from 'data/UserInfo';
+import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useEffect, useState } from 'react';
 import {
   faCaretDown,
@@ -30,6 +30,7 @@ export default function TopNav({
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
+  const uid = useUid();
   const { token, setToken, core, coreConnectionStatus } =
     useContext(LodestoneContext);
   const { address, port } = core;
@@ -112,7 +113,7 @@ export default function TopNav({
           }
           iconComponent={
             userState == 'logged-in' ? (
-              <Avatar name={user?.uid} />
+              <Avatar name={uid} />
             ) : (
               <FontAwesomeIcon icon={faUser} className="w-4 opacity-50" />
             )

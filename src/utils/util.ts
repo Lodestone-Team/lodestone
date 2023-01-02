@@ -115,7 +115,8 @@ export function errorToString(error: unknown): string {
 }
 
 /**
- * @throws Error
+ * @throws Error with neatly formatted error message
+ * @returns ResponseType
  */
 export async function axiosWrapper<ResponseType>(
   config: AxiosRequestConfig
@@ -513,6 +514,7 @@ export function useCombinedRefs<T>(...refs: any[]) {
 export async function loginToCore(
   loginValue: LoginValues
 ): Promise<LoginReply | undefined> {
+  // we manually handle error here because we want to show different error messages
   try {
     return await axios
       .post<LoginReply>(
@@ -542,6 +544,21 @@ export async function loginToCore(
     }
   }
 }
+
+/**
+ * @throws string if error
+ * @returns LoginReply if success
+ */
+export const createNewUser = async (values: {
+  username: string;
+  password: string;
+}) => {
+  return await axiosWrapper<LoginReply>({
+    method: 'post',
+    url: '/user',
+    data: values,
+  });
+};
 
 // check if a core is localhost
 export function isLocalCore(core: CoreConnectionInfo) {

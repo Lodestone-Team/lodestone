@@ -161,6 +161,7 @@ export default function App() {
       });
       // TODO: clear ongoing notifications as well
     } else {
+      // can't use useDecodedToken here because LodestoneContext is not available yet
       try {
         const decoded = jwt.decode(token, { complete: true });
         if (!decoded) throw new Error('Invalid token');

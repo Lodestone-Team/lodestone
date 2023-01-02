@@ -7,6 +7,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu } from '@headlessui/react';
 import { PublicUser } from 'bindings/PublicUser';
 import clsx from 'clsx';
+import { useDecodedToken, useUid } from 'data/UserInfo';
 import { useState } from 'react';
 import Avatar from './Atoms/Avatar';
 import Button from './Atoms/Button';
@@ -20,6 +21,13 @@ export default function UserBox({
   user: PublicUser;
   onClick: () => void;
 }) {
+  const uid = useUid();
+
+  const userTags = [];
+  if (user.uid === uid) userTags.push('You');
+  if (user.is_admin) userTags.push('Admin');
+  if (user.is_owner) userTags.push('Owner');
+
   return (
     <div
       className={clsx(
@@ -29,15 +37,15 @@ export default function UserBox({
         className
       )}
     >
-      <div className="flex flex-row items-center gap-4">
+      <div className="flex min-w-0 flex-row items-center gap-4">
         <Avatar size={35} name={user.uid} />
-        <div className="flex flex-col">
-          <h1 className="text-medium font-medium text-gray-300">
+        <div className="flex min-w-0 flex-col">
+          <h1 className="truncate text-medium font-medium text-gray-300">
             {user.username}
             {/* this text is bigger then the one in inputbox on purpose */}
           </h1>
-          <h2 className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
-            {user.is_owner ? 'Owner' : user.uid}
+          <h2 className="overflow-hidden truncate text-ellipsis text-small font-medium tracking-medium text-white/50">
+            {userTags.join(', ')}
           </h2>
         </div>
       </div>
