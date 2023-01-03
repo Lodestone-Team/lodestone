@@ -2653,6 +2653,7 @@ dependencies = [
  "deno_ast",
  "deno_core",
  "deno_runtime",
+ "dotenvy",
  "enum-kinds",
  "enum_dispatch",
  "env_logger",
