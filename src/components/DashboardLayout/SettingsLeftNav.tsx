@@ -16,15 +16,26 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
   return (
     <div className={`flex w-full flex-col items-center px-4 ${className}`}>
       <div className="flex h-full w-full grow flex-col items-start gap-4 pt-12 pb-4">
-        <Button
-          label="Close Settings"
-          icon={faXmark}
-          onClick={() => {
-            setSearchParam('user', undefined);
-            setPathname('/');
-          }}
-          className="ml-2"
-        />
+        {selectedUser ? (
+          <Button
+            label="Unselect User"
+            icon={faXmark}
+            onClick={() => {
+              selectUser(undefined);
+            }}
+            className="ml-2"
+          />
+        ) : (
+          <Button
+            label="Close Settings"
+            icon={faXmark}
+            onClick={() => {
+              setSearchParam('user', undefined);
+              setPathname('/');
+            }}
+            className="ml-2"
+          />
+        )}
         {selectedUser && (
           <RadioGroup
             value={selectedUser}

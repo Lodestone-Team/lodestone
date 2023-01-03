@@ -11,6 +11,7 @@ import React from 'react';
 import { LoginReply } from 'bindings/LoginReply';
 import { LoginValues } from 'pages/login/UserLogin';
 import { toast } from 'react-toastify';
+import { UserPermission } from 'bindings/UserPermission';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
@@ -581,6 +582,19 @@ export const deleteUser = async (uid: string) => {
   return await axiosWrapper<undefined>({
     method: 'delete',
     url: `/user/${uid}`,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ * @param uid user id
+ */
+export const changeUserPermissions = async (uid: string, permission: UserPermission) => {
+  return await axiosWrapper<undefined>({
+    method: 'put',
+    url: `/user/${uid}/update_perm`,
+    data: permission,
   });
 };
 

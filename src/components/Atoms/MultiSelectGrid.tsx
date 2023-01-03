@@ -52,6 +52,7 @@ export default function MultiSelectGrid<T extends string | object>(
           checked={selectedOptions.includes(option)}
           onChange={(checked) => onCheckboxChange(option, checked)}
           disabled={disabled}
+          className="pr-4"
         />
       ))}
     </div>
