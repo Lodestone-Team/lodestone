@@ -72,6 +72,7 @@ export default function TopNav({
           className="w-32 hover:cursor-pointer"
           onClick={() => {
             setSearchParam('instance', undefined);
+            setSearchParam('user', undefined);
             setPathname('/');
           }}
         />
@@ -144,6 +145,7 @@ export default function TopNav({
                       // a logged out user will be auto-redirected to the login page
                       setToken('', socket);
                       setSearchParam('instance', undefined);
+                      setSearchParam('user', undefined);
                     }}
                     variant="text"
                     align="end"
@@ -165,6 +167,7 @@ export default function TopNav({
                     active={active}
                     onClick={() => {
                       setSearchParam('instance', undefined);
+                      setSearchParam('user', undefined);
                       setPathname('/login/core/select');
                     }}
                   />
