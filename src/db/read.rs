@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read() {
-        let pool = SqlitePool::connect("sqlite:///home/lemon/Lodestone/client/dev.db")
+        let pool = SqlitePool::connect("sqlite://dev.db")
             .await
             .unwrap();
         let results = search_events(

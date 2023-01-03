@@ -24,23 +24,6 @@ pub fn write_event_to_db_task(
     sqlite_pool: SqlitePool,
 ) -> impl Future<Output = ()> {
     async move {
-        // let pool_result = SqlitePool::connect("sqlite://dev.db").await;
-        // let connection_result = SqliteConnectOptions::from_str("sqlite://dev.db")
-        //     .unwrap()
-        //     .create_if_missing(true)
-        //     .connect()
-        //     .await;
-
-        // let connection_result = SqliteConnectOptions::from_str("sqlite:///home/lemon/Lodestone/client/dev.db")
-        //     .unwrap()
-        //     .create_if_missing(true);
-
-        // let pool_result = Pool::connect_with(connection_result).await;
-
-        // if let Err(error) = pool_result.as_ref() {
-        //     warn!("Failed to connect to DB: {error}");
-        //     return;
-        // }
         let init_result = init_client_events_table(&sqlite_pool).await;
         if let Err(error) = init_result.as_ref() {
             warn!("Failed to initialize client events table: {}", error);
