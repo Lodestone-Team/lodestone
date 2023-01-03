@@ -66,6 +66,8 @@ deno_core = "0.162.0"
 deno_runtime = "0.88.0"
 deno_ast = { version = "0.20.0", features = ["transpiling"] }
 serde-aux = "4.1.2"
+sqlx = { git = "https://github.com/Lodestone-Team/sqlx", features = ["runtime-tokio-rustls", "sqlite", "json" ]}
+
 [dependencies.uuid]
 version = "1.1.2"
 features = [

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
     types::Snowflake,
 };
 
-#[derive(Serialize, Clone, Debug, TS)]
+#[derive(Deserialize, Serialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct ClientEvent {
     pub event_inner: EventInner,

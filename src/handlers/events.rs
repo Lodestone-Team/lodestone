@@ -14,7 +14,7 @@ use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
 use crate::{
     auth::{user::UsersManager, user_id::UserId},
-    events::InstanceEventKind,
+    events::InstanceEventKind, types::TimeRange, db::read::search_events,
 };
 use crate::{events::EventType, output_types::ClientEvent};
 use crate::{events::UserEventKind, types::InstanceUuid};
@@ -31,17 +31,19 @@ use ts_rs::TS;
 use super::util::parse_bearer_token;
 #[derive(Deserialize, Clone, Debug, TS)]
 #[ts(export)]
-struct EventQuery {
+pub struct EventQuery {
     pub event_levels: Option<Vec<EventLevel>>,
     pub event_types: Option<Vec<EventType>>,
     pub instance_event_types: Option<Vec<InstanceEventKind>>,
     pub user_event_types: Option<Vec<UserEventKind>>,
+    pub event_user_ids: Option<Vec<UserId>>,
     pub event_instance_ids: Option<Vec<InstanceUuid>>,
     pub bearer_token: Option<String>,
+    pub time_range: Option<TimeRange>,
 }
 
 impl EventQuery {
-    fn filter(&self, event: impl AsRef<ClientEvent>) -> bool {
+    pub fn filter(&self, event: impl AsRef<ClientEvent>) -> bool {
         let event = event.as_ref();
         if let Some(event_levels) = &self.event_levels {
             if !event_levels.contains(&event.level) {
@@ -73,6 +75,15 @@ impl EventQuery {
                 return false;
             }
         }
+        if let Some(event_user_ids) = &self.event_user_ids {
+            if let EventInner::UserEvent(user_event) = &event.event_inner {
+                if !event_user_ids.contains(&user_event.user_id) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         if let Some(event_instance_ids) = &self.event_instance_ids {
             if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
                 if !event_instance_ids.contains(&instance_event.instance_uuid) {
@@ -82,6 +93,7 @@ impl EventQuery {
                 return false;
             }
         }
+        // TODO might need to check time too
         true
     }
 }
@@ -125,6 +137,32 @@ pub async fn get_event_buffer(
             .cloned()
             .collect(),
     ))
+}
+
+// TODO implement me
+pub async fn get_event_search(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+    query: Query<EventQueryWrapper>,
+) -> Result<Json<Vec<ClientEvent>>, Error> {
+    // deserialize query
+    let query: EventQuery = serde_json::from_str(&query.filter).map_err(|e| {
+        error!("Error deserializing event query: {}", e);
+        Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: e.to_string(),
+        }
+    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+    search_events(&state.sqlite_pool, query).await.map(Json)
 }
 
 pub async fn get_console_buffer(
@@ -318,6 +356,7 @@ pub fn get_events_routes(state: AppState) -> Router {
     Router::new()
         .route("/events/:uuid/stream", get(event_stream))
         .route("/events/:uuid/buffer", get(get_event_buffer))
+        .route("/events/search", get(get_event_search))
         .route("/instance/:uuid/console/stream", get(console_stream))
         .route("/instance/:uuid/console/buffer", get(get_console_buffer))
         .with_state(state)

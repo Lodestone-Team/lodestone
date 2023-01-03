@@ -14,10 +14,11 @@ use crate::{
     prelude::{
         LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_GLOBAL_SETTINGS, PATH_TO_STORES, PATH_TO_USERS,
     },
-    util::{download_file, rand_alphanumeric},
+    util::{download_file, rand_alphanumeric}, db::write::write_event_to_db_task,
 };
 use auth::user::UsersManager;
 use axum::Router;
+
 use events::{CausedBy, Event};
 use global_settings::GlobalSettings;
 use implementations::minecraft;
@@ -29,12 +30,16 @@ use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use serde_json::Value;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePool},
+    Pool,
+};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::Duration, str::FromStr,
 };
 use sysinfo::SystemExt;
 use tokio::{
@@ -57,6 +62,7 @@ use types::InstanceUuid;
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
+pub mod db;
 mod events;
 pub mod global_settings;
 mod handlers;
@@ -86,6 +92,7 @@ pub struct AppState {
     first_time_setup_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
     macro_executor: MacroExecutor,
+    sqlite_pool: sqlx::SqlitePool,
 }
 
 async fn restore_instances(
@@ -263,6 +270,9 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
+        sqlite_pool: Pool::connect_with(SqliteConnectOptions::from_str("sqlite://dev.db")
+        .unwrap()
+        .create_if_missing(true)).await.unwrap(), 
     };
 
     let event_buffer_task = {
@@ -298,6 +308,8 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
             }
         }
     };
+
+    let write_to_db_task = write_event_to_db_task(tx.subscribe(), shared_state.sqlite_pool.clone());
 
     let monitor_report_task = {
         let monitor_buffer = shared_state.monitor_buffer.clone();
@@ -359,6 +371,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                 let app = Router::new().nest("/api/v1", api_routes);
                 let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
                 select! {
+                    _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = axum::Server::bind(&addr)

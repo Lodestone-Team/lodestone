@@ -8,11 +8,20 @@ use ts_rs::TS;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Copy)]
 #[ts(export)]
 #[serde(into = "String")]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
 pub struct Snowflake(
     #[serde(deserialize_with = "deserialize_number_from_string")]
     #[ts(type = "string")]
     i64,
 );
+
+#[derive(Deserialize, Clone, Debug, TS)]
+
+pub struct TimeRange {
+    pub start: i64,
+    pub end: i64,
+}
 
 impl From<Snowflake> for String {
     fn from(snowflake: Snowflake) -> Self {
@@ -56,6 +65,8 @@ fn get_snowflake() -> i64 {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize, TS)]
 #[serde(transparent)]
 #[ts(export)]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
 pub struct InstanceUuid(String);
 
 impl InstanceUuid {

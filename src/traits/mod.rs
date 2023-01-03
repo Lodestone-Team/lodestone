@@ -85,6 +85,12 @@ pub enum ErrorInner {
     Unauthorized,
     PermissionDenied,
 
+    // DB errors:
+    DBInitError,
+    DBWriteError,
+    DBFetchError,
+    DBPoolError,
+
     // Generic error
     NotFound,
     InternalError,
