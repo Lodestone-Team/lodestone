@@ -40,7 +40,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
           <RadioGroup
             value={selectedUser}
             onChange={selectUser}
-            className="-mx-1.5 flex min-h-0 w-full flex-col items-stretch gap-1 overflow-y-auto px-3 pt-1"
+            className="-mx-1.5 flex min-h-0 w-full flex-col items-stretch gap-1 overflow-y-auto px-3 py-1"
           >
             <RadioGroup.Label className="sr-only">
               Select a user
