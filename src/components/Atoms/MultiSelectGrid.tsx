@@ -44,7 +44,13 @@ export default function MultiSelectGrid<T extends string | object>(
   };
 
   return (
-    <div className={clsx('grid grid-cols-2 gap-4 @lg:grid-cols-4', className)}>
+    <div
+      className={clsx(
+        'grid grid-cols-2 gap-4 @lg:grid-cols-4',
+        disabled ? 'bg-gray-850' : 'bg-gray-800',
+        className
+      )}
+    >
       {options.map((option) => (
         <Checkbox
           key={optionLabel(option)}

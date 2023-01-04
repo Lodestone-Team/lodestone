@@ -5,6 +5,7 @@ import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
 import clsx from 'clsx';
 import Button from 'components/Atoms/Button';
+import { HorizontalLine } from 'components/Atoms/HorizontalLine';
 import MultiSelectGrid from 'components/Atoms/MultiSelectGrid';
 import { Toggle } from 'components/Atoms/Toggle';
 import UserBox from 'components/UserBox';
@@ -158,10 +159,10 @@ export const UserSettings = () => {
     <div className="flex w-full flex-col gap-4 @4xl:flex-row">
       <div className="flex w-full flex-row flex-nowrap items-end justify-between gap-4 @4xl:w-[28rem] @4xl:flex-col @4xl:items-start @4xl:justify-start">
         <div>
-          <h1 className="text-large font-black text-gray-300">
+          <h1 className="text-large font-black tracking-tight text-gray-300">
             All Members ({Object.keys(userList).length})
           </h1>
-          <h2 className="text-base font-medium italic tracking-tight text-white/50">
+          <h2 className="text-base font-medium italic tracking-medium text-white/50">
             A list of all users. Click into a user to manage.
           </h2>
         </div>
@@ -212,14 +213,15 @@ export const UserSettings = () => {
               key={permission.permission}
               className={clsx(
                 'flex gap-4',
-                permissionType === 'boolean' && 'flex-row justify-between items-center',
+                permissionType === 'boolean' &&
+                  'flex-row items-center justify-between',
                 permissionType === 'object' && 'flex-col'
               )}
             >
               <div>
                 <div
                   className={clsx(
-                    'text-medium font-bold leading-tight',
+                    'text-medium font-bold leading-tight tracking-tight',
                     disabled ? 'text-white/50' : 'text-gray-300'
                   )}
                 >
@@ -328,23 +330,24 @@ export const UserSettings = () => {
       {UserBoxes}
       {UserPermissions(NormalPermissions, false)}
       {selectedUser && (
-        <div>
-          <div>
-            <div className="text-large font-extrabold text-red-200">
-              Unsafe Settings
+        <>
+          <HorizontalLine thicknessClass="h-0.5" className="-my-4" />
+          <div className="flex flex-col gap-8">
+            <div>
+              <div className="text-large font-bold leading-tight tracking-tight text-red-200">
+                Unsafe Settings
+              </div>
+              <div className="text-medium font-medium tracking-medium text-red-200">
+                Turn off safe mode in core settings to grant these permissions
+                to non-owner users.
+              </div>
             </div>
-            <div className="text-medium font-bold tracking-tight text-white/50">
-              Turn off safe mode in core settings to grant these permissions to
-              non-owner users.
-            </div>
-          </div>
-          <div className="flex flex-col gap-4 rounded-lg bg-gray-900 p-8">
             {UserPermissions(
               UnsafePermissions,
               globalSettings?.safe_mode || false
             )}
           </div>
-        </div>
+        </>
       )}
       {/* TODO: your own section */}
     </>
