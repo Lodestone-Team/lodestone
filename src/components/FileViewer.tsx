@@ -635,7 +635,7 @@ export default function FileViewer() {
   );
 
   return (
-    <div className="relative flex h-full w-full flex-col gap-3">
+    <div className="relative flex h-full w-full grow flex-col gap-3">
       <div className="flex flex-row items-center justify-between gap-4">
         {createFileModal}
         {createFolderModal}
@@ -793,7 +793,7 @@ export default function FileViewer() {
       </div>
 
       {canRead ? (
-        <div className="flex h-full w-full flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
+        <div className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
           <ResizePanel
             direction="e"
             maxSize={500}
@@ -856,7 +856,7 @@ export default function FileViewer() {
           )}
         </div>
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faFolder}
             className="text-xlarge text-gray-400"

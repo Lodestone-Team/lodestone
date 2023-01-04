@@ -23,6 +23,22 @@ const NormalPermissions: {
   description: string;
 }[] = [
   {
+    permission: 'can_create_instance' as keyof UserPermission,
+    title: 'Create Instances',
+    description: 'The user can create new instances.',
+  },
+  {
+    permission: 'can_delete_instance' as keyof UserPermission,
+    title: 'Delete Instances',
+    description: 'The user can delete any instance.',
+  },
+  {
+    permission: 'can_read_global_file' as keyof UserPermission,
+    title: 'Read Global Files',
+    description:
+      'The user can read any file on the computer Lodestone core is running on.',
+  },
+  {
     permission: 'can_view_instance' as keyof UserPermission,
     title: 'View Instances',
     description: 'The user can see these instances.',
@@ -59,22 +75,6 @@ const NormalPermissions: {
     permission: 'can_read_instance_file' as keyof UserPermission,
     title: 'Read Instance Files',
     description: 'The user can read the files of these instances.',
-  },
-  {
-    permission: 'can_create_instance' as keyof UserPermission,
-    title: 'Create Instances',
-    description: 'The user can create new instances.',
-  },
-  {
-    permission: 'can_delete_instance' as keyof UserPermission,
-    title: 'Delete Instances',
-    description: 'The user can delete any instance.',
-  },
-  {
-    permission: 'can_read_global_file' as keyof UserPermission,
-    title: 'Read Global Files',
-    description:
-      'The user can read any file on the computer Lodestone core is running on.',
   },
 ];
 
@@ -202,7 +202,7 @@ export const UserSettings = () => {
     disabled: boolean
   ) =>
     selectedUser && (
-      <div className="flex w-full flex-col gap-8">
+      <div className="flex w-full flex-col gap-12">
         {permissionList.map((permission) => {
           const currentSettings =
             selectedUser.permissions[permission.permission];
@@ -211,27 +211,27 @@ export const UserSettings = () => {
             <div
               key={permission.permission}
               className={clsx(
-                'flex gap-2',
-                permissionType === 'boolean' && 'flex-row justify-between',
+                'flex gap-4',
+                permissionType === 'boolean' && 'flex-row justify-between items-center',
                 permissionType === 'object' && 'flex-col'
               )}
             >
               <div>
                 <div
                   className={clsx(
-                    'text-medium font-medium',
+                    'text-medium font-bold leading-tight',
                     disabled ? 'text-white/50' : 'text-gray-300'
                   )}
                 >
                   {permission.title}
                 </div>
-                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
+                <div className="overflow-hidden text-ellipsis text-base font-medium tracking-medium text-white/50">
                   {permission.description}
                 </div>
               </div>
               {typeof currentSettings === 'object' && (
                 <MultiSelectGrid
-                  className="rounded-lg border border-gray-faded/30 bg-gray-800 px-4 py-3"
+                  className="rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
                   options={
                     Object.values(instanceList || {}).map(
                       (instance) => instance.uuid
@@ -328,20 +328,22 @@ export const UserSettings = () => {
       {UserBoxes}
       {UserPermissions(NormalPermissions, false)}
       {selectedUser && (
-        <div className="flex flex-col gap-4 rounded-lg bg-gray-900 p-8">
+        <div>
           <div>
-            <div className="text-large font-black text-red-200">
+            <div className="text-large font-extrabold text-red-200">
               Unsafe Settings
             </div>
-            <div className="text-base font-medium italic tracking-tight text-white/50">
+            <div className="text-medium font-bold tracking-tight text-white/50">
               Turn off safe mode in core settings to grant these permissions to
               non-owner users.
             </div>
           </div>
-          {UserPermissions(
-            UnsafePermissions,
-            globalSettings?.safe_mode || false
-          )}
+          <div className="flex flex-col gap-4 rounded-lg bg-gray-900 p-8">
+            {UserPermissions(
+              UnsafePermissions,
+              globalSettings?.safe_mode || false
+            )}
+          </div>
         </div>
       )}
       {/* TODO: your own section */}

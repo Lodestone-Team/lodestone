@@ -103,7 +103,7 @@ export default function GameConsole() {
     consoleInputMessage = 'Console is closed';
 
   return (
-    <div className="relative flex h-full w-full flex-col rounded-lg border border-gray-faded/30">
+    <div className="relative flex h-full w-full grow flex-col rounded-lg border border-gray-faded/30">
       <Tooltip
         overlay={<span>{consoleStatusMessage}</span>}
         placement="bottom"
@@ -117,7 +117,7 @@ export default function GameConsole() {
         />
       </Tooltip>
       {!canAccessConsole || consoleStatus === 'no-permission' ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
+        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faServer}
             className="text-xlarge text-gray-400"
@@ -127,7 +127,7 @@ export default function GameConsole() {
           </p>
         </div>
       ) : consoleLog.length === 0 ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
+        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faServer}
             className="text-xlarge text-gray-400"

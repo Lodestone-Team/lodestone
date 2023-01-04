@@ -21,8 +21,8 @@ const SettingsPage = () => {
 
   return (
     // used to possibly center the content
-    <div className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container">
-      <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
+    <div className="relative flex h-full w-full flex-row justify-center @container">
+      <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
         <div className="flex min-w-0 flex-row items-center gap-4">
           <h1 className="dashboard-instance-heading">Core Settings</h1>
         </div>
@@ -35,7 +35,7 @@ const SettingsPage = () => {
             }
           }}
         >
-          <Tab.List className="mb-6 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
+          <Tab.List className="flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
             {tabList.map((tab) => (
               <Tab
                 key={tab.title}
@@ -51,10 +51,10 @@ const SettingsPage = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="flex w-full grow flex-row items-stretch">
+          <Tab.Panels className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2">
             {tabList.map((tab) => (
               <Tab.Panel
-                className="flex w-full flex-col gap-16 focus:outline-none"
+                className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none"
                 key={tab.title}
               >
                 {tab.content}

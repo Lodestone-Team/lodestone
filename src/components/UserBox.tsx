@@ -40,7 +40,7 @@ export default function UserBox({
   return (
     <div
       className={clsx(
-        'group relative flex flex-row items-center justify-between cursor-pointer',
+        'group relative flex cursor-pointer flex-row items-center justify-between',
         'gap-4 bg-gray-800 px-4 py-3 text-base',
         'hover:bg-gray-700',
         className
@@ -125,7 +125,7 @@ export default function UserBox({
       <div className="flex min-w-0 flex-row items-center gap-4">
         <Avatar size={35} name={user.uid} />
         <div className="flex min-w-0 flex-col">
-          <h1 className="truncate text-medium font-medium text-gray-300">
+          <h1 className="truncate text-medium font-bold leading-tight text-gray-300">
             {user.username}
             {/* this text is bigger then the one in inputbox on purpose */}
           </h1>

@@ -118,11 +118,11 @@ const Dashboard = () => {
 
   return (
     <div
-      className="gutter-stable relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+      className="relative flex h-full w-full flex-row justify-center @container"
       key={uuid}
     >
       {/* main content container */}
-      <div className="flex w-full grow flex-col items-start gap-2">
+      <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
         <div className="flex w-full min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
@@ -146,7 +146,6 @@ const Dashboard = () => {
             Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
           <ClipboardTextfield text={`${domain}:${instance.port}`} />
-
         </div>
         {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield
@@ -161,7 +160,7 @@ const Dashboard = () => {
           selectedIndex={selectedTabIndex}
           onChange={setSelectedTabIndex}
         >
-          <Tab.List className="mb-6 flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
+          <Tab.List className="flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
             {tabList[instance.game_type].map((tab) => (
               <Tab
                 key={tab.title}
@@ -177,10 +176,11 @@ const Dashboard = () => {
               </Tab>
             ))}
           </Tab.List>
-          <Tab.Panels className="flex w-full grow flex-row items-stretch">
+          {/* gutter-stable basically adds 8px of padding on the right */}
+          <Tab.Panels className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2">
             {tabList[instance.game_type].map((tab) => (
               <Tab.Panel
-                className="flex w-full flex-col gap-16 focus:outline-none"
+                className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none"
                 key={tab.title}
               >
                 {tab.content}
