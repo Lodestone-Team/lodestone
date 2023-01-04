@@ -8,9 +8,9 @@ import { catchAsyncToString } from 'utils/util';
 
 /**
  * A self controlled dropdown meant to represent a single value of a config
- * 
+ *
  * It is NOT meant to be used as a form input
- * 
+ *
  * See SelectField for that
  */
 export default function SelectBox({
@@ -27,6 +27,7 @@ export default function SelectBox({
   descriptionFunc,
   actionIcon,
   actionIconClick,
+  optimistic = true, // if true, the dropdown will change immediately and go into loading state, and will change back if onChange throws an error
 }: {
   label: string;
   value?: string;
@@ -41,6 +42,7 @@ export default function SelectBox({
   descriptionFunc?: (arg: string) => React.ReactNode;
   actionIcon?: IconDefinition;
   actionIconClick?: () => void;
+  optimistic?: boolean;
 }) {
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -52,7 +54,7 @@ export default function SelectBox({
   }, [initialValue]);
 
   const onChange = async (newValue: string) => {
-    setValue(newValue);
+    if (optimistic) setValue(newValue);
     setIsLoading(true);
     const submitError = await catchAsyncToString(onChangeProp(newValue));
     setError(submitError);
@@ -158,7 +160,7 @@ export default function SelectBox({
                   value={option}
                   className={clsx(
                     'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
-                    'border-t border-gray-faded/30 last:border-b ui-active:border-y ui-active:border-white/50 ui-active:mb-[-1px] ui-active:z-50 ui-active:last:mb-0',
+                    'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                     'ui-selected:font-medium ui-not-selected:font-normal',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
                     'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'

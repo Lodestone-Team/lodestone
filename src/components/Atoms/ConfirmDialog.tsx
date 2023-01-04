@@ -1,5 +1,5 @@
 import { Dialog, Transition } from '@headlessui/react';
-import { Fragment, ReactNode } from 'react';
+import { Fragment, ReactNode, useEffect, useState } from 'react';
 import Button from './Button';
 
 export interface DialogProps {
@@ -25,6 +25,11 @@ export default function ConfirmDialog({
   isOpen,
   zIndex = 10,
 }: DialogProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  useEffect(() => {
+    setIsLoading(false);
+  }, [isOpen]);
+
   return (
     <Transition
       appear
@@ -66,13 +71,18 @@ export default function ConfirmDialog({
                   label={closeButtonText || 'Cancel'}
                   className={onConfirm ? 'w-fit' : 'grow'}
                   onClick={onClose}
+                  disabled={isLoading}
                 />
                 {onConfirm && (
                   <Button
                     label={confirmButtonText || 'Confirm'}
                     className="grow"
                     color={type === 'danger' ? 'danger' : 'info'}
-                    onClick={onConfirm}
+                    loading={isLoading}
+                    onClick={() => {
+                      setIsLoading(true);
+                      onConfirm();
+                    }}
                   />
                 )}
               </div>

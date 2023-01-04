@@ -22,6 +22,7 @@ export default function ToggleBox({
   isLoading: isLoadingProp = false,
   description,
   descriptionFunc,
+  optimistic = true, // if true, the toggle will change immediately and go into loading state, and will change back if onChange throws an error
 }: {
   label: string;
   value: boolean;
@@ -33,6 +34,7 @@ export default function ToggleBox({
   onChange: (arg: boolean) => Promise<void>;
   description?: React.ReactNode;
   descriptionFunc?: (arg: boolean) => React.ReactNode;
+  optimistic?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -44,7 +46,8 @@ export default function ToggleBox({
   }, [initialValue]);
 
   const onChange = async (newValue: boolean) => {
-    setValue(newValue);
+    if(optimistic)
+      setValue(newValue);
     setIsLoading(true);
     const submitError = await catchAsyncToString(onChangeProp(newValue));
     setError(submitError);
