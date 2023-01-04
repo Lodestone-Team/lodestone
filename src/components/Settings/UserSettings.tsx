@@ -203,7 +203,7 @@ export const UserSettings = () => {
     disabled: boolean
   ) =>
     selectedUser && (
-      <div className="flex w-full flex-col gap-12">
+      <div className="flex w-full flex-col gap-10">
         {permissionList.map((permission) => {
           const currentSettings =
             selectedUser.permissions[permission.permission];
@@ -227,7 +227,7 @@ export const UserSettings = () => {
                 >
                   {permission.title}
                 </div>
-                <div className="overflow-hidden text-ellipsis text-base font-medium tracking-medium text-white/50">
+                <div className="overflow-hidden text-ellipsis italic text-base font-medium tracking-medium text-white/50">
                   {permission.description}
                 </div>
               </div>
