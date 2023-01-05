@@ -29,7 +29,7 @@ export default function TopNav() {
   //   showNotifications: boolean;
   //   setShowNotifications: (show: boolean) => void;
   // }
-  const { setPathname } = useContext(BrowserLocationContext);
+  const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
   const uid = useUid();
