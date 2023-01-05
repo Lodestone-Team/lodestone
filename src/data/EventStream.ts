@@ -240,11 +240,11 @@ export const useEventStream = () => {
                   }
                 );
               }
-              dispatch({
-                title: `User ${uid}'s permission has changed`,
-                event,
-                type: 'add',
-              });
+              // dispatch({
+              //   title: `User ${uid}'s permission has changed`,
+              //   event,
+              //   type: 'add',
+              // });
             },
           }),
         MacroEvent: ({

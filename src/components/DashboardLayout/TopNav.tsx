@@ -11,22 +11,18 @@ import {
   faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Menu, Transition } from '@headlessui/react';
+import { Menu, Popover, Transition } from '@headlessui/react';
+import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
 import { AxiosError } from 'axios';
 import Label, { LabelColor } from 'components/Atoms/Label';
 import Avatar from 'components/Atoms/Avatar';
+import NotificationPanel from './NotificationPanel';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
-export default function TopNav({
-  showNotifications,
-  setShowNotifications,
-}: {
-  showNotifications: boolean;
-  setShowNotifications: (show: boolean) => void;
-}) {
+export default function TopNav() {
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
@@ -96,15 +92,16 @@ export default function TopNav({
           setPathname('/settings');
         }}
       />
-      <FontAwesomeIcon
-        icon={faBell}
-        className={`w-4 select-none hover:cursor-pointer ${
-          showNotifications
-            ? 'text-gray-300 hover:text-white/75'
-            : 'text-white/50 hover:text-white/75'
-        }`}
-        onClick={() => setShowNotifications(!showNotifications)}
-      />
+      <Popover className="relative">
+        <Popover.Button
+          as={FontAwesomeIcon}
+          icon={faBell}
+          className="w-4 select-none hover:cursor-pointer hover:text-white/75 ui-open:text-gray-300 ui-not-open:text-white/50"
+        />
+        <Popover.Panel className="absolute right-0 z-40 mt-1 h-[80vh] w-[480px] rounded-lg drop-shadow-lg child:h-full">
+          <NotificationPanel className="rounded-lg border" />
+        </Popover.Panel>
+      </Popover>
       <Menu as="div" className="relative inline-block text-left">
         <Menu.Button
           as={Button}
