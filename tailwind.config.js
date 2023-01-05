@@ -3,9 +3,8 @@ const defaultTheme = require('tailwindcss/defaultTheme');
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    './src/app/**/*.{js,ts,jsx,tsx}',
-    './src/pages/**/*.{js,ts,jsx,tsx}',
-    './src/components/**/*.{js,ts,jsx,tsx}',
+    './pages/**/*.{js,ts,jsx,tsx}',
+    './src/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     colors: {
@@ -44,6 +43,7 @@ module.exports = {
         300: '#E3E3E4',
         400: '#A5A5AC',
         500: '#767A82',
+        550: '#67686A',
         600: '#44464B',
         700: '#36393F',
         750: '#303338',
@@ -72,6 +72,10 @@ module.exports = {
       larger: '1.5rem',
       xlarge: '1.75rem',
       '2xlarge': '2rem',
+      '3xlarge': '2.5rem',
+      '4xlarge': '3rem',
+      '5xlarge': '3.5rem',
+      '6xlarge': '4rem',
     },
     letterSpacing: {
       tight: '-0.04em',
@@ -103,6 +107,6 @@ module.exports = {
       addVariant('child', '& > *');
     },
     require('@tailwindcss/container-queries'),
-    require('@headlessui/tailwindcss')({ prefix: 'ui' }),
+    require('@headlessui/tailwindcss')({ prefix: 'ui' })
   ],
 };

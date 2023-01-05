@@ -1,18 +1,27 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
+import {
+  CoreConnectionInfo,
+  CoreConnectionStatus,
+  LodestoneContext,
+} from 'data/LodestoneContext';
 import {
   NotificationContext,
   useNotificationReducer,
   useOngoingNotificationReducer,
 } from 'data/NotificationContext';
-import React, { useEffect, useLayoutEffect, useMemo } from 'react';
-import { Routes, Route } from 'react-router-dom';
-import { useEffectOnce, useLocalStorage } from 'usehooks-ts';
+import React, {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
-import { errorToString, LODESTONE_PORT } from 'utils/util';
+import { DEFAULT_LOCAL_CORE, errorToString, LODESTONE_PORT } from 'utils/util';
 import Dashboard from 'pages/dashboard';
 import Home from 'pages/home';
-import { tauri } from 'utils/tauriUtil';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import DashboardLayout from 'components/DashboardLayout';
@@ -24,6 +33,12 @@ import UserLogin from 'pages/login/UserLogin';
 import CoreSetupNew from 'pages/login/CoreSetupNew';
 import CoreConfigNew from 'pages/login/CoreConfigNew';
 import LoginLayout from 'components/LoginLayout';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import NotFound from 'pages/notfound';
+import FirstTime from 'pages/login/FirstTime';
+import RequireCore from 'utils/router/RequireCore';
+import RequireToken from 'utils/router/RequireToken';
+import { toast } from 'react-toastify';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,19 +50,24 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
+  const { location, setSearchParam } = useContext(BrowserLocationContext);
+
   /* Start Core */
   const [address, setAddress] = useLocalStorageQueryParam(
     'address',
-    'localhost'
+    DEFAULT_LOCAL_CORE.address
   );
   const [port, setPort] = useLocalStorageQueryParam(
     'port',
-    LODESTONE_PORT.toString()
+    DEFAULT_LOCAL_CORE.port
   );
-  const [protocol, setProtocol] = useLocalStorageQueryParam('protocol', 'http');
+  const [protocol, setProtocol] = useLocalStorageQueryParam(
+    'protocol',
+    DEFAULT_LOCAL_CORE.protocol
+  );
   const [apiVersion, setApiVersion] = useLocalStorageQueryParam(
     'apiVersion',
-    'v1'
+    DEFAULT_LOCAL_CORE.apiVersion
   );
   const core: CoreConnectionInfo = useMemo(
     () => ({
@@ -63,16 +83,22 @@ export default function App() {
     'cores',
     []
   );
+  const [coreConnectionStatus, setCoreConnectionStatus] =
+    useState<CoreConnectionStatus>('loading');
   const setCore = (c: CoreConnectionInfo) => {
     queryClient.invalidateQueries();
     queryClient.clear();
+    setSearchParam('instance', undefined);
     //TODO: add core to the key of each query instead of invalidating all queries
     setAddress(c.address);
     setPort(c.port.toString());
     setProtocol(c.protocol);
     setApiVersion(c.apiVersion);
   };
+
   useEffect(() => {
+    // we only want to add successful cores to the list
+    if (coreConnectionStatus !== 'success') return;
     // check if core is already in the list
     // if it's exactly the same, do nothing
     if (
@@ -98,10 +124,23 @@ export default function App() {
 
     // core and corelist left out on purpose
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, apiVersion, core, port, protocol]);
+  }, [address, apiVersion, core, port, protocol, coreConnectionStatus]);
   useLayoutEffect(() => {
     axios.defaults.baseURL = `${protocol}://${socket}/api/${apiVersion}`;
+    setCoreConnectionStatus('loading');
   }, [apiVersion, protocol, socket]);
+
+  // Add the core to the list if it's not already there
+  // Cores with the same address and port are considered the same
+  const addCore = (c: CoreConnectionInfo) => {
+    if (
+      coreList.some(
+        (core) => core.address === c.address && core.port === c.port
+      )
+    )
+      return;
+    setCoreList([...coreList, c]);
+  };
   /* End Core */
 
   /* Start Token */
@@ -129,7 +168,7 @@ export default function App() {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
         const message = errorToString(e);
-        alert(message);
+        toast.error(message);
         setToken('', socket);
         delete axios.defaults.headers.common['Authorization'];
       }
@@ -154,6 +193,9 @@ export default function App() {
         value={{
           core,
           setCore,
+          addCore,
+          coreConnectionStatus,
+          setCoreConnectionStatus,
           coreList,
           token,
           setToken,
@@ -169,17 +211,25 @@ export default function App() {
           }}
         >
           <Routes>
-            <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/" element={<Home />} />
-            </Route>
             <Route element={<LoginLayout />}>
+              <Route path="/first_setup" element={<FirstTime />} />
               <Route
                 path="/login/core/select"
-                element={<CoreSelectExisting />}
+                element={
+                  <RequireCore redirect="/login/core/new">
+                    <CoreSelectExisting />
+                  </RequireCore>
+                }
               />
               <Route path="/login/core/new" element={<CoreConnect />} />
+            </Route>
+            <Route
+              element={
+                <RequireCore>
+                  <LoginLayout />
+                </RequireCore>
+              }
+            >
               <Route
                 path="/login/core/first_setup"
                 element={<CoreSetupNew />}
@@ -192,8 +242,22 @@ export default function App() {
                 path="/login/user/select"
                 element={<UserSelectExisting />}
               />
-              <Route path="/login/user/new" element={<UserLogin />} />
+              <Route path="/login/user" element={<UserLogin />} />
             </Route>
+            <Route
+              element={
+                <RequireCore>
+                  <RequireToken>
+                    <DashboardLayout />
+                  </RequireToken>
+                </RequireCore>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/" element={<Home />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </NotificationContext.Provider>
       </LodestoneContext.Provider>

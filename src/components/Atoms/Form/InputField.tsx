@@ -1,5 +1,4 @@
 import React from 'react';
-import { at } from 'lodash';
 import { FieldHookConfig, useField } from 'formik';
 import { DISABLE_AUTOFILL } from 'utils/util';
 
@@ -8,10 +7,13 @@ export type InputFieldProps = FieldHookConfig<string> & {
   type?: 'text' | 'number' | 'password';
 };
 
+/**
+ * A form input field, meant to be used with Formik
+ */
 export default function InputField(props: InputFieldProps) {
   const { className, label, type, disabled, ...rest } = props;
   const [field, meta] = useField(props);
-  const isError = at(meta, 'touched', 'error').every((v) => v);
+  const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
 
   return (

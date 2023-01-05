@@ -8,6 +8,7 @@ import {
   faBell,
   faCog,
   faRightFromBracket,
+  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Popover, Transition } from '@headlessui/react';
@@ -31,11 +32,12 @@ export default function TopNav() {
   const { setPathname } = useContext(BrowserLocationContext);
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const { token, setToken, core } = useContext(LodestoneContext);
+  const { token, setToken, core, coreConnectionStatus } =
+    useContext(LodestoneContext);
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { selectInstance } = useContext(InstanceContext);
-  const { status: fetchingStatus, data: coreData } = useCoreInfo();
+  const { data: coreData } = useCoreInfo();
 
   const statusMap = {
     loading: 'Connecting',
@@ -81,16 +83,19 @@ export default function TopNav() {
         </p>
         <Label
           size="small"
-          color={colorMap[fetchingStatus]}
+          color={colorMap[coreConnectionStatus]}
           className="w-16 text-center"
         >
-          {statusMap[fetchingStatus]}
+          {statusMap[coreConnectionStatus]}
         </Label>
       </div>
       <FontAwesomeIcon
         icon={faCog}
         className="w-4 select-none text-white/50 hover:cursor-pointer hover:text-white/75"
-        onClick={() => setPathname('/settings')}
+        onClick={() => {
+          selectInstance(undefined);
+          setPathname('/settings');
+        }}
       />
       <Popover.Button
         as={FontAwesomeIcon}
@@ -101,15 +106,16 @@ export default function TopNav() {
       <Menu as="div" className="relative inline-block text-left">
         <Menu.Button
           as={Button}
+          loading={userState === 'loading'}
           label={
-            userState === 'logged-in' && user
-              ? `Hi, ${user.username}`
-              : userState === 'loading'
-              ? 'Loading...'
-              : 'Not logged in'
+            userState === 'logged-in' && user ? `Hi, ${user.username}` : 'Guest'
           }
           iconComponent={
-            userState == 'logged-in' && <Avatar name={user?.uid} />
+            userState == 'logged-in' ? (
+              <Avatar name={user?.uid} />
+            ) : (
+              <FontAwesomeIcon icon={faUser} className="w-4 opacity-50" />
+            )
           }
           iconRight={faCaretDown}
           className="font-medium text-gray-300"
@@ -135,9 +141,11 @@ export default function TopNav() {
                     onClick={() => {
                       // remove the current token
                       setToken('', socket);
-                      if (userState !== 'logged-in')
-                        // redirect to login page
-                        setPathname('/login/user/select');
+                      selectInstance(undefined);
+                      // if (userState !== 'logged-in') {
+                      //   // redirect to login page
+                      //   setPathname('/login/user');
+                      // }
                     }}
                     variant="text"
                     align="end"
@@ -157,7 +165,10 @@ export default function TopNav() {
                     align="end"
                     disabled={disabled}
                     active={active}
-                    onClick={() => setPathname('/login/core/select')}
+                    onClick={() => {
+                      selectInstance(undefined);
+                      setPathname('/login/core/select');
+                    }}
                   />
                 )}
               </Menu.Item>

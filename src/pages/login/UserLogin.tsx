@@ -7,9 +7,10 @@ import * as yup from 'yup';
 import { useCoreInfo } from 'data/SystemInfo';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { DISABLE_AUTOFILL, loginToCore } from 'utils/util';
+import { DISABLE_AUTOFILL, isLocalCore, loginToCore } from 'utils/util';
+import { tauri } from 'utils/tauriUtil';
 
-type LoginValues = {
+export type LoginValues = {
   username: string;
   password: string;
 };
@@ -37,7 +38,7 @@ const UserLogin = () => {
     actions: FormikHelpers<LoginValues>
   ) => {
     // login using basic auth
-    loginToCore(values.password, values.username)
+    loginToCore(values)
       .then((response) => {
         if (!response) {
           // this should never end
@@ -84,7 +85,21 @@ const UserLogin = () => {
               <InputField type="password" name="password" label="Password" />
             </div>
             <div className="flex w-full flex-row justify-between gap-4">
-              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+              <div className="flex flex-row justify-between gap-4">
+                {tauri && isLocalCore(core) ? (
+                  <Button
+                    icon={faArrowLeft}
+                    label="Switch Account"
+                    onClick={navigateBack}
+                  />
+                ) : (
+                  <Button
+                    icon={faArrowLeft}
+                    label="Change Core"
+                    onClick={() => setPathname('/login/core/select')}
+                  />
+                )}
+              </div>
               <Button
                 type="submit"
                 color="primary"

@@ -1,3 +1,4 @@
+import { useUserInfo } from 'data/UserInfo';
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -11,6 +12,7 @@ import axios from 'axios';
 import { LODESTONE_PORT } from 'utils/util';
 import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
+import { toast } from 'react-toastify';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -19,7 +21,10 @@ import { PublicUser } from 'bindings/PublicUser';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { token, core } = useContext(LodestoneContext);
+  const { data: userInfo } = useUserInfo();
+  const { token, core, setCoreConnectionStatus, setToken } =
+    useContext(LodestoneContext);
+  const socket = `${core.address}:${core.port}`;
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnected = useRef(false);
 
@@ -98,7 +103,7 @@ export const useEventStream = () => {
               });
             },
             InstanceWarning: () => {
-              alert(
+              toast.error(
                 "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
               );
               dispatch({
@@ -150,11 +155,12 @@ export const useEventStream = () => {
                   ? `${players_left_names.join(', ')} Left ${name}`
                   : ''
               }`;
-              dispatch({
-                title,
-                event,
-                type: 'add',
-              });
+              if (title.length > 0)
+                dispatch({
+                  title,
+                  event,
+                  type: 'add',
+                });
             },
             PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
@@ -177,6 +183,11 @@ export const useEventStream = () => {
             },
             UserDeleted: () => {
               console.log(`User ${uid} deleted`);
+              if (uid === userInfo?.uid) {
+                console.log('User deleted themselves, logging out');
+                setToken('', socket);
+                queryClient.setQueryData(['user', 'info'], undefined);
+              }
               dispatch({
                 title: `User ${uid} deleted`,
                 event,
@@ -199,9 +210,13 @@ export const useEventStream = () => {
                 type: 'add',
               });
             },
-            PermissionChanged: (permission) => {
-              console.log(`User ${uid} permission changed to ${permission}`);
-              updatePermission(permission);
+            PermissionChanged: ({ new_permissions }) => {
+              console.log(
+                `User ${uid} permission changed to ${new_permissions}`
+              );
+              if (uid === userInfo?.uid) {
+                updatePermission(new_permissions);
+              }
               dispatch({
                 title: `User ${uid}'s permission has changed`,
                 event,
@@ -232,7 +247,9 @@ export const useEventStream = () => {
               });
             },
             MacroErrored: ({ error_msg }) => {
-              console.log(`Macro ${macro_pid} errored on ${uuid}: ${error_msg}`);
+              console.log(
+                `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`
+              );
               dispatch({
                 title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
                 event,
@@ -357,10 +374,12 @@ export const useEventStream = () => {
 
       websocket.onopen = () => {
         console.log('websocket opened');
+        setCoreConnectionStatus('success');
       };
 
       websocket.onerror = (event) => {
         console.error('websocket error', event);
+        setCoreConnectionStatus('error');
         websocket.close();
       };
 

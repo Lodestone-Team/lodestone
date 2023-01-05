@@ -2,6 +2,7 @@ import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Tooltip from 'rc-tooltip';
 import Label from './Atoms/Label';
+import { toast } from 'react-toastify';
 
 export default function ClipboardTextfield({
   text,
@@ -12,12 +13,12 @@ export default function ClipboardTextfield({
   textToCopy?: string;
   className?: string;
 }) {
+
   const onClickCopy = (e: React.MouseEvent<HTMLSpanElement>) => {
     e.stopPropagation();
     // note that navigator.clipboard.writeText is only supported over HTTPS
     navigator.clipboard.writeText(textToCopy || text);
-    //TODO: toast "copied" when we have notifications setup
-    alert(`Copied "${textToCopy || text}"`);
+    toast.info(`Copied "${textToCopy || text}"`);
   };
 
   return (

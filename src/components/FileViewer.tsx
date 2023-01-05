@@ -54,6 +54,8 @@ import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
 import * as toml from 'utils/monaco-languages/toml';
 import { useQueryParam } from 'utils/hooks';
+import { toast } from 'react-toastify';
+import Checkbox from './Atoms/Checkbox';
 
 type Monaco = typeof monaco;
 
@@ -288,8 +290,7 @@ export default function FileViewer() {
     }
     if (missedDirectories.length > 0) {
       const missedDirectoriesString = missedDirectories.join(', ');
-      // TODO: make this a toast
-      alert(
+      toast.error(
         `Downloading a directory is not supported. The following directories were not downloaded: ${missedDirectoriesString}`
       );
     }
@@ -380,19 +381,12 @@ export default function FileViewer() {
         'bg-gray-800': !fileTicked(file),
       })}
     >
-      <div
-        className={clsx(
-          '-my-2 -mx-2.5 flex h-8 w-8 shrink-0 cursor-pointer select-none items-center justify-center overflow-clip rounded-full hover:bg-gray-faded/30',
-          fileTicked(file) && 'text-gray-300 hover:text-gray-300',
-          !fileTicked(file) && 'text-gray-400 hover:text-gray-300'
-        )}
-        onClick={(e: React.MouseEvent) => {
-          e.stopPropagation();
-          tickFile(file, !fileTicked(file));
+      <Checkbox
+        checked={fileTicked(file)}
+        onChange={(ticked) => {
+          tickFile(file, ticked);
         }}
-      >
-        <FontAwesomeIcon icon={fileTicked(file) ? faCheckSquare : faSquare} />
-      </div>
+      />
       <div className="w-3">
         {file.file_type === 'Directory' && (
           <FontAwesomeIcon icon={faFolder} className="text-blue-200" />

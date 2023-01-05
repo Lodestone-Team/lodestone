@@ -11,6 +11,8 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import { useEffectOnce } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
+import { useQueryClient } from '@tanstack/react-query';
+import { LoginReply } from 'bindings/LoginReply';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -36,8 +38,10 @@ const CoreSetupNew = () => {
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { data: coreInfo } = useCoreInfo();
   const { setToken, core } = useContext(LodestoneContext);
+  const queryClient = useQueryClient();
   const [setupKey, setSetupKey] = useState<string>('');
   const { address, port } = core;
+  const { core_name } = coreInfo ?? {};
   const tauri = useTauri();
   const socket = `${address}:${port}`;
 
@@ -72,34 +76,19 @@ const CoreSetupNew = () => {
   ) => {
     // check if core can be reached
     axios
-      .post(`/setup/${values.setupKey}`, {
+      .post<LoginReply>(`/setup/${values.setupKey}`, {
         username: values.username,
         password: values.password,
       })
       .then((res) => {
         if (res.status !== 200)
           throw new Error('Something went wrong while setting up the core');
+        return res.data;
       })
-      // .then(() => {
-      //   loginToCore(values.password, values.username)
-      //     .then((response) => {
-      //       if (!response) {
-      //         // this should never end
-      //         actions.setErrors({ password: 'Login failed' });
-      //         actions.setSubmitting(false);
-      //         return;
-      //       }
-      //       setToken(response.token, socket);
-      //       setPathname('/login/core/first_config');
-      //       actions.setSubmitting(false);
-      //     })
-      //     .catch((error: string) => {
-      //       actions.setErrors({ password: error });
-      //       actions.setSubmitting(false);
-      //     });
-      // })
-      .then(() => {
-        setPathname('/login/user/select');
+      .then((res) => {
+        setToken(res.token, socket);
+        setPathname('/login/core/first_config');
+        queryClient.invalidateQueries();
         actions.setSubmitting(false);
       })
       .catch((err) => {
@@ -118,9 +107,12 @@ const CoreSetupNew = () => {
           Create an owner&#39;s account
         </h1>
         <h2 className="text-medium font-semibold tracking-medium text-white/50">
+          {core_name} ({socket})
+        </h2>
+        <h2 className="text-medium font-semibold tracking-medium text-white/50">
           {tauri && setupKey
             ? "Setup key is automatically filled in because you're using the desktop app"
-            : 'Check the console output of the core to find the &#34;First time setup key&#34;.'}
+            : 'Check the console output of the core to find the "First time setup key"'}
         </h2>
       </div>
       <Formik
@@ -152,12 +144,12 @@ const CoreSetupNew = () => {
                 label="Confirm Password"
               />
             </div>
-            <div className="flex w-full flex-row justify-between gap-4">
-              <Button
+            <div className="flex w-full flex-row justify-end gap-4">
+              {/* <Button
                 iconRight={faArrowLeft}
                 label="Back"
                 onClick={navigateBack}
-              />
+              /> */}
               <Button
                 type="submit"
                 color="primary"

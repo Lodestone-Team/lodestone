@@ -21,6 +21,7 @@ body {
   min-height: 100%;
   overscroll-behavior: none;
   overflow: overlay;
+  color-scheme: dark;
   @apply font-sans text-gray-300;
 }
 
@@ -42,6 +43,8 @@ body {
    * I don't like this, but I don't know how to fix it.
    *
    * Also we don't have scss/sass/less so we can't use nesting.
+   *
+   * update: lol we can use the headlessui plugin
    */
 
   .input-base {
@@ -183,7 +186,7 @@ input {
 /* rc-tooltip */
 
 .rc-tooltip-inner {
-  @apply min-h-0 rounded-md bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md border border-gray-faded/30;
+  @apply min-h-0 rounded-md border border-gray-faded/30 bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md;
 }
 
 .rc-tooltip {
@@ -205,8 +208,15 @@ input.noSpin[type='number'] {
   -moz-appearance: textfield;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* Toastify */
+:root {
+  --toastify-font-family: Satoshi !important;
+}
+
+.Toastify__toast-icon {
+  display: block !important;
+}
+
+.Toastify--animate{
+  animation-duration: 0.3s !important;
 }

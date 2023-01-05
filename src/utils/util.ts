@@ -1,6 +1,7 @@
+import { CoreConnectionInfo } from 'data/LodestoneContext';
 import { isEdge } from 'react-device-detect';
 import { LabelColor } from 'components/Atoms/Label';
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
@@ -8,11 +9,19 @@ import { QueryClient } from '@tanstack/react-query';
 import { Base64 } from 'js-base64';
 import React from 'react';
 import { LoginReply } from 'bindings/LoginReply';
+import { LoginValues } from 'pages/login/UserLogin';
+import { toast } from 'react-toastify';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
   : 'off';
 export const LODESTONE_PORT = 16662;
+export const DEFAULT_LOCAL_CORE: CoreConnectionInfo = {
+  address: 'localhost',
+  port: LODESTONE_PORT.toString(),
+  protocol: 'http',
+  apiVersion: 'v1',
+};
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -310,8 +319,7 @@ export const saveInstanceFile = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
   queryClient.setQueryData(
@@ -346,8 +354,7 @@ export const deleteInstanceFile = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
 
@@ -373,8 +380,7 @@ export const deleteInstanceDirectory = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
@@ -421,8 +427,7 @@ export const uploadInstanceFiles = async (
     })
   );
   if (error) {
-    // TODO: better error display
-    alert(error);
+    toast.error(error);
     return;
   }
 
@@ -503,8 +508,7 @@ export function useCombinedRefs<T>(...refs: any[]) {
  * @throws string
  */
 export async function loginToCore(
-  username: string,
-  password: string
+  loginValue: LoginValues
 ): Promise<LoginReply | undefined> {
   try {
     return await axios
@@ -513,8 +517,8 @@ export async function loginToCore(
         {},
         {
           auth: {
-            username,
-            password,
+            username: loginValue.username,
+            password: loginValue.password,
           },
         }
       )
@@ -534,4 +538,14 @@ export async function loginToCore(
       throw `Login failed: ${errorToString(error)}`;
     }
   }
+}
+
+// check if a core is localhost
+export function isLocalCore(core: CoreConnectionInfo) {
+  return (
+    core.address === 'localhost' ||
+    core.address === '127.0.0.1' ||
+    core.address === '::1' ||
+    /^0+:0+:0+:0+:0+:0+:0+:1+$/.test(core.address)
+  );
 }

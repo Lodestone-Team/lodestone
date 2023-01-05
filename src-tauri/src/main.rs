@@ -7,6 +7,7 @@ use lodestone_client::AppState;
 
 use lodestone_client::Error;
 
+use lodestone_client::auth::jwt_token::JwtToken;
 use lodestone_client::tauri_export::is_owner_account_present;
 
 use tauri::{utils::config::AppUrl, WindowUrl};
@@ -33,7 +34,7 @@ async fn get_first_time_setup_key(state: tauri::State<'_, AppState>) -> Result<S
 }
 
 #[tauri::command]
-async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<String, ()> {
+async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()> {
     lodestone_client::tauri_export::get_owner_jwt(state.inner())
         .await
         .ok_or(())

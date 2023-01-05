@@ -105,7 +105,7 @@ export function useQueryParam(
   const setValueAndParams = useCallback(
     (newValue: string) => {
       setValue(newValue);
-      setSearchParam(key, newValue);
+      setSearchParam(key, newValue, true);
     },
     [key, setSearchParam]
   );
@@ -116,7 +116,7 @@ export function useQueryParam(
     if (!newValue && newValue !== initialValue) {
       if (visible)
         //if visible, set the searchParam too
-        setSearchParam(key, initialValue);
+        setSearchParam(key, initialValue, true);
       // if not visible, just set the value
       else setValue(initialValue);
     }
@@ -149,7 +149,7 @@ export function useLocalStorageQueryParam(
     (newValue: string) => {
       setValue(newValue);
       // if empty, remove the param
-      setSearchParam(key, newValue);
+      setSearchParam(key, newValue, true);
     },
     [key, setSearchParam, setValue]
   );
@@ -161,7 +161,7 @@ export function useLocalStorageQueryParam(
     if (!newValue && newValue !== value) {
       if (visible)
         //if visible, set the searchParam too
-        setSearchParam(key, value);
+        setSearchParam(key, value, true);
     }
     // if value is truthy and not the same as the current value, set the value
     if (newValue && newValue !== value) {

@@ -9,9 +9,10 @@ import {
   faArrowLeft,
   faArrowRight,
   faClone,
+  faDownload,
   faPlus,
 } from '@fortawesome/free-solid-svg-icons';
-import SelectCoreField from 'components/Atoms/Form/SelectCoreField';
+import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 type SelectCoreValue = {
@@ -85,6 +86,9 @@ const CoreSelectExisting = () => {
         initialValues={initialValues}
         validationSchema={validationSchema}
         onSubmit={onSubmit}
+        validateOnMount={false}
+        validateOnChange={false}
+        validateOnBlur={false}
       >
         {({ isSubmitting }) => (
           <Form
@@ -93,11 +97,14 @@ const CoreSelectExisting = () => {
             autoComplete={DISABLE_AUTOFILL}
           >
             <div className="flex flex-row items-baseline gap-8">
-              <SelectCoreField
+              <SelectField
                 name="core"
                 className="flex-1"
                 options={coreList}
                 label="Select Existing Core"
+                optionLabel={(option) => {
+                  return `${option.address}:${option.port}`;
+                }}
               />
               <p>OR</p>
               <Button
@@ -107,8 +114,17 @@ const CoreSelectExisting = () => {
                 onClick={() => setPathname('/login/core/new')}
               />
             </div>
-            <div className="flex w-full flex-row justify-between gap-4">
-              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+            <div className="flex w-full flex-row justify-end gap-4">
+              <Button
+                iconRight={faDownload}
+                label="Download Lodestone Core"
+                onClick={() => {
+                  window.open(
+                    'https://github.com/Lodestone-Team/dashboard/releases/',
+                    '_self'
+                  );
+                }}
+              />
               <Button
                 type="submit"
                 color="primary"

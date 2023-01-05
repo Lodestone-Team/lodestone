@@ -15,11 +15,16 @@ import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceC
 import FileViewer from 'components/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
+import { useGlobalSettings } from 'data/GlobalSettings';
+import { ToastContainer } from 'react-toastify';
+import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 
 const Dashboard = () => {
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
+  const { data: globalSettings } = useGlobalSettings();
+  const domain = globalSettings?.domain ?? address;
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
@@ -118,8 +123,8 @@ const Dashboard = () => {
       key={uuid}
     >
       {/* main content container */}
-      <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
-        <div className="flex min-w-0 flex-row items-center gap-4">
+      <div className="flex w-full grow flex-col items-start gap-2">
+        <div className="flex w-full min-w-0 flex-row items-center gap-4">
           {/* TODO: create a universal "text with edit button" component */}
           <EditableTextfield
             initialText={instance.name}
@@ -141,7 +146,8 @@ const Dashboard = () => {
           <Label size="large" color={labelColor}>
             Player Count {instance.player_count}/{instance.max_player_count}
           </Label>
-          <ClipboardTextfield text={`${address}:${instance.port}`} />
+          <ClipboardTextfield text={`${domain}:${instance.port}`} />
+
         </div>
         {/* <div className="flex w-full flex-row items-center gap-2">
           <EditableTextfield
