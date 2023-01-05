@@ -302,7 +302,7 @@ export default function MinecraftSettingCard() {
                 </label>
               )}
               {can_delete_instance ? (
-                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-red">
+                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-red-200">
                   Delete this game instance and all of its data.
                 </div>
               ) : (

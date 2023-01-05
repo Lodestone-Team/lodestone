@@ -11,6 +11,7 @@ import React from 'react';
 import { LoginReply } from 'bindings/LoginReply';
 import { LoginValues } from 'pages/login/UserLogin';
 import { toast } from 'react-toastify';
+import { UserPermission } from 'bindings/UserPermission';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
@@ -116,7 +117,8 @@ export function errorToString(error: unknown): string {
 }
 
 /**
- * @throws Error
+ * @throws Error with neatly formatted error message
+ * @returns ResponseType
  */
 export async function axiosWrapper<ResponseType>(
   config: AxiosRequestConfig
@@ -510,6 +512,7 @@ export function useCombinedRefs<T>(...refs: any[]) {
 export async function loginToCore(
   loginValue: LoginValues
 ): Promise<LoginReply | undefined> {
+  // we manually handle error here because we want to show different error messages
   try {
     return await axios
       .post<LoginReply>(
@@ -539,6 +542,61 @@ export async function loginToCore(
     }
   }
 }
+
+/**
+ * @throws string if error
+ * @returns LoginReply if success
+ */
+export const createNewUser = async (values: {
+  username: string;
+  password: string;
+}) => {
+  return await axiosWrapper<LoginReply>({
+    method: 'post',
+    url: '/user',
+    data: values,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ */
+export const changePassword = async (values: {
+  uid: string;
+  old_password: string | null;
+  new_password: string;
+}) => {
+  return await axiosWrapper<undefined>({
+    method: 'put',
+    url: `/user/${values.uid}/password`,
+    data: values,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ */
+export const deleteUser = async (uid: string) => {
+  return await axiosWrapper<undefined>({
+    method: 'delete',
+    url: `/user/${uid}`,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ * @param uid user id
+ */
+export const changeUserPermissions = async (uid: string, permission: UserPermission) => {
+  return await axiosWrapper<undefined>({
+    method: 'put',
+    url: `/user/${uid}/update_perm`,
+    data: permission,
+  });
+};
 
 // check if a core is localhost
 export function isLocalCore(core: CoreConnectionInfo) {

@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Switch } from '@headlessui/react';
+import { Toggle } from '../Toggle';
 
 /**
  * A self controlled toggle component meant to represent a single value of a config
- * 
+ *
  * It is NOT meant to be used as a form input
- * 
+ *
  * See ToggleField for that
  */
 export default function ToggleBox({
@@ -21,6 +22,7 @@ export default function ToggleBox({
   isLoading: isLoadingProp = false,
   description,
   descriptionFunc,
+  optimistic = true, // if true, the toggle will change immediately and go into loading state, and will change back if onChange throws an error
 }: {
   label: string;
   value: boolean;
@@ -32,6 +34,7 @@ export default function ToggleBox({
   onChange: (arg: boolean) => Promise<void>;
   description?: React.ReactNode;
   descriptionFunc?: (arg: boolean) => React.ReactNode;
+  optimistic?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -43,7 +46,8 @@ export default function ToggleBox({
   }, [initialValue]);
 
   const onChange = async (newValue: boolean) => {
-    setValue(newValue);
+    if(optimistic)
+      setValue(newValue);
     setIsLoading(true);
     const submitError = await catchAsyncToString(onChangeProp(newValue));
     setError(submitError);
@@ -97,24 +101,11 @@ export default function ToggleBox({
       </div>
       <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
         {status}
-        <Switch
-          checked={value}
+        <Toggle
+          value={value}
           onChange={onChange}
-          className={`${
-            disabled
-              ? 'bg-gray-faded/30'
-              : value
-              ? 'bg-green-enabled/50'
-              : 'bg-white/50'
-          } relative inline-flex h-6 w-11 items-center rounded-full outline-0 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50`}
           disabled={disabled || isLoading}
-        >
-          <span
-            className={`${value ? 'translate-x-6' : 'translate-x-1'} ${
-              disabled || isLoading ? 'bg-gray-faded/40' : 'bg-white'
-            } inline-block h-4 w-4 transform rounded-full`}
-          />
-        </Switch>
+        />
       </div>
     </div>
   );

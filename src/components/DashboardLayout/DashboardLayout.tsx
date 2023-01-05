@@ -19,8 +19,7 @@ import { DEFAULT_LOCAL_CORE, LODESTONE_PORT } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
-  const { setPathname, location } = useContext(BrowserLocationContext);
-  const userLoggedIn = useUserLoggedIn();
+  const { setPathname } = useContext(BrowserLocationContext);
   useEventStream();
 
   /* Start Notification */
@@ -31,34 +30,6 @@ export default function DashboardLayout() {
   );
   const { width } = useWindowSize();
   /* End Notification */
-
-  /* Start Instances */
-  const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
-  const { data: dataInstances } = useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
-    undefined
-  );
-  const instances = userLoggedIn ? dataInstances : undefined;
-
-  useEffect(() => {
-    if (queryUuid && instances && queryUuid in instances)
-      setInstanceState(instances[queryUuid]);
-    else setInstanceState(undefined);
-  }, [instances, queryUuid]);
-
-  function setInstance(instance?: InstanceInfo) {
-    console.log('setInstance', instance);
-    if (instance === undefined) {
-      setInstanceState(undefined);
-      setQueryUuid('');
-      if (location.pathname.startsWith('/dashboard')) setPathname('/');
-    } else {
-      setInstanceState(instance);
-      setQueryUuid(instance.uuid);
-      setPathname('/dashboard');
-    }
-  }
-  /* End Instances */
 
   /* Start Core */
   const { setCore, addCore, coreConnectionStatus, core } =
@@ -83,13 +54,7 @@ export default function DashboardLayout() {
   /* End Core */
 
   return (
-    <InstanceContext.Provider
-      value={{
-        instanceList: instances || {},
-        selectedInstance: instance,
-        selectInstance: setInstance,
-      }}
-    >
+    <>
       <ConfirmDialog
         isOpen={showLocalSetupPrompt}
         title="New Local Core Detected"
@@ -141,8 +106,9 @@ export default function DashboardLayout() {
           window.location.reload();
         }}
       >
-        There was an error connecting to {core.address}:{core.port}. Please select a different
-        core, refresh the page, or simply wait for the core to come back online.
+        There was an error connecting to {core.address}:{core.port}. Please
+        select a different core, refresh the page, or simply wait for the core
+        to come back online.
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav
@@ -150,18 +116,8 @@ export default function DashboardLayout() {
           setShowNotifications={setShowNotifications}
         />
         <div className="relative flex min-h-0 w-full grow flex-row bg-gray-850">
-          <div className="flex grow flex-row justify-center gap-[1vw]">
-            <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
-              <div className="h-full w-[16rem] max-w-[16rem] child:h-full">
-                <LeftNav />
-              </div>
-            </div>
-            <div className="h-full min-w-0 grow basis-[1024px] child:h-full">
-              <div className="max-w-[1024px]">
-                <Outlet />
-              </div>
-            </div>
-          </div>
+          <Outlet />
+
           {showNotifications &&
             (width > 1280 ? (
               <ResizePanel
@@ -187,6 +143,6 @@ export default function DashboardLayout() {
             ))}
         </div>
       </div>
-    </InstanceContext.Provider>
+    </>
   );
 }
