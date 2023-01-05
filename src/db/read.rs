@@ -81,29 +81,30 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn test_read() {
-        let pool = SqlitePool::connect("sqlite://dev.db")
-            .await
-            .unwrap();
-        let results = search_events(
-            &pool,
-            EventQuery {
-                event_levels: Some(vec![EventLevel::Error]),
-                event_types: None,
-                instance_event_types: None,
-                user_event_types: None,
-                event_user_ids: None,
-                event_instance_ids: None,
-                bearer_token: None,
-                time_range: None,
-            },
-        )
-        .await
-        .unwrap();
-        assert!(results.is_empty());
-        for result in results {
-            println!("{:?}", result);
-        }
-    }
+    // TODO should properly implement tests, with dummy values
+    // #[tokio::test]
+    // async fn test_read() {
+    //     let pool = SqlitePool::connect("sqlite://dev.db")
+    //         .await
+    //         .unwrap();
+    //     let results = search_events(
+    //         &pool,
+    //         EventQuery {
+    //             event_levels: Some(vec![EventLevel::Error]),
+    //             event_types: None,
+    //             instance_event_types: None,
+    //             user_event_types: None,
+    //             event_user_ids: None,
+    //             event_instance_ids: None,
+    //             bearer_token: None,
+    //             time_range: None,
+    //         },
+    //     )
+    //     .await
+    //     .unwrap();
+    //     assert!(results.is_empty());
+    //     for result in results {
+    //         println!("{:?}", result);
+    //     }
+    // }
 }
