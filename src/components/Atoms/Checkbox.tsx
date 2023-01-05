@@ -21,17 +21,9 @@ export default function Checkbox({
   disabled?: boolean;
   className?: string;
 }) {
-  const [isChecked, setIsChecked] = useState(checked);
-
-  // set isChecked to checked when checked changes
-  useEffect(() => {
-    setIsChecked(checked);
-  }, [checked]);
-
   const handleClick = (e: React.MouseEvent) => {
     if (disabled) return;
-    setIsChecked(!isChecked);
-    onChange(!isChecked);
+    onChange(!checked);
   };
 
   return (
@@ -47,18 +39,19 @@ export default function Checkbox({
           disabled && 'text-gray-500',
           !disabled && [
             'cursor-pointer hover:bg-gray-faded/30',
-            isChecked && 'text-gray-300 hover:text-gray-300',
-            !isChecked && 'text-gray-400 hover:text-gray-300',
+            checked && 'text-gray-300 hover:text-gray-300',
+            !checked && 'text-gray-400 hover:text-gray-300',
           ]
         )}
         onClick={handleClick}
       >
-        <FontAwesomeIcon icon={isChecked ? faCheckSquare : faSquare} />
+        <FontAwesomeIcon icon={checked ? faCheckSquare : faSquare} />
       </div>
       {label && (
         <label
           onClick={handleClick}
           className={clsx(
+            'truncate',
             disabled && 'text-gray-500',
             !disabled && 'text-gray-300 hover:text-gray-300'
           )}

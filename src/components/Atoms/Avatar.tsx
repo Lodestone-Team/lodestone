@@ -1,4 +1,5 @@
 import BoringAvatar, { AvatarProps } from 'boring-avatars';
+import clsx from 'clsx';
 
 const Avatar = ({
   name,
@@ -8,13 +9,15 @@ const Avatar = ({
   ...props
 }: AvatarProps) => {
   return (
-    <BoringAvatar
-      name={name}
-      size={size}
-      variant={variant}
-      colors={colors}
-      {...props}
-    />
+    <div className={clsx(`w-[${size}px] h-[${size}px]`)}>
+      <BoringAvatar
+        name={name}
+        size={size}
+        variant={variant}
+        colors={colors}
+        {...props}
+      />
+    </div>
   );
 };
 

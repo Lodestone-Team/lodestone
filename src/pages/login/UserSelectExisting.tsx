@@ -9,7 +9,7 @@ import {
   faRightFromBracket,
   faUser,
 } from '@fortawesome/free-solid-svg-icons';
-import { useUserInfo } from 'data/UserInfo';
+import { useUid, useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import Avatar from 'components/Atoms/Avatar';
 import { useEffectOnce } from 'usehooks-ts';
@@ -25,6 +25,7 @@ const UserSelectExisting = () => {
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
   const { data: userInfo, isLoading: isUserInfoLoading } = useUserInfo();
+  const uid = useUid();
 
   useEffectOnce(() => {
     if (token) return;
@@ -58,7 +59,7 @@ const UserSelectExisting = () => {
       <div className="flex flex-row items-baseline gap-8">
         {token ? (
           <Button
-            iconComponent={<Avatar name={userInfo?.uid} />}
+            iconComponent={<Avatar name={uid} />}
             className="flex-1"
             label={`Continue as ${userInfo?.username ?? 'current user'}`}
             loading={isUserInfoLoading}

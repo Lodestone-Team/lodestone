@@ -1,4 +1,4 @@
-import { useUserInfo } from 'data/UserInfo';
+import { useUid, useUserInfo } from 'data/UserInfo';
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,7 +21,7 @@ import { toast } from 'react-toastify';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { data: userInfo } = useUserInfo();
+  const selfUid = useUid();
   const { token, core, setCoreConnectionStatus, setToken } =
     useContext(LodestoneContext);
   const socket = `${core.address}:${core.port}`;
@@ -175,6 +175,7 @@ export const useEventStream = () => {
           match(event_inner, {
             UserCreated: () => {
               console.log(`User ${uid} created`);
+              if (fresh) queryClient.invalidateQueries(['user', 'list']);
               dispatch({
                 title: `User ${uid} created`,
                 event,
@@ -183,10 +184,21 @@ export const useEventStream = () => {
             },
             UserDeleted: () => {
               console.log(`User ${uid} deleted`);
-              if (uid === userInfo?.uid) {
-                console.log('User deleted themselves, logging out');
-                setToken('', socket);
-                queryClient.setQueryData(['user', 'info'], undefined);
+              if (fresh) {
+                if (uid === selfUid) {
+                  console.log('User deleted themselves, logging out');
+                  setToken('', socket);
+                  queryClient.setQueryData(['user', 'info'], undefined);
+                }
+                queryClient.setQueryData(
+                  ['user', 'list'],
+                  (oldList: { [uid: string]: PublicUser } | undefined) => {
+                    if (!oldList) return oldList;
+                    const newList = { ...oldList };
+                    delete newList[uid];
+                    return newList;
+                  }
+                );
               }
               dispatch({
                 title: `User ${uid} deleted`,
@@ -214,8 +226,19 @@ export const useEventStream = () => {
               console.log(
                 `User ${uid} permission changed to ${new_permissions}`
               );
-              if (uid === userInfo?.uid) {
-                updatePermission(new_permissions);
+              if (fresh) {
+                if (uid === selfUid) {
+                  updatePermission(new_permissions);
+                }
+                queryClient.setQueryData(
+                  ['user', 'list'],
+                  (oldList: { [uid: string]: PublicUser } | undefined) => {
+                    if (!oldList) return oldList;
+                    const newList = { ...oldList };
+                    newList[uid].permissions = new_permissions;
+                    return newList;
+                  }
+                );
               }
               dispatch({
                 title: `User ${uid}'s permission has changed`,

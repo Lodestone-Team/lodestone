@@ -38,6 +38,8 @@ import NotFound from 'pages/notfound';
 import FirstTime from 'pages/login/FirstTime';
 import RequireCore from 'utils/router/RequireCore';
 import RequireToken from 'utils/router/RequireToken';
+import { InstanceViewLayout } from 'components/DashboardLayout/InstanceViewLayout';
+import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 import { toast } from 'react-toastify';
 
 const queryClient = new QueryClient({
@@ -160,6 +162,7 @@ export default function App() {
       });
       // TODO: clear ongoing notifications as well
     } else {
+      // can't use useDecodedToken here because LodestoneContext is not available yet
       try {
         const decoded = jwt.decode(token, { complete: true });
         if (!decoded) throw new Error('Invalid token');
@@ -253,9 +256,13 @@ export default function App() {
                 </RequireCore>
               }
             >
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/" element={<Home />} />
+              <Route element={<InstanceViewLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/" element={<Home />} />
+              </Route>
+              <Route element={<SettingsLayout />}>
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -20,42 +20,14 @@ import { DEFAULT_LOCAL_CORE, LODESTONE_PORT } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 
 export default function DashboardLayout() {
-  const { setPathname, location } = useContext(BrowserLocationContext);
-  const userLoggedIn = useUserLoggedIn();
   const { data: userInfo } = useUserInfo();
-  
+  const { setPathname } = useContext(BrowserLocationContext);
+  useEventStream();
+
   /* Start Notification */
   const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 480);
   const { width } = useWindowSize();
   /* End Notification */
-
-  /* Start Instances */
-  const [queryUuid, setQueryUuid] = useQueryParam('instance', '');
-  const { data: dataInstances } = useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
-    undefined
-  );
-  const instances = userLoggedIn ? dataInstances : undefined;
-
-  useEffect(() => {
-    if (queryUuid && instances && queryUuid in instances)
-      setInstanceState(instances[queryUuid]);
-    else setInstanceState(undefined);
-  }, [instances, queryUuid]);
-
-  function setInstance(instance?: InstanceInfo) {
-    console.log('setInstance', instance);
-    if (instance === undefined) {
-      setInstanceState(undefined);
-      setQueryUuid('');
-      if (location.pathname.startsWith('/dashboard')) setPathname('/');
-    } else {
-      setInstanceState(instance);
-      setQueryUuid(instance.uuid);
-      setPathname('/dashboard');
-    }
-  }
-  /* End Instances */
 
   /* Start Core */
   const { setCore, addCore, coreConnectionStatus, core } =
@@ -80,13 +52,7 @@ export default function DashboardLayout() {
   /* End Core */
 
   return (
-    <InstanceContext.Provider
-      value={{
-        instanceList: instances || {},
-        selectedInstance: instance,
-        selectInstance: setInstance,
-      }}
-    >
+    <>
       <ConfirmDialog
         isOpen={showLocalSetupPrompt}
         title="New Local Core Detected"
@@ -138,41 +104,18 @@ export default function DashboardLayout() {
           window.location.reload();
         }}
       >
-        There was an error connecting to {core.address}:{core.port}. Please select a different
-        core, refresh the page, or simply wait for the core to come back online.
+        There was an error connecting to {core.address}:{core.port}. Please
+        select a different core, refresh the page, or simply wait for the core
+        to come back online.
       </ConfirmDialog>
       <Popover className="relative flex h-screen flex-col">
         <TopNav
         // showNotifications={showNotifications}
         // setShowNotifications={setShowNotifications}
         />
-        <div className="flex min-h-0 w-full grow flex-row bg-gray-850">
-          <div className="flex grow flex-row justify-center gap-[1vw]">
-            <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
-              <div className="h-full w-[16rem] max-w-[16rem] child:h-full">
-                <LeftNav />
-              </div>
-            </div>
-            <div className="h-full min-w-0 grow basis-[1024px] child:h-full">
-              <div className="max-w-[1024px]">
-                <Outlet />
-              </div>
-            </div>
-          </div>
-          {/* {showNotifications &&
-              (width > 1280 ? (
-                <ResizePanel
-                  direction="w"
-                  maxSize={700}
-                  minSize={300}
-                  size={rightNavSize}
-                  validateSize={false}
-                  onResize={setRightNavSize}
-                  containerClassNames="min-h-0"
-                >
-                  <NotificationPanel />
-                </ResizePanel>
-              ) : ( */}
+        <div className="relative flex min-h-0 w-full grow flex-row bg-gray-850">
+          <Outlet />
+
           <div className="absolute right-[5.25rem] top-10 flex h-[80vh] flex-row">
             <Popover.Panel
               className="h-full rounded-lg drop-shadow-lg child:h-full"
@@ -187,9 +130,8 @@ export default function DashboardLayout() {
               {userInfo?.username ? `Hi, ${userInfo.username}` : 'Not logg'}
             </div>
           </div>
-          {/* ))} */}
         </div>
       </Popover>
-    </InstanceContext.Provider>
+    </>
   );
 }
