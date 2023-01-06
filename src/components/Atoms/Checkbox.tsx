@@ -29,7 +29,7 @@ export default function Checkbox({
   return (
     <div
       className={clsx(
-        'flex items-center gap-3 text-base font-medium tracking-medium',
+        'flex items-center gap-3 text-medium font-medium tracking-medium',
         className
       )}
     >

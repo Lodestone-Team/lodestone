@@ -18,7 +18,7 @@ export default function InputField(props: InputFieldProps) {
 
   return (
     <div
-      className={`flex flex-col gap-1 ${className} group relative text-base`}
+      className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
       {label && (
         <label className="absolute -top-6 text-small font-medium text-gray-300">

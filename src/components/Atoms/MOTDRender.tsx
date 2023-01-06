@@ -48,7 +48,7 @@ export const MOTDRender = ({
                   color: item.color in colors ? colors[item.color] : undefined,
                 }}
                 className={clsx(
-                  item.bold ? 'font-bold' : 'font-normal',
+                  item.bold ? 'font-bold' : 'font-medium',
                   item.italics ? 'italic' : '',
                   item.underline ? 'underline' : '',
                   item.strikethrough ? 'line-through' : '',

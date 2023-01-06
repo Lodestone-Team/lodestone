@@ -144,8 +144,8 @@ export const CoreSettings = () => {
       </ConfirmDialog>
       <div className="flex w-full flex-col gap-4 @4xl:flex-row">
         <div className="w-[28rem]">
-          <h1 className="text-large font-black"> Core Settings </h1>
-          <h2 className="text-base font-medium italic tracking-tight text-white/50">
+          <h1 className="text-h2 font-bold"> Core Settings </h1>
+          <h2 className="text-medium font-medium italic tracking-tight text-white/50">
             These settings are for the core itself. They are not specific to any
             user.
           </h2>

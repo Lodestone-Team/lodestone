@@ -98,7 +98,7 @@ export default function SelectField<T extends string | object>(
 
   return (
     <div
-      className={`flex flex-col gap-1 ${className} group relative text-base`}
+      className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
       <label className="absolute -top-6 text-small font-medium text-gray-300">
         {label ? `${label}:` : ''}
@@ -162,7 +162,7 @@ export default function SelectField<T extends string | object>(
                   className={clsx(
                     'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
                     'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-                    'ui-selected:font-medium ui-not-selected:font-normal',
+                    'ui-selected:font-medium ui-not-selected:font-medium',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
                     'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
                   )}

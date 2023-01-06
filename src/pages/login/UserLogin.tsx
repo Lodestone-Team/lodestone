@@ -60,10 +60,10 @@ const UserLogin = () => {
     <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">
       <div className="text flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-9 w-40" />
-        <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
+        <h1 className="font-medium-semi-bold font-title text-2xlarge tracking-medium text-gray-300">
           Sign in
         </h1>
-        <h2 className="text-medium font-semibold tracking-medium text-white/50">
+        <h2 className="text-h3 font-bold tracking-medium text-white/50">
           {core_name} ({socket})
         </h2>
       </div>

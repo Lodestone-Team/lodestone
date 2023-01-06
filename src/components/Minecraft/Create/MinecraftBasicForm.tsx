@@ -40,7 +40,7 @@ export default function MinecraftBasicForm() {
     );
   return (
     <>
-      <h1 className="text-larger font-bold tracking-tight text-gray-300">
+      <h1 className="text-h1 font-bold tracking-tight text-gray-300">
         The Basics
       </h1>
       <p>

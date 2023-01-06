@@ -80,8 +80,8 @@ export default function EditableTextfield({
     <div
       className={`absolute whitespace-nowrap text-right font-sans not-italic text-red ${
         type === 'heading'
-          ? '-top-[1.5em] text-base font-normal tracking-normal'
-          : '-bottom-[1.3em] text-smaller'
+          ? '-top-[1.5em] text-medium font-medium tracking-normal'
+          : '-bottom-[1.3em] text-caption'
       }`}
     >
       {error}
@@ -92,10 +92,10 @@ export default function EditableTextfield({
 
   return (
     <div
-      className={`group relative flex flex-row items-center gap-1 justify-start ${
+      className={`group relative flex flex-row items-center justify-start gap-1 ${
         type === 'heading'
           ? 'dashboard-instance-heading'
-          : 'font-medium tracking-tight text-small italic'
+          : 'text-small font-medium italic tracking-tight'
       } ${containerClassName}`}
     >
       <div

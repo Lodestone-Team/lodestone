@@ -3,7 +3,7 @@ import InputField from 'components/Atoms/Form/InputField';
 export default function MinecraftNameForm() {
   return (
     <>
-      <h1 className="text-larger font-bold tracking-tight text-gray-300">
+      <h1 className="text-h1 font-bold tracking-tight text-gray-300">
         Create an Instance
       </h1>
       <p>Create a new Minecraft server instance to play with your friends.</p>

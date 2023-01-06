@@ -120,7 +120,7 @@ export default function GameConsole() {
         <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faServer}
-            className="text-xlarge text-gray-400"
+            className="text-title text-gray-400"
           />
           <p className="text-xl text-center text-gray-300">
             You don&#39;t have permission to access this console
@@ -130,7 +130,7 @@ export default function GameConsole() {
         <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faServer}
-            className="text-xlarge text-gray-400"
+            className="text-title text-gray-400"
           />
           <p className="text-xl text-center text-gray-300">
             No console messages

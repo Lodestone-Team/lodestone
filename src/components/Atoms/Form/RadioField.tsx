@@ -34,9 +34,7 @@ export default function RadioField(props: RadioFieldProps) {
   }, [options, selectedValue]);
 
   return (
-    <div
-      className={`flex flex-col gap-1 ${className} group relative text-base`}
-    >
+    <div className={`flex flex-col gap-1 ${className} group relative text-h3`}>
       <label className="absolute -top-6 text-small font-medium text-gray-300">
         {label ? `${label}:` : ''}
       </label>

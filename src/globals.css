@@ -186,7 +186,7 @@ input {
 /* rc-tooltip */
 
 .rc-tooltip-inner {
-  @apply min-h-0 rounded-md border border-gray-faded/30 bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md;
+  @apply min-h-0 rounded-md border border-gray-faded/30 bg-gray-800 px-2 py-1 text-h3 font-medium tracking-tight text-gray-300 shadow-md;
 }
 
 .rc-tooltip {
@@ -217,6 +217,6 @@ input.noSpin[type='number'] {
   display: block !important;
 }
 
-.Toastify--animate{
+.Toastify--animate {
   animation-duration: 0.3s !important;
 }

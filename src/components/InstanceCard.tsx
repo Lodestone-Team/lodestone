@@ -13,6 +13,7 @@ import { useUserAuthorized } from 'data/UserInfo';
 import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
 import { toast } from 'react-toastify';
+import { Small } from './ClipboardTextfield.stories';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -106,7 +107,7 @@ export default function InstanceCard({
   return (
     <div
       className={clsx(
-        'group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900',
+        'group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-medium tracking-tight hover:cursor-pointer hover:bg-gray-900',
         focus && 'bg-gray-900 outline outline-2 ring-[6px]',
         !focus &&
           'ui-checked:bg-gray-900 ui-checked:outline ui-checked:outline-2 ui-checked:ring-[6px]',

@@ -49,12 +49,14 @@ export default function NotificationCard({
       >
         <LoadingStatusIcon level={level} state={state} />
         <div className="flex flex-col items-start">
-          <p className="w-full text-base font-bold tracking-medium">{title}</p>
+          <p className="w-full text-medium font-bold tracking-medium">
+            {title}
+          </p>
           <p className="w-full text-small font-medium tracking-medium">
             {message}
           </p>
           {!message && (
-            <span className="whitespace-nowrap text-smaller font-medium tracking-medium text-white/50">
+            <span className="whitespace-nowrap text-caption font-medium tracking-medium text-white/50">
               {formatNotificationTime(timestamp)}
             </span>
           )}
