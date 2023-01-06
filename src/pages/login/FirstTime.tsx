@@ -47,10 +47,10 @@ const FirstTime = () => {
   });
 
   return (
-    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">
+    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
       <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-9 w-40" />
-        <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
+        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
+        <h1 className="font-medium-semi-bold font-title text-2xlarge tracking-medium text-gray-300">
           Welcome to Lodestone
         </h1>
       </div>
@@ -66,7 +66,9 @@ const FirstTime = () => {
             );
           }}
         />
-        <p>OR</p>
+        <p className="text-medium font-medium tracking-medium text-white/50">
+          OR
+        </p>
         <Button
           className="flex-1"
           label="Connect to existing Core"

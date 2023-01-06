@@ -35,7 +35,7 @@ export const CoreSettings = () => {
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
       description={
-        'A nickname for this core. This is what you and others will see when you connect to this core.'
+        'A nickname for this core. This is what you and others will see when you connect to this core'
       }
       validate={async (name) => {
         // don't be empty
@@ -68,7 +68,7 @@ export const CoreSettings = () => {
       canRead={userInfo !== undefined}
       description={
         //TODO: more info needed once we add more functionality
-        'The domain or public IP address of this core.'
+        'The domain or public IP address of this core'
       }
       placeholder={`${core?.address}`}
       validate={async (domain) => {
@@ -97,7 +97,7 @@ export const CoreSettings = () => {
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
       description={
-        'Safe mode limits non-owner users to only relatively safe commands. Unsafe mode allows users to potentially take over your server/computer.'
+        'Attempts to prevent non-owner users from accessing adminstrative permissions on your machine'
       }
       onChange={async (value) => {
         if (value) {
@@ -140,15 +140,15 @@ export const CoreSettings = () => {
       >
         Are you sure you want to turn off safe mode? This will allow all you to
         give users other than yourself the ability to run potentially dangerous
-        commands. Make sure you trust all users you give these permissions to.
+        commands. Make sure you trust all users you give these permissions to
       </ConfirmDialog>
       <div className="flex w-full flex-col gap-4 @4xl:flex-row">
         <div className="w-[28rem]">
-          <h1 className="text-h2 font-bold"> Core Settings </h1>
-          <h2 className="text-medium font-medium italic tracking-tight text-white/50">
+          <h2 className="text-h2 font-bold tracking-tight"> Core Settings </h2>
+          <h3 className="text-h3 font-medium italic tracking-normal text-white/50">
             These settings are for the core itself. They are not specific to any
-            user.
-          </h2>
+            user
+          </h3>
         </div>
         <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
           {nameField}

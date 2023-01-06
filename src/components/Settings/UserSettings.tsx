@@ -159,12 +159,12 @@ export const UserSettings = () => {
     <div className="flex w-full flex-col gap-4 @4xl:flex-row">
       <div className="flex w-full flex-row flex-nowrap items-end justify-between gap-4 @4xl:w-[28rem] @4xl:flex-col @4xl:items-start @4xl:justify-start">
         <div>
-          <h1 className="text-h2 font-bold tracking-tight text-gray-300">
+          <h2 className="text-h2 font-bold tracking-tight text-gray-300">
             All Members ({Object.keys(userList).length})
-          </h1>
-          <h2 className="text-medium font-medium italic tracking-medium text-white/50">
-            A list of all users. Click into a user to manage.
           </h2>
+          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            A list of all users. Click into a user to manage
+          </h3>
         </div>
         <Button
           label="Create New User"

@@ -23,8 +23,8 @@ export default function Label({
       className={clsx(
         `h-fit select-none whitespace-nowrap rounded-full font-bold tracking-medium`,
         {
-          small: 'py-[0.25em] px-1 text-caption',
-          large: 'py-1 px-2 text-small',
+          small: 'py-[0.125em] px-2 text-small font-medium tracking-medium',
+          large: 'py-1 px-2 text-medium font-medium tracking-medium',
         }[size],
         {
           green: 'bg-green-faded/25 text-green',

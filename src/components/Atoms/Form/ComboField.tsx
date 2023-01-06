@@ -98,7 +98,7 @@ export default function ComboField(props: ComboFieldProps) {
     <div
       className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
-      <label className="absolute -top-6 text-small font-medium text-gray-300">
+      <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
         {label ? `${label}:` : ''}
       </label>
       <div className="relative mt-1">

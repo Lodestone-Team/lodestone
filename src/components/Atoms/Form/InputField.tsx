@@ -21,7 +21,7 @@ export default function InputField(props: InputFieldProps) {
       className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
       {label && (
-        <label className="absolute -top-6 text-small font-medium text-gray-300">
+        <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
           {label}:
         </label>
       )}

@@ -52,11 +52,11 @@ export default function NotificationCard({
           <p className="w-full text-medium font-bold tracking-medium">
             {title}
           </p>
-          <p className="w-full text-small font-medium tracking-medium">
+          <p className="w-full text-medium font-medium tracking-medium">
             {message}
           </p>
           {!message && (
-            <span className="whitespace-nowrap text-caption font-medium tracking-medium text-white/50">
+            <span className="whitespace-nowrap text-medium font-medium tracking-medium text-white/50">
               {formatNotificationTime(timestamp)}
             </span>
           )}

@@ -371,7 +371,7 @@ export default function FileViewer() {
   );
 
   const fileTreeEntryClassName =
-    'flex flex-row items-center gap-4 py-2 px-4 text-h3 font-medium whitespace-nowrap';
+    'flex flex-row items-center gap-4 py-2 px-4 text-medium font-medium tracking-medium whitespace-nowrap';
 
   const fileTreeEntry = (file: ClientFile) => (
     <div
@@ -438,17 +438,17 @@ export default function FileViewer() {
               setPath(parentPath(path));
             }}
           >
-            <p className="select-none text-h3 font-medium">..</p>
+            <p className="select-none text-medium font-medium">..</p>
           </div>
         ) : null}
 
         {fileListLoading ? (
           <div className={fileTreeEntryClassName}>
-            <p className="text-h3 font-medium text-gray-400">Loading...</p>
+            <p className="text-medium font-medium text-gray-400">Loading...</p>
           </div>
         ) : fileListError ? (
           <div className={fileTreeEntryClassName}>
-            <p className="text-h3 font-medium text-gray-400">
+            <p className="text-medium font-medium text-gray-400">
               {fileListError.message}
             </p>
           </div>
@@ -456,7 +456,7 @@ export default function FileViewer() {
 
         {fileList?.length === 0 && (
           <div className={fileTreeEntryClassName}>
-            <p className="text-h3 font-medium text-gray-400">
+            <p className="text-medium font-medium text-gray-400">
               No files here...
             </p>
           </div>
@@ -867,7 +867,7 @@ export default function FileViewer() {
         </div>
       )}
       {tickedFiles.length > 0 && (
-        <div className=" absolute bottom-0 left-0 translate-y-full px-4 py-2 text-h3 font-medium text-white/50">
+        <div className=" absolute bottom-0 left-0 translate-y-full px-4 py-2 text-medium font-medium text-white/50">
           {tickedFiles.length} items selected
         </div>
       )}

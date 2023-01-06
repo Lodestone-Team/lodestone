@@ -116,9 +116,13 @@ export default function InstanceCard({
       onClick={cardOnClick}
     >
       <div className="flex min-w-0 grow flex-col">
-        <h1 className="truncate text-gray-300">{name}</h1>
+        <h1 className="truncate text-medium font-bold tracking-medium text-gray-300">
+          {name}
+        </h1>
         <div className="flex flex-row items-center gap-x-2">
-          <h1 className={`text-${stateColor} -mx-1 truncate px-1`}>
+          <h1
+            className={`text-${stateColor} -mx-1 truncate px-1 text-medium font-bold tracking-medium`}
+          >
             {player_count}/{max_player_count}
           </h1>
           <Label size="small" color={stateColor}>
