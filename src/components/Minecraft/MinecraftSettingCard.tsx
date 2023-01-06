@@ -212,7 +212,7 @@ export default function MinecraftSettingCard() {
       </ConfirmDialog>
       <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
-          <h2 className="text-h2 font-bold tracking-tight">
+          <h2 className="text-h2 font-bold tracking-medium">
             {' '}
             General Game Settings{' '}
           </h2>
@@ -251,7 +251,7 @@ export default function MinecraftSettingCard() {
       </div>
       <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
-          <h2 className="text-h2 font-bold tracking-tight">
+          <h2 className="text-h2 font-bold tracking-medium">
             {' '}
             Advanced Game Settings{' '}
           </h2>
@@ -277,11 +277,11 @@ export default function MinecraftSettingCard() {
             })
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-              <h1 className="text-h2 font-bold">
+              <h1 className="text-h3 font-bold tracking-medium text-gray-300">
                 {' '}
                 Not available at this moment{' '}
               </h1>
-              <h2 className="text-medium font-medium tracking-tight text-gray-300">
+              <h2 className="text-medium font-medium tracking-medium text-gray-300">
                 Try to start this instance at least once
               </h2>
             </div>
@@ -290,7 +290,7 @@ export default function MinecraftSettingCard() {
       </div>
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
-          <h2 className="text-h2 font-bold"> Danger Zone </h2>
+          <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
             These settings can cause irreversible damage to your server!
           </h3>

@@ -103,13 +103,13 @@ const CoreSetupNew = () => {
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
       <div className="text flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
-        <h1 className="font-medium-semi-bold font-title text-2xlarge tracking-medium text-gray-300">
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Create an owner&#39;s account
         </h1>
-        <h2 className="text-h3 font-bold tracking-medium text-white/50">
+        <h2 className="text-medium font-medium tracking-medium text-white/50">
           {core_name} ({socket})
         </h2>
-        <h2 className="text-h3 font-bold tracking-medium text-white/50">
+        <h2 className="text-medium font-medium tracking-medium text-white/50">
           {tauri && setupKey
             ? "Setup key is automatically filled in because you're using the desktop app"
             : 'Check the console output of the core to find the "First time setup key"'}

@@ -221,7 +221,7 @@ export const UserSettings = () => {
               <div>
                 <div
                   className={clsx(
-                    'text-h3 font-bold leading-tight tracking-tight',
+                    'text-h3 font-bold leading-tight tracking-medium',
                     disabled ? 'text-white/50' : 'text-gray-300'
                   )}
                 >

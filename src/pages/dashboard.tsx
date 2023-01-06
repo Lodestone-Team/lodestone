@@ -165,7 +165,7 @@ const Dashboard = () => {
               <Tab
                 key={tab.title}
                 className={({ selected }) =>
-                  `text-h3 font-bold tracking-tight focus-visible:outline-none ${
+                  `text-h3 font-bold tracking-medium focus-visible:outline-none ${
                     selected
                       ? 'border-b-2 border-blue-200 text-blue-200'
                       : 'mb-0.5 text-gray-500'

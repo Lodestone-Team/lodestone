@@ -4,7 +4,7 @@ import RadioField from 'components/Atoms/Form/RadioField';
 export default function MinecraftAdvancedForm() {
   return (
     <>
-      <h1 className="text-h1 font-bold tracking-tight text-gray-300">
+      <h1 className="text-h1 font-bold tracking-medium text-gray-300">
         Advanced Settings
       </h1>
       <p>

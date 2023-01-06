@@ -134,8 +134,8 @@ export default function MinecraftGeneralCard() {
   return (
     <div className="flex flex-col gap-4 @4xl:flex-row">
       <div className="w-72 shrink-0">
-        <h2 className="text-h2 font-bold tracking-tight"> Server Settings </h2>
-        <h3 className="text-h3 font-medium italic tracking-normal text-white/50">
+        <h2 className="text-h2 font-bold tracking-medium"> Server Settings </h2>
+        <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
           Technical settings for the server
         </h3>
       </div>

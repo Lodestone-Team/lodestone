@@ -180,13 +180,13 @@ input {
 
 /* set the user selection color */
 ::selection {
-  background: hwb(148 7% 33% / 0.3);
+  background: hwb(212.571, 45%, 30%);
 }
 
 /* rc-tooltip */
 
 .rc-tooltip-inner {
-  @apply min-h-0 rounded-md border border-gray-faded/30 bg-gray-800 px-2 py-1 text-h3 font-medium tracking-tight text-gray-300 shadow-md;
+  @apply min-h-0 rounded-md bg-gray-850 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md;
 }
 
 .rc-tooltip {
@@ -211,6 +211,9 @@ input.noSpin[type='number'] {
 /* Toastify */
 :root {
   --toastify-font-family: Satoshi !important;
+  --toastify-toast-width: 320px !important;
+  --toastify-toast-max-height: 500px !important;
+  --toastify-toast-min-height: 50px !important;
 }
 
 .Toastify__toast-icon {
@@ -218,5 +221,5 @@ input.noSpin[type='number'] {
 }
 
 .Toastify--animate {
-  animation-duration: 0.3s !important;
+  animation-duration: 0.1s !important;
 }
