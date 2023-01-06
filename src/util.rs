@@ -45,13 +45,13 @@ pub async fn download_file(
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
     let client = Client::new();
-    let response = client.get(url).send().await.map_err(|_| Error {
+    let response = client.get(url).send().await.map_err(|e| Error {
         inner: ErrorInner::FailedToUpload,
-        detail: format!("Failed to send GET request to {}", url),
+        detail: format!("Failed to send GET request to {} : {}", url, e),
     })?;
-    response.error_for_status_ref().map_err(|_| Error {
+    response.error_for_status_ref().map_err(|e| Error {
         inner: ErrorInner::APIChanged,
-        detail: "Failed to download file".to_string(),
+        detail: format!("Failed to download file {} : {}", url, e),
     })?;
     tokio::fs::create_dir_all(path).await.map_err(|_| Error {
         inner: ErrorInner::FailedToUpload,
