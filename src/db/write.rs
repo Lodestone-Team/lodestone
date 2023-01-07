@@ -101,7 +101,7 @@ VALUES
     Ok(id)
 }
 
-async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
+pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
     let mut connection = pool.acquire().await.map_err(|err| Error {
         inner: ErrorInner::DBPoolError,
         detail: format!("Failed to acquire connection: {}", err),

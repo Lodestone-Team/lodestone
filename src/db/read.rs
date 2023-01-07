@@ -5,9 +5,7 @@ use crate::{
 };
 
 use log::error;
-use sqlx::{
-    sqlite::{SqlitePool},
-};
+use sqlx::{Pool, sqlite::{SqliteConnectOptions, SqlitePool}};
 
 // TODO clean up all unwraps
 
@@ -77,9 +75,55 @@ FROM ClientEvents"#
 
 #[cfg(test)]
 mod tests {
-    use crate::events::EventLevel;
+    use std::{str::FromStr, path::PathBuf};
+
+    use sqlx::Sqlite;
+
+    use crate::{events::{EventLevel, EventInner, FSEvent, FSOperation, FSTarget, CausedBy}, db::write::init_client_events_table, types::Snowflake};
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_search() {
+        let pool: Pool<Sqlite> = Pool::connect_with(
+            SqliteConnectOptions::from_str("sqlite://test.db")
+                .unwrap()
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+        let drop_result = sqlx::query!(r#"DROP TABLE IF EXISTS ClientEvents"#).execute(&pool).await;
+        assert!(drop_result.is_ok());
+        let init_result = init_client_events_table(&pool).await;
+        assert!(init_result.is_ok());
+
+        let snowflake = Snowflake::new();
+        let dummy_event_1 = ClientEvent {
+            event_inner: EventInner::FSEvent(FSEvent {
+                operation: FSOperation::Read,
+                target: FSTarget::File(PathBuf::from("/test")),
+            }),
+            details: "Dummy detail 1".to_string(),
+            snowflake: snowflake.clone(),
+            level: EventLevel::Info,
+            caused_by: CausedBy::System,
+        };
+
+        // let row_1_result = sqlx::query!(
+        //     r#"
+        //     INSERT INTO ClientEvents (event_value, details, snowflake, level) 
+        //     VALUES ($1, $2, $3, $4);
+        //     "#,
+        //     serde_json::to_string(&dummy_event_1).unwrap(),
+        //     "Dummy detail 1".to_string(),
+        //     snowflake.clone().to_string(),
+        //     "Info"
+        // )
+        // .execute(&pool)
+        // .await;
+
+        // let row_1 = row_1_result.unwrap();
+    }
 
     // TODO should properly implement tests, with dummy values
     // #[tokio::test]
