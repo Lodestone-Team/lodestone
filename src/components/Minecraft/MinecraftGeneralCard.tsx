@@ -35,7 +35,9 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={65535}
-      disabled={!supportedOptions.includes('SetPort') || !can_access_instance_setting}
+      disabled={
+        !supportedOptions.includes('SetPort') || !can_access_instance_setting
+      }
       validate={async (port) => {
         const numPort = parseintStrict(port);
         const result = await axiosWrapper<PortStatus>({
@@ -88,7 +90,9 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={100000}
-      disabled={!supportedOptions.includes('SetMinRam') || !can_access_instance_setting}
+      disabled={
+        !supportedOptions.includes('SetMinRam') || !can_access_instance_setting
+      }
       onSubmit={async (minRam) => {
         const numMinRam = parseInt(minRam);
         await axiosPutSingleValue<void>(`/instance/${uuid}/min_ram`, numMinRam);
@@ -110,7 +114,9 @@ export default function MinecraftGeneralCard() {
       type="number"
       min={0}
       max={100000}
-      disabled={!supportedOptions.includes('SetMaxRam') || !can_access_instance_setting}
+      disabled={
+        !supportedOptions.includes('SetMaxRam') || !can_access_instance_setting
+      }
       onSubmit={async (maxRam) => {
         const numMaxRam = parseInt(maxRam);
         await axiosPutSingleValue<void>(`/instance/${uuid}/max_ram`, numMaxRam);
@@ -128,10 +134,10 @@ export default function MinecraftGeneralCard() {
   return (
     <div className="flex flex-col gap-4 @4xl:flex-row">
       <div className="w-72 shrink-0">
-        <h1 className="text-large font-black"> Server Settings </h1>
-        <h2 className="text-base font-medium italic tracking-tight text-white/50">
+        <h2 className="text-h2 font-bold tracking-medium"> Server Settings </h2>
+        <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
           Technical settings for the server
-        </h2>
+        </h3>
       </div>
       <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
         {portField}

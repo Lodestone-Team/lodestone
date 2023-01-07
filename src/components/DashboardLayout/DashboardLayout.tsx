@@ -98,7 +98,7 @@ export default function DashboardLayout() {
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav />
-        <div className="flex min-h-0 w-full grow flex-row bg-gray-850">
+        <div className="flex min-h-0 w-full grow flex-row bg-gray-875">
           <Outlet />
         </div>
       </div>

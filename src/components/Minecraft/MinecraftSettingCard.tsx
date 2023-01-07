@@ -51,44 +51,44 @@ export default function MinecraftSettingCard() {
       name: 'Spawn Protection',
       type: 'number',
       descriptionFunc: (value: number) =>
-        `Players cannot build within ${value} blocks of the spawn.`,
+        `Players cannot build within ${value} blocks of spawn`,
     },
     'view-distance': {
       name: 'View Distance',
       type: 'number',
       descriptionFunc: (value: number) =>
-        `Players can see ${value} chunks away.`,
+        `Players can see ${value} chunks away`,
     },
     hardcore: {
       name: 'Hardcore',
       type: 'toggle',
       descriptionFunc: (value: boolean) =>
         value
-          ? 'Difficulty is set to hard and players are set to spectator mode when they die.'
-          : 'No special hardcore settings are enabled.',
+          ? 'Difficulty is set to hard and players are set to spectator mode when they die'
+          : 'No special hardcore settings are enabled',
     },
     pvp: {
       name: 'PvP',
       type: 'toggle',
       descriptionFunc: (pvp) =>
         pvp
-          ? 'Players can directly attack each other.'
-          : 'Players cannot directly attack each other.',
+          ? 'Players can directly attack each other'
+          : 'Players cannot directly attack each other',
     },
     'online-mode': {
       name: 'Online Mode',
       type: 'toggle',
       descriptionFunc: (onlineMode) =>
         onlineMode
-          ? 'Players must be authenticated with Xbox Live or Mojang to join.'
-          : 'Players can join without authentication and with any username.',
+          ? 'Players must be authenticated with Xbox Live or Mojang to join'
+          : 'Players can join without authentication and with any username',
     },
     motd: {
       name: 'MOTD: Message of the Day',
       type: 'text',
       descriptionFunc: (motd) => (
         <div
-          className={`mt-1 whitespace-pre-wrap p-2 font-minecraft text-base text-[gray]`}
+          className={`mt-1 whitespace-pre-wrap p-2 font-minecraft text-medium text-[gray]`}
           style={{ backgroundImage: `url(/assets/dirt.png)` }}
         >
           <MOTDRender motd={parse(convertUnicode(motd))} />
@@ -111,43 +111,43 @@ export default function MinecraftSettingCard() {
       name: 'Whitelist',
       type: 'toggle',
       descriptionFunc: (value: boolean) =>
-        value ? 'Only whitelisted players can join.' : 'All players can join.',
+        value ? 'Only whitelisted players can join' : 'All players can join',
     },
     'enforce-whitelist': {
       name: 'Enforce Whitelist',
       type: 'toggle',
       descriptionFunc: (value: boolean) =>
         value
-          ? 'Online players not on the whitelist are kicked.'
-          : 'Online players are not kicked even if they are not on the whitelist.',
+          ? 'Online players not on the whitelist are kicked'
+          : 'Online players are not kicked even if they are not on the whitelist',
     },
     'enable-command-block': {
       name: 'Command Blocks',
       type: 'toggle',
       descriptionFunc: (value: boolean) =>
-        value ? 'Command blocks are enabled.' : 'Command blocks are disabled.',
+        value ? 'Command blocks are enabled' : 'Command blocks are disabled',
     },
     'allow-flight': {
       name: 'Flight',
       type: 'toggle',
       descriptionFunc: (value: boolean) =>
         value
-          ? 'Survival players with a fly mod can fly.'
-          : 'Survival players in air for 5 seconds will be kicked.',
+          ? 'Survival players with a fly mod can fly'
+          : 'Survival players in air for 5 seconds will be kicked',
     },
     'force-gamemode': {
       name: 'Force Gamemode',
       type: 'toggle',
       descriptionFunc: (value: boolean) =>
         value
-          ? 'Players join in the default gamemode.'
-          : 'Players join in the gamemode they left in.',
+          ? 'Players join in the default gamemode'
+          : 'Players join in the gamemode they left in',
     },
     'simulation-distance': {
       name: 'Simulation Distance',
       type: 'number',
       descriptionFunc: (value: number) =>
-        `Living entities within ${value} chunks of a player will be simulated.`,
+        `Living entities within ${value} chunks of a player will be simulated`,
     },
     'player-idle-timeout': {
       name: 'Player Idle Timeout',
@@ -155,7 +155,7 @@ export default function MinecraftSettingCard() {
       descriptionFunc: (value: number) =>
         value == 0
           ? 'Players will not be kicked for inactivity'
-          : `Players will be kicked after ${value} minutes of inactivity.`,
+          : `Players will be kicked after ${value} minutes of inactivity`,
     },
     'enforce-secure-profile': {
       name: 'Enforce Secure Profile',
@@ -163,7 +163,7 @@ export default function MinecraftSettingCard() {
       descriptionFunc: (value: boolean) =>
         value
           ? 'Players without a Mojang-signed public key will not be able to connect to the server'
-          : "Players don't need a Mojang-signed public key to connect to the server.",
+          : "Players don't need a Mojang-signed public key to connect to the server",
     },
   };
 
@@ -206,16 +206,19 @@ export default function MinecraftSettingCard() {
         confirmButtonText="I understand, delete this instance"
         isOpen={showDeleteDialog}
       >
-        <span className="font-bold">This action cannot be undone.</span>{' '}
-        This instance&#39;s settings, worlds and backups will be permanently
-        deleted. Please backup any important data before proceeding.
+        <span className="font-bold">This action cannot be undone.</span> This
+        instance&#39;s settings, worlds and backups will be permanently deleted.
+        Please backup any important data before proceeding.
       </ConfirmDialog>
       <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
-          <h1 className="text-large font-black"> Common Settings </h1>
-          <h2 className="text-base font-medium italic tracking-tight text-white/50">
-            Common settings that are used by most servers.
+          <h2 className="text-h2 font-bold tracking-medium">
+            {' '}
+            General Game Settings{' '}
           </h2>
+          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            Basic Minecraft world settings
+          </h3>
         </div>
         <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
           {availableCommonSettings.length ? (
@@ -235,12 +238,12 @@ export default function MinecraftSettingCard() {
             })
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-              <h1 className="text-large font-bold">
+              <h2 className="text-h2 font-bold">
                 {' '}
                 Not available at this moment{' '}
-              </h1>
-              <h2 className="text-base font-medium tracking-tight text-gray-300">
-                Try to start this instance at least once.
+              </h2>
+              <h2 className="text-medium font-medium tracking-medium text-gray-300">
+                Try to start this instance at least once
               </h2>
             </div>
           )}
@@ -248,10 +251,13 @@ export default function MinecraftSettingCard() {
       </div>
       <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
-          <h1 className="text-large font-black"> Advanced Settings </h1>
-          <h2 className="text-base font-medium italic tracking-tight text-white/50">
-            Most users should not need to change these settings.
+          <h2 className="text-h2 font-bold tracking-medium">
+            {' '}
+            Advanced Game Settings{' '}
           </h2>
+          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            Less commoningly used Minecraft world settings
+          </h3>
         </div>
         <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
           {availableAdvancedSettings.length ? (
@@ -271,12 +277,12 @@ export default function MinecraftSettingCard() {
             })
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-              <h1 className="text-large font-bold">
+              <h1 className="text-h3 font-bold tracking-medium text-gray-300">
                 {' '}
                 Not available at this moment{' '}
               </h1>
-              <h2 className="text-base font-medium tracking-tight text-gray-300">
-                Try to start this instance at least once.
+              <h2 className="text-medium font-medium tracking-medium text-gray-300">
+                Try to start this instance at least once
               </h2>
             </div>
           )}
@@ -284,29 +290,29 @@ export default function MinecraftSettingCard() {
       </div>
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-72 shrink-0">
-          <h1 className="text-large font-black"> Danger Zone </h1>
-          <h2 className="text-base font-medium italic tracking-tight text-white/50">
-            These settings can cause irreversible damage to your server.
-          </h2>
+          <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>
+          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            These settings can cause irreversible damage to your server!
+          </h3>
         </div>
-        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-base">
+        <div className="w-full min-w-0 rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+          <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
             <div className="flex min-w-0 grow flex-col">
               {can_delete_instance ? (
-                <label className="text-base font-medium text-red-200">
+                <label className="text-medium font-medium text-gray-300">
                   Delete Instance
                 </label>
               ) : (
-                <label className="text-base font-medium text-gray-300">
+                <label className="text-medium font-medium text-gray-300">
                   Delete Instance
                 </label>
               )}
               {can_delete_instance ? (
-                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-red-200">
-                  Delete this game instance and all of its data.
+                <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+                  Permanently deletes this instance and its data
                 </div>
               ) : (
-                <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
+                <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
                   No permission
                 </div>
               )}

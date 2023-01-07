@@ -41,7 +41,7 @@ export default function UserBox({
     <div
       className={clsx(
         'group relative flex cursor-pointer flex-row items-center justify-between',
-        'gap-4 bg-gray-800 px-4 py-3 text-base',
+        'gap-4 bg-gray-800 px-4 py-3 text-h3',
         'hover:bg-gray-700',
         className
       )}
@@ -66,7 +66,7 @@ export default function UserBox({
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
               <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-                <h1 className="text-larger font-bold tracking-tight text-gray-300">
+                <h1 className="text-h1 font-bold tracking-tight text-gray-300">
                   Create a new user account
                 </h1>
                 <p>
@@ -125,7 +125,7 @@ export default function UserBox({
       <div className="flex min-w-0 flex-row items-center gap-4">
         <Avatar size={35} name={user.uid} />
         <div className="flex min-w-0 flex-col">
-          <h1 className="truncate text-medium font-bold leading-tight text-gray-300">
+          <h1 className="truncate text-h3 font-bold leading-tight text-gray-300">
             {user.username}
             {/* this text is bigger then the one in inputbox on purpose */}
           </h1>
@@ -138,7 +138,7 @@ export default function UserBox({
         <Menu.Button
           as={FontAwesomeIcon}
           icon={faEllipsis}
-          className="h-4 w-4 select-none text-large text-white/50 hover:cursor-pointer hover:text-white/75"
+          className="h-4 w-4 select-none text-h2 text-white/50 hover:cursor-pointer hover:text-white/75"
         />
         <Menu.Items className="absolute right-0 z-10 mt-0.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
           <div className="py-2 px-1.5">

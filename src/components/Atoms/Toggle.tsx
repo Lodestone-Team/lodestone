@@ -18,7 +18,7 @@ export const Toggle = ({
         'relative inline-flex h-6 w-11 items-center rounded-full outline-0 enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
         {
           'bg-gray-faded/30': disabled,
-          'bg-green-enabled/50': value && !disabled,
+          'bg-green-400': value && !disabled,
           'bg-white/50': !value && !disabled,
         }
       )}

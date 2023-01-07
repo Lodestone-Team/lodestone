@@ -11,15 +11,17 @@ const bytesInGigabyte = 1073741824;
 export default function MinecraftPerformanceCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
-  const { buffer: performanceBuffer, counter, latency_s } = usePerformanceStream(
-    instance.uuid
-  );
+  const {
+    buffer: performanceBuffer,
+    counter,
+    latency_s,
+  } = usePerformanceStream(instance.uuid);
   const { data } = useCoreInfo();
   const total_ram = data?.total_ram ?? 32;
 
   return (
     <DashboardCard>
-      <h1 className="text-medium font-bold"> Performance </h1>
+      <h1 className="text-h3 font-bold"> Performance </h1>
       <div className="mb-10 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
           <PerformanceGraph

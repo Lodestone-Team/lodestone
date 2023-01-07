@@ -52,14 +52,14 @@ const Button = forwardRef(
           'leading-normal tracking-medium enabled:focus-visible:ring-4',
           'enabled:focus-visible:ring-blue-faded/50',
           {
-            slim: 'gap-1 rounded-sm py-1 px-1.5 text-base',
-            medium: 'gap-1.5 rounded py-1 px-2 text-base',
-            large: 'gap-1.5 rounded py-1.5 px-3 text-base',
+            slim: 'gap-1 rounded-sm py-1 px-1 text-small',
+            medium: 'gap-1.5 rounded py-1 px-2 text-medium',
+            large: 'gap-1.5 rounded py-1.5 px-3 text-medium',
           }[size],
           color === 'danger'
             ? 'font-bold'
             : {
-                slim: 'font-normal',
+                slim: 'font-medium',
                 medium: 'font-medium',
                 large: 'font-medium',
               }[size],
@@ -88,8 +88,7 @@ const Button = forwardRef(
             }[color],
           variant !== 'text' &&
             {
-              info:
-                'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
+              info: 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
               danger:
                 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
               primary:
@@ -114,7 +113,9 @@ const Button = forwardRef(
           <span className={clsx(loading && 'opacity-0')}>{label}</span>
         </div>
 
-        {iconRight && <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />}
+        {iconRight && (
+          <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />
+        )}
       </button>
     );
   }

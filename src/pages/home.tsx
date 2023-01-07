@@ -36,12 +36,12 @@ const Home = () => {
     <div className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container">
       {/* main content container */}
       <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
-        <h1 className="font-title text-2xlarge font-semibold tracking-tight text-gray-300">
+        <h1 className="font-title text-2xlarge font-bold tracking-tight text-gray-300">
           Home
         </h1>
         <p>Display some general information here maybe</p>
         <DashboardCard>
-          <h1 className="text-medium font-bold"> Performance </h1>
+          <h1 className="text-h3 font-bold"> Performance </h1>
           <div className="mb-10 grid grid-cols-2 gap-10">
             <div>
               <PerformanceGraph

@@ -74,13 +74,13 @@ export default function TopNav() {
         />
       </div>
       <div className="flex flex-row flex-wrap items-baseline gap-1">
-        <p className="text-center text-base font-medium text-white/50">
+        <p className="text-center text-medium font-medium text-white/50">
           {coreData?.core_name ?? '...'}:
         </p>
         <Label
           size="small"
           color={colorMap[coreConnectionStatus]}
-          className="w-16 text-center"
+          className="w-18 text-center"
         >
           {statusMap[coreConnectionStatus]}
         </Label>
@@ -96,7 +96,7 @@ export default function TopNav() {
         <Popover.Button
           as={FontAwesomeIcon}
           icon={faBell}
-          className="w-4 select-none hover:cursor-pointer hover:text-white/75 ui-open:text-gray-300 ui-not-open:text-white/50"
+          className="w-4 select-none hover:cursor-pointer ui-open:text-gray-300 ui-not-open:text-white/50 ui-not-open:hover:text-white/75"
         />
         <Popover.Panel className="absolute right-0 z-40 mt-1 h-[80vh] w-[480px] rounded-lg drop-shadow-lg child:h-full">
           <NotificationPanel className="rounded-lg border" />

@@ -19,12 +19,12 @@ const NotificationPanel = forwardRef(
         ref={ref}
         className={`flex w-full flex-col border-l border-gray-faded/30 bg-gray-800 ${className}`}
       >
-        <div className="p-4 font-sans text-large font-black tracking-tight">
+        <div className="px-4 py-3 font-sans text-h2 font-extrabold tracking-tight">
           Notifications
         </div>
         {ongoingNotifications.length > 0 && (
           <>
-            <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
+            <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-medium font-bold">
               In progress
             </div>
             <div className="space-y-4 overflow-y-auto p-4">
@@ -48,10 +48,10 @@ const NotificationPanel = forwardRef(
             </div>
           </>
         )}
-        <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-smaller font-bold">
-          Notifications
+        <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-medium font-bold">
+          All Notifications
         </div>
-        <div className="grow basis-1 space-y-4 overflow-y-auto p-4">
+        <div className="grow basis-1 space-y-2 overflow-y-auto p-4">
           {notifications.length > 0 ? (
             notifications
               .map((notification) => (
@@ -68,9 +68,7 @@ const NotificationPanel = forwardRef(
             <div
               className={`justify-stretch flex flex-col items-start px-4 py-3 text-gray-300`}
             >
-              <p className="w-full text-base">
-                No notifications at the moment!
-              </p>
+              <p className="w-full text-h3">No notifications at the moment!</p>
             </div>
           )}
         </div>

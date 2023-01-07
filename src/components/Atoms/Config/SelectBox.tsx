@@ -99,18 +99,20 @@ export default function SelectBox({
     <div
       className={clsx(
         'group relative flex flex-row items-center justify-between',
-        'gap-4 bg-gray-800 px-4 py-3 text-base',
+        'gap-4 bg-gray-800 px-4 py-3 text-medium',
         className
       )}
     >
       <div className={`flex min-w-0 grow flex-col`}>
-        <label className="text-base font-medium text-gray-300">{label}</label>
+        <label className="text-medium font-medium tracking-medium text-gray-300">
+          {label}
+        </label>
         {errorText ? (
-          <div className="text-small font-medium tracking-medium text-red">
+          <div className="font-small text-medium tracking-medium text-red">
             {errorText || 'Unknown error'}
           </div>
         ) : (
-          <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
+          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
             {description}
           </div>
         )}
@@ -161,7 +163,7 @@ export default function SelectBox({
                   className={clsx(
                     'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
                     'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-                    'ui-selected:font-medium ui-not-selected:font-normal',
+                    'ui-selected:font-medium ui-not-selected:font-medium',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
                     'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
                   )}
@@ -192,7 +194,7 @@ export default function SelectBox({
                   className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
                   disabled
                 >
-                  <span className={`block truncate font-normal`}>
+                  <span className={`block truncate font-medium`}>
                     Select...
                   </span>
                 </Listbox.Option>

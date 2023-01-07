@@ -2,13 +2,10 @@
 const defaultTheme = require('tailwindcss/defaultTheme');
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    './pages/**/*.{js,ts,jsx,tsx}',
-    './src/**/*.{js,ts,jsx,tsx}',
-  ],
+  content: ['./pages/**/*.{js,ts,jsx,tsx}', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     colors: {
-      transparent: 'transparent',
+      transparent: 'transparent', //! what
       current: 'currentColor',
       blue: {
         200: '#59B2F3',
@@ -25,7 +22,7 @@ module.exports = {
         DEFAULT: '#6DD277',
         400: '#3DAE5E',
         faded: '#61AE32',
-        enabled: '#48F077'
+        enabled: '#48F077',
       },
       red: {
         200: '#FF5C5C',
@@ -49,6 +46,7 @@ module.exports = {
         750: '#303338',
         800: '#2B2D32',
         850: '#26282C',
+        875: '#212327',
         900: '#1D1E21',
         faded: '#A5A5AC',
       },
@@ -64,13 +62,14 @@ module.exports = {
       mono: ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
-      smaller: '0.625rem',
+      //! note: don't use fractional-px fonts
+      caption: '0.625rem',
       small: '0.75rem',
-      base: '0.875rem',
-      medium: '1rem',
-      large: '1.25rem',
-      larger: '1.5rem',
-      xlarge: '1.75rem',
+      medium: '0.875rem',
+      h3: '1rem',
+      h2: '1.25rem',
+      h1: '1.75rem',
+      title: '2.625rem',
       '2xlarge': '2rem',
       '3xlarge': '2.5rem',
       '4xlarge': '3rem',
@@ -79,26 +78,28 @@ module.exports = {
     },
     letterSpacing: {
       tight: '-0.04em',
-      medium: '-0.02em',
+      medium: '-0.01em',
       normal: '0',
       wide: '0.04em',
     },
     dropShadow: {
-      'sm': '0 0 transparent',
-      'md': '0 3px 6px #111114',
-      'lg': '0 8px 24px #111114',
-      'xl': '0 12px 48px #111114',
+      sm: '0 0 transparent',
+      md: '0 3px 6px #111114',
+      lg: '0 8px 24px #111114',
+      xl: '0 12px 48px #111114',
     },
     fontWeight: {
-      'medium-semi-bold': 550,
-      ...defaultTheme.fontWeight,
+      medium: 450,
+      bold: 550,
+      extrabold: 700,
     },
     extend: {
       transitionProperty: {
-        'height': 'height',
-        'width': 'width',
-        'spacing': 'margin, padding',
-        'dimensions': 'height, width',
+        //! animation stuff, added some extra transition animations (do we even ues these?)
+        height: 'height',
+        width: 'width',
+        spacing: 'margin, padding',
+        dimensions: 'height, width',
       },
     },
   },
@@ -107,6 +108,6 @@ module.exports = {
       addVariant('child', '& > *');
     },
     require('@tailwindcss/container-queries'),
-    require('@headlessui/tailwindcss')({ prefix: 'ui' })
+    require('@headlessui/tailwindcss')({ prefix: 'ui' }),
   ],
 };

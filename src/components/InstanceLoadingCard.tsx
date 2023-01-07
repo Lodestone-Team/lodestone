@@ -57,13 +57,13 @@ export default function InstanceLoadingCard({
 
   return (
     <div
-      className={`group relative flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight ${
+      className={`group relative flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight ${
         focus ? `bg-gray-900 outline outline-2 ring-[6px] ${borderClass}` : ''
       }`}
     >
       <div className="absolute top-0 left-0 z-10 flex h-full w-full flex-col overflow-clip rounded-xl bg-[#000]/70 backdrop-blur-[1px]">
         {' '}
-        <div className="flex w-full grow flex-row items-center justify-center gap-2 text-large">
+        <div className="flex w-full grow flex-row items-center justify-center gap-2 text-h2">
           <LoadingStatusIcon
             state={state}
             level={level}

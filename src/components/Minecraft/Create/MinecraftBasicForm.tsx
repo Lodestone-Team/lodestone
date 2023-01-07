@@ -40,11 +40,11 @@ export default function MinecraftBasicForm() {
     );
   return (
     <>
-      <h1 className="text-larger font-bold tracking-tight text-gray-300">
+      <h1 className="text-h2 font-bold tracking-medium text-gray-300">
         The Basics
       </h1>
       <p>
-        Some basic information about your Minecraft server.
+        Some basic information about your Minecraft server
         <br />
       </p>
       <div className="mt-10 flex flex-col gap-16 text-left">

@@ -37,19 +37,16 @@ export default function InstanceList({
           <RadioGroup.Option
             key={instance.uuid}
             value={instance}
-            className="child:w-full outline-none"
+            className="outline-none child:w-full"
           >
             <InstanceCard {...instance} />
           </RadioGroup.Option>
         ))
       ) : (
         <div
-          className={`flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight`}
+          className={`flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight`}
         >
-          <FontAwesomeIcon
-            icon={faServer}
-            className="text-larger text-gray-400"
-          />
+          <FontAwesomeIcon icon={faServer} className="text-h1 text-gray-400" />
           <p className="text-xl text-center text-gray-400">
             Log in to view game server instances.
           </p>

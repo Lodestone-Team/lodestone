@@ -10,8 +10,8 @@ import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 /**
  * A combo box field that allows the user to select from a list of options, or
  * enter a custom value. Meant to be used with Formik.
- * 
- * Slightly buggy since we are using react-virtual to render the options, this 
+ *
+ * Slightly buggy since we are using react-virtual to render the options, this
  * should only be used where there are a large number of options.
  */
 export type ComboFieldProps = FieldHookConfig<string> & {
@@ -96,9 +96,9 @@ export default function ComboField(props: ComboFieldProps) {
 
   return (
     <div
-      className={`flex flex-col gap-1 ${className} group relative text-base`}
+      className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
-      <label className="absolute -top-6 text-small font-medium text-gray-300">
+      <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
         {label ? `${label}:` : ''}
       </label>
       <div className="relative mt-1">
@@ -161,7 +161,7 @@ export default function ComboField(props: ComboFieldProps) {
                         className={clsx(
                           'relative cursor-default select-none rounded-md py-2 pl-3 pr-4 text-gray-300',
                           'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-                          'ui-selected:font-medium ui-not-selected:font-normal',
+                          'ui-selected:font-medium ui-not-selected:font-medium',
                           'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
                           'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
                         )}
@@ -251,7 +251,7 @@ function VirtualizedList({
             className={clsx(
               'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
               'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-              'ui-selected:font-medium ui-not-selected:font-normal',
+              'ui-selected:font-medium ui-not-selected:font-medium',
               'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
               'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
             )}

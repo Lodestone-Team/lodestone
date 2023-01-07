@@ -159,12 +159,12 @@ export const UserSettings = () => {
     <div className="flex w-full flex-col gap-4 @4xl:flex-row">
       <div className="flex w-full flex-row flex-nowrap items-end justify-between gap-4 @4xl:w-[28rem] @4xl:flex-col @4xl:items-start @4xl:justify-start">
         <div>
-          <h1 className="text-large font-black tracking-tight text-gray-300">
+          <h2 className="text-h2 font-bold tracking-tight text-gray-300">
             All Members ({Object.keys(userList).length})
-          </h1>
-          <h2 className="text-base font-medium italic tracking-medium text-white/50">
-            A list of all users. Click into a user to manage.
           </h2>
+          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            A list of all users. Click into a user to manage
+          </h3>
         </div>
         <Button
           label="Create New User"
@@ -221,13 +221,13 @@ export const UserSettings = () => {
               <div>
                 <div
                   className={clsx(
-                    'text-medium font-bold leading-tight tracking-tight',
+                    'text-h3 font-bold leading-tight tracking-medium',
                     disabled ? 'text-white/50' : 'text-gray-300'
                   )}
                 >
                   {permission.title}
                 </div>
-                <div className="overflow-hidden text-ellipsis italic text-base font-medium tracking-medium text-white/50">
+                <div className="overflow-hidden text-ellipsis text-medium font-medium italic tracking-medium text-white/50">
                   {permission.description}
                 </div>
               </div>
@@ -311,7 +311,7 @@ export const UserSettings = () => {
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
               <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-                <h1 className="text-larger font-bold tracking-tight text-gray-300">
+                <h1 className="text-h1 font-bold tracking-tight text-gray-300">
                   Create a new user account
                 </h1>
                 <p>
@@ -334,10 +334,10 @@ export const UserSettings = () => {
           <HorizontalLine thicknessClass="h-0.5" className="-my-4" />
           <div className="flex flex-col gap-8">
             <div>
-              <div className="text-large font-bold leading-tight tracking-tight text-red-200">
+              <div className="text-h2 font-bold leading-tight tracking-tight text-red-200">
                 Unsafe Settings
               </div>
-              <div className="text-medium font-medium tracking-medium text-red-200">
+              <div className="text-h3 font-medium tracking-medium text-red-200">
                 Turn off safe mode in core settings to grant these permissions
                 to non-owner users.
               </div>

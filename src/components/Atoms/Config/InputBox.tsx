@@ -14,9 +14,9 @@ export type InputBoxType = 'text' | 'number';
 
 /**
  * A self controlled input box meant to represent a single value of a config
- * 
+ *
  * It is NOT meant to be used as a form input
- * 
+ *
  * See InputField for that
  */
 export default function InputBox({
@@ -197,16 +197,16 @@ export default function InputBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-medium`}
     >
       <div className={`flex min-w-0 grow flex-col`}>
-        <label className="text-base font-medium text-gray-300">{label}</label>
+        <label className="text-medium font-medium text-gray-300">{label}</label>
         {errorText ? (
           <div className="text-small font-medium tracking-medium text-red">
             {errorText || 'Unknown error'}
           </div>
         ) : (
-          <div className="overflow-hidden text-ellipsis text-small font-medium tracking-medium text-white/50">
+          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
             {description}
           </div>
         )}

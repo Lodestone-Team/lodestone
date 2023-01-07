@@ -59,7 +59,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                     <div
                       className={clsx(
                         'w-full cursor-pointer rounded-md py-1.5 px-3 hover:bg-gray-700',
-                        'flex flex-row items-center justify-start gap-1.5',
+                        'flex flex-row items-center justify-start gap-1.5 text-medium',
                         checked
                           ? 'bg-gray-800 outline outline-1 outline-white/50'
                           : 'bg-gray-850'

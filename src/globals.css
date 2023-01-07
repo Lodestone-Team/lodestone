@@ -33,7 +33,7 @@ body {
 /* Tailwind custom classes */
 @layer components {
   .dashboard-instance-heading {
-    @apply font-title text-2xlarge font-[550] tracking-medium;
+    @apply font-title text-h1 font-bold tracking-medium;
   }
 
   /* Input is really annoying because some elements are true form elements 
@@ -48,7 +48,7 @@ body {
    */
 
   .input-base {
-    @apply appearance-none rounded bg-gray-900 py-1.5 px-3 text-left font-medium leading-snug tracking-tight outline outline-1 placeholder:text-white/30 focus-visible:ring-4  enabled:text-gray-300 disabled:bg-gray-800 disabled:text-white/50;
+    @apply appearance-none rounded bg-gray-900 py-2 px-2.5 text-left font-medium leading-snug tracking-tight outline outline-1 placeholder:text-white/30 focus-visible:ring-4  enabled:text-gray-300 disabled:bg-gray-800 disabled:text-white/50;
   }
 
   .input-base.disabled {
@@ -180,13 +180,13 @@ input {
 
 /* set the user selection color */
 ::selection {
-  background: hwb(148 7% 33% / 0.3);
+  background: hwb(212.571, 45%, 30%);
 }
 
 /* rc-tooltip */
 
 .rc-tooltip-inner {
-  @apply min-h-0 rounded-md border border-gray-faded/30 bg-gray-800 px-2 py-1 text-base font-medium tracking-tight text-gray-300 shadow-md;
+  @apply min-h-0 rounded-md bg-gray-850 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md;
 }
 
 .rc-tooltip {
@@ -211,12 +211,15 @@ input.noSpin[type='number'] {
 /* Toastify */
 :root {
   --toastify-font-family: Satoshi !important;
+  --toastify-toast-width: 320px !important;
+  --toastify-toast-max-height: 500px !important;
+  --toastify-toast-min-height: 50px !important;
 }
 
 .Toastify__toast-icon {
   display: block !important;
 }
 
-.Toastify--animate{
-  animation-duration: 0.3s !important;
+.Toastify--animate {
+  animation-duration: 0.1s !important;
 }

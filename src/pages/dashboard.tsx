@@ -80,7 +80,7 @@ const Dashboard = () => {
         title: 'Resources',
         content: (
           <DashboardCard>
-            <h1 className="text-medium font-bold"> Placeholder </h1>
+            <h1 className="text-h3 font-bold"> Placeholder </h1>
           </DashboardCard>
         ),
       },
@@ -88,7 +88,7 @@ const Dashboard = () => {
         title: 'Macro',
         content: (
           <DashboardCard>
-            <h1 className="text-medium font-bold"> Placeholder </h1>
+            <h1 className="text-h3 font-bold"> Placeholder </h1>
           </DashboardCard>
         ),
       },
@@ -165,7 +165,7 @@ const Dashboard = () => {
               <Tab
                 key={tab.title}
                 className={({ selected }) =>
-                  `text-medium font-semibold tracking-tight focus-visible:outline-none ${
+                  `text-h3 font-bold tracking-medium focus-visible:outline-none ${
                     selected
                       ? 'border-b-2 border-blue-200 text-blue-200'
                       : 'mb-0.5 text-gray-500'

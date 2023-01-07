@@ -57,13 +57,13 @@ const UserLogin = () => {
   };
 
   return (
-    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-850 px-12 py-12 transition-dimensions @container">
+    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
       <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-9 w-40" />
-        <h1 className="font-title text-2xlarge font-medium-semi-bold tracking-medium text-gray-300">
+        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Sign in
         </h1>
-        <h2 className="text-medium font-semibold tracking-medium text-white/50">
+        <h2 className="text-medium font-medium tracking-medium text-white/50">
           {core_name} ({socket})
         </h2>
       </div>
