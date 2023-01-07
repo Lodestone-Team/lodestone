@@ -1,7 +1,7 @@
 use crate::{
     handlers::events::EventQuery,
     output_types::ClientEvent,
-    Error, traits::ErrorInner,
+    Error, traits::ErrorInner, prelude::LODESTONE_EPOCH_MIL,
 };
 
 use log::error;
@@ -19,8 +19,8 @@ pub async fn search_events(
         detail: format!("Failed to acquire connection: {}", err),
     })?;
     let parsed_client_events = if let Some(time_range) = &event_query.time_range {
-        let start = (time_range.start) << 22;
-        let end = (time_range.end + 1) << 22;
+        let start = (time_range.start - LODESTONE_EPOCH_MIL.with(|p| p.clone())) << 22;
+        let end = (time_range.end + 1 - LODESTONE_EPOCH_MIL.with(|p| p.clone())) << 22;
         let rows = sqlx::query!(
             r#"
 SELECT
