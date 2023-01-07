@@ -19,53 +19,46 @@ use super::types::ClientEventRow;
 
 // TODO clean up all unwraps
 
-pub fn write_event_to_db_task(
-    mut event_receiver: Receiver<Event>,
-    sqlite_pool: SqlitePool,
-) -> impl Future<Output = ()> {
-    async move {
-        let init_result = init_client_events_table(&sqlite_pool).await;
-        if let Err(error) = init_result.as_ref() {
-            warn!("Failed to initialize client events table: {}", error);
-            return;
+pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_pool: SqlitePool) {
+    let init_result = init_client_events_table(&sqlite_pool).await;
+    if let Err(error) = init_result.as_ref() {
+        warn!("Failed to initialize client events table: {}", error);
+        return;
+    }
+
+    loop {
+        let result = event_receiver.recv().await;
+        if let Err(error) = result.as_ref() {
+            match error {
+                RecvError::Lagged(_) => {
+                    warn!("Event buffer lagged");
+                    continue;
+                }
+                RecvError::Closed => {
+                    warn!("Event buffer closed");
+                    break;
+                }
+            }
         }
 
-        loop {
-            let result = event_receiver.recv().await;
-            if let Err(error) = result.as_ref() {
-                match error {
-                    RecvError::Lagged(_) => {
-                        warn!("Event buffer lagged");
-                        continue;
-                    }
-                    RecvError::Closed => {
-                        warn!("Event buffer closed");
-                        break;
-                    }
-                }
+        let client_event: ClientEvent = result.unwrap().into();
+        if let EventInner::ProgressionEvent(pe) = &client_event.event_inner {
+            if let ProgressionEventInner::ProgressionUpdate {
+                progress_message, ..
+            } = &pe.progression_event_inner
+            {
+                info!("Update event: {}", progress_message);
+                info!("Skipped storage...");
+                continue;
             }
-
-            let client_event: ClientEvent = result.unwrap().into();
-            if let EventInner::ProgressionEvent(pe) = &client_event.event_inner {
-                match &pe.progression_event_inner {
-                    ProgressionEventInner::ProgressionUpdate {
-                        progress_message, ..
-                    } => {
-                        info!("Update event: {}", progress_message);
-                        info!("Skipped storage...");
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            let insertion_result = write_client_event(&sqlite_pool, client_event).await;
-            if insertion_result.is_err() {
-                warn!(
-                    "Error inserting into database: {}",
-                    insertion_result.err().unwrap()
-                );
-                break;
-            }
+        }
+        let insertion_result = write_client_event(&sqlite_pool, client_event).await;
+        if insertion_result.is_err() {
+            warn!(
+                "Error inserting into database: {}",
+                insertion_result.err().unwrap()
+            );
+            break;
         }
     }
 }
@@ -149,7 +142,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let drop_result = sqlx::query!(r#"DROP TABLE IF EXISTS ClientEvents"#).execute(&pool).await;
+        let drop_result = sqlx::query!(r#"DROP TABLE IF EXISTS ClientEvents"#)
+            .execute(&pool)
+            .await;
         assert!(drop_result.is_ok());
         let init_result = init_client_events_table(&pool).await;
         assert!(init_result.is_ok());
@@ -160,7 +155,7 @@ mod tests {
                 target: FSTarget::File(PathBuf::from("/test")),
             }),
             details: "Dummy value".to_string(),
-            snowflake: snowflake.clone(),
+            snowflake: snowflake,
             level: EventLevel::Info,
             caused_by: CausedBy::System,
         };
@@ -176,10 +171,13 @@ mod tests {
         .await;
         assert!(row_result.is_ok());
         let row = row_result.unwrap();
-        assert_eq!(row.event_value, serde_json::to_string(&dummy_event).unwrap());
+        assert_eq!(
+            row.event_value,
+            serde_json::to_string(&dummy_event).unwrap()
+        );
         assert_eq!(row.details, dummy_event.details);
         assert_eq!(row.snowflake.to_string(), snowflake.to_string());
-        assert_eq!(row.level, "Info".to_string()); // consider using sqlx::Encode trait to compare 
+        assert_eq!(row.level, "Info".to_string()); // consider using sqlx::Encode trait to compare
         assert_eq!(row.caused_by_user_id, None);
         assert_eq!(row.instance_id, None);
     }

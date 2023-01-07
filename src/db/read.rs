@@ -68,9 +68,9 @@ FROM ClientEvents"#
     };
     let filtered = parsed_client_events
         .into_iter()
-        .filter(|client_event| event_query.filter(&client_event))
+        .filter(|client_event| event_query.filter(client_event))
         .collect();
-    return Ok(filtered);
+    Ok(filtered)
 }
 
 #[cfg(test)]

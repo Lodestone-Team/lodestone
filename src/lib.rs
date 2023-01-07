@@ -1,6 +1,7 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
 use crate::{
+    db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
     handlers::{
         checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
@@ -14,7 +15,7 @@ use crate::{
     prelude::{
         LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_GLOBAL_SETTINGS, PATH_TO_STORES, PATH_TO_USERS,
     },
-    util::{download_file, rand_alphanumeric}, db::write::write_event_to_db_task,
+    util::{download_file, rand_alphanumeric},
 };
 use auth::user::UsersManager;
 use axum::Router;
@@ -35,11 +36,13 @@ use sqlx::{
     Pool,
 };
 use std::{
+    clone,
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
-    time::Duration, str::FromStr,
+    time::Duration,
 };
 use sysinfo::SystemExt;
 use tokio::{
@@ -270,9 +273,16 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
-        sqlite_pool: Pool::connect_with(SqliteConnectOptions::from_str("sqlite://dev.db")
-        .unwrap()
-        .create_if_missing(true)).await.unwrap(), 
+        sqlite_pool: Pool::connect_with(
+            SqliteConnectOptions::from_str(&format!(
+                "sqlite://{}/data.db",
+                PATH_TO_STORES.with(|p| p.clone()).display().to_string()
+            ))
+            .unwrap()
+            .create_if_missing(true),
+        )
+        .await
+        .unwrap(),
     };
 
     let event_buffer_task = {
