@@ -12,6 +12,7 @@ interface LodestoneContext {
   setCoreConnectionStatus: (status: CoreConnectionStatus) => void;
   /** The JWT token string, where no token is an empty string */
   token: string;
+  uid: string;
   /** Sets the JWT token in state and localStorage, where no token is an empty string */
   setToken: (token: string, coreSocket: string) => void;
   /** All the tokens, a record from CoreSocket to token */
@@ -44,6 +45,7 @@ export const LodestoneContext = createContext<LodestoneContext>({
   },
   coreList: [],
   token: '',
+  uid: '',
   setToken: () => {
     console.error('setToken not implemented');
   },

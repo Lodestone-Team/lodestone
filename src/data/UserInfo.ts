@@ -77,32 +77,9 @@ export const useUserLoggedIn = () => {
 };
 
 /**
- * Never throws
- * @returns JWT payload or undefined
- */
-export const useDecodedToken = () => {
-  const { token } = useContext(LodestoneContext);
-  const decoded = useMemo(() => {
-    try {
-      const decoded = jwt.decode(token, { complete: true });
-      if (!decoded) throw new Error('Invalid token');
-      return decoded.payload;
-    } catch (e) {
-      const message = errorToString(e);
-      console.error(message);
-    }
-  }, [token]);
-  return decoded;
-};
-
-/**
  * Parses uid from JWT token directly, might be expired or fake
- * Don't use for high security stuff
- * @returns uid or undefined
  */
 export const useUid = () => {
-  const decoded = useDecodedToken();
-  if (typeof decoded === 'undefined') return undefined;
-  if (typeof decoded === 'string') return undefined;
-  return decoded?.uid;
+  const { uid } = useContext(LodestoneContext);
+  return uid;
 };

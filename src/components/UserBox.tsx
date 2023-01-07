@@ -8,7 +8,7 @@ import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicUser } from 'bindings/PublicUser';
 import clsx from 'clsx';
-import { useDecodedToken, useUid } from 'data/UserInfo';
+import { useUid } from 'data/UserInfo';
 import { Fragment, useState } from 'react';
 import { deleteUser } from 'utils/util';
 import Avatar from './Atoms/Avatar';

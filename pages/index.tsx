@@ -150,6 +150,7 @@ export default function App() {
     'tokens',
     {}
   ); //TODO: clear all outdated tokens
+  const [uid, setUid] = useState('');
   const token = tokens[socket] ?? '';
   const setToken = (token: string, coreSocket: string) => {
     setTokens({ ...tokens, [coreSocket]: token });
@@ -162,17 +163,25 @@ export default function App() {
       });
       // TODO: clear ongoing notifications as well
     } else {
-      // can't use useDecodedToken here because LodestoneContext is not available yet
       try {
         const decoded = jwt.decode(token, { complete: true });
         if (!decoded) throw new Error('Invalid token');
-        const { exp } = decoded.payload as { exp: number };
+        const payload = decoded.payload;
+        if(typeof payload === 'undefined') throw new Error('Invalid token');
+        if(typeof payload === 'string') throw new Error('Invalid token');
+        const exp = payload.exp;
+        const uid = payload.uid;
+
+        if (typeof exp === 'undefined') throw new Error('Invalid exp in token');
+        if (typeof uid !== 'string') throw new Error('Invalid uid in token');
         if (Date.now() >= exp * 1000) throw new Error('Token expired');
+        setUid(uid);
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
         const message = errorToString(e);
         toast.error(message);
         setToken('', socket);
+        setUid('');
         delete axios.defaults.headers.common['Authorization'];
       }
     }
@@ -201,6 +210,7 @@ export default function App() {
           setCoreConnectionStatus,
           coreList,
           token,
+          uid,
           setToken,
           tokens,
         }}
