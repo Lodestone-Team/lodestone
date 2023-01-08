@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { RadioGroup } from '@headlessui/react';
 import InstanceCard from 'components/InstanceCard';
 import InstanceLoadingCard from 'components/InstanceLoadingCard';
+import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
@@ -40,7 +41,7 @@ export default function InstanceList({
 
   return (
     <RadioGroup
-      className={`gap -mx-1.5 flex min-h-0 flex-col gap-y-4 overflow-y-auto px-3 child:w-full ${className}`}
+      className={`gap -mx-1.5 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-3 child:w-full ${className}`}
       value={selectedInstance}
       onChange={selectInstance}
     >
@@ -53,7 +54,7 @@ export default function InstanceList({
             value={instance}
             className="outline-none child:w-full"
           >
-            <InstanceCard {...instance} />
+            <InstancePill {...instance} />
           </RadioGroup.Option>
         ))
       ) : (

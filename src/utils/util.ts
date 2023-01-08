@@ -96,6 +96,14 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   // Loading: 'gray',
 };
 
+export const stateToColor: { [key in InstanceState]: string } = {
+  Starting: "text-yellow-300",
+  Running: "text-green-300",
+  Stopping: "text-yellow-300",
+  Stopped: "text-gray-faded/30",
+  Error: "text-red-200",
+};
+
 export function isAxiosError<ResponseType>(
   error: unknown
 ): error is AxiosError<ResponseType> {

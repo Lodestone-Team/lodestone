@@ -13,7 +13,6 @@ import { useUserAuthorized } from 'data/UserInfo';
 import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
 import { toast } from 'react-toastify';
-import { Small } from './ClipboardTextfield.stories';
 import useAnalyticsEventTracker from 'utils/hooks';
 
 // for the css style of the double border when focused
