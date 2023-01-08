@@ -32,11 +32,10 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use serde_json::Value;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool},
+    sqlite::{SqliteConnectOptions},
     Pool,
 };
 use std::{
-    clone,
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -276,7 +275,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         sqlite_pool: Pool::connect_with(
             SqliteConnectOptions::from_str(&format!(
                 "sqlite://{}/data.db",
-                PATH_TO_STORES.with(|p| p.clone()).display().to_string()
+                PATH_TO_STORES.with(|p| p.clone()).display()
             ))
             .unwrap()
             .create_if_missing(true),

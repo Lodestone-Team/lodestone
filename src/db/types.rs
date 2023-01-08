@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    events::{
-        CausedBy, EventInner, EventLevel, 
-    },
-    output_types::ClientEvent, auth::user_id::UserId, types::{InstanceUuid, Snowflake},
+    auth::user_id::UserId,
+    events::{CausedBy, EventInner, EventLevel},
+    output_types::ClientEvent,
+    types::{InstanceUuid, Snowflake},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -21,7 +21,7 @@ pub struct ClientEventRow {
 impl From<&ClientEvent> for ClientEventRow {
     fn from(client_event: &ClientEvent) -> Self {
         let caused_by_user_id = if let CausedBy::User { user_id, .. } = &client_event.caused_by {
-            Some(user_id.to_owned())  
+            Some(user_id.to_owned())
         } else {
             None
         };

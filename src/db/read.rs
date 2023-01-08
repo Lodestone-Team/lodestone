@@ -1,11 +1,10 @@
 use crate::{
-    handlers::events::EventQuery,
-    output_types::ClientEvent,
-    Error, traits::ErrorInner, prelude::LODESTONE_EPOCH_MIL,
+    handlers::events::EventQuery, output_types::ClientEvent, prelude::LODESTONE_EPOCH_MIL,
+    traits::ErrorInner, Error,
 };
 
 use log::error;
-use sqlx::{Pool, sqlite::{SqliteConnectOptions, SqlitePool}};
+use sqlx::sqlite::SqlitePool;
 
 // TODO clean up all unwraps
 
@@ -19,8 +18,8 @@ pub async fn search_events(
         detail: format!("Failed to acquire connection: {}", err),
     })?;
     let parsed_client_events = if let Some(time_range) = &event_query.time_range {
-        let start = (time_range.start - LODESTONE_EPOCH_MIL.with(|p| p.clone())) << 22;
-        let end = (time_range.end + 1 - LODESTONE_EPOCH_MIL.with(|p| p.clone())) << 22;
+        let start = (time_range.start - LODESTONE_EPOCH_MIL.with(|p| *p)) << 22;
+        let end = (time_range.end + 1 - LODESTONE_EPOCH_MIL.with(|p| *p)) << 22;
         let rows = sqlx::query!(
             r#"
 SELECT
@@ -31,7 +30,8 @@ WHERE snowflake >= ($1) AND snowflake <= ($2)"#,
             end
         ) // TODO bit shift
         .fetch_all(&mut connection)
-        .await.map_err(|err| Error {
+        .await
+        .map_err(|err| Error {
             inner: ErrorInner::DBFetchError,
             detail: format!("Failed to fetch events: {}", err),
         })?;
@@ -52,7 +52,8 @@ SELECT
 FROM ClientEvents"#
         )
         .fetch_all(&mut connection)
-        .await.map_err(|err| Error {
+        .await
+        .map_err(|err| Error {
             inner: ErrorInner::DBFetchError,
             detail: format!("Failed to fetch events: {}", err),
         })?;
@@ -74,12 +75,17 @@ FROM ClientEvents"#
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
-    use std::{str::FromStr, path::PathBuf};
+    use std::{path::PathBuf, str::FromStr};
 
-    use sqlx::Sqlite;
+    use sqlx::{sqlite::SqliteConnectOptions, Pool, Sqlite};
 
-    use crate::{events::{EventLevel, EventInner, FSEvent, FSOperation, FSTarget, CausedBy}, db::write::init_client_events_table, types::Snowflake};
+    use crate::{
+        db::write::init_client_events_table,
+        events::{CausedBy, EventInner, EventLevel, FSEvent, FSOperation, FSTarget},
+        types::Snowflake,
+    };
 
     use super::*;
 
@@ -92,7 +98,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let drop_result = sqlx::query!(r#"DROP TABLE IF EXISTS ClientEvents"#).execute(&pool).await;
+        let drop_result = sqlx::query!(r#"DROP TABLE IF EXISTS ClientEvents"#)
+            .execute(&pool)
+            .await;
         assert!(drop_result.is_ok());
         let init_result = init_client_events_table(&pool).await;
         assert!(init_result.is_ok());
@@ -111,7 +119,7 @@ mod tests {
 
         // let row_1_result = sqlx::query!(
         //     r#"
-        //     INSERT INTO ClientEvents (event_value, details, snowflake, level) 
+        //     INSERT INTO ClientEvents (event_value, details, snowflake, level)
         //     VALUES ($1, $2, $3, $4);
         //     "#,
         //     serde_json::to_string(&dummy_event_1).unwrap(),

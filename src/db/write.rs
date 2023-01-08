@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use crate::{
     events::{Event, EventInner, ProgressionEventInner},
     output_types::ClientEvent,
@@ -7,12 +5,8 @@ use crate::{
     Error,
 };
 
-use futures::Future;
 use log::{info, warn};
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool},
-    Pool,
-};
+use sqlx::sqlite::SqlitePool;
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 
 use super::types::ClientEventRow;
@@ -123,8 +117,12 @@ pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
+
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, str::FromStr};
+
+    use sqlx::{sqlite::SqliteConnectOptions, Pool};
 
     use crate::{
         events::{CausedBy, EventLevel, FSEvent, FSOperation, FSTarget},

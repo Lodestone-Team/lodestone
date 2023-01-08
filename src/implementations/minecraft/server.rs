@@ -464,10 +464,7 @@ impl TServer for MinecraftInstance {
                                 }),
                             )
                             .unwrap();
-                        self.players_manager
-                            .lock()
-                            .await
-                            .clear(name);
+                        self.players_manager.lock().await.clear(name);
                     }
                 });
             }

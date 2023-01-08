@@ -14,7 +14,9 @@ use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
 use crate::{
     auth::{user::UsersManager, user_id::UserId},
-    events::InstanceEventKind, types::TimeRange, db::read::search_events,
+    db::read::search_events,
+    events::InstanceEventKind,
+    types::TimeRange,
 };
 use crate::{events::EventType, output_types::ClientEvent};
 use crate::{events::UserEventKind, types::InstanceUuid};
@@ -153,7 +155,7 @@ pub async fn get_event_search(
             detail: e.to_string(),
         }
     })?;
-    let requester = state
+    let _requester = state
         .users_manager
         .read()
         .await

@@ -458,16 +458,15 @@ impl UsersManager {
             .hashed_psw
             .clone();
         if let Some(old_password) = old_password {
-
             Argon2::default()
-            .verify_password(
-                old_password.as_ref().as_bytes(),
-                &argon2::PasswordHash::new(old_data.as_ref()).unwrap(),
-            )
-            .map_err(|_| Error {
-                inner: ErrorInner::Unauthorized,
-                detail: "Wrong password".to_string(),
-            })?;
+                .verify_password(
+                    old_password.as_ref().as_bytes(),
+                    &argon2::PasswordHash::new(old_data.as_ref()).unwrap(),
+                )
+                .map_err(|_| Error {
+                    inner: ErrorInner::Unauthorized,
+                    detail: "Wrong password".to_string(),
+                })?;
         }
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
             user.hashed_psw = hash_password(password);
