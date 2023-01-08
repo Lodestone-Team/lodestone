@@ -251,6 +251,7 @@ pub trait IntoEvent {
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq, Eq)]
 #[ts(export)]
+#[derive(sqlx::Type)]
 pub enum EventLevel {
     Info,
     Warning,

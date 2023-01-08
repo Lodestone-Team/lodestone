@@ -4,6 +4,8 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Eq, Serialize, Deserialize, TS)]
 #[serde(transparent)]
 #[ts(export)]
+#[derive(sqlx::Type)]
+#[sqlx(transparent)]
 pub struct UserId(String);
 
 impl From<String> for UserId {

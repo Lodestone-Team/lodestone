@@ -20,7 +20,7 @@ InstanceTest/
 .lodestone/
 LodestoneTest/
 instances/
-db/
+
 web
 lodestone-path/
 
