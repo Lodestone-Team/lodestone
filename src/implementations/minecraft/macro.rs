@@ -262,7 +262,7 @@ impl TMacro for MinecraftInstance {
             instance_uuid: self.config.uuid.clone(),
         };
 
-        self.macro_executor.spawn(exec_instruction);
+        self.macro_executor.spawn(exec_instruction).await?;
 
         Ok(())
     }
