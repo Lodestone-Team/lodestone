@@ -17,7 +17,7 @@ pub struct Snowflake(
 );
 
 #[derive(Deserialize, Clone, Debug, TS)]
-
+#[ts(export)]
 pub struct TimeRange {
     pub start: i64,
     pub end: i64,
