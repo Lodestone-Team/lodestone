@@ -270,8 +270,8 @@ pub async fn create_minecraft_instance(
                     return;
                 }
             };
-            let mut port_allocator = state.port_allocator.lock().await;
-            port_allocator.add_port(setup_config.port);
+            let mut port_manager = state.port_manager.lock().await;
+            port_manager.add_port(setup_config.port);
             state
                 .instances
                 .lock()
@@ -358,7 +358,7 @@ pub async fn delete_instance(
                     }
                 })?;
             state
-                .port_allocator
+                .port_manager
                 .lock()
                 .await
                 .deallocate(instance.port().await);

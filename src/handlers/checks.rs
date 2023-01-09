@@ -1,5 +1,5 @@
 use crate::traits::t_configurable::TConfigurable;
-use crate::{port_allocator::PortStatus, AppState};
+use crate::{port_manager::PortStatus, AppState};
 use axum::{extract::Path, routing::get, Json, Router};
 /// Check the status of a port
 /// Note: this function is not cheap
@@ -7,7 +7,7 @@ pub async fn get_port_status(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(port): Path<u32>,
 ) -> Json<PortStatus> {
-    Json(state.port_allocator.lock().await.port_status(port))
+    Json(state.port_manager.lock().await.port_status(port))
 }
 
 /// Check whether a name is in use

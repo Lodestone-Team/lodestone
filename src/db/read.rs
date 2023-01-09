@@ -106,13 +106,13 @@ mod tests {
         assert!(init_result.is_ok());
 
         let snowflake = Snowflake::new();
-        let dummy_event_1 = ClientEvent {
+        let _dummy_event_1 = ClientEvent {
             event_inner: EventInner::FSEvent(FSEvent {
                 operation: FSOperation::Read,
                 target: FSTarget::File(PathBuf::from("/test")),
             }),
             details: "Dummy detail 1".to_string(),
-            snowflake: snowflake.clone(),
+            snowflake: snowflake,
             level: EventLevel::Info,
             caused_by: CausedBy::System,
         };

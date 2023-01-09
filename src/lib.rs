@@ -5,7 +5,8 @@ use crate::{
     global_settings::GlobalSettingsData,
     handlers::{
         checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
-        global_fs::get_global_fs_routes, global_settings::get_global_settings_routes, instance::*,
+        gateway::get_gateway_routes, global_fs::get_global_fs_routes,
+        global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
         instance_macro::get_instance_macro_routes, instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
@@ -25,16 +26,13 @@ use global_settings::GlobalSettings;
 use implementations::minecraft;
 use log::{debug, error, info, warn};
 use macro_executor::MacroExecutor;
-use port_allocator::PortAllocator;
+use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use serde_json::Value;
-use sqlx::{
-    sqlite::{SqliteConnectOptions},
-    Pool,
-};
+use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -71,7 +69,7 @@ mod handlers;
 mod implementations;
 pub mod macro_executor;
 mod output_types;
-mod port_allocator;
+mod port_manager;
 pub mod prelude;
 pub mod tauri_export;
 mod traits;
@@ -90,7 +88,7 @@ pub struct AppState {
     up_since: i64,
     global_settings: Arc<Mutex<GlobalSettings>>,
     system: Arc<Mutex<sysinfo::System>>,
-    port_allocator: Arc<Mutex<PortAllocator>>,
+    port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
     macro_executor: MacroExecutor,
@@ -266,7 +264,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         event_broadcaster: tx.clone(),
         uuid: Uuid::new_v4().to_string(),
         up_since: chrono::Utc::now().timestamp(),
-        port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
+        port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
@@ -375,6 +373,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                     .merge(get_instance_fs_routes(shared_state.clone()))
                     .merge(get_global_fs_routes(shared_state.clone()))
                     .merge(get_global_settings_routes(shared_state.clone()))
+                    .merge(get_gateway_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);

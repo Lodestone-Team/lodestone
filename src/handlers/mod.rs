@@ -4,6 +4,7 @@
 pub mod checks;
 pub mod core_info;
 pub mod events;
+pub mod gateway;
 pub mod global_fs;
 pub mod global_settings;
 pub mod instance;
