@@ -23,7 +23,7 @@ const SettingsPage = () => {
 
   return (
     // used to possibly center the content
-    <div className="relative flex h-full w-full flex-row justify-center @container">
+    <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
       <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
         <div className="flex min-w-0 flex-row items-center gap-4">
           <h1 className="dashboard-instance-heading">Core Settings</h1>

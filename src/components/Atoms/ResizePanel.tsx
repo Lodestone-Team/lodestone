@@ -48,8 +48,8 @@ const ResizePanel = forwardRef(({
   const wrappedCombinedRef = useCombinedRefs<HTMLDivElement>(ref, wrapperRef);
 
   const isHorizontal = direction === 'w' || direction === 'e';
-  const [size, setSizeState] = React.useState(0);
-  const [targetSize, setTargetSize] = React.useState(0); //the size the user is dragging to, usually not valid
+  const [size, setSizeState] = React.useState(initialSize);
+  const [targetSize, setTargetSize] = React.useState(initialSize); //the size the user is dragging to, usually not valid
 
   const setSize = (size: number) => {
     if (onResize) onResize(size);
@@ -149,6 +149,8 @@ const ResizePanel = forwardRef(({
   const contentStyle = isHorizontal
     ? { width: size + 'px' }
     : { height: size + 'px' };
+
+  console.log(size);
 
   const content = [
     <div

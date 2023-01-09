@@ -29,7 +29,8 @@ export default function InstancePill({
       className={clsx(
         'flex flex-row items-center gap-x-1.5',
         'cursor-pointer rounded-md py-1 px-2',
-        'text-medium font-bold tracking-medium hover:bg-gray-700'
+        'text-mediud font-bold tracking-medium hover:bg-gray-700',
+        focus && 'outline-fade-700 outline outline-1'
       )}
       onClick={cardOnClick}
     >

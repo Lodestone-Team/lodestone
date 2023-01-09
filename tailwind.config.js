@@ -50,6 +50,9 @@ module.exports = {
         900: '#1D1E21',
         faded: '#A5A5AC',
       },
+      fade: {
+        700: '#d1d1da19',
+      },
       white: '#FFFFFF',
       violet: '#8736C7',
       ultramarine: '#273EB9',

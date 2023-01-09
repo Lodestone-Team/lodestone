@@ -136,7 +136,7 @@ const Dashboard = () => {
 
   return (
     <div
-      className="relative flex h-full w-full flex-row justify-center @container"
+      className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container"
       key={uuid}
     >
       {/* main content container */}
