@@ -58,7 +58,7 @@ export default function LeftNav({ className }: { className?: string }) {
           <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
             <Button
               label="Add"
-              className="w-fit"
+              className="w-full"
               variant="text"
               icon={faPlus}
               disabled={!canCreateInstance}
