@@ -59,6 +59,7 @@ export default function LeftNav({ className }: { className?: string }) {
             <Button
               label="Add"
               className="w-fit"
+              variant="text"
               icon={faPlus}
               disabled={!canCreateInstance}
               onClick={() => setShowCreateInstance(true)}

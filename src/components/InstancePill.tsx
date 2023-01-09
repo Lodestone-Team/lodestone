@@ -17,7 +17,6 @@ export default function InstancePill({
   state,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   port,
-  focus = false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
   flavour,
@@ -29,8 +28,8 @@ export default function InstancePill({
       className={clsx(
         'flex flex-row items-center gap-x-1.5',
         'cursor-pointer rounded-md py-1 px-2',
-        'text-mediud font-bold tracking-medium hover:bg-gray-700',
-        focus && 'outline-fade-700 outline outline-1'
+        'text-mediud font-bold tracking-medium  ui-not-checked:hover:bg-gray-800',
+        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700'
       )}
       onClick={cardOnClick}
     >
