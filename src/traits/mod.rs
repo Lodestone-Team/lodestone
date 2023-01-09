@@ -91,6 +91,9 @@ pub enum ErrorInner {
     DBFetchError,
     DBPoolError,
 
+    // Gateway (port forwarding) error
+    GatewayError,
+
     // Generic error
     NotFound,
     InternalError,
