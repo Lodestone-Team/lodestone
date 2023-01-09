@@ -163,6 +163,7 @@ pub enum ProgressionEventInner {
 pub enum FSOperation {
     Read,
     Write,
+    Move { source: PathBuf },
     Create,
     Delete,
     Upload,

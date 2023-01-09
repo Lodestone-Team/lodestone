@@ -282,6 +282,60 @@ async fn make_directory(
     Ok(Json(()))
 }
 
+async fn move_file(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path((base64_absolute_path_source, base64_absolute_path_dest)): Path<(String, String)>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let path_source = decode_base64(&base64_absolute_path_source).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
+    let path_dest = decode_base64(&base64_absolute_path_dest).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
+
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to access global files".to_string(),
+        });
+    }
+
+    tokio::fs::rename(&path_source,&path_dest)
+        .await
+        .map_err(|e| Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: format!("Failed to move file: {}", e),
+        })?;
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Move {
+            source: PathBuf::from(&path_source),
+        },
+        FSTarget::File(PathBuf::from(path_source)),
+        caused_by,
+    ));
+
+    Ok(Json(()))
+}
+
 async fn remove_file(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
@@ -735,6 +789,7 @@ pub fn get_global_fs_routes(state: AppState) -> Router {
         .route("/fs/:base64_absolute_path/read", get(read_file))
         .route("/fs/:base64_absolute_path/write", put(write_file))
         .route("/fs/:base64_absolute_path/mkdir", put(make_directory))
+        .route("/fs/:base64_absolute_path/move", put(move_file))
         .route("/fs/:base64_absolute_path/rm", delete(remove_file))
         .route("/fs/:base64_absolute_path/rmdir", delete(remove_dir))
         .route("/fs/:base64_absolute_path/new", put(new_file))

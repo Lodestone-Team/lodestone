@@ -282,6 +282,79 @@ async fn make_instance_directory(
     Ok(Json(()))
 }
 
+async fn move_instance_file(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path((uuid, base64_relative_path_source, base64_relative_path_dest)): Path<(
+        InstanceUuid,
+        String,
+        String,
+    )>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let relative_path_source = decode_base64(&base64_relative_path_source).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
+    let relative_path_dest = decode_base64(&base64_relative_path_dest).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to access instance files".to_string(),
+        });
+    }
+    let instances = state.instances.lock().await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
+    let root = instance.path().await;
+    drop(instances);
+    let path_source = scoped_join_win_safe(&root, relative_path_source)?;
+    let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
+
+    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone()))
+        && (is_file_protected(&path_source) || is_file_protected(&path_dest))
+    {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to move instance files".to_string(),
+        });
+    }
+    tokio::fs::rename(&path_source, &path_dest)
+        .await
+        .map_err(|_| Error {
+            inner: ErrorInner::FailedToMoveFileOrDir,
+            detail: "Failed to move file".to_string(),
+        })?;
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid,
+        user_name: requester.username,
+    };
+
+    let _ = state.event_broadcaster.send(new_fs_event(
+        FSOperation::Move {
+            source: path_source.clone(),
+        },
+        FSTarget::File(path_source),
+        caused_by,
+    ));
+
+    Ok(Json(()))
+}
+
 async fn remove_instance_file(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
@@ -821,6 +894,10 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
         .route(
             "/instance/:uuid/fs/:base64_relative_path/mkdir",
             put(make_instance_directory),
+        )
+        .route(
+            "instance/:uuid/fs/:base64_relative_path/move",
+            put(move_instance_file),
         )
         .route(
             "/instance/:uuid/fs/:base64_relative_path/rm",

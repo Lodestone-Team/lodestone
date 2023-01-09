@@ -28,6 +28,7 @@ pub enum ErrorInner {
     FailedToWriteFileOrDir,
     FailedToCreateFileOrDir,
     FailedToRemoveFileOrDir,
+    FailedToMoveFileOrDir,
     FileOrDirNotFound,
     FiledOrDirAlreadyExists,
     IOError,
