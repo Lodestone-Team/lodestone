@@ -63,6 +63,7 @@ enum_dispatch = "0.3.8"
 rcon = { version = "0.6.0", features = ["rt-tokio"] }
 tempdir = "0.3.7"
 igd = "0.12.0"
+local-ip-address = "0.5.0"
 deno_core = "0.162.0"
 deno_runtime = "0.88.0"
 deno_ast = { version = "0.20.0", features = ["transpiling"] }
