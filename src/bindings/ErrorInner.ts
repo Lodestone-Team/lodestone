@@ -5,6 +5,7 @@ export type ErrorInner =
   | 'FailedToWriteFileOrDir'
   | 'FailedToCreateFileOrDir'
   | 'FailedToRemoveFileOrDir'
+  | 'FailedToMoveFileOrDir'
   | 'FileOrDirNotFound'
   | 'FiledOrDirAlreadyExists'
   | 'IOError'
@@ -39,5 +40,10 @@ export type ErrorInner =
   | 'UsernameAlreadyExists'
   | 'Unauthorized'
   | 'PermissionDenied'
+  | 'DBInitError'
+  | 'DBWriteError'
+  | 'DBFetchError'
+  | 'DBPoolError'
+  | 'GatewayError'
   | 'NotFound'
   | 'InternalError';

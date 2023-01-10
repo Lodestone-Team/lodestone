@@ -3,6 +3,7 @@
 export type FSOperation =
   | 'Read'
   | 'Write'
+  | { Move: { source: string } }
   | 'Create'
   | 'Delete'
   | 'Upload'

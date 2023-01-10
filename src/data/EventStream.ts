@@ -35,7 +35,9 @@ export const useEventStream = () => {
       event_types: null,
       instance_event_types: null,
       user_event_types: null,
+      event_user_ids: null,
       event_instance_ids: null,
+      time_range: null,
     }),
     [token]
   );
