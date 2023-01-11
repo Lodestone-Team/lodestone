@@ -22,7 +22,7 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 
 ## Installation
 
-You can download the Lodestone client from our [release page](www.example.com). We also have a [webapp](example.com) in early access. For any troubleshooting, see our [wiki](www.example.com).
+You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest). We also have a [webapp](https://www.lodestone.cc/) in early access. For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/dashboard/wiki).
 
 ## Safety & Security
 
