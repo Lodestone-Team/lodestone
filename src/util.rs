@@ -164,7 +164,13 @@ pub async fn list_dir(
     ret
 }
 
-pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Error> {
+pub async fn unzip_file(
+    file: impl AsRef<Path>,
+    dest: impl AsRef<Path>,
+    overwrite_old: bool,
+) -> Result<HashSet<PathBuf>, Error> {
+    let file = file.as_ref();
+    let dest = dest.as_ref();
     let os = std::env::consts::OS;
     let arch = if std::env::consts::ARCH == "x86_64" {
         "x64"
@@ -185,7 +191,6 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
     })?;
     let before: HashSet<PathBuf>;
 
-    // TODO: remove hardcoded temp dir
     let tmp_dir = TempDir::new("lodestone")
         .map_err(|e| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
@@ -193,12 +198,9 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
         })?
         .path()
         .to_owned();
-    tokio::fs::create_dir_all(&tmp_dir)
-        .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("Failed to create directory {}", tmp_dir.display()),
-        })?;
+
+    let overwrite_arg = if overwrite_old { "-aoa" } else { "-aou" };
+
     if file.extension().ok_or(Error {
         inner: ErrorInner::MalformedFile,
         detail: "Not a zip file".to_string(),
@@ -208,7 +210,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
             Command::new(&_7zip_path)
                 .arg("x")
                 .arg(file)
-                .arg("-aoa")
+                .arg(overwrite_arg)
                 .arg(format!("-o{}", tmp_dir.display())),
         )
         .status()
@@ -232,7 +234,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
             Command::new(&_7zip_path)
                 .arg("x")
                 .arg(&tmp_dir)
-                .arg("-aoa")
+                .arg(overwrite_arg)
                 .arg("-ttar")
                 .arg(format!("-o{}", dest.display())),
         )
@@ -257,7 +259,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
                 .arg("x")
                 .arg(file)
                 .arg(format!("-o{}", dest.display()))
-                .arg("-aoa"),
+                .arg(overwrite_arg),
         )
         .status()
         .await
@@ -275,12 +277,6 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
         .iter()
         .cloned()
         .collect();
-    tokio::fs::remove_dir_all(tmp_dir)
-        .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToRemoveFileOrDir,
-            detail: "Failed to remove tmp dir".to_string(),
-        })?;
     Ok((&after - &before).iter().cloned().collect())
 }
 
