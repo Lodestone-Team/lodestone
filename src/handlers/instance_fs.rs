@@ -1,3 +1,5 @@
+use std::{collections::HashSet, path::PathBuf};
+
 use axum::{
     body::Bytes,
     extract::{Multipart, Path},
@@ -19,7 +21,7 @@ use crate::{
     },
     traits::{t_configurable::TConfigurable, Error, ErrorInner},
     types::{InstanceUuid, Snowflake},
-    util::{list_dir, rand_alphanumeric, scoped_join_win_safe},
+    util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file},
     AppState,
 };
 
@@ -37,10 +39,18 @@ static PROTECTED_EXTENSIONS: [&str; 10] = [
     "inf",
 ];
 
-fn is_file_protected(path: impl AsRef<std::path::Path>) -> bool {
+static PROTECTED_DIR_NAME: [&str; 1] = ["mods"];
+
+fn is_path_protected(path: impl AsRef<std::path::Path>) -> bool {
     let path = path.as_ref();
-    if let Some(ext) = path.extension() {
-        PROTECTED_EXTENSIONS.contains(&ext.to_str().unwrap())
+    if path.is_dir() {
+        path.file_name()
+            .and_then(|s| s.to_str().map(|s| PROTECTED_DIR_NAME.contains(&s)))
+            .unwrap_or(true)
+    } else if let Some(ext) = path.extension() {
+        ext.to_str()
+            .map(|s| PROTECTED_EXTENSIONS.contains(&s))
+            .unwrap_or(true)
     } else {
         true
     }
@@ -203,7 +213,7 @@ async fn write_instance_file(
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: format!(
@@ -325,7 +335,7 @@ async fn move_instance_file(
     let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
 
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone()))
-        && (is_file_protected(&path_source) || is_file_protected(&path_dest))
+        && (is_path_protected(&path_source) || is_path_protected(&path_dest))
     {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
@@ -388,7 +398,7 @@ async fn remove_instance_file(
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: format!(
@@ -468,7 +478,7 @@ async fn remove_instance_dir(
         });
     }
     // if target has a protected extension, or no extension, deny
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: format!(
@@ -499,7 +509,7 @@ async fn remove_instance_dir(
                     detail: "Failed to read directory while scanning for protected files"
                         .to_string(),
                 })?;
-                if entry.file_type().is_file() && is_file_protected(entry.path()) {
+                if entry.file_type().is_file() && is_path_protected(entry.path()) {
                     return Err(Error {
                         inner: ErrorInner::PermissionDenied,
                         detail: format!(
@@ -570,7 +580,7 @@ async fn new_instance_file(
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: format!(
@@ -748,7 +758,7 @@ async fn upload_instance_file(
         let name = sanitize_filename::sanitize(name);
         let path = scoped_join_win_safe(&path_to_dir, &name)?;
         // if the file has a protected extension, or no extension, deny
-        if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_file_protected(&path) {
+        if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
             return Err(Error {
                 inner: ErrorInner::PermissionDenied,
                 detail: format!(
@@ -877,6 +887,86 @@ async fn upload_instance_file(
     Ok(Json(()))
 }
 
+pub async fn unzip_instance_file(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path((uuid, base64_relative_path_to_zip, base64_relative_path_to_dest)): Path<(
+        InstanceUuid,
+        String,
+        String,
+    )>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<HashSet<PathBuf>>, Error> {
+    let relative_path = decode_base64(&base64_relative_path_to_zip).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
+    let relative_path_to_dest = decode_base64(&base64_relative_path_to_dest).ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "Relative path is not valid urlsafe base64".to_string(),
+    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Not authorized to write instance files".to_string(),
+        });
+    }
+    let instances = state.instances.lock().await;
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
+    let root = instance.path().await;
+    drop(instances);
+    let path_to_zip_file = scoped_join_win_safe(&root, relative_path)?;
+    let path_to_dest = scoped_join_win_safe(&root, relative_path_to_dest)?;
+    if !path_to_zip_file.is_file() {
+        return Err(Error {
+            inner: ErrorInner::FileOrDirNotFound,
+            detail: "File not found".to_string(),
+        });
+    }
+
+    if !path_to_zip_file
+        .extension()
+        .map(|ext| ext == "zip")
+        .unwrap_or(false)
+    {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "File is not a zip file".to_string(),
+        });
+    }
+
+    if !path_to_dest.is_dir() {
+        return Err(Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: "Destination is not a directory".to_string(),
+        });
+    }
+
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile)
+        && is_path_protected(&path_to_dest)
+    {
+        return Err(Error {
+            inner: ErrorInner::PermissionDenied,
+            detail: "Destination path is protected".to_string(),
+        });
+    }
+
+    Ok(Json(
+        unzip_file(path_to_zip_file, path_to_dest, false).await?,
+    ))
+}
+
 pub fn get_instance_fs_routes(state: AppState) -> Router {
     Router::new()
         .route(
@@ -918,6 +1008,10 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
         .route(
             "/instance/:uuid/fs/:base64_relative_path/upload",
             put(upload_instance_file),
+        )
+        .route(
+            "/instance/:uuid/fs/:base64_relative_path_to_zip/unzip/:base64_relative_path_to_dest",
+            put(unzip_instance_file),
         )
         .with_state(state)
 }
