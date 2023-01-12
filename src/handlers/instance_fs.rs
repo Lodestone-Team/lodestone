@@ -986,7 +986,7 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             put(make_instance_directory),
         )
         .route(
-            "instance/:uuid/fs/:base64_relative_path/move",
+            "/instance/:uuid/fs/:base64_relative_path/move",
             put(move_instance_file),
         )
         .route(
