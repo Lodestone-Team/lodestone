@@ -889,14 +889,14 @@ async fn upload_instance_file(
 
 pub async fn unzip_instance_file(
     axum::extract::State(state): axum::extract::State<AppState>,
-    Path((uuid, base64_relative_path_to_zip, base64_relative_path_to_dest)): Path<(
+    Path((uuid, base64_relative_path, base64_relative_path_to_dest)): Path<(
         InstanceUuid,
         String,
         String,
     )>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<HashSet<PathBuf>>, Error> {
-    let relative_path = decode_base64(&base64_relative_path_to_zip).ok_or(Error {
+    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
         inner: ErrorInner::MalformedRequest,
         detail: "Relative path is not valid urlsafe base64".to_string(),
     })?;
@@ -1010,7 +1010,7 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             put(upload_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/unzip/:base64_relative_path_to_zip/:base64_relative_path_to_dest",
+            "/instance/:uuid/fs/:base64_relative_path/unzip/:base64_relative_path_to_dest",
             put(unzip_instance_file),
         )
         .with_state(state)
