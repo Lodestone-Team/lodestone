@@ -1010,7 +1010,7 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             put(upload_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path_to_zip/unzip/:base64_relative_path_to_dest",
+            "/instance/:uuid/fs/unzip/:base64_relative_path_to_zip/:base64_relative_path_to_dest",
             put(unzip_instance_file),
         )
         .with_state(state)
