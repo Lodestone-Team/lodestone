@@ -789,7 +789,7 @@ pub fn get_global_fs_routes(state: AppState) -> Router {
         .route("/fs/:base64_absolute_path/read", get(read_file))
         .route("/fs/:base64_absolute_path/write", put(write_file))
         .route("/fs/:base64_absolute_path/mkdir", put(make_directory))
-        .route("/fs/:base64_absolute_path/move", put(move_file))
+        .route("/fs/:base64_absolute_path/move/:base64_relative_path_dest", put(move_file))
         .route("/fs/:base64_absolute_path/rm", delete(remove_file))
         .route("/fs/:base64_absolute_path/rmdir", delete(remove_dir))
         .route("/fs/:base64_absolute_path/new", put(new_file))
