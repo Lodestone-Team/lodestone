@@ -344,9 +344,9 @@ async fn move_instance_file(
     }
     tokio::fs::rename(&path_source, &path_dest)
         .await
-        .map_err(|_| Error {
+        .map_err(|e| Error {
             inner: ErrorInner::FailedToMoveFileOrDir,
-            detail: "Failed to move file".to_string(),
+            detail: format!("Failed to move file or directory: {}", e),
         })?;
 
     let caused_by = CausedBy::User {
