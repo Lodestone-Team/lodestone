@@ -469,7 +469,8 @@ export const moveInstanceFileOrDirectory = async (
   uuid: string,
   source: string,
   destination: string,
-  queryClient: QueryClient
+  queryClient: QueryClient,
+  direcotrySeparator: string
 ) => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
@@ -482,13 +483,23 @@ export const moveInstanceFileOrDirectory = async (
   );
 
   if (error) {
-    toast.error(error);
+    toast.error(`Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`);
     return;
   }
 
   // just invalided the query instead of updating it because file name might be different due to conflict
-  queryClient.invalidateQueries(['instance', uuid, 'fileList', parentPath(source)]);
-  queryClient.invalidateQueries(['instance', uuid, 'fileList', destination]);
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(source, direcotrySeparator),
+  ]);
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(destination, direcotrySeparator),
+  ]);
 };
 
 export const chooseFiles = async () => {
@@ -532,13 +543,15 @@ export function useCombinedRefs<T>(...refs: any[]) {
   return targetRef;
 }
 
-export const parentPath = (path: string) => {
-  let direcotrySeparator = '\\';
-  // assume only linux paths contain /
-  if (path.includes('/')) direcotrySeparator = '/';
+export const parentPath = (path: string, direcotrySeparator: string) => {
   const pathParts = path.split(direcotrySeparator);
   pathParts.pop();
   return pathParts.join(direcotrySeparator);
+};
+
+export const getFileName = (path: string, direcotrySeparator: string) => {
+  const pathParts = path.split(direcotrySeparator);
+  return pathParts[pathParts.length - 1];
 };
 
 /**

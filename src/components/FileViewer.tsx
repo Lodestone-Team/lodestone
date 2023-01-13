@@ -40,6 +40,7 @@ import {
   DISABLE_AUTOFILL,
   downloadInstanceFiles,
   formatTimeAgo,
+  guessDirectorySeparator,
   moveInstanceFileOrDirectory,
   parentPath,
   saveInstanceFile,
@@ -298,11 +299,17 @@ export default function FileViewer() {
       throw new Error('copying files is not implemented yet');
     if (clipboardAction === 'cut') {
       for (const file of clipboard) {
+        console.log(
+          'moving',
+          file.path,
+          `${path} | ${direcotrySeparator} | ${file.name}`
+        );
         await moveInstanceFileOrDirectory(
           instance.uuid,
           file.path,
-          path,
-          queryClient
+          `${path}${direcotrySeparator}${file.name}`,
+          queryClient,
+          direcotrySeparator
         );
         if (openedFile?.path.startsWith(file.path)) {
           setOpenedFile(null);
@@ -826,7 +833,7 @@ export default function FileViewer() {
         {breadcrumb}
         {clipboard.length !== 0 && (
           <Button
-            className="h-fit"
+            className="h-fit whitespace-nowrap"
             label={`Paste ${clipboard.length} ${
               clipboard.length > 1 ? 'files' : 'file'
             }`}
