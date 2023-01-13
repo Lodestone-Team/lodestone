@@ -15,6 +15,8 @@ import {
   faCheckSquare,
   faListCheck,
   faArrowsRotate,
+  faScissors,
+  faPaste,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   Fragment,
@@ -38,6 +40,8 @@ import {
   DISABLE_AUTOFILL,
   downloadInstanceFiles,
   formatTimeAgo,
+  moveInstanceFileOrDirectory,
+  parentPath,
   saveInstanceFile,
   uploadInstanceFiles,
 } from 'utils/util';
@@ -56,6 +60,7 @@ import * as toml from 'utils/monaco-languages/toml';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
 import Checkbox from './Atoms/Checkbox';
+import ConfirmDialog from './Atoms/ConfirmDialog';
 
 type Monaco = typeof monaco;
 
@@ -128,8 +133,11 @@ export default function FileViewer() {
   fileContentRef.current = fileContent;
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
+  const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
+  const [clipboard, setClipboard] = useState<ClientFile[]>([]);
+  const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const tickFile = (file: ClientFile, ticked: boolean) => {
     if (ticked) {
       setTickedFiles((files) => [...files, file]);
@@ -149,15 +157,10 @@ export default function FileViewer() {
   // assume only linux paths contain /
   if (instance.path.includes('/')) direcotrySeparator = '/';
 
-  const parentPath = (path: string) => {
-    const pathParts = path.split(direcotrySeparator);
-    pathParts.pop();
-    return pathParts.join(direcotrySeparator);
-  };
-
   /* Resets */
   useLayoutEffect(() => {
     setPath('.');
+    setClipboard([]);
   }, [instance]);
 
   useLayoutEffect(() => {
@@ -263,18 +266,51 @@ export default function FileViewer() {
   };
 
   const deleteTickedFiles = async () => {
-    // TODO: show a confirmation dialog
     if (!tickedFiles) return;
     for (const file of tickedFiles) {
       if (file.file_type === 'Directory') {
-        deleteInstanceDirectory(instance.uuid, path, file.path, queryClient);
+        await deleteInstanceDirectory(
+          instance.uuid,
+          path,
+          file.path,
+          queryClient
+        );
         tickFile(file, false);
+        if (openedFile?.path.startsWith(file.path)) {
+          setOpenedFile(null);
+          setFileContent('');
+        }
       } else if (file.file_type === 'File') {
-        deleteInstanceFile(instance.uuid, path, file, queryClient);
+        await deleteInstanceFile(instance.uuid, path, file, queryClient);
         tickFile(file, false);
+        if (openedFile?.path === file.path) {
+          setOpenedFile(null);
+          setFileContent('');
+        }
       }
     }
     setTickedFiles([]);
+  };
+
+  const pasteFiles = async () => {
+    if (!clipboard) return;
+    if (clipboardAction === 'copy')
+      throw new Error('copying files is not implemented yet');
+    if (clipboardAction === 'cut') {
+      for (const file of clipboard) {
+        await moveInstanceFileOrDirectory(
+          instance.uuid,
+          file.path,
+          path,
+          queryClient
+        );
+        if (openedFile?.path.startsWith(file.path)) {
+          setOpenedFile(null);
+          setFileContent('');
+        }
+      }
+    }
+    setClipboard([]);
   };
 
   const downloadTickedFiles = async () => {
@@ -639,6 +675,26 @@ export default function FileViewer() {
       <div className="flex flex-row items-center justify-between gap-4">
         {createFileModal}
         {createFolderModal}
+        <ConfirmDialog
+          isOpen={deleteFileModalOpen}
+          onClose={() => setDeleteFileModalOpen(false)}
+          onConfirm={async () => {
+            setDeleteFileModalOpen(false);
+            deleteTickedFiles();
+          }}
+          title="Delete file(s)"
+          type="danger"
+        >
+          Are you sure you want to delete the following?
+          <ul className="list-inside list-disc">
+            {tickedFiles.map((file) => (
+              <li key={file.path}>
+                {file.name} {file.file_type != 'File' && `(${file.file_type})`}
+              </li>
+            ))}
+          </ul>
+        </ConfirmDialog>
+
         <Menu as="div" className="relative inline-block text-left">
           <Menu.Button
             as={Button}
@@ -675,6 +731,25 @@ export default function FileViewer() {
                         }
                       }}
                       icon={faListCheck}
+                      variant="text"
+                      align="start"
+                      disabled={disabled}
+                      active={active}
+                    />
+                  )}
+                </Menu.Item>
+                <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
+                  {({ active, disabled }) => (
+                    <Button
+                      className="w-full items-start whitespace-nowrap py-1.5"
+                      label="Cut selected"
+                      icon={faScissors}
+                      onClick={() => {
+                        setClipboard(tickedFiles);
+                        setClipboardAction('cut');
+                        setTickedFiles([]);
+                        toast.info('Files cut to clipboard');
+                      }}
                       variant="text"
                       align="start"
                       disabled={disabled}
@@ -733,7 +808,7 @@ export default function FileViewer() {
                     <Button
                       label="Delete selected"
                       className="w-full items-start whitespace-nowrap py-1.5"
-                      onClick={deleteTickedFiles}
+                      onClick={() => setDeleteFileModalOpen(true)}
                       icon={faTrashCan}
                       variant="text"
                       align="start"
@@ -749,6 +824,16 @@ export default function FileViewer() {
         </Menu>
 
         {breadcrumb}
+        {clipboard.length !== 0 && (
+          <Button
+            className="h-fit"
+            label={`Paste ${clipboard.length} ${
+              clipboard.length > 1 ? 'files' : 'file'
+            }`}
+            icon={faPaste}
+            onClick={pasteFiles}
+          />
+        )}
         {showingMonaco && (
           <>
             <Button
@@ -866,11 +951,14 @@ export default function FileViewer() {
           </p>
         </div>
       )}
-      {tickedFiles.length > 0 && (
-        <div className=" absolute bottom-0 left-0 translate-y-full px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length} items selected
-        </div>
-      )}
+      <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
+        {tickedFiles.length > 0 && (
+          <div>{tickedFiles.length} items selected</div>
+        )}
+        {clipboard.length > 0 && (
+          <div>{clipboard.length} items in clipboard</div>
+        )}
+      </div>
     </div>
   );
 }

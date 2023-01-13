@@ -35,7 +35,7 @@ function MyApp({ Component, pageProps }: AppProps) {
           return contextClass[type] + ' relative ' + context?.defaultClassName;
         }}
         icon={<LoadingStatusIcon level={'Info'} bright={true} />}
-        position={'bottom-center'}
+        position={'bottom-right'}
         closeButton={false}
         pauseOnFocusLoss={false}
         draggable={false}
