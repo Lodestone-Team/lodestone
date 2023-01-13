@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::get, Json, Router};
+use axum::{extract::Path, routing::put, Json, Router};
 use axum_auth::AuthBearer;
 
 use crate::{traits::ErrorInner, AppState, Error};
