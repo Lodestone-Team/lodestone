@@ -483,7 +483,9 @@ export const moveInstanceFileOrDirectory = async (
   );
 
   if (error) {
-    toast.error(`Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`);
+    toast.error(
+      `Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`
+    );
     return;
   }
 
@@ -499,6 +501,43 @@ export const moveInstanceFileOrDirectory = async (
     uuid,
     'fileList',
     parentPath(destination, direcotrySeparator),
+  ]);
+};
+
+export const unzipInstanceFile = async (
+  uuid: string,
+  file: ClientFile,
+  targetDirectory: string,
+  queryClient: QueryClient,
+  direcotrySeparator: string
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(
+        file.path,
+        true
+      )}/unzip/${Base64.encode(targetDirectory, true)}`,
+    })
+  );
+
+  if (error) {
+    toast.error(`Failed to unzip ${file.name}: ${error}`);
+    return;
+  }
+
+  // just invalided the query instead of updating it because file name might be different due to conflict
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(file.path, direcotrySeparator),
+  ]);
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    targetDirectory,
   ]);
 };
 
@@ -546,12 +585,52 @@ export function useCombinedRefs<T>(...refs: any[]) {
 export const parentPath = (path: string, direcotrySeparator: string) => {
   const pathParts = path.split(direcotrySeparator);
   pathParts.pop();
-  return pathParts.join(direcotrySeparator);
+  return pathParts.join(direcotrySeparator) || '.';
 };
 
 export const getFileName = (path: string, direcotrySeparator: string) => {
   const pathParts = path.split(direcotrySeparator);
   return pathParts[pathParts.length - 1];
+};
+
+export const getFileNameWithoutExtension = (
+  path: string,
+  direcotrySeparator: string
+) => {
+  const fileName = getFileName(path, direcotrySeparator);
+  const fileNameParts = fileName.split('.');
+  fileNameParts.pop();
+  return fileNameParts.join('.');
+};
+
+export const getFileExtension = (path: string, direcotrySeparator: string) => {
+  const fileName = getFileName(path, direcotrySeparator);
+  const fileNameParts = fileName.split('.');
+  return fileNameParts[fileNameParts.length - 1];
+};
+
+export const getNonDuplicateFolderNameFromFileName = (
+  fileName: string,
+  direcotrySeparator: string,
+  existingFiles: ClientFile[]
+) => {
+  const fileNameWithoutExtension = getFileNameWithoutExtension(
+    fileName,
+    direcotrySeparator
+  );
+  let newFileName = fileName;
+  let i = 1;
+  while (
+    existingFiles.find(
+      (file) =>
+        file.name === newFileName ||
+        file.name === `${newFileName}${direcotrySeparator}`
+    )
+  ) {
+    newFileName = `${fileNameWithoutExtension}-${i}`;
+    i++;
+  }
+  return newFileName;
 };
 
 /**
