@@ -737,3 +737,12 @@ export function isLocalCore(core: CoreConnectionInfo) {
     /^0+:0+:0+:0+:0+:0+:0+:1+$/.test(core.address)
   );
 }
+
+export const openPort = async (port: number) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/gateway/open_port/${port}`,
+    })
+  );
+};
