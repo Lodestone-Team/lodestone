@@ -465,6 +465,43 @@ export const createInstanceDirectory = async (
   );
 };
 
+export const moveInstanceFileOrDirectory = async (
+  uuid: string,
+  source: string,
+  destination: string,
+  queryClient: QueryClient,
+  direcotrySeparator: string
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(
+        source,
+        true
+      )}/move/${Base64.encode(destination, true)}`,
+    })
+  );
+
+  if (error) {
+    toast.error(`Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`);
+    return;
+  }
+
+  // just invalided the query instead of updating it because file name might be different due to conflict
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(source, direcotrySeparator),
+  ]);
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(destination, direcotrySeparator),
+  ]);
+};
+
 export const chooseFiles = async () => {
   const input = document.createElement('input');
   input.type = 'file';
@@ -505,6 +542,17 @@ export function useCombinedRefs<T>(...refs: any[]) {
 
   return targetRef;
 }
+
+export const parentPath = (path: string, direcotrySeparator: string) => {
+  const pathParts = path.split(direcotrySeparator);
+  pathParts.pop();
+  return pathParts.join(direcotrySeparator);
+};
+
+export const getFileName = (path: string, direcotrySeparator: string) => {
+  const pathParts = path.split(direcotrySeparator);
+  return pathParts[pathParts.length - 1];
+};
 
 /**
  * @throws string
@@ -590,7 +638,10 @@ export const deleteUser = async (uid: string) => {
  * @returns undefined if success
  * @param uid user id
  */
-export const changeUserPermissions = async (uid: string, permission: UserPermission) => {
+export const changeUserPermissions = async (
+  uid: string,
+  permission: UserPermission
+) => {
   return await axiosWrapper<undefined>({
     method: 'put',
     url: `/user/${uid}/update_perm`,
