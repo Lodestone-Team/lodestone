@@ -508,7 +508,8 @@ export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
   targetDirectory: string,
-  queryClient: QueryClient
+  queryClient: QueryClient,
+  direcotrySeparator: string
 ) => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
@@ -530,7 +531,7 @@ export const unzipInstanceFile = async (
     'instance',
     uuid,
     'fileList',
-    parentPath(file.path, '/'),
+    parentPath(file.path, direcotrySeparator),
   ]);
   queryClient.invalidateQueries([
     'instance',
@@ -584,7 +585,7 @@ export function useCombinedRefs<T>(...refs: any[]) {
 export const parentPath = (path: string, direcotrySeparator: string) => {
   const pathParts = path.split(direcotrySeparator);
   pathParts.pop();
-  return pathParts.join(direcotrySeparator);
+  return pathParts.join(direcotrySeparator) || '.';
 };
 
 export const getFileName = (path: string, direcotrySeparator: string) => {

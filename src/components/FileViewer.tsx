@@ -350,12 +350,18 @@ export default function FileViewer() {
     const targetFileName = getNonDuplicateFolderNameFromFileName(
       file.name,
       direcotrySeparator,
-      fileList
+      fileList ?? []
     );
 
     const targetPath = `${path}${direcotrySeparator}${targetFileName}`;
 
-    await unzipInstanceFile(instance.uuid, file, targetPath, queryClient);
+    await unzipInstanceFile(
+      instance.uuid,
+      file,
+      targetPath,
+      queryClient,
+      direcotrySeparator
+    );
     tickFile(file, false);
   };
 
