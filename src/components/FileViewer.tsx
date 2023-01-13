@@ -12,11 +12,11 @@ import {
   faFilePen,
   faFolderPlus,
   faCaretDown,
-  faCheckSquare,
   faListCheck,
   faArrowsRotate,
   faScissors,
   faPaste,
+  faFileZipper,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   Fragment,
@@ -40,10 +40,11 @@ import {
   DISABLE_AUTOFILL,
   downloadInstanceFiles,
   formatTimeAgo,
-  guessDirectorySeparator,
+  getNonDuplicateFolderNameFromFileName,
   moveInstanceFileOrDirectory,
   parentPath,
   saveInstanceFile,
+  unzipInstanceFile,
   uploadInstanceFiles,
 } from 'utils/util';
 import Button from 'components/Atoms/Button';
@@ -52,7 +53,6 @@ import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
-import { faSquare } from '@fortawesome/free-regular-svg-icons';
 import clsx from 'clsx';
 import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -339,6 +339,26 @@ export default function FileViewer() {
     }
   };
 
+  const unzipTickedFile = async () => {
+    if (!tickedFiles) return;
+    const file = tickedFiles[0];
+    if (file.file_type !== 'File') {
+      toast.error('Only files can be unzipped');
+      return;
+    }
+
+    const targetFileName = getNonDuplicateFolderNameFromFileName(
+      file.name,
+      direcotrySeparator,
+      fileList
+    );
+
+    const targetPath = `${path}${direcotrySeparator}${targetFileName}`;
+
+    await unzipInstanceFile(instance.uuid, file, targetPath, queryClient);
+    tickFile(file, false);
+  };
+
   /* UI */
 
   const fileCheckIcon = (
@@ -478,7 +498,7 @@ export default function FileViewer() {
             key={'..'}
             className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-200 hover:underline"
             onClick={() => {
-              setPath(parentPath(path));
+              setPath(parentPath(path, direcotrySeparator));
             }}
           >
             <p className="select-none text-medium font-medium">..</p>
@@ -771,6 +791,20 @@ export default function FileViewer() {
                       label="Download selected"
                       icon={faDownload}
                       onClick={downloadTickedFiles}
+                      variant="text"
+                      align="start"
+                      disabled={disabled}
+                      active={active}
+                    />
+                  )}
+                </Menu.Item>
+                <Menu.Item disabled={tickedFiles.length !== 1 || !canWrite}>
+                  {({ active, disabled }) => (
+                    <Button
+                      className="w-full items-start whitespace-nowrap py-1.5"
+                      label="Unarchive selected"
+                      icon={faFileZipper}
+                      onClick={unzipTickedFile}
                       variant="text"
                       align="start"
                       disabled={disabled}
