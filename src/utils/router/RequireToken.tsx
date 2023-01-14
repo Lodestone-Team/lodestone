@@ -4,7 +4,7 @@ import MyNavigate from './MyNavigate';
 
 export default function RequireToken({
   children,
-  redirect = '/login/core/first_setup',
+  redirect = '/login/user/select',
 }: {
   children: React.ReactNode;
   redirect?: string;
