@@ -8,7 +8,7 @@
     "withGlobalTauri": true
   },
   "package": {
-    "productName": "lodestone",
+    "productName": "Lodestone",
     "version": "0.4.0"
   },
   "tauri": {

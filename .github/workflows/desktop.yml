@@ -48,18 +48,18 @@ jobs:
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
 
-      # on windows, cache installer in src-tauri/target/release/bundle/msi/lodestone*.msi
-      # on windows cache exe in src-tauri/target/release/lodestone.exe
-      # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone*.deb
-      # on linux, cache appimage in src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+      # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
+      # on windows cache exe in src-tauri/target/release/Lodestone.exe
+      # on linux, cache deb in src-tauri/target/release/bundle/deb/Lodestone*.deb
+      # on linux, cache appimage in src-tauri/target/release/bundle/appimage/Lodestone*.AppImage
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.platform }}-tauri
           path: |
-            ./src-tauri/target/release/bundle/msi/lodestone*.msi
-            ./src-tauri/target/release/lodestone.exe
-            ./src-tauri/target/release/bundle/deb/lodestone*.deb
-            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+            ./src-tauri/target/release/bundle/msi/Lodestone*.msi
+            ./src-tauri/target/release/Lodestone.exe
+            ./src-tauri/target/release/bundle/deb/Lodestone*.deb
+            ./src-tauri/target/release/bundle/appimage/Lodestone*.AppImage
       
