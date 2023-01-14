@@ -58,14 +58,6 @@ const Dashboard = () => {
         content: <GameConsole />,
       },
       {
-        title: 'Overview',
-        content: (
-          <>
-            <MinecraftPerformanceCard />
-          </>
-        ),
-      },
-      {
         title: 'Settings',
         content: (
           <>
@@ -77,6 +69,14 @@ const Dashboard = () => {
       {
         title: 'Files',
         content: <FileViewer />,
+      },
+      {
+        title: 'Performance',
+        content: (
+          <>
+            <MinecraftPerformanceCard />
+          </>
+        ),
       },
       {
         title: 'Resources',

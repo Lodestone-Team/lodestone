@@ -133,7 +133,7 @@ export default function GameConsole() {
             className="text-title text-gray-400"
           />
           <p className="text-xl text-center text-white/50 font-medium">
-            No console messages
+            No console messages yet
           </p>
         </div>
       ) : (
