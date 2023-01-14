@@ -3432,7 +3432,7 @@ dependencies = [
 [[package]]
 name = "lodestone_core"
 version = "0.4.0"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#fb19cf78f0055707c185c54d2ebc46c4ad169604"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#8bbe8f7e79bb573e72ec0e8da489d5b5a2c233e1"
 dependencies = [
  "argon2",
  "async-trait",
