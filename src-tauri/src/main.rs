@@ -3,12 +3,12 @@
     windows_subsystem = "windows"
 )]
 
-use lodestone_client::AppState;
+use lodestone_core::AppState;
 
-use lodestone_client::Error;
+use lodestone_core::Error;
 
-use lodestone_client::auth::jwt_token::JwtToken;
-use lodestone_client::tauri_export::is_owner_account_present;
+use lodestone_core::auth::jwt_token::JwtToken;
+use lodestone_core::tauri_export::is_owner_account_present;
 
 use tauri::{utils::config::AppUrl, WindowUrl};
 
@@ -23,26 +23,26 @@ async fn setup_owner_account(
     username: String,
     password: String,
 ) -> Result<(), Error> {
-    lodestone_client::tauri_export::setup_owner_account(state.inner(), username, password).await
+    lodestone_core::tauri_export::setup_owner_account(state.inner(), username, password).await
 }
 
 #[tauri::command]
 async fn get_first_time_setup_key(state: tauri::State<'_, AppState>) -> Result<String, ()> {
-    lodestone_client::tauri_export::get_first_time_setup_key(state.inner())
+    lodestone_core::tauri_export::get_first_time_setup_key(state.inner())
         .await
         .ok_or(())
 }
 
 #[tauri::command]
 async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()> {
-    lodestone_client::tauri_export::get_owner_jwt(state.inner())
+    lodestone_core::tauri_export::get_owner_jwt(state.inner())
         .await
         .ok_or(())
 }
 
 #[tokio::main]
 async fn main() {
-    let app_state = lodestone_client::run().await.1;
+    let app_state = lodestone_core::run().await.1;
     let mut context = tauri::generate_context!();
     let mut builder = tauri::Builder::default();
 

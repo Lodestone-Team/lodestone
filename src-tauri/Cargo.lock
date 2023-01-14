@@ -134,7 +134,7 @@ checksum = "2cb2f989d18dd141ab8ae82f64d1a8cdd37e0840f73a406896cf5e99502fab61"
 name = "app"
 version = "0.1.0"
 dependencies = [
- "lodestone_client",
+ "lodestone_core",
  "portpicker",
  "serde",
  "serde_json",
@@ -3430,9 +3430,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "lodestone_client"
+name = "lodestone_core"
 version = "0.4.0"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=0.4.0#19b89f57570e4d81212489bcea8602dfd64c08d2"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#fb19cf78f0055707c185c54d2ebc46c4ad169604"
 dependencies = [
  "argon2",
  "async-trait",
