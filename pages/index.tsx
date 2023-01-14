@@ -41,6 +41,7 @@ import RequireToken from 'utils/router/RequireToken';
 import { InstanceViewLayout } from 'components/DashboardLayout/InstanceViewLayout';
 import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 import { toast } from 'react-toastify';
+import RequireSetup from 'utils/router/RequireSetup';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -167,8 +168,8 @@ export default function App() {
         const decoded = jwt.decode(token, { complete: true });
         if (!decoded) throw new Error('Invalid token');
         const payload = decoded.payload;
-        if(typeof payload === 'undefined') throw new Error('Invalid token');
-        if(typeof payload === 'string') throw new Error('Invalid token');
+        if (typeof payload === 'undefined') throw new Error('Invalid token');
+        if (typeof payload === 'string') throw new Error('Invalid token');
         const exp = payload.exp;
         const uid = payload.uid;
 
@@ -253,9 +254,20 @@ export default function App() {
               />
               <Route
                 path="/login/user/select"
-                element={<UserSelectExisting />}
+                element={
+                  <RequireSetup>
+                    <UserSelectExisting />
+                  </RequireSetup>
+                }
               />
-              <Route path="/login/user" element={<UserLogin />} />
+              <Route
+                path="/login/user"
+                element={
+                  <RequireSetup>
+                    <UserLogin />
+                  </RequireSetup>
+                }
+              />
             </Route>
             <Route
               element={

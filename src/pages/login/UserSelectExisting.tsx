@@ -23,7 +23,7 @@ const UserSelectExisting = () => {
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const { data: coreInfo } = useCoreInfo();
-  const { core_name } = coreInfo ?? {};
+  const { core_name, is_setup } = coreInfo ?? {};
   const { data: userInfo, isLoading: isUserInfoLoading } = useUserInfo();
   const uid = useUid();
 
