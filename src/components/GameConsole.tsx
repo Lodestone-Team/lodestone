@@ -122,7 +122,7 @@ export default function GameConsole() {
             icon={faServer}
             className="text-title text-gray-400"
           />
-          <p className="text-xl text-center text-gray-300">
+          <p className="text-xl text-center text-white/50 font-medium">
             You don&#39;t have permission to access this console
           </p>
         </div>
@@ -132,7 +132,7 @@ export default function GameConsole() {
             icon={faServer}
             className="text-title text-gray-400"
           />
-          <p className="text-xl text-center text-gray-300">
+          <p className="text-xl text-center text-white/50 font-medium">
             No console messages
           </p>
         </div>

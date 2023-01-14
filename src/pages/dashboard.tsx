@@ -18,6 +18,8 @@ import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { ToastContainer } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCompass } from '@fortawesome/free-solid-svg-icons';
 
 const Dashboard = () => {
   const { core } = useContext(LodestoneContext);
@@ -52,6 +54,10 @@ const Dashboard = () => {
   const tabList = {
     minecraft: [
       {
+        title: 'Console',
+        content: <GameConsole />,
+      },
+      {
         title: 'Overview',
         content: (
           <>
@@ -69,26 +75,36 @@ const Dashboard = () => {
         ),
       },
       {
-        title: 'Console',
-        content: <GameConsole />,
-      },
-      {
         title: 'Files',
         content: <FileViewer />,
       },
       {
         title: 'Resources',
         content: (
-          <DashboardCard>
-            <h1 className="text-h3 font-bold"> Placeholder </h1>
+          <DashboardCard className="grow !justify-center !gap-4">
+            <img
+              src="/assets/placeholder-cube.png"
+              alt="placeholder"
+              className="mx-auto w-20"
+            />
+            <p className="text-xl text-center font-medium text-white/50">
+              Coming soon to a dashboard near you!
+            </p>
           </DashboardCard>
         ),
       },
       {
         title: 'Macro',
         content: (
-          <DashboardCard>
-            <h1 className="text-h3 font-bold"> Placeholder </h1>
+          <DashboardCard className="grow !justify-center !gap-4">
+            <img
+              src="/assets/placeholder-cube.png"
+              alt="placeholder"
+              className="mx-auto w-20"
+            />
+            <p className="text-xl text-center font-medium text-white/50">
+              Coming soon to a dashboard near you!
+            </p>
           </DashboardCard>
         ),
       },

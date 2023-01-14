@@ -993,7 +993,7 @@ export default function FileViewer() {
             icon={faFolder}
             className="text-title text-gray-400"
           />
-          <p className="text-xl text-center text-gray-300">
+          <p className="text-xl text-center text-white/50 font-medium">
             You don&#39;t have permission to read this folder
           </p>
         </div>
