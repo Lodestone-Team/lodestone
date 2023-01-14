@@ -1,4 +1,4 @@
-name: dashboard
+name: web-dashboard
 
 on:
   push:
