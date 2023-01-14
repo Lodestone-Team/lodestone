@@ -148,7 +148,7 @@ Contribution is welcome, please join our [Discord](https://discord.gg/yKrSZXbhNx
 
 
 <!-- LICENSE -->
-## 
+## License
 
 This project uses the GNU Affero General Public License v3.0. See our LICENSE files for details. For an alternate (commercial) license, please raise an issue.
 
