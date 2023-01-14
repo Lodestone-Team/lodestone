@@ -187,7 +187,7 @@ async fn download_dependencies() -> Result<(), Error> {
 
 pub async fn run() -> (JoinHandle<()>, AppState) {
     env_logger::builder()
-        .filter(Some("lodestone_client"), log::LevelFilter::Debug)
+        .filter(Some("lodestone_core"), log::LevelFilter::Debug)
         .format_module_path(false)
         .format_target(false)
         .init();
