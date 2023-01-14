@@ -116,7 +116,7 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-TODO!
+Follow the instruction on our [Github page](https://github.com/Lodestone-Team#installation)
 
 _For more examples, please refer to the [Documentation](https://example.com)_
 
@@ -141,18 +141,16 @@ See the [open issues](https://github.com/github_username/repo_name/issues) for a
 <!-- CONTRIBUTING -->
 ## Contributing
 
-Contribution is welcome, please join our [Discord](https://discord.gg/Hpn2dxV9dD) for more details.
-
-TODO!
+Contribution is welcome, please join our [Discord](https://discord.gg/yKrSZXbhNx) for more details.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 
 
 <!-- LICENSE -->
-## License
+## 
 
-TODO!
+This project uses the GNU Affero General Public License v3.0. See our LICENSE files for details. For an alternate (commercial) license, please raise an issue.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
