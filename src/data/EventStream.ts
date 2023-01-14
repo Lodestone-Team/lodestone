@@ -178,11 +178,11 @@ export const useEventStream = () => {
             UserCreated: () => {
               console.log(`User ${uid} created`);
               if (fresh) queryClient.invalidateQueries(['user', 'list']);
-              dispatch({
-                title: `User ${uid} created`,
-                event,
-                type: 'add',
-              });
+              // dispatch({
+              //   title: `User ${uid} created`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             UserDeleted: () => {
               console.log(`User ${uid} deleted`);
@@ -202,27 +202,27 @@ export const useEventStream = () => {
                   }
                 );
               }
-              dispatch({
-                title: `User ${uid} deleted`,
-                event,
-                type: 'add',
-              });
+              // dispatch({
+              //   title: `User ${uid} deleted`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             UserLoggedIn: () => {
               console.log(`User ${uid} logged in`);
-              dispatch({
-                title: `User ${uid} logged in`,
-                event,
-                type: 'add',
-              });
+              // dispatch({
+              //   title: `User ${uid} logged in`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             UserLoggedOut: () => {
               console.log(`User ${uid} logged out`);
-              dispatch({
-                title: `User ${uid} logged out`,
-                event,
-                type: 'add',
-              });
+              // dispatch({
+              //   title: `User ${uid} logged out`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             PermissionChanged: ({ new_permissions }) => {
               console.log(
