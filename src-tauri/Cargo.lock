@@ -3432,7 +3432,7 @@ dependencies = [
 [[package]]
 name = "lodestone_client"
 version = "0.4.0"
-source = "git+https://github.com/Lodestone-Team/client?branch=0.4.0#d75f9568173b6c05d81a7a2342a6e58014f6fe78"
+source = "git+https://github.com/Lodestone-Team/client?branch=0.4.0#47274edc4c33ebcbafe7ef70bc94809221af1273"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5760,9 +5760,9 @@ dependencies = [
 
 [[package]]
 name = "sqlformat"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f87e292b4291f154971a43c3774364e2cbcaec599d3f5bf6fa9d122885dbc38a"
+checksum = "0c12bc9199d1db8234678b7051747c07f517cdcf019262d1847b94ec8b1aee3e"
 dependencies = [
  "itertools",
  "nom",
