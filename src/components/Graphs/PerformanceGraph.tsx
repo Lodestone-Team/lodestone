@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,12 +11,14 @@ import {
   Legend,
   ChartOptions,
   ChartData,
-  Tick,
   ScriptableLineSegmentContext,
+  ScriptableTooltipContext,
+  Chart,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { useIntervalClockSeconds, useIntervalImmediate } from 'utils/hooks';
+import { useIntervalClockSeconds } from 'utils/hooks';
 import { asyncCallWithTimeout } from 'utils/util';
+import { UnionToIntersection } from 'chart.js/types/utils';
 
 ChartJS.register(
   CategoryScale,
@@ -57,6 +59,7 @@ export default function PerformanceGraph({
   timeWindow_s = 61,
   className = '',
   unit = '',
+  counter: counterProp,
   getter,
 }: {
   title: string;
@@ -67,6 +70,7 @@ export default function PerformanceGraph({
   pollrate_s?: number;
   timeWindow_s?: number;
   className?: string;
+  counter?: number;
   unit?: string;
   getter?: () => Promise<[number, number]>;
 }): JSX.Element {
@@ -80,9 +84,10 @@ export default function PerformanceGraph({
   );
   const dataRef = React.useRef(dataHistory);
   dataRef.current = dataHistory;
-  const [counter, setCounter] = useState(-1);
-  const counterRef = React.useRef(counter);
-  counterRef.current = counter;
+  const [counterState, setCounterState] = useState(data ? 0 : -1);
+  const counterRef = React.useRef(counterState);
+  counterRef.current = counterState;
+  const counter = counterProp ?? counterState;
 
   const update = async () => {
     if (!getter) return;
@@ -104,7 +109,7 @@ export default function PerformanceGraph({
       newHistory.shift();
       newHistory.push(val);
       setDataHistory(newHistory);
-      setCounter(counterRef.current + 1);
+      setCounterState(counterRef.current + 1);
     }, Math.max(0, pollrate_s * 1000 - (Date.now() - now)));
   };
 
@@ -143,12 +148,12 @@ export default function PerformanceGraph({
       },
       tooltip: {
         enabled: false,
+        external: externalTooltipHandler,
         mode: 'index',
         intersect: false,
         callbacks: {
           label: (tooltipItem) => tooltipItem.formattedValue + unit,
         },
-        filter: (tooltipItem) => tooltipItem.parsed.y !== 0,
       },
       title: {
         display: true,
@@ -178,12 +183,13 @@ export default function PerformanceGraph({
         ticks: {
           maxRotation: 0,
           padding: 10,
+          maxTicksLimit: 100,
           align: 'inner',
           callback: function (val: number | string, idx: number) {
             const num = idx + counter;
             if (idx === 0) return `${timeWindow_s - 1}s`;
             if (idx === timeWindow_s - 1) return '0';
-            if (num % 4 !== 0) return null;
+            if (num % 5 !== 0) return null;
             return '';
           },
         },
@@ -207,11 +213,14 @@ export default function PerformanceGraph({
         // min: 0,
         max: displayMax,
         ticks: {
-          maxTicksLimit: 5,
+          maxTicksLimit: 50,
+          autoSkip: false,
           padding: 10,
           align: 'end',
           callback: function (val: number | string, idx: number) {
-            return val + unit;
+            if (val === 0 || val == displayMax) return val + unit;
+            if (idx % 2 !== 1) return null;
+            return '';
           },
         },
       },
@@ -231,3 +240,73 @@ export default function PerformanceGraph({
 
   return <Line data={chartData} options={options} className={`${className}`} />;
 }
+
+const getOrCreateTooltip = (chart: UnionToIntersection<Chart<'line'>>) => {
+  let tooltipEl = chart.canvas.parentNode?.querySelector('div');
+
+  if (!tooltipEl) {
+    tooltipEl = document.createElement('div');
+    tooltipEl.style.background = '#1D1E21B0';
+    tooltipEl.style.borderRadius = '3px';
+    tooltipEl.style.color = '#E3E3E4';
+    tooltipEl.style.opacity = '1';
+    tooltipEl.style.pointerEvents = 'none';
+    tooltipEl.style.position = 'absolute';
+    tooltipEl.style.transform = 'translate(-50%, -150%)';
+    tooltipEl.style.transition = 'all .1s';
+    tooltipEl.style.display = 'flex';
+    tooltipEl.style.flexDirection = 'row';
+    tooltipEl.style.alignItems = 'flex-start';
+
+    chart.canvas.parentNode?.appendChild(tooltipEl);
+  }
+
+  return tooltipEl;
+};
+
+const externalTooltipHandler = (context: ScriptableTooltipContext<'line'>) => {
+  // Tooltip Element
+  const { chart, tooltip } = context;
+  const tooltipEl = getOrCreateTooltip(chart);
+
+  // Hide if no tooltip
+  if (tooltip.opacity === 0) {
+    tooltipEl.style.opacity = '0';
+    return;
+  }
+
+  // Set Text
+  if (tooltip.body) {
+    const titleLines = tooltip.title || [];
+    const bodyLines = tooltip.body.map((b) => b.lines);
+
+    // Remove old children
+    while (tooltipEl.firstChild) {
+      tooltipEl.firstChild.remove();
+    }
+
+    // Add title lines
+    titleLines.forEach((title) => {
+      const titleEl = document.createElement('div');
+      titleEl.textContent = title + ":";
+      titleEl.style.margin = '0 0.25rem 0 0';
+      tooltipEl.appendChild(titleEl);
+    });
+
+    // Add body lines
+    bodyLines.forEach((body, i) => {
+      const bodyEl = document.createElement('div');
+      bodyEl.textContent = body[0];
+      tooltipEl.appendChild(bodyEl);
+    });
+  }
+
+  const { offsetLeft: positionX, offsetTop: positionY } = chart.canvas;
+
+  // Display, position, and set styles for font
+  tooltipEl.style.opacity = '1';
+  tooltipEl.style.left = positionX + tooltip.caretX + 'px';
+  tooltipEl.style.top = positionY + tooltip.caretY + 'px';
+  tooltipEl.style.padding =
+    tooltip.options.padding + 'px ' + tooltip.options.padding + 'px';
+};

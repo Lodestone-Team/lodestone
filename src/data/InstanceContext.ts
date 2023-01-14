@@ -3,13 +3,14 @@ import { InstanceInfo } from './../bindings/InstanceInfo';
 
 interface InstanceContextType {
   instanceList: { [uuid: string]: InstanceInfo };
-  selectedInstance: InstanceInfo | null;
-  selectInstance: (instance: InstanceInfo) => void;
+  selectedInstance?: InstanceInfo;
+  selectInstance: (instance?: InstanceInfo) => void;
 }
 
 export const InstanceContext = createContext<InstanceContextType>({
   instanceList: {},
-  selectedInstance: null,
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  selectInstance: () => {},
+  selectedInstance: undefined,
+  selectInstance: () => {
+    throw new Error('InstanceContext not initialized');
+  },
 });

@@ -1,130 +1,107 @@
-// A react component that renders the left and top navbar for the dashboard.
-// Also provides the instance context
-
-import LeftNav from './LeftNav';
 import TopNav from './TopNav';
-import {
-  useInterval,
-  useLocalStorage,
-  useSessionStorage,
-  useWindowSize,
-} from 'usehooks-ts';
+import { useContext } from 'react';
 import { useEventStream } from 'data/EventStream';
-import { useClientInfo } from 'data/SystemInfo';
-import { InstanceContext } from 'data/InstanceContext';
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { useCoreInfo, useLocalCoreInfo } from 'data/SystemInfo';
 import { useEffect, useState } from 'react';
-import { useInstanceList } from 'data/InstanceList';
-import { useRouterQuery } from 'utils/hooks';
-import router from 'next/router';
-import ResizePanel from 'components/Atoms/ResizePanel';
 import NotificationPanel from './NotificationPanel';
+import { useUserInfo } from 'data/UserInfo';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { Outlet } from 'react-router-dom';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { Popover } from '@headlessui/react';
+import { DEFAULT_LOCAL_CORE } from 'utils/util';
+import { LodestoneContext } from 'data/LodestoneContext';
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const { query: uuid } = useRouterQuery('uuid');
-  const { isLoading, isError, data: instances, error } = useInstanceList();
-  const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
-  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 200);
-  const [rightNavSize, setRightNavSize] = useLocalStorage('rightNavSize', 200);
-  const [showNotifications, setShowNotifications] = useState(false);
-
-  const { width, height } = useWindowSize();
-
-  // called for side effects
+export default function DashboardLayout() {
+  const { data: userInfo } = useUserInfo();
+  const { setPathname } = useContext(BrowserLocationContext);
   useEventStream();
-  useClientInfo();
+
+  /* Start Core */
+  const { setCore, addCore, coreConnectionStatus, core } =
+    useContext(LodestoneContext);
+  const [showSetupPrompt, setShowSetupPrompt] = useState(false);
+  const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
+  const { data: coreInfo } = useCoreInfo();
+  const { data: localCoreInfo } = useLocalCoreInfo();
+  useEffect(() => {
+    if (coreInfo?.is_setup === false) {
+      setShowSetupPrompt(true);
+    }
+  }, [coreInfo]);
 
   useEffect(() => {
-    if (uuid && instances && uuid in instances)
-      setInstanceState(instances[uuid]);
-    else setInstanceState(null);
-  }, [instances, uuid]);
-
-  function setInstance(instance: InstanceInfo | null) {
-    if (instance === null) {
-      setInstanceState(null);
-      router.push(
-        {
-          pathname: '/',
-          query: {
-            ...router.query,
-            uuid: null,
-          },
-        },
-        undefined,
-        { shallow: true }
-      );
-    } else {
-      setInstanceState(instance);
-      router.push(
-        {
-          pathname: '/dashboard',
-          query: {
-            ...router.query,
-            uuid: instance.uuid,
-          },
-        },
-        undefined,
-        { shallow: true }
-      );
+    if (localCoreInfo?.is_setup === false) {
+      if (!showSetupPrompt) setShowLocalSetupPrompt(true);
+    } else if (localCoreInfo?.is_setup === true) {
+      addCore(DEFAULT_LOCAL_CORE);
     }
-  }
+  }, [localCoreInfo, showSetupPrompt]);
+  /* End Core */
 
   return (
-    <InstanceContext.Provider
-      value={{
-        instanceList: instances || {},
-        selectedInstance: instance,
-        selectInstance: setInstance,
-      }}
-    >
+    <>
+      <ConfirmDialog
+        isOpen={showLocalSetupPrompt}
+        title="New Local Core Detected"
+        type="info"
+        confirmButtonText="Setup"
+        onConfirm={() => {
+          setCore(DEFAULT_LOCAL_CORE);
+          setPathname('/login/core/first_setup');
+          setShowLocalSetupPrompt(false);
+        }}
+        closeButtonText="Skip"
+        onClose={() => {
+          setShowLocalSetupPrompt(false);
+        }}
+      >
+        Detected a local core that is not setup yet. Would you like to setup{' '}
+        {localCoreInfo?.core_name}?
+      </ConfirmDialog>
+      <ConfirmDialog
+        isOpen={showSetupPrompt}
+        title="Setup Required"
+        type="info"
+        z-index="20"
+        confirmButtonText="Setup"
+        onConfirm={() => {
+          setPathname('/login/core/first_setup');
+          setShowSetupPrompt(false);
+        }}
+        closeButtonText="Change Core"
+        onClose={() => {
+          setPathname('/login/core/select');
+          setShowSetupPrompt(false);
+        }}
+      >
+        {coreInfo?.core_name} is not setup yet. Please complete the setup
+        process.
+      </ConfirmDialog>
+      <ConfirmDialog
+        isOpen={coreConnectionStatus === 'error'}
+        title="Core Connection Error"
+        type="info"
+        z-index="20"
+        confirmButtonText="Change Core"
+        onConfirm={() => {
+          setPathname('/login/core/select');
+        }}
+        closeButtonText="Refresh"
+        onClose={() => {
+          window.location.reload();
+        }}
+      >
+        There was an error connecting to {core.address}:{core.port}. Please
+        select a different core, refresh the page, or simply wait for the core
+        to come back online.
+      </ConfirmDialog>
       <div className="flex h-screen flex-col">
-        <TopNav
-          showNotifications={showNotifications}
-          setShowNotifications={setShowNotifications}
-        />
-        <div className="flex min-h-0 w-full grow flex-row relative">
-          <ResizePanel
-            direction="e"
-            maxSize={500}
-            minSize={200}
-            size={leftNavSize}
-            validateSize={false}
-            onResize={setLeftNavSize}
-            containerClassNames="min-h-0"
-          >
-            <LeftNav />
-          </ResizePanel>
-          <div className="h-full min-w-0 grow child:h-full">{children}</div>
-          {showNotifications &&
-            (width > 1280 ? (
-              <ResizePanel
-                direction="w"
-                maxSize={500}
-                minSize={200}
-                size={rightNavSize}
-                validateSize={false}
-                onResize={setRightNavSize}
-                containerClassNames="min-h-0"
-              >
-                <NotificationPanel />
-              </ResizePanel>
-            ) : (
-              <div
-                className="absolute right-2 -top-2 h-full child:h-5/6 w-96 rounded-lg drop-shadow-lg"
-                style={{
-                  // width: rightNavSize,
-                }}
-              >
-                <NotificationPanel className="border rounded-lg" />
-              </div>
-            ))}
+        <TopNav />
+        <div className="flex min-h-0 w-full grow flex-row bg-gray-875">
+          <Outlet />
         </div>
       </div>
-    </InstanceContext.Provider>
+    </>
   );
 }

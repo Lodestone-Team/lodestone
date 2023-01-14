@@ -2,21 +2,23 @@ import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { catchAsyncToString, parseintStrict } from 'utils/util';
+import {
+  catchAsyncToString,
+  DISABLE_AUTOFILL,
+  parseintStrict,
+} from 'utils/util';
 
 const onChangeValidateTimeout = 100;
-const inputClassName =
-  'w-full appearance-none bg-gray-900 py-1.5 px-3 rounded-md outline outline-1 enabled:text-gray-300 tracking-tight leading-snug font-medium focus-visible:ring-4  disabled:text-white/50 disabled:bg-gray-800';
-const inputBorderClassName =
-  'outline-gray-faded/30 enabled:focus-visible:ring-blue/30 invalid:outline-red invalid:focus-visible:outline-red';
-const inputErrorBorderClassName =
-  'outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30';
-
-const iconClassName =
-  'w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500';
 
 export type InputBoxType = 'text' | 'number';
 
+/**
+ * A self controlled input box meant to represent a single value of a config
+ *
+ * It is NOT meant to be used as a form input
+ *
+ * See InputField for that
+ */
 export default function InputBox({
   label,
   placeholder,
@@ -31,10 +33,14 @@ export default function InputBox({
   error: errorProp,
   removeArrows,
   disabled = false,
+  canRead = true,
+  isLoading: isLoadingProp = false,
   id = '',
   showIcons = true,
   validate: validateProp, //throws error if invalid
   onChange: onChangeProp,
+  description,
+  descriptionFunc,
 }: {
   label?: string;
   placeholder?: string;
@@ -48,11 +54,15 @@ export default function InputBox({
   error?: string;
   removeArrows?: boolean;
   disabled?: boolean;
+  canRead?: boolean;
+  isLoading?: boolean;
   id?: string;
   showIcons?: boolean;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
   onChange?: (arg: string) => Promise<void>;
+  description?: React.ReactNode;
+  descriptionFunc?: (arg: string) => React.ReactNode;
 }) {
   const [value, setValue] = useState(initialValue ?? '');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -93,7 +103,7 @@ export default function InputBox({
 
   // set touch to false when the value changes
   useEffect(() => {
-    setTouched(initialValue !== value);
+    setTouched(initialValue != value);
     if (initialValue === value) setError('');
   }, [initialValue, value]);
 
@@ -142,7 +152,11 @@ export default function InputBox({
       formRef.current?.reset();
   };
 
-  const uiError = errorProp || error;
+  const errorText = errorProp || error;
+  disabled = disabled || !canRead || isLoadingProp;
+  description = canRead
+    ? descriptionFunc?.(initialValue || value) ?? description
+    : 'No permission';
 
   let icons = [];
 
@@ -150,7 +164,7 @@ export default function InputBox({
     icons.push(
       <FontAwesomeIcon
         icon={faFloppyDisk}
-        className={iconClassName}
+        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
         onClick={() => formRef.current?.requestSubmit()}
         key="save"
       />
@@ -158,13 +172,13 @@ export default function InputBox({
     icons.push(
       <FontAwesomeIcon
         icon={faRotateRight}
-        className={iconClassName}
+        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
         onClick={() => formRef.current?.reset()}
         key="reset"
       />
     );
   }
-  if (isLoading) {
+  if (isLoading || isLoadingProp) {
     icons = [
       <BeatLoader
         key="loading"
@@ -183,38 +197,44 @@ export default function InputBox({
 
   return (
     <div
-      className={`flex flex-row items-center justify-between ${className} group relative bg-gray-800 px-4 py-3 text-base`}
+      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-medium`}
     >
-      <div className={`flex flex-col`}>
-        <label className="text-base font-medium text-gray-300">{label}</label>
-        {uiError ? (
-          <p className="text-small font-medium tracking-medium text-red">
-            {uiError || 'Unknown error'}
-          </p>
+      <div className={`flex min-w-0 grow flex-col`}>
+        <label className="text-medium font-medium text-gray-300">{label}</label>
+        {errorText ? (
+          <div className="text-small font-medium tracking-medium text-red">
+            {errorText || 'Unknown error'}
+          </div>
         ) : (
-          <p className="text-small font-medium tracking-medium text-white/50">
-            The {label} for the server
-          </p>
+          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+            {description}
+          </div>
         )}
       </div>
       <form
         onSubmit={onSubmit}
         onReset={onReset}
-        className="relative w-1/2"
+        className="relative w-5/12 flex-shrink-0"
         ref={formRef}
         onKeyDown={handleKeyDown}
         id={id}
       >
-        <div className={`absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${(!removeArrows && type==="number") ? "pl-3 pr-9" : "px-3"}`}>
-          <div className="flex flex-row gap-2">{showIcons && icons}</div>
+        <div
+          className={`pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
+            !removeArrows && type === 'number' ? 'pl-3 pr-9' : 'px-3'
+          }`}
+        >
+          <div className="pointer-events-auto flex flex-row gap-2">
+            {showIcons && icons}
+          </div>
         </div>
         <input
           value={value}
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
-          className={`${inputClassName} ${
-            uiError ? inputErrorBorderClassName : inputBorderClassName
+          className={`input-base w-full ${
+            errorText ? 'border-error' : 'border-normal'
           }
             ${removeArrows && 'noSpin'}`}
           onBlur={() => {
@@ -222,6 +242,7 @@ export default function InputBox({
           }}
           disabled={disabled}
           type={type}
+          autoComplete={DISABLE_AUTOFILL}
         />
       </form>
     </div>

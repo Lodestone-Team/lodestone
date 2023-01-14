@@ -1,8 +1,28 @@
+import { CoreConnectionInfo } from 'data/LodestoneContext';
+import { isEdge } from 'react-device-detect';
 import { LabelColor } from 'components/Atoms/Label';
-import { NextRouter } from 'next/router';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
+import { ClientFile } from 'bindings/ClientFile';
+import { QueryClient } from '@tanstack/react-query';
+import { Base64 } from 'js-base64';
+import React from 'react';
+import { LoginReply } from 'bindings/LoginReply';
+import { LoginValues } from 'pages/login/UserLogin';
+import { toast } from 'react-toastify';
+import { UserPermission } from 'bindings/UserPermission';
+
+export const DISABLE_AUTOFILL = isEdge
+  ? 'off-random-string-edge-stop-ignoring-autofill-off'
+  : 'off';
+export const LODESTONE_PORT = 16662;
+export const DEFAULT_LOCAL_CORE: CoreConnectionInfo = {
+  address: 'localhost',
+  port: LODESTONE_PORT.toString(),
+  protocol: 'http',
+  apiVersion: 'v1',
+};
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -44,22 +64,11 @@ export const asyncCallWithTimeout = async (
 // instancestatus is a union type
 export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   Running: 'green',
-  Starting: 'ochre',
-  Stopping: 'ochre',
+  Starting: 'yellow',
+  Stopping: 'yellow',
   Stopped: 'gray',
   Error: 'red',
   // Loading: 'gray',
-};
-
-export const pushKeepQuery = (router: NextRouter, pathname: string) => {
-  router.push(
-    {
-      pathname,
-      query: router.query,
-    },
-    undefined,
-    { shallow: true }
-  );
 };
 
 export function isAxiosError<ResponseType>(
@@ -68,16 +77,33 @@ export function isAxiosError<ResponseType>(
   return axios.isAxiosError(error);
 }
 
-export function errorToMessage(error: unknown): string {
-  if (isAxiosError<ClientError>(error)) {
+export function errorToString(error: unknown): string {
+  if (isAxiosError<unknown>(error)) {
     if (error.response && error.response.data) {
-      // if response.data is a string parse it as a JSON object
-      if (typeof error.response.data === 'string') {
-        error.response.data = JSON.parse(error.response.data);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let data: any = error.response.data;
+
+      /* if response.data is a string parse it as a JSON object */
+      if (typeof data === 'string') {
+        // spaghetti code
+        if (data.startsWith('`Authorization`')) {
+          return 'Invalid token: try to log out and log in again';
+        }
+        data = JSON.parse(data);
       }
-      if (error.response.data && error.response.data.inner) {
+
+      /* if response.data is a blob parse it as a JSON object */
+      if (data instanceof Blob) {
+        const reader = new FileReader();
+        reader.readAsText(data);
+        // reader.onload = () => {
+        //   data = JSON.parse(reader.result as string);
+        // };
+      }
+
+      if (data && data.inner) {
         // TODO: more runtime type checking
-        const clientError: ClientError = new ClientError(error.response.data);
+        const clientError: ClientError = new ClientError(data);
         return clientError.toString();
       } else return `${error.code}: ${error.response.statusText}`;
     } else {
@@ -87,11 +113,14 @@ export function errorToMessage(error: unknown): string {
   }
   if (error === null) return '';
   if (error instanceof Error) return error.message;
+  // if it's string
+  if (typeof error === 'string') return error;
   return `Unknown error`;
 }
 
 /**
- * @throws Error
+ * @throws Error with neatly formatted error message
+ * @returns ResponseType
  */
 export async function axiosWrapper<ResponseType>(
   config: AxiosRequestConfig
@@ -100,7 +129,7 @@ export async function axiosWrapper<ResponseType>(
     const response = await axios.request<ResponseType>(config);
     return response.data;
   } catch (error) {
-    throw new Error(errorToMessage(error));
+    throw new Error(errorToString(error));
   }
 }
 
@@ -274,7 +303,448 @@ export const formatBytes = (bytes: number, decimals = 2) => {
 export const LODESTONE_EPOCH = BigInt('1667530800000');
 
 // get the timestamp from a snowflake (bitint)
-export const getSnowflakeTimestamp = (snowflake_str: string) => {
-  const snowflakeBigInt = BigInt(snowflake_str);
+export const getSnowflakeTimestamp = (snowflake: string) => {
+  const snowflakeBigInt = BigInt(snowflake);
   return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
+};
+
+export const saveInstanceFile = async (
+  uuid: string,
+  directory: string,
+  file: ClientFile,
+  content: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/write`,
+      data: content,
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+  queryClient.setQueryData(
+    ['instance', uuid, 'fileContent', file.path],
+    content
+  );
+
+  const fileListKey = ['instance', uuid, 'fileList', directory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  if (!fileList) return;
+  const newFileList = fileList.map((f) => {
+    if (f.path === file.path)
+      return {
+        ...f,
+        modification_time: Math.round(Date.now() / 1000),
+      };
+    return f;
+  });
+  queryClient.setQueryData(fileListKey, newFileList);
+};
+
+export const deleteInstanceFile = async (
+  uuid: string,
+  directory: string,
+  file: ClientFile,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'delete',
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/rm`,
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+
+  const fileListKey = ['instance', uuid, 'fileList', directory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  if (!fileList) return;
+  queryClient.setQueryData(
+    fileListKey,
+    fileList?.filter((f) => f.path !== file.path)
+  );
+};
+
+export const deleteInstanceDirectory = async (
+  uuid: string,
+  parentDirectory: string,
+  directory: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'delete',
+      url: `/instance/${uuid}/fs/${Base64.encode(directory, true)}/rmdir`,
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+  const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
+  const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
+  queryClient.setQueryData(
+    fileListKey,
+    fileList?.filter((file) => file.path !== directory)
+  );
+};
+
+export const downloadInstanceFiles = async (uuid: string, file: ClientFile) => {
+  // TODO handle errors
+  const tokenResponse = await axiosWrapper<string>({
+    method: 'get',
+    url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/download`,
+  });
+  const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
+  window.open(downloadUrl, '_blank');
+};
+
+export const uploadInstanceFiles = async (
+  uuid: string,
+  directory: string,
+  file: Array<File>,
+  queryClient: QueryClient
+) => {
+  // upload all files using multipart form data
+  const formData = new FormData();
+  file.forEach((f) => {
+    formData.append('file', f);
+  });
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(directory, true)}/upload`,
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 0,
+      onUploadProgress: (progressEvent) => {
+        console.log(progressEvent);
+      },
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+
+  // invalidate the query instead of updating it because file name might be different
+  queryClient.invalidateQueries(['instance', uuid, 'fileList', directory]);
+};
+
+export const createInstanceFile = async (
+  uuid: string,
+  directory: string,
+  name: string
+) => {
+  const filePath = directory + '/' + name;
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(filePath, true)}/new`,
+    })
+  );
+};
+
+export const createInstanceDirectory = async (
+  uuid: string,
+  parentDirectory: string,
+  name: string
+) => {
+  const filePath = parentDirectory + '/' + name;
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(filePath, true)}/mkdir`,
+    })
+  );
+};
+
+export const moveInstanceFileOrDirectory = async (
+  uuid: string,
+  source: string,
+  destination: string,
+  queryClient: QueryClient,
+  direcotrySeparator: string
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(
+        source,
+        true
+      )}/move/${Base64.encode(destination, true)}`,
+    })
+  );
+
+  if (error) {
+    toast.error(
+      `Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`
+    );
+    return;
+  }
+
+  // just invalided the query instead of updating it because file name might be different due to conflict
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(source, direcotrySeparator),
+  ]);
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(destination, direcotrySeparator),
+  ]);
+};
+
+export const unzipInstanceFile = async (
+  uuid: string,
+  file: ClientFile,
+  targetDirectory: string,
+  queryClient: QueryClient,
+  direcotrySeparator: string
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(
+        file.path,
+        true
+      )}/unzip/${Base64.encode(targetDirectory, true)}`,
+    })
+  );
+
+  if (error) {
+    toast.error(`Failed to unzip ${file.name}: ${error}`);
+    return;
+  }
+
+  // just invalided the query instead of updating it because file name might be different due to conflict
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(file.path, direcotrySeparator),
+  ]);
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    targetDirectory,
+  ]);
+};
+
+export const chooseFiles = async () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.click();
+  return new Promise<FileList | null>((resolve) => {
+    input.onchange = () => {
+      resolve(input.files);
+    };
+  });
+};
+
+// put this in whatever utility library file you have:
+export function convertUnicode(input: string) {
+  return input
+    .replace(/\\+u([0-9a-fA-F]{4})/g, (a, b) =>
+      String.fromCharCode(parseInt(b, 16))
+    )
+    .replace(/\\+n/g, '\n');
+}
+
+// use combined refs to merge multiple refs into one
+// could take React.RefObject<T> or React.ForwardedRef<T>
+export function useCombinedRefs<T>(...refs: any[]) {
+  const targetRef = React.useRef<T>(null);
+
+  React.useEffect(() => {
+    refs.forEach((ref: any) => {
+      if (!ref) return;
+
+      if (typeof ref === 'function') {
+        ref(targetRef.current);
+      } else {
+        ref.current = targetRef.current;
+      }
+    });
+  }, [refs]);
+
+  return targetRef;
+}
+
+export const parentPath = (path: string, direcotrySeparator: string) => {
+  const pathParts = path.split(direcotrySeparator);
+  pathParts.pop();
+  return pathParts.join(direcotrySeparator) || '.';
+};
+
+export const getFileName = (path: string, direcotrySeparator: string) => {
+  const pathParts = path.split(direcotrySeparator);
+  return pathParts[pathParts.length - 1];
+};
+
+export const getFileNameWithoutExtension = (
+  path: string,
+  direcotrySeparator: string
+) => {
+  const fileName = getFileName(path, direcotrySeparator);
+  const fileNameParts = fileName.split('.');
+  fileNameParts.pop();
+  return fileNameParts.join('.');
+};
+
+export const getFileExtension = (path: string, direcotrySeparator: string) => {
+  const fileName = getFileName(path, direcotrySeparator);
+  const fileNameParts = fileName.split('.');
+  return fileNameParts[fileNameParts.length - 1];
+};
+
+export const getNonDuplicateFolderNameFromFileName = (
+  fileName: string,
+  direcotrySeparator: string,
+  existingFiles: ClientFile[]
+) => {
+  const fileNameWithoutExtension = getFileNameWithoutExtension(
+    fileName,
+    direcotrySeparator
+  );
+  let newFileName = fileName;
+  let i = 1;
+  while (
+    existingFiles.find(
+      (file) =>
+        file.name === newFileName ||
+        file.name === `${newFileName}${direcotrySeparator}`
+    )
+  ) {
+    newFileName = `${fileNameWithoutExtension}-${i}`;
+    i++;
+  }
+  return newFileName;
+};
+
+/**
+ * @throws string
+ */
+export async function loginToCore(
+  loginValue: LoginValues
+): Promise<LoginReply | undefined> {
+  // we manually handle error here because we want to show different error messages
+  try {
+    return await axios
+      .post<LoginReply>(
+        '/user/login',
+        {},
+        {
+          auth: {
+            username: loginValue.username,
+            password: loginValue.password,
+          },
+        }
+      )
+      .then((response) => {
+        return response.data;
+      });
+  } catch (error) {
+    if (isAxiosError<ClientError>(error) && error.response) {
+      if (
+        error.response.status === 401 ||
+        error.response.status === 403 ||
+        error.response.status === 500
+      ) {
+        throw `Error: ${error.response.data.inner}: ${error.response.data.detail}`;
+      }
+    } else {
+      throw `Login failed: ${errorToString(error)}`;
+    }
+  }
+}
+
+/**
+ * @throws string if error
+ * @returns LoginReply if success
+ */
+export const createNewUser = async (values: {
+  username: string;
+  password: string;
+}) => {
+  return await axiosWrapper<LoginReply>({
+    method: 'post',
+    url: '/user',
+    data: values,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ */
+export const changePassword = async (values: {
+  uid: string;
+  old_password: string | null;
+  new_password: string;
+}) => {
+  return await axiosWrapper<undefined>({
+    method: 'put',
+    url: `/user/${values.uid}/password`,
+    data: values,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ */
+export const deleteUser = async (uid: string) => {
+  return await axiosWrapper<undefined>({
+    method: 'delete',
+    url: `/user/${uid}`,
+  });
+};
+
+/**
+ * @throws string if error
+ * @returns undefined if success
+ * @param uid user id
+ */
+export const changeUserPermissions = async (
+  uid: string,
+  permission: UserPermission
+) => {
+  return await axiosWrapper<undefined>({
+    method: 'put',
+    url: `/user/${uid}/update_perm`,
+    data: permission,
+  });
+};
+
+// check if a core is localhost
+export function isLocalCore(core: CoreConnectionInfo) {
+  return (
+    core.address === 'localhost' ||
+    core.address === '127.0.0.1' ||
+    core.address === '::1' ||
+    /^0+:0+:0+:0+:0+:0+:0+:1+$/.test(core.address)
+  );
+}
+
+export const openPort = async (port: number) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/gateway/open_port/${port}`,
+    })
+  );
 };

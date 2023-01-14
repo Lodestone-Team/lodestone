@@ -13,7 +13,7 @@ const Template: ComponentStory<typeof ClipboardTextfield> = (args) => (
 export const Default = Template.bind({});
 Default.args = {
   text: 'Hello World',
-  className: 'text-medium text-gray-300',
+  className: 'text-h3 text-gray-300',
 };
 
 export const Small = Template.bind({});

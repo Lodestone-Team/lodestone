@@ -1,13 +1,18 @@
-import { addInstance, updateInstance } from 'data/InstanceList';
+import { useUid, useUserInfo } from 'data/UserInfo';
+import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useContext, useEffect, useMemo } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
-import { match, otherwise, partial } from 'variant';
+import { match, otherwise } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
+import { LODESTONE_PORT } from 'utils/util';
+import { UserPermission } from 'bindings/UserPermission';
+import { PublicUser } from 'bindings/PublicUser';
+import { toast } from 'react-toastify';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -16,8 +21,12 @@ import axios from 'axios';
 export const useEventStream = () => {
   const queryClient = useQueryClient();
   const { dispatch, ongoingDispatch } = useContext(NotificationContext);
-  const { isReady, token, address, port, apiVersion } =
+  const selfUid = useUid();
+  const { token, core, setCoreConnectionStatus, setToken } =
     useContext(LodestoneContext);
+  const socket = `${core.address}:${core.port}`;
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsConnected = useRef(false);
 
   const eventQuery: EventQuery = useMemo(
     () => ({
@@ -26,7 +35,9 @@ export const useEventStream = () => {
       event_types: null,
       instance_event_types: null,
       user_event_types: null,
+      event_user_ids: null,
       event_instance_ids: null,
+      time_range: null,
     }),
     [token]
   );
@@ -40,22 +51,35 @@ export const useEventStream = () => {
     [queryClient]
   );
   const updateInstancePlayerCount = useCallback(
-    (uuid: string, increment: number) => {
+    (uuid: string, player_num: number) => {
       updateInstance(uuid, queryClient, (oldInfo) => {
         return {
           ...oldInfo,
-          player_count: oldInfo.player_count
-            ? oldInfo.player_count + increment
-            : oldInfo.player_count,
+          player_count: player_num,
         };
       });
     },
     [queryClient]
   );
+  const updatePermission = useCallback(
+    (permission: UserPermission) => {
+      queryClient.setQueryData(
+        ['user', 'info'],
+        (oldInfo: PublicUser | undefined) => {
+          if (!oldInfo) return oldInfo;
+          return {
+            ...oldInfo,
+            permissions: permission,
+          };
+        }
+      );
+    },
+    [queryClient]
+  );
 
   const handleEvent = useCallback(
-    (event: ClientEvent) => {
-      const { event_inner, snowflake_str } = event;
+    (event: ClientEvent, fresh: boolean) => {
+      const { event_inner, snowflake } = event;
 
       match(event_inner, {
         InstanceEvent: ({
@@ -64,48 +88,38 @@ export const useEventStream = () => {
           instance_name: name,
         }) =>
           match(event_inner, {
-            InstanceStarting: () => {
-              updateInstanceState(uuid, 'Starting');
+            StateTransition: ({ to }) => {
+              if (fresh) updateInstanceState(uuid, to);
               dispatch({
-                message: `Starting instance ${name}`,
+                title: `Instance ${name} ${
+                  {
+                    Starting: `is starting`,
+                    Running: `started`,
+                    Stopping: `is stopping`,
+                    Stopped: `stopped`,
+                    Error: `encountered an error`,
+                  }[to]
+                }!`,
                 event,
-              });
-            },
-            InstanceStarted: () => {
-              updateInstanceState(uuid, 'Running');
-              dispatch({
-                message: `Instance ${name} started`,
-                event,
-              });
-            },
-            InstanceStopping: () => {
-              updateInstanceState(uuid, 'Stopping');
-              dispatch({
-                message: `Stopping instance ${name}`,
-                event,
-              });
-            },
-            InstanceStopped: () => {
-              updateInstanceState(uuid, 'Stopped');
-              dispatch({
-                message: `Instance ${name} stopped`,
-                event,
+                type: 'add',
               });
             },
             InstanceWarning: () => {
-              alert(
+              toast.error(
                 "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
               );
               dispatch({
-                message: `Instance ${name} encountered a warning`,
+                title: `Instance ${name} encountered a warning`,
                 event,
+                type: 'add',
               });
             },
             InstanceError: () => {
-              updateInstanceState(uuid, 'Error');
+              if (fresh) updateInstanceState(uuid, 'Error');
               dispatch({
-                message: `Instance ${name} encountered an error`,
+                title: `Instance ${name} encountered an error`,
                 event,
+                type: 'add',
               });
             },
             InstanceInput: ({ message }) => {
@@ -118,37 +132,44 @@ export const useEventStream = () => {
               console.log(`Got system message on ${name}: ${message}`);
             },
             PlayerChange: ({ player_list, players_joined, players_left }) => {
-              // updateInstancePlayerCount(uuid, player_list.length);
               console.log(`Got player change on ${name}: ${player_list}`);
               console.log(`${players_joined} joined ${name}`);
               console.log(`${players_left} left ${name}`);
-              updateInstancePlayerCount(uuid, players_joined.length);
-              updateInstancePlayerCount(uuid, -players_left.length);
-              const message = `${
+              if (fresh) updateInstancePlayerCount(uuid, player_list.length);
+
+              // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
+              const player_list_names = player_list.map((p) => p.name);
+              const players_joined_names = players_joined.map((p) => p.name);
+              const players_left_names = players_left.map((p) => p.name);
+
+              const title = `${
                 players_joined.length > 0
-                  ? `${players_joined.join(', ')} Joined ${name}`
+                  ? `${players_joined_names.join(', ')} Joined ${name}`
                   : ''
               }
-            ${
-              players_left.length > 0 && players_joined.length > 0
-                ? ' and '
-                : ''
-            }
-            ${
-              players_left.length > 0
-                ? `${players_left.join(', ')} Left ${name}`
-                : ''
-            }`;
-              dispatch({
-                message,
-                event,
-              });
+              ${
+                players_left.length > 0 && players_joined.length > 0
+                  ? ' and '
+                  : ''
+              }
+              ${
+                players_left.length > 0
+                  ? `${players_left_names.join(', ')} Left ${name}`
+                  : ''
+              }`;
+              if (title.length > 0)
+                dispatch({
+                  title,
+                  event,
+                  type: 'add',
+                });
             },
             PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
               dispatch({
-                message: `${player} said ${player_message} on ${name}`,
+                title: `${player} said ${player_message} on ${name}`,
                 event,
+                type: 'add',
               });
             },
           }),
@@ -156,58 +177,108 @@ export const useEventStream = () => {
           match(event_inner, {
             UserCreated: () => {
               console.log(`User ${uid} created`);
-              dispatch({
-                message: `User ${uid} created`,
-                event,
-              });
+              if (fresh) queryClient.invalidateQueries(['user', 'list']);
+              // dispatch({
+              //   title: `User ${uid} created`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             UserDeleted: () => {
               console.log(`User ${uid} deleted`);
-              dispatch({
-                message: `User ${uid} deleted`,
-                event,
-              });
+              if (fresh) {
+                if (uid === selfUid) {
+                  console.log('User deleted themselves, logging out');
+                  setToken('', socket);
+                  queryClient.setQueryData(['user', 'info'], undefined);
+                }
+                queryClient.setQueryData(
+                  ['user', 'list'],
+                  (oldList: { [uid: string]: PublicUser } | undefined) => {
+                    if (!oldList) return oldList;
+                    const newList = { ...oldList };
+                    delete newList[uid];
+                    return newList;
+                  }
+                );
+              }
+              // dispatch({
+              //   title: `User ${uid} deleted`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             UserLoggedIn: () => {
               console.log(`User ${uid} logged in`);
-              dispatch({
-                message: `User ${uid} logged in`,
-                event,
-              });
+              // dispatch({
+              //   title: `User ${uid} logged in`,
+              //   event,
+              //   type: 'add',
+              // });
             },
             UserLoggedOut: () => {
               console.log(`User ${uid} logged out`);
-              dispatch({
-                message: `User ${uid} logged out`,
-                event,
-              });
+              // dispatch({
+              //   title: `User ${uid} logged out`,
+              //   event,
+              //   type: 'add',
+              // });
+            },
+            PermissionChanged: ({ new_permissions }) => {
+              console.log(
+                `User ${uid} permission changed to ${new_permissions}`
+              );
+              if (fresh) {
+                if (uid === selfUid) {
+                  updatePermission(new_permissions);
+                }
+                queryClient.setQueryData(
+                  ['user', 'list'],
+                  (oldList: { [uid: string]: PublicUser } | undefined) => {
+                    if (!oldList) return oldList;
+                    const newList = { ...oldList };
+                    newList[uid].permissions = new_permissions;
+                    return newList;
+                  }
+                );
+              }
+              // dispatch({
+              //   title: `User ${uid}'s permission has changed`,
+              //   event,
+              //   type: 'add',
+              // });
             },
           }),
         MacroEvent: ({
           instance_uuid: uuid,
-          macro_uuid: macro_id,
+          macro_pid,
           macro_event_inner: event_inner,
         }) =>
           match(event_inner, {
             MacroStarted: () => {
-              console.log(`Macro ${macro_id} started on ${uuid}`);
+              console.log(`Macro ${macro_pid} started on ${uuid}`);
               dispatch({
-                message: `Macro ${macro_id} started on ${uuid}`,
+                title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
+                type: 'add',
               });
             },
             MacroStopped: () => {
-              console.log(`Macro ${macro_id} stopped on ${uuid}`);
+              console.log(`Macro ${macro_pid} stopped on ${uuid}`);
               dispatch({
-                message: `Macro ${macro_id} stopped on ${uuid}`,
+                title: `Macro ${macro_pid} stopped on ${uuid}`,
                 event,
+                type: 'add',
               });
             },
             MacroErrored: ({ error_msg }) => {
-              console.log(`Macro ${macro_id} errored on ${uuid}: ${error_msg}`);
+              console.log(
+                `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`
+              );
               dispatch({
-                message: `Macro ${macro_id} errored on ${uuid}: ${error_msg}`,
+                title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
                 event,
+                type: 'add',
               });
             },
           }),
@@ -215,26 +286,70 @@ export const useEventStream = () => {
           ongoingDispatch({
             event,
             progressionEvent,
+            dispatch,
           });
           // check if there's a "value"
           const inner = progressionEvent.progression_event_inner;
-
-          match(
-            inner,
-            otherwise(
-              {
-                ProgressionEnd: ({ value }) => {
-                  if (!value) return;
-                  match(value, {
-                    InstanceInfo: (instance_info) =>
-                      addInstance(instance_info, queryClient),
-                  });
+          if (fresh) {
+            match(
+              inner,
+              otherwise(
+                {
+                  ProgressionEnd: ({ inner, message }) => {
+                    if (!inner) return;
+                    match(
+                      inner,
+                      otherwise(
+                        {
+                          InstanceCreation: (instance_info) =>
+                            addInstance(instance_info, queryClient),
+                          InstanceDelete: ({ instance_uuid: uuid }) =>
+                            deleteInstance(uuid, queryClient),
+                        },
+                        // eslint-disable-next-line @typescript-eslint/no-empty-function
+                        (_) => {}
+                      )
+                    );
+                  },
+                  ProgressionStart: ({ inner }) => {
+                    if (!inner) return;
+                    match(
+                      inner,
+                      otherwise(
+                        {
+                          // InstanceDelete: ({ instance_uuid: uuid }) =>
+                          //   deleteInstance(uuid, queryClient),
+                        },
+                        // eslint-disable-next-line @typescript-eslint/no-empty-function
+                        (_) => {}
+                      )
+                    );
+                  },
                 },
-              },
-              // eslint-disable-next-line @typescript-eslint/no-empty-function
-              (_) => {}
-            )
-          );
+                // eslint-disable-next-line @typescript-eslint/no-empty-function
+                (_) => {}
+              )
+            );
+          }
+        },
+        FSEvent: ({ operation, target }) => {
+          // console.log(`FS ${operation} on ${target.path}`);
+          // match(target, {
+          //   File: ({ path }) => {
+          //     dispatch({
+          //       title: `FS ${operation} on ${path}`,
+          //       event,
+          //       type: 'add',
+          //     });
+          //   },
+          //   Directory: ({ path }) => {
+          //     dispatch({
+          //       title: `FS ${operation} on ${path}`,
+          //       event,
+          //       type: 'add',
+          //     });
+          //   },
+          // });
         },
       });
     },
@@ -248,44 +363,11 @@ export const useEventStream = () => {
   );
 
   useEffect(() => {
-    if (!isReady) return;
     if (!token) return;
 
-    const wsAddress = `ws://${address}:${
-      port ?? 16662
-    }/api/${apiVersion}/events/all/stream?filter=${JSON.stringify(eventQuery)}`;
-
-    const websocket = new WebSocket(wsAddress);
-
-    // if the websocket because error, we should try to reconnect
-    websocket.onerror = (event) => {
-      console.error('websocket error', event);
-      // alert('Disconnected from server, please refresh the page to reconnect');
-    };
-
-    websocket.onmessage = (messageEvent) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const event: ClientEvent = JSON.parse(messageEvent.data);
-      handleEvent(event);
-    };
-
-    return () => {
-      websocket.close();
-    };
-  }, [
-    address,
-    apiVersion,
-    eventQuery,
-    handleEvent,
-    isReady,
-    port,
-    queryClient,
-    token,
-  ]);
-
-  useEffect(() => {
-    if (!isReady) return;
-    if (!token) return;
+    dispatch({
+      type: 'clear',
+    });
 
     const bufferAddress = `/events/all/buffer?filter=${JSON.stringify(
       eventQuery
@@ -293,8 +375,62 @@ export const useEventStream = () => {
 
     axios.get<Array<ClientEvent>>(bufferAddress).then((response) => {
       response.data.forEach((event) => {
-        handleEvent(event);
+        handleEvent(event, false);
       });
     });
-  }, [address, apiVersion, eventQuery, handleEvent, isReady, port, token]);
+  }, [eventQuery, handleEvent, queryClient, token, core]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const connectWebsocket = () => {
+      const wsAddress = `ws://${core.address}:${
+        core.port ?? LODESTONE_PORT
+      }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
+        eventQuery
+      )}`;
+
+      if (wsRef.current) wsRef.current.close();
+
+      const websocket = new WebSocket(wsAddress);
+
+      wsRef.current = websocket;
+      wsConnected.current = true;
+
+      websocket.onopen = () => {
+        console.log('websocket opened');
+        setCoreConnectionStatus('success');
+      };
+
+      websocket.onerror = (event) => {
+        console.error('websocket error', event);
+        setCoreConnectionStatus('error');
+        websocket.close();
+      };
+
+      websocket.onmessage = (messageEvent) => {
+        const event: ClientEvent = JSON.parse(messageEvent.data);
+        handleEvent(event, true);
+      };
+
+      websocket.onclose = () => {
+        console.log('websocket closed');
+        wsRef.current = null;
+        if (!wsConnected.current) return;
+        setTimeout(() => {
+          console.log('reconnecting');
+          connectWebsocket();
+        }, 1000);
+      };
+    };
+
+    connectWebsocket();
+    return () => {
+      console.log('unmounting event listener');
+      wsConnected.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [handleEvent, token, eventQuery, handleEvent, core]);
 };

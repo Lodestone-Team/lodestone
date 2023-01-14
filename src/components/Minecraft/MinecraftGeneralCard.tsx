@@ -1,26 +1,26 @@
-import DashboardCard from 'components/DashboardCard';
-import Textfield from 'components/Atoms/Config/InputBox';
+import InputBox from 'components/Atoms/Config/InputBox';
 import { updateInstance } from 'data/InstanceList';
 import { axiosPutSingleValue, axiosWrapper, parseintStrict } from 'utils/util';
 import { useQueryClient } from '@tanstack/react-query';
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useInstanceManifest } from 'data/InstanceManifest';
-import { useGameSetting } from 'data/GameSetting';
-import Dropdown from 'components/Atoms/Config/SelectBox';
-import SettingField from 'components/SettingField';
 import { useContext } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { PortStatus } from 'bindings/PortStatus';
+import { useUserAuthorized } from 'data/UserInfo';
 
 export default function MinecraftGeneralCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const queryClient = useQueryClient();
   const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
+  const can_access_instance_setting = useUserAuthorized(
+    'can_access_instance_setting',
+    instance.uuid
+  );
   const supportedOptions = manifest?.supported_operations
     ? manifest.supported_operations
     : [];
-  const currentSettings = manifest?.settings ? manifest.settings : [];
+  const currentSettings = manifest?.settings ?? [];
   const uuid = instance.uuid;
 
   if (isLoading) {
@@ -29,13 +29,15 @@ export default function MinecraftGeneralCard() {
   }
 
   const portField = (
-    <Textfield
+    <InputBox
       label="Port"
       value={instance.port.toString()}
       type="number"
       min={0}
       max={65535}
-      disabled={!supportedOptions.includes('SetPort')}
+      disabled={
+        !supportedOptions.includes('SetPort') || !can_access_instance_setting
+      }
       validate={async (port) => {
         const numPort = parseintStrict(port);
         const result = await axiosWrapper<PortStatus>({
@@ -52,17 +54,18 @@ export default function MinecraftGeneralCard() {
           port: numPort,
         }));
       }}
+      descriptionFunc={(port) => `Server will be available on port ${port}`}
     />
   );
 
   const maxPlayersField = supportedOptions.includes('GetMaxPlayerCount') ? (
-    <Textfield
+    <InputBox
       label="Max Players"
       value={instance.max_player_count?.toString() ?? ''}
       type="number"
       min={0}
       max={10000}
-      // disabled={!supportedOptions.includes('SetMaxPlayers')}
+      disabled={!can_access_instance_setting}
       onSubmit={async (maxPlayers) => {
         const numMaxPlayers = parseintStrict(maxPlayers);
         await axiosPutSingleValue<void>(
@@ -74,17 +77,22 @@ export default function MinecraftGeneralCard() {
           max_player_count: numMaxPlayers,
         }));
       }}
+      descriptionFunc={(maxPlayers) =>
+        `A maximum of ${maxPlayers} players can connect`
+      }
     />
   ) : null;
 
   const minRamField = supportedOptions.includes('GetMinRam') ? (
-    <Textfield
+    <InputBox
       label="Min RAM"
       value={instance.min_ram?.toString() ?? ''}
       type="number"
       min={0}
       max={100000}
-      disabled={!supportedOptions.includes('SetMinRam')}
+      disabled={
+        !supportedOptions.includes('SetMinRam') || !can_access_instance_setting
+      }
       onSubmit={async (minRam) => {
         const numMinRam = parseInt(minRam);
         await axiosPutSingleValue<void>(`/instance/${uuid}/min_ram`, numMinRam);
@@ -93,17 +101,22 @@ export default function MinecraftGeneralCard() {
           min_ram: numMinRam,
         }));
       }}
+      descriptionFunc={(minRam) =>
+        `Minimum RAM allocated to the server: ${minRam} MB`
+      }
     />
   ) : null;
 
   const maxRamField = supportedOptions.includes('GetMaxRam') ? (
-    <Textfield
+    <InputBox
       label="Max RAM"
       value={instance.max_ram?.toString() ?? ''}
       type="number"
       min={0}
       max={100000}
-      disabled={!supportedOptions.includes('SetMaxRam')}
+      disabled={
+        !supportedOptions.includes('SetMaxRam') || !can_access_instance_setting
+      }
       onSubmit={async (maxRam) => {
         const numMaxRam = parseInt(maxRam);
         await axiosPutSingleValue<void>(`/instance/${uuid}/max_ram`, numMaxRam);
@@ -112,66 +125,25 @@ export default function MinecraftGeneralCard() {
           max_ram: numMaxRam,
         }));
       }}
-    />
-  ) : null;
-
-  const gameModeField = currentSettings.includes('gamemode') ? (
-    <SettingField
-      instance={instance}
-      setting="gamemode"
-      label="Game Mode"
-      type="dropdown"
-      options={['survival', 'creative', 'adventure']}
-    />
-  ) : null;
-
-  const difficultyField = currentSettings.includes('difficulty') ? (
-    <SettingField
-      instance={instance}
-      setting="difficulty"
-      label="Difficulty"
-      type="dropdown"
-      options={['peaceful', 'easy', 'normal', 'hard']}
-    />
-  ) : null;
-
-  const onlineModeField = currentSettings.includes('online-mode') ? (
-    <SettingField
-      instance={instance}
-      setting="online-mode"
-      label='"Online Mode"'
-      type="toggle"
-      options={['true', 'false']}
-    />
-  ) : null;
-
-  const pvpField = currentSettings.includes('pvp') ? (
-    <SettingField
-      instance={instance}
-      setting="pvp"
-      label="PvP"
-      type="toggle"
-      options={['true', 'false']}
+      descriptionFunc={(maxRam) =>
+        `Maximum RAM allocated to the server: ${maxRam} MB`
+      }
     />
   ) : null;
 
   return (
-    <div className="flex flex-col @6xl:flex-row gap-4">
-      <div className="w-[28rem]">
-        <h1 className="font-black text-large"> General Settings </h1>
-        <h2 className="font-medium text-base italic tracking-tight text-white/50">
-          Most commonly used settings for your server
-        </h2>
+    <div className="flex flex-col gap-4 @4xl:flex-row">
+      <div className="w-72 shrink-0">
+        <h2 className="text-h2 font-bold tracking-medium"> Server Settings </h2>
+        <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+          Technical settings for the server
+        </h3>
       </div>
-      <div className="w-full child:w-full rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 last:child:border-b-0 last:child:rounded-b-lg first:child:rounded-t-lg">
+      <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
         {portField}
         {maxPlayersField}
         {minRamField}
         {maxRamField}
-        {gameModeField}
-        {difficultyField}
-        {onlineModeField}
-        {pvpField}
       </div>
     </div>
   );

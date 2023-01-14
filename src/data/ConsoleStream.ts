@@ -1,4 +1,4 @@
-import { getSnowflakeTimestamp } from './../utils/util';
+import { getSnowflakeTimestamp, LODESTONE_PORT } from './../utils/util';
 import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -19,7 +19,7 @@ export type ConsoleStreamStatus =
 // simplified version of a ClientEvent with just InstanceOutput
 export type ConsoleEvent = {
   timestamp: number;
-  snowflake_str: string;
+  snowflake: string;
   detail: string;
   uuid: string;
   name: string;
@@ -53,8 +53,8 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
   );
 
   return {
-    timestamp: getSnowflakeTimestamp(event.snowflake_str),
-    snowflake_str: event.snowflake_str,
+    timestamp: getSnowflakeTimestamp(event.snowflake),
+    snowflake: event.snowflake,
     detail: event.details,
     uuid: event_inner.instance_uuid,
     name: event_inner.instance_name,
@@ -74,8 +74,8 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
  * @return whatever useQuery returns
  */
 export const useConsoleStream = (uuid: string) => {
-  const { address, port, apiVersion, isReady, token } =
-    useContext(LodestoneContext);
+  const { core, token } = useContext(LodestoneContext);
+  const { address, port, apiVersion } = core;
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
@@ -105,17 +105,13 @@ export const useConsoleStream = (uuid: string) => {
       return mergedLog.filter(
         (event, index) =>
           mergedLog.findIndex(
-            (e) => e.snowflake_str === event.snowflake_str
+            (e) => e.snowflake === event.snowflake
           ) === index
       );
     });
   };
 
   useEffect(() => {
-    if (!isReady) {
-      setStatus('loading');
-      return;
-    }
     if (!canAccessConsole) {
       setStatus('no-permission');
       return;
@@ -124,7 +120,7 @@ export const useConsoleStream = (uuid: string) => {
 
     const websocket = new WebSocket(
       `ws://${address}:${
-        port ?? 16662
+        port ?? LODESTONE_PORT
       }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
     );
 
@@ -146,10 +142,9 @@ export const useConsoleStream = (uuid: string) => {
       websocket.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, address, port, apiVersion, uuid, canAccessConsole]);
+  }, [address, port, apiVersion, uuid, canAccessConsole]);
 
   useEffect(() => {
-    if (!isReady) return;
     if (!canAccessConsole) return;
     axios
       .get(`/instance/${uuid}/console/buffer`)
@@ -161,7 +156,7 @@ export const useConsoleStream = (uuid: string) => {
       .catch((e) => {
         console.error(e);
       });
-  }, [canAccessConsole, isReady, uuid]);
+  }, [canAccessConsole, uuid]);
   return {
     consoleLog,
     consoleStatus: status,

@@ -4,4 +4,5 @@ export type EventType =
   | 'InstanceEvent'
   | 'UserEvent'
   | 'MacroEvent'
+  | 'FSEvent'
   | 'ProgressionEvent';

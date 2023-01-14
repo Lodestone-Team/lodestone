@@ -1,4 +1,8 @@
-import { capitalizeFirstLetter, stateToLabelColor } from 'utils/util';
+import {
+  capitalizeFirstLetter,
+  errorToString,
+  stateToLabelColor,
+} from 'utils/util';
 import Button from './Atoms/Button';
 import Label from './Atoms/Label';
 import { useState } from 'react';
@@ -7,14 +11,17 @@ import { InstanceState } from 'bindings/InstanceState';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
 import GameIcon from './Atoms/GameIcon';
+import clsx from 'clsx';
+import { toast } from 'react-toastify';
+import { Small } from './ClipboardTextfield.stories';
 
 // for the css style of the double border when focused
-const stateToBorderMap: { [key in InstanceState]: string } = {
-  Starting: 'outline-ochre ring-ochre-faded/25',
-  Running: 'outline-green ring-green-faded/25',
-  Stopping: 'outline-ochre ring-ochre-faded/25',
-  Stopped: 'outline-gray-300 ring-gray-500',
-  Error: 'outline-red ring-red-faded/25',
+const stateToBorderMap: { [key in InstanceState]: string[] } = {
+  Starting: ['ui-checked:outline-yellow', 'ui-checked:ring-yellow-faded/25'],
+  Running: ['ui-checked:outline-green', 'ui-checked:ring-green-faded/25'],
+  Stopping: ['ui-checked:outline-yellow', 'ui-checked:ring-yellow-faded/25'],
+  Stopped: ['ui-checked:outline-gray-300', 'ui-checked:ring-gray-500'],
+  Error: ['ui-checked:outline-red', 'ui-checked:ring-red-faded/25'],
   // Loading: 'outline-gray-300 ring-gray-500',
 };
 
@@ -86,7 +93,7 @@ export default function InstanceCard({
         response.data;
       })
       .catch((error) => {
-        alert(error);
+        toast.error(errorToString(error));
       })
       .finally(() => {
         setLoading(false);
@@ -99,15 +106,23 @@ export default function InstanceCard({
 
   return (
     <div
-      className={`group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl bg-gray-800 py-4 px-6 text-base font-semibold tracking-tight hover:cursor-pointer hover:bg-gray-900 ${
-        focus ? `bg-gray-900 outline outline-2 ring-[6px] ${borderClass}` : ''
-      }`}
+      className={clsx(
+        'group flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-medium tracking-tight hover:cursor-pointer hover:bg-gray-900',
+        focus && 'bg-gray-900 outline outline-2 ring-[6px]',
+        !focus &&
+          'ui-checked:bg-gray-900 ui-checked:outline ui-checked:outline-2 ui-checked:ring-[6px]',
+        borderClass
+      )}
       onClick={cardOnClick}
     >
       <div className="flex min-w-0 grow flex-col">
-        <h1 className="truncate text-gray-300">{name}</h1>
+        <h1 className="truncate text-medium font-bold tracking-medium text-gray-300">
+          {name}
+        </h1>
         <div className="flex flex-row items-center gap-x-2">
-          <h1 className={`text-${stateColor} -mx-1 truncate px-1`}>
+          <h1
+            className={`text-${stateColor} -mx-1 truncate px-1 text-medium font-bold tracking-medium`}
+          >
             {player_count}/{max_player_count}
           </h1>
           <Label size="small" color={stateColor}>
@@ -127,7 +142,7 @@ export default function InstanceCard({
         <GameIcon
           game_type={game_type}
           game_flavour={flavour}
-          className="w-8 h-8"
+          className="h-8 w-8"
         />
       </div>
     </div>

@@ -1,9 +1,9 @@
 // a wrapper around TextField that fetches a single setting from the server
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGameSetting } from 'data/GameSetting';
-import { axiosPutSingleValue, errorToMessage } from 'utils/util';
+import { axiosPutSingleValue, errorToString } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
-import Textfield from './Atoms/Config/InputBox';
+import InputBox from './Atoms/Config/InputBox';
 import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -17,6 +17,8 @@ export default function SettingField({
   options,
   min,
   max,
+  description,
+  descriptionFunc,
 }: {
   instance: InstanceInfo;
   setting: string;
@@ -25,35 +27,40 @@ export default function SettingField({
   min?: number;
   max?: number;
   options?: string[];
+  description?: React.ReactNode;
+  descriptionFunc?: (arg: any) => React.ReactNode;
 }) {
   const uuid = instance.uuid;
-  const {
-    data: initialSetting,
-    isLoading,
-    error,
-  } = useGameSetting(uuid, setting);
-  label = label ?? setting;
-  const [value, setValue] = useState(initialSetting ?? '');
   const can_access_instance_setting = useUserAuthorized(
     'can_access_instance_setting',
     instance.uuid
   );
+  const {
+    data: initialSetting,
+    isLoading: isSettingLoading,
+    error,
+  } = useGameSetting(uuid, setting, can_access_instance_setting);
+  label = label ?? setting;
+  const [value, setValue] = useState(initialSetting ?? '');
+
 
   useIsomorphicLayoutEffect(() => {
     setValue(initialSetting ?? '');
   }, [initialSetting]);
 
-  const errorString = errorToMessage(error);
+  const errorString = errorToString(error);
+  const isLoading = can_access_instance_setting ? isSettingLoading : false;
 
   switch (type) {
     case 'text':
       return (
-        <Textfield
+        <InputBox
           label={label}
           value={value}
           type="text"
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onSubmit={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
@@ -61,26 +68,32 @@ export default function SettingField({
             );
             setValue(value);
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'number':
-      const numValue = parseInt(value);
-
       return (
-        <Textfield
+        <InputBox
           label={label}
           value={value}
           type="number"
           min={min}
           max={max}
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onSubmit={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
               value
             );
+            // print type of value
+            console.log(typeof value);
+            setValue(value);
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'dropdown':
@@ -92,14 +105,17 @@ export default function SettingField({
           label={label}
           value={value}
           options={options}
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onChange={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
               value
             );
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'toggle':
@@ -107,14 +123,17 @@ export default function SettingField({
         <ToggleBox
           label={label}
           value={value === 'true'}
-          disabled={isLoading}
+          isLoading={isLoading}
           error={errorString}
+          canRead={can_access_instance_setting}
           onChange={async (value) => {
             await axiosPutSingleValue<void>(
               `/instance/${uuid}/game/${setting}`,
               value ? 'true' : 'false'
             );
           }}
+          description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
   }

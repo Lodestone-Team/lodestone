@@ -1,9 +1,3 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  faCircleCheck,
-  faCircleXmark,
-  faCircleNotch,
-} from '@fortawesome/free-solid-svg-icons';
 import ProgressBar from 'components/Atoms/ProgressBar';
 import { formatNotificationTime } from 'utils/util';
 import LoadingStatusIcon from './LoadingStatusIcon';
@@ -16,7 +10,7 @@ const NotificationLevelToBgColorClass = (
 ) => {
   switch (level) {
     case 'Warning':
-      return 'bg-ochre';
+      return 'bg-yellow';
     case 'Error':
       return 'bg-red';
     default:
@@ -51,16 +45,18 @@ export default function NotificationCard({
   return (
     <div className="overflow-hidden rounded-md bg-gray-900">
       <div
-        className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-white hover:bg-gray-900`}
+        className={`flex flex-row items-center justify-start gap-3 px-4 pt-3 pb-2.5 text-gray-300 hover:bg-gray-900`}
       >
         <LoadingStatusIcon level={level} state={state} />
         <div className="flex flex-col items-start">
-          <p className="w-full text-base font-bold tracking-medium">{title}</p>
-          <p className="w-full text-small font-medium tracking-medium">
+          <p className="w-full text-medium font-bold tracking-medium">
+            {title}
+          </p>
+          <p className="w-full text-medium font-medium tracking-medium">
             {message}
           </p>
           {!message && (
-            <span className="whitespace-nowrap text-smaller font-medium tracking-medium text-white/50">
+            <span className="whitespace-nowrap text-medium font-medium tracking-medium text-white/50">
               {formatNotificationTime(timestamp)}
             </span>
           )}

@@ -1,11 +1,14 @@
+import { faCircle, faServer } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import axios from 'axios';
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useConsoleStream } from 'data/ConsoleStream';
 import { InstanceContext } from 'data/InstanceContext';
-import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
+import { useUserAuthorized } from 'data/UserInfo';
+import Tooltip from 'rc-tooltip';
 import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
+import { DISABLE_AUTOFILL } from 'utils/util';
 
 const autoScrollThreshold = 100;
 
@@ -54,63 +57,104 @@ export default function GameConsole() {
   };
 
   let consoleStatusMessage = '';
+  let consoleStatusColor = 'text-gray-500';
   switch (consoleStatus) {
     case 'no-permission':
-      consoleStatusMessage =
-        'You do not have permission to access this console';
+      consoleStatusMessage = 'No permission to access console';
+      consoleStatusColor = 'text-gray-500';
       break;
     case 'loading':
       consoleStatusMessage = 'Loading console...';
+      consoleStatusColor = 'text-gray-500';
       break;
     case 'buffered':
       consoleStatusMessage = 'History messages. No live updates';
+      consoleStatusColor = 'text-gray-500';
       break;
     case 'live':
       consoleStatusMessage = 'Console is live';
+      consoleStatusColor = 'text-green-200';
       break;
     case 'live-no-buffer':
       consoleStatusMessage =
         'Console is live but failed to fetch history. Your internet connection may be unstable';
+      consoleStatusColor = 'text-yellow';
       break;
     case 'closed':
       consoleStatusMessage = 'Console is closed';
+      consoleStatusColor = 'text-red-200';
       break;
     case 'error':
       consoleStatusMessage = 'Connection lost or error';
+      consoleStatusColor = 'text-red-200';
+  }
+  // overwrites
+  if (instance.state !== 'Running') {
+    consoleStatusMessage = `Instance is ${instance.state.toLowerCase()}`;
+    consoleStatusColor = 'text-gray-500';
   }
 
   let consoleInputMessage = '';
   if (!canAccessConsole || consoleStatus === 'no-permission')
-    consoleInputMessage = 'You do not have permission to access this console';
+    consoleInputMessage = 'No permission';
   else if (instance.state !== 'Running')
     consoleInputMessage = `Instance is ${instance.state.toLowerCase()}`;
   else if (consoleStatus === 'closed')
     consoleInputMessage = 'Console is closed';
 
   return (
-    <div className="relative flex h-full w-full flex-col rounded-2xl overflow-clip border border-gray-faded/30">
-      {consoleStatusMessage && (
-        <div className="absolute top-0 right-0 select-none p-4 py-1 font-mono text-small font-light tracking-tight text-gray-500 hover:text-gray-400">
-          {consoleStatusMessage}
-        </div>
-      )}
-      <ol
-        className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl border-b border-gray-faded/30 bg-gray-800 py-3 font-mono text-small font-light tracking-tight text-gray-300"
-        ref={listRef}
+    <div className="relative flex h-full w-full grow flex-col rounded-lg border border-gray-faded/30">
+      <Tooltip
+        overlay={<span>{consoleStatusMessage}</span>}
+        placement="bottom"
+        showArrow={false}
+        trigger={['hover']}
+        mouseEnterDelay={0}
       >
-        {consoleLog.map((line) => (
-          <li
-            key={line.snowflake_str}
-            className="py-[0.125rem] px-4 hover:bg-gray-750"
-          >
-            {line.message}
-          </li>
-        ))}
-      </ol>
+        <FontAwesomeIcon
+          icon={faCircle}
+          className={`absolute top-0 right-0 select-none p-1.5 text-small ${consoleStatusColor}`}
+        />
+      </Tooltip>
+      {!canAccessConsole || consoleStatus === 'no-permission' ? (
+        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
+          <FontAwesomeIcon
+            icon={faServer}
+            className="text-title text-gray-400"
+          />
+          <p className="text-xl text-center text-white/50 font-medium">
+            You don&#39;t have permission to access this console
+          </p>
+        </div>
+      ) : consoleLog.length === 0 ? (
+        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
+          <FontAwesomeIcon
+            icon={faServer}
+            className="text-title text-gray-400"
+          />
+          <p className="text-xl text-center text-white/50 font-medium">
+            No console messages yet
+          </p>
+        </div>
+      ) : (
+        <ol
+          className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small font-light tracking-tight text-gray-300"
+          ref={listRef}
+        >
+          {consoleLog.map((line) => (
+            <li
+              key={line.snowflake}
+              className="py-[0.125rem] px-4 hover:bg-gray-800"
+            >
+              {line.message}
+            </li>
+          ))}
+        </ol>
+      )}
       <div className="font-mono text-small">
         <form
           noValidate
-          autoComplete="off"
+          autoComplete={DISABLE_AUTOFILL}
           onSubmit={(e: React.SyntheticEvent) => {
             e.preventDefault();
             sendCommand(command);
@@ -118,7 +162,7 @@ export default function GameConsole() {
           }}
         >
           <input
-            className="w-full rounded-b-2xl bg-gray-800 py-3 px-4 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
+            className="w-full rounded-b-lg bg-gray-850 py-3 px-4 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
             placeholder={consoleInputMessage || 'Enter command...'}
             value={command}
             onChange={(e) => setCommand(e.target.value)}

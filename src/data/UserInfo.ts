@@ -1,14 +1,18 @@
+import jwt from 'jsonwebtoken';
 import { ClientError } from 'bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { PublicUser } from 'bindings/PublicUser';
-import { useContext } from 'react';
+import { useContext, useMemo } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { UserPermission } from 'bindings/UserPermission';
+import { errorToString } from 'utils/util';
 
 // this won't ever change. if it does it will be invalidated manually
-export const useUserInfo = () => {
-  const { token, setToken } = useContext(LodestoneContext);
+export const useUserInfo = (enabled = true) => {
+  const { token, setToken, core } = useContext(LodestoneContext);
+  const { port, address } = core;
+  const socket = `${address}:${port}`;
 
   return useQuery<PublicUser, AxiosError<ClientError>>(
     ['user', 'info'],
@@ -18,11 +22,11 @@ export const useUserInfo = () => {
         .then((response) => response.data);
     },
     {
-      enabled: useContext(LodestoneContext).isReady && token !== '',
+      enabled: token !== '' && enabled,
       onError: (error) => {
-        if (error.response?.data.inner === 'Unauthorized')
+        if (error.response?.data?.inner === 'Unauthorized')
           // then token is invalid, delete it
-          setToken('');
+          setToken('', socket);
       },
     }
   );
@@ -65,4 +69,17 @@ export const useUserAuthorized = (
 ) => {
   const { data: user } = useUserInfo();
   return isUserAuthorized(user, permission, instanceId);
+};
+
+export const useUserLoggedIn = () => {
+  const { data: user } = useUserInfo();
+  return !!user;
+};
+
+/**
+ * Parses uid from JWT token directly, might be expired or fake
+ */
+export const useUid = () => {
+  const { uid } = useContext(LodestoneContext);
+  return uid;
 };

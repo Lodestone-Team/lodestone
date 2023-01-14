@@ -1,7 +1,6 @@
-import { useRouter } from 'next/router';
-import { useEffect, useRef, useState } from 'react';
-
-import { useIsomorphicLayoutEffect } from 'usehooks-ts';
+import { BrowserLocationContext } from './../data/BrowserLocationContext';
+import { useCallback, useEffect, useRef, useState, useContext } from 'react';
+import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
 
 export function useIntervalImmediate(
   callback: () => void,
@@ -86,43 +85,95 @@ export function useIntervalClockSeconds(callback: () => void, seconds: number) {
   useIntervalClock(callback, delay, initialDelayGen);
 }
 
-export function useRouterQuery(queryString: string) {
-  const router = useRouter();
-  const [state, setState] = useState<string | undefined>(undefined);
-  const [ready, setReady] = useState(false);
+export let globalSearchParams: URLSearchParams;
 
-  const setQuery = (value: string) => {
-    router.replace(
-      {
-        pathname: router.pathname,
-        query: { ...router.query, [queryString]: value },
-      },
-      undefined,
-      { shallow: true }
-    );
-  };
+/**
+ * Similar to useState, but stores the value in the search params.
+ * @param key The key to use in the search params.
+ * @param initialValue The initial value to use and the default value if the key is not present.
+ * @param visible If the default value should be visible in the search params.
+ * @return A tuple of the value and a setter function.
+ */
+export function useQueryParam(
+  key: string,
+  initialValue: string,
+  visible = true
+) {
+  const { setSearchParam, searchParams } = useContext(BrowserLocationContext);
+  const [value, setValue] = useState(searchParams.get(key) ?? initialValue);
+
+  const setValueAndParams = useCallback(
+    (newValue: string) => {
+      setValue(newValue);
+      setSearchParam(key, newValue, true);
+    },
+    [key, setSearchParam]
+  );
 
   useEffect(() => {
-    // check if it's an array
-    const val = router.query[queryString];
-    if (!val) {
-      setState(undefined);
-    } else if (Array.isArray(val)) {
-      setState(val[0]);
-    } else {
-      setState(val);
+    const newValue = searchParams.get(key);
+    // if value is falsy and initial value is not the same (to prevent infinite loops), set the param to the initial value
+    if (!newValue && newValue !== initialValue) {
+      if (visible)
+        //if visible, set the searchParam too
+        setSearchParam(key, initialValue, true);
+      // if not visible, just set the value
+      else setValue(initialValue);
+    }else if(!newValue){
+      // always set the internal value anyways
+      setValue(initialValue);
     }
-  }, [router.query, queryString]);
+    // if value is truthy and not the same as the current value, set the value
+    if (newValue && newValue !== value) {
+      setValue(newValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue, key, searchParams]);
 
+  return [value, setValueAndParams] as const;
+}
+
+/**
+ * Similar to useState, but stores the value in both local storage and the search params.
+ * @param key The key to use in the search params and local storage.
+ * @param initialValue The initial value to use.
+ * @param visible If the stored value should be visible in the search params.
+ * @return A tuple of the value and a setter function.
+ */
+export function useLocalStorageQueryParam(
+  key: string,
+  initialValue: string,
+  visible = true
+) {
+  const { setSearchParam, searchParams } = useContext(BrowserLocationContext);
+  const [value, setValue] = useLocalStorage(key, initialValue);
+
+  const setValueAndParams = useCallback(
+    (newValue: string) => {
+      setValue(newValue);
+      // if empty, remove the param
+      setSearchParam(key, newValue, true);
+    },
+    [key, setSearchParam, setValue]
+  );
+
+  // we use the stored value as the initial value
   useEffect(() => {
-    setReady(router.isReady);
-  }, [router.isReady]);
+    const newValue = searchParams.get(key);
+    // if value is falsy and not the same as the current value, set the param to the current value if visible
+    if (!newValue && newValue !== value) {
+      if (visible)
+        //if visible, set the searchParam too
+        setSearchParam(key, value, true);
+    }
+    // if value is truthy and not the same as the current value, set the value
+    if (newValue && newValue !== value) {
+      setValue(newValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue, key, searchParams]);
 
-  return {
-    isReady: ready,
-    query: state,
-    setQuery,
-  };
+  return [value, setValueAndParams] as const;
 }
 
 export function usePrevious(value: unknown) {

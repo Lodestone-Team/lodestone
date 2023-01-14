@@ -7,38 +7,39 @@ import {
 import { EventLevel } from 'bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 
-const NotificationLevelToFgColorClass = (
-  level: EventLevel,
-  state?: OngoingState
-) => {
-  switch (level) {
-    case 'Warning':
-      return 'text-ochre';
-    case 'Error':
-      return 'text-red';
-    default:
-      switch (state) {
-        case 'ongoing':
-          return 'text-gray-500';
-        case 'done':
-          return 'text-green';
-        case 'error':
-          return 'text-red';
-        default:
-          return 'text-gray-500';
-      }
-  }
-};
-
 export default function LoadingStatusIcon({
   level,
   state,
-  className = '',
+  className = 'h-5',
+  bright = false,
 }: {
   level: EventLevel;
   state?: OngoingState;
   className?: string;
+  bright?: boolean;
 }) {
+  const NotificationLevelToFgColorClass = (
+    level: EventLevel,
+    state?: OngoingState
+  ) => {
+    switch (level) {
+      case 'Warning':
+        return 'text-yellow';
+      case 'Error':
+        return 'text-red';
+      default:
+        switch (state) {
+          case 'done':
+            return 'text-green';
+          case 'error':
+            return 'text-red';
+          case 'ongoing':
+          default:
+            return bright ? 'text-gray-300' : 'text-gray-500';
+        }
+    }
+  };
+
   const fgColorClass = NotificationLevelToFgColorClass(level, state);
   if (state) {
     if (state === 'ongoing')
@@ -49,9 +50,9 @@ export default function LoadingStatusIcon({
           role="img"
           focusable="false"
           aria-hidden="true"
-          className={`svg-inline--fa h-5 animate-spin ${fgColorClass} ${className}`}
+          className={`svg-inline--fa animate-spin ${fgColorClass} ${className}`}
         >
-          <g clip-path="url(#clip0_1614_2092)">
+          <g clipPath="url(#clip0_1614_2092)">
             <path
               d="M512 256C512 397.4 397.4 512 256 512C114.6 512 0 397.4 0 256C0 114.6 114.6 0 256 0C397.4 0 512 114.6 512 256ZM256 48C141.1 48 48 141.1 48 256C48 370.9 141.1 464 256 464C370.9 464 464 370.9 464 256C464 141.1 370.9 48 256 48Z"
               fill="#44464B"
@@ -71,7 +72,7 @@ export default function LoadingStatusIcon({
     return (
       <FontAwesomeIcon
         icon={state === 'done' ? faCircleCheck : faCircleXmark}
-        className={`h-5 ${fgColorClass} ${className}`}
+        className={`${fgColorClass} ${className}`}
       />
     );
   } else {
@@ -84,9 +85,9 @@ export default function LoadingStatusIcon({
             role="img"
             focusable="false"
             aria-hidden="true"
-            className={`svg-inline--fa h-5 ${fgColorClass} ${className}`}
+            className={`svg-inline--fa ${fgColorClass} ${className}`}
           >
-            <g clip-path="url(#clip0_1499_2030)">
+            <g clipPath="url(#clip0_1499_2030)">
               <path
                 d="M232.5 152.5C232.5 139.2 243.2 128.5 256.5 128.5C269.8 128.5 280.5 139.2 280.5 152.5V264.5C280.5 277.8 269.8 288.5 256.5 288.5C243.2 288.5 232.5 277.8 232.5 264.5V152.5ZM256.5 384.5C238.8 384.5 224.5 370.2 224.5 352.5C224.5 334.8 238.8 320.5 256.5 320.5C274.2 320.5 288.5 334.8 288.5 352.5C288.5 370.2 274.2 384.5 256.5 384.5Z"
                 fill="currentColor"
@@ -115,7 +116,7 @@ export default function LoadingStatusIcon({
         return (
           <FontAwesomeIcon
             icon={faCircleXmark}
-            className={`h-5 ${fgColorClass} ${className}`}
+            className={`${fgColorClass} ${className}`}
           />
         );
       default:
@@ -126,9 +127,9 @@ export default function LoadingStatusIcon({
             role="img"
             focusable="false"
             aria-hidden="true"
-            className={`svg-inline--fa h-5 ${fgColorClass} ${className}`}
+            className={`svg-inline--fa ${fgColorClass} ${className}`}
           >
-            <g clip-path="url(#clip0_1499_2024)">
+            <g clipPath="url(#clip0_1499_2024)">
               <path
                 d="M256 192C273.673 192 288 177.673 288 160C288 142.327 273.673 128 256 128C238.327 128 224 142.327 224 160C224 177.673 238.327 192 256 192Z"
                 fill="currentColor"

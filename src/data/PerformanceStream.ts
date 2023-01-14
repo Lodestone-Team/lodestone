@@ -2,6 +2,7 @@ import { useContext, useEffect, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { PerformanceReport } from 'bindings/PerformanceReport';
 import { useInterval } from 'usehooks-ts';
+import { LODESTONE_PORT } from 'utils/util';
 
 const emptyReport: PerformanceReport = {
   memory_usage: null,
@@ -24,7 +25,9 @@ export const usePerformanceStream = (uuid: string) => {
   );
   const [lastPing, setLastPing] = useState(Date.now());
   const [latency_s, setLatency_s] = useState(0);
-  const { address, port, apiVersion } = useContext(LodestoneContext);
+  const [counter, setCounter] = useState(-1);
+  const { core } = useContext(LodestoneContext);
+  const { address, port, apiVersion } = core;
 
   useInterval(() => {
     setLatency_s((Date.now() - lastPing) / 1000);
@@ -32,7 +35,9 @@ export const usePerformanceStream = (uuid: string) => {
 
   useEffect(() => {
     const websocket = new WebSocket(
-      `ws://${address}:${port ?? 16662}/api/${apiVersion}/monitor/${uuid}`
+      `ws://${address}:${
+        port ?? LODESTONE_PORT
+      }/api/${apiVersion}/monitor/${uuid}`
     );
 
     websocket.onmessage = (messageEvent) => {
@@ -44,6 +49,7 @@ export const usePerformanceStream = (uuid: string) => {
         oldBuffer.push(event);
         return oldBuffer;
       });
+      setCounter((oldCounter) => oldCounter + 1);
       setLastPing(Date.now());
     };
 
@@ -55,6 +61,7 @@ export const usePerformanceStream = (uuid: string) => {
 
   return {
     buffer,
+    counter,
     latency_s,
   };
 };

@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { forwardRef, useEffect } from 'react';
 import { DraggableCore } from 'react-draggable';
-import { getHeight, getWidth } from 'utils/util';
+import { getHeight, getWidth, useCombinedRefs } from 'utils/util';
 import { DraggableEvent, DraggableData } from 'react-draggable';
+import clsx from 'clsx';
 
 const setCursor = (cursor: string) => {
   document.body.style.cursor = cursor;
@@ -15,31 +16,36 @@ const setCursor = (cursor: string) => {
  * To use this as a controlled component, pass in the `size` prop and the `onResize` callback
  *
  */
-export default function ResizePanel({
+const ResizePanel = forwardRef(({
   direction,
   containerClassNames: containerClassNamesProps = '',
+  contentClassNames: contentClassNamesProps = '',
   resizeBarClassNames: resizeBarClassNamesProps = '',
   children,
   style,
   size: initialSize,
   minSize: minSizeProps = 0,
   maxSize = Infinity,
+  grow = false,
   validateSize: shouldValidateSize = true,
   onResize,
 }: {
   direction: 'n' | 's' | 'e' | 'w';
   containerClassNames?: string;
+  contentClassNames?: string;
   resizeBarClassNames?: string;
   children: React.ReactNode;
   style?: React.CSSProperties;
   size: number;
   minSize?: number;
   maxSize?: number;
+  grow?: boolean;
   validateSize?: boolean;
   onResize?: (size: number) => void;
-}) {
+}, ref: React.Ref<HTMLDivElement>) => {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const wrapperRef = React.useRef<HTMLDivElement>(null);
+  const wrappedCombinedRef = useCombinedRefs<HTMLDivElement>(ref, wrapperRef);
 
   const isHorizontal = direction === 'w' || direction === 'e';
   const [size, setSizeState] = React.useState(0);
@@ -52,6 +58,7 @@ export default function ResizePanel({
 
   const validateSize = () => {
     if (!shouldValidateSize) return;
+    if (grow) return;
     const content = contentRef.current;
     const wrapper = wrapperRef.current;
     if (!content || !wrapper) return;
@@ -96,12 +103,6 @@ export default function ResizePanel({
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return;
-    // const actualContent = content.children[0] as HTMLElement;
-    // const initialSize = isHorizontal
-    //   ? getWidth(actualContent, 'full')
-    //   : getHeight(actualContent, 'full');
-
-    // Initialize the size value based on the content's current size
 
     setSize(initialSize);
     setTargetSize(initialSize);
@@ -132,7 +133,7 @@ export default function ResizePanel({
 
   // eslint-disable-next-line prefer-const
   let containerStyle = { ...style } || ({} as React.CSSProperties);
-  if (size !== 0) {
+  if (size !== 0 && !grow) {
     containerStyle.flexGrow = 0;
     containerStyle[isHorizontal ? 'width' : 'height'] = 'auto';
   }
@@ -149,16 +150,16 @@ export default function ResizePanel({
     ? { width: size + 'px' }
     : { height: size + 'px' };
 
-  const contentClassName = `flex grow self-stretch ${
-    isHorizontal ? 'flex-row' : 'flex-col'
-  }`;
-
   const content = [
     <div
       key="content"
       ref={contentRef}
-      className={contentClassName}
-      style={contentStyle}
+      className={clsx(
+        "flex grow self-stretch",
+        isHorizontal ? "flex-row" : "flex-col",
+        contentClassNamesProps,
+      )}
+      style={grow ? {} : contentStyle}
     >
       {children}
     </div>,
@@ -177,28 +178,17 @@ export default function ResizePanel({
 
   return (
     <div
-      ref={wrapperRef}
+      ref={wrappedCombinedRef}
       className={containerClassNames}
       style={containerStyle}
     >
-      {direction === 'w' || direction === 'n' ? handle : null}
+      {(direction === 'w' || direction === 'n') && !grow ? handle : null}
       {content}
-      {direction === 'e' || direction === 's' ? handle : null}
+      {(direction === 'e' || direction === 's') && !grow ? handle : null}
     </div>
   );
-}
+})
 
-// class ResizePanel extends React.Component {
-//   // constructor(props) {
-//   //   super(props);
-//   //   this.state = { size: 0 };
+ResizePanel.displayName = 'ResizePanel';
 
-//   //   this.contentRef = React.createRef();
-//   //   this.wrapperRef = React.createRef();
-//   //   this.validateSize = debounce(this.validateSize, 100).bind(this);
-//   // }
-
-//   render() {}
-// }
-
-// export default ResizePanel;
+export default ResizePanel;

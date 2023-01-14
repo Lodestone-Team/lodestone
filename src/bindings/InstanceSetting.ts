@@ -4,7 +4,7 @@ export type InstanceSetting =
   | 'uuid'
   | 'name'
   | 'flavour'
-  | 'game_type'
+  | 'server_instance'
   | 'cmd_args'
   | 'description'
   | 'port'

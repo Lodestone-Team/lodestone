@@ -1,5 +1,9 @@
 {
-  "cSpell.words": ["Formik", "reduxjs"],
+  "cSpell.words": [
+    "clsx",
+    "Formik",
+    "reduxjs"
+  ],
 
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": true
@@ -11,5 +15,6 @@
     "javascriptreact",
     "typescript",
     "typescriptreact"
-  ]
+  ],
+  "liveServer.settings.port": 5521
 }

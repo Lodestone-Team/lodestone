@@ -1,18 +1,17 @@
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { InstanceInfo } from 'bindings/InstanceInfo';
-import { useContext } from 'react';
-import { LodestoneContext } from './LodestoneContext';
 
 export const updateInstance = (
   uuid: string,
   queryClient: QueryClient,
   updater: (oldInfo: InstanceInfo) => InstanceInfo
 ) => {
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;
+      if (!oldData[uuid]) return oldData;
       return {
         ...oldData,
         [uuid]: updater(oldData[uuid]),
@@ -25,7 +24,7 @@ export const addInstance = (
   instanceInfo: InstanceInfo,
   queryClient: QueryClient
 ) => {
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;
@@ -38,7 +37,7 @@ export const addInstance = (
 };
 
 export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
-  queryClient.setQueriesData(
+  queryClient.setQueryData(
     ['instances', 'list'],
     (oldData: { [uuid: string]: InstanceInfo } | undefined) => {
       if (!oldData) return oldData;
@@ -49,7 +48,8 @@ export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
   );
 };
 
-export const useInstanceList = () =>
+// instance list sorted by creation time
+export const useInstanceList = (enabled = true) =>
   useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(
     ['instances', 'list'],
     () => {
@@ -70,6 +70,6 @@ export const useInstanceList = () =>
       });
     },
     {
-      enabled: useContext(LodestoneContext).isReady,
+      enabled,
     }
   );

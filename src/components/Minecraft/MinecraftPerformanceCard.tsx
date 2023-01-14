@@ -1,10 +1,8 @@
-import axios from 'axios';
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
 import { InstanceContext } from 'data/InstanceContext';
 import { usePerformanceStream } from 'data/PerformanceStream';
-import { useClientInfo } from 'data/SystemInfo';
+import { useCoreInfo } from 'data/SystemInfo';
 import { useContext } from 'react';
 import { round } from 'utils/util';
 
@@ -13,15 +11,17 @@ const bytesInGigabyte = 1073741824;
 export default function MinecraftPerformanceCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
-  const { buffer: performanceBuffer, latency_s } = usePerformanceStream(
-    instance.uuid
-  );
-  const { data } = useClientInfo();
+  const {
+    buffer: performanceBuffer,
+    counter,
+    latency_s,
+  } = usePerformanceStream(instance.uuid);
+  const { data } = useCoreInfo();
   const total_ram = data?.total_ram ?? 32;
 
   return (
     <DashboardCard>
-      <h1 className="text-medium font-bold"> Performance </h1>
+      <h1 className="text-h3 font-bold"> Performance </h1>
       <div className="mb-10 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
           <PerformanceGraph
@@ -32,6 +32,7 @@ export default function MinecraftPerformanceCard() {
               p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
             )}
             max={100}
+            counter={counter}
             unit="%"
           />
         </div>
@@ -46,6 +47,7 @@ export default function MinecraftPerformanceCard() {
                 : NaN
             )}
             max={round(total_ram / bytesInGigabyte, 1)}
+            counter={counter}
             unit="GiB"
           />
         </div>
