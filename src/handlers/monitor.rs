@@ -4,7 +4,7 @@ use axum::{
     extract::{ws::WebSocket, Path, WebSocketUpgrade},
     response::Response,
     routing::get,
-    Extension, Router,
+    Router,
 };
 use futures::{SinkExt, StreamExt};
 use log::error;
@@ -12,14 +12,16 @@ use ringbuffer::{AllocRingBuffer, RingBufferExt};
 use tokio::sync::Mutex;
 
 use crate::{
-    traits::{t_server::MonitorReport, Error, ErrorInner, TInstance},
+    prelude::GameInstance,
+    traits::{t_server::MonitorReport, t_server::TServer, Error, ErrorInner},
+    types::InstanceUuid,
     AppState,
 };
 
 pub async fn monitor(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Response, Error> {
     let instance = state
         .instances
@@ -31,15 +33,21 @@ pub async fn monitor(
             detail: "Instance not found".to_string(),
         })?
         .to_owned();
-    Ok(ws
-        .on_upgrade(move |stream| monitor_ws(stream, state.monitor_buffer.clone(), instance, uuid)))
+    Ok(ws.on_upgrade(move |stream| {
+        monitor_ws(
+            stream,
+            state.monitor_buffer.clone(),
+            instance.to_owned(),
+            uuid,
+        )
+    }))
 }
 
 async fn monitor_ws(
     stream: WebSocket,
-    monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
-    instance: Arc<Mutex<dyn TInstance>>,
-    uuid: String,
+    monitor_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<MonitorReport>>>>,
+    instance: GameInstance,
+    uuid: InstanceUuid,
 ) {
     let (mut tx, mut rx) = stream.split();
     if let Some(buffer) = monitor_buffer.lock().await.get(&uuid) {
@@ -59,7 +67,7 @@ async fn monitor_ws(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                let monitor = instance.lock().await.monitor().await;
+                let monitor = instance.monitor().await;
                 if let Err(e) = tx
                     .send(axum::extract::ws::Message::Text(
                         serde_json::to_string(&monitor).unwrap(),
@@ -79,6 +87,8 @@ async fn monitor_ws(
     }
 }
 
-pub fn get_monitor_routes() -> Router {
-    Router::new().route("/monitor/:uuid", get(monitor))
+pub fn get_monitor_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/monitor/:uuid", get(monitor))
+        .with_state(state)
 }

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use tempdir::TempDir;
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
@@ -29,11 +30,11 @@ pub struct SetupProgress {
     pub total_steps: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone)]
 pub struct DownloadProgress {
-    pub total: u64,
+    pub total: Option<u64>,
     pub downloaded: u64,
+    pub step: u64,
     pub download_name: String,
 }
 pub async fn download_file(
@@ -44,13 +45,13 @@ pub async fn download_file(
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
     let client = Client::new();
-    let response = client.get(url).send().await.map_err(|_| Error {
+    let response = client.get(url).send().await.map_err(|e| Error {
         inner: ErrorInner::FailedToUpload,
-        detail: format!("Failed to send GET request to {}", url),
+        detail: format!("Failed to send GET request to {} : {}", url, e),
     })?;
-    response.error_for_status_ref().map_err(|_| Error {
+    response.error_for_status_ref().map_err(|e| Error {
         inner: ErrorInner::APIChanged,
-        detail: "Failed to download file".to_string(),
+        detail: format!("Failed to download file {} : {}", url, e),
     })?;
     tokio::fs::create_dir_all(path).await.map_err(|_| Error {
         inner: ErrorInner::FailedToUpload,
@@ -87,8 +88,8 @@ pub async fn download_file(
         });
     }
     remove_file(path.join(&file_name)).await.ok();
-    let total_size = response.content_length().unwrap_or(0);
-    let pb = ProgressBar::new(total_size);
+    let total_size = response.content_length();
+    let pb = ProgressBar::new(total_size.unwrap_or(0));
     pb.set_style(ProgressStyle::default_bar()
         .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .progress_chars("#>-"));
@@ -101,20 +102,32 @@ pub async fn download_file(
             detail: format!("Failed to create file {}", path.join(&file_name).display()),
         })?;
     let mut downloaded: u64 = 0;
+    let mut new_downloaded: u64 = 0;
+    let threshold = total_size.unwrap_or(500000) / 100;
     let mut stream = response.bytes_stream();
     while let Some(item) = stream.next().await {
         let chunk = item.expect("Error while downloading file");
-        downloaded_file
-            .write_all(&chunk)
-            .await
-            .expect("Error while writing to file");
-        downloaded += chunk.len() as u64;
-        on_download(DownloadProgress {
-            total: total_size,
-            downloaded,
-            download_name: file_name.clone(),
-        });
-        pb.set_position(downloaded as u64);
+        downloaded_file.write_all(&chunk).await.map_err(|e| Error {
+            inner: ErrorInner::FailedToWriteFileOrDir,
+            detail: format!(
+                "Failed to write to file {}, {}",
+                path.join(&file_name).display(),
+                e
+            ),
+        })?;
+        new_downloaded += chunk.len() as u64;
+        let step = new_downloaded - downloaded;
+        if step > threshold {
+            on_download(DownloadProgress {
+                total: total_size,
+                downloaded,
+                step,
+                download_name: file_name.clone(),
+            });
+            downloaded = new_downloaded;
+        }
+
+        pb.set_position(new_downloaded);
     }
     Ok(path.join(&file_name))
 }
@@ -151,7 +164,13 @@ pub async fn list_dir(
     ret
 }
 
-pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Error> {
+pub async fn unzip_file(
+    file: impl AsRef<Path>,
+    dest: impl AsRef<Path>,
+    overwrite_old: bool,
+) -> Result<HashSet<PathBuf>, Error> {
+    let file = file.as_ref();
+    let dest = dest.as_ref();
     let os = std::env::consts::OS;
     let arch = if std::env::consts::ARCH == "x86_64" {
         "x64"
@@ -172,14 +191,16 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
     })?;
     let before: HashSet<PathBuf>;
 
-    // TODO: remove hardcoded temp dir
-    let tmp_dir = dest.join(format!("tmp_{}", rand_alphanumeric(5)));
-    tokio::fs::create_dir_all(&tmp_dir)
-        .await
-        .map_err(|_| Error {
+    let tmp_dir = TempDir::new("lodestone")
+        .map_err(|e| Error {
             inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("Failed to create directory {}", tmp_dir.display()),
-        })?;
+            detail: format!("Failed to create temp dir, {}", e),
+        })?
+        .path()
+        .to_owned();
+
+    let overwrite_arg = if overwrite_old { "-aoa" } else { "-aou" };
+
     if file.extension().ok_or(Error {
         inner: ErrorInner::MalformedFile,
         detail: "Not a zip file".to_string(),
@@ -189,7 +210,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
             Command::new(&_7zip_path)
                 .arg("x")
                 .arg(file)
-                .arg("-aoa")
+                .arg(overwrite_arg)
                 .arg(format!("-o{}", tmp_dir.display())),
         )
         .status()
@@ -213,7 +234,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
             Command::new(&_7zip_path)
                 .arg("x")
                 .arg(&tmp_dir)
-                .arg("-aoa")
+                .arg(overwrite_arg)
                 .arg("-ttar")
                 .arg(format!("-o{}", dest.display())),
         )
@@ -238,7 +259,7 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
                 .arg("x")
                 .arg(file)
                 .arg(format!("-o{}", dest.display()))
-                .arg("-aoa"),
+                .arg(overwrite_arg),
         )
         .status()
         .await
@@ -256,21 +277,11 @@ pub async fn unzip_file(file: &Path, dest: &Path) -> Result<HashSet<PathBuf>, Er
         .iter()
         .cloned()
         .collect();
-    tokio::fs::remove_dir_all(tmp_dir)
-        .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToRemoveFileOrDir,
-            detail: "Failed to remove tmp dir".to_string(),
-        })?;
     Ok((&after - &before).iter().cloned().collect())
 }
 
 pub fn rand_alphanumeric(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect()
-}
-
-pub fn rand_macro_uuid() -> String {
-    format!("MACRO_{}", uuid::Uuid::new_v4())
 }
 
 // safe_path only works on linux and messes up on windows
@@ -279,9 +290,9 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     root: R,
     unsafe_path: U,
 ) -> Result<PathBuf, Error> {
-    let mut ret = safe_path::scoped_join(&root, unsafe_path).map_err(|_| Error {
+    let mut ret = safe_path::scoped_join(&root, unsafe_path).map_err(|e| Error {
         inner: ErrorInner::MalformedFile,
-        detail: "Failed to join path".to_string(),
+        detail: format!("Failed to join path: {}", e),
     })?;
     if cfg!(windows) {
         // construct a new path
@@ -302,4 +313,89 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
     cmd.creation_flags(0x08000000);
 
     cmd
+}
+
+pub fn format_byte_download(bytes: u64, total: u64) -> String {
+    let mut bytes = bytes as f64;
+    let mut total = total as f64;
+    let mut unit = "B";
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "KB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "MB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "GB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "TB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "PB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "EB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "ZB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        total /= 1024.0;
+        unit = "YB";
+    }
+    format!("{:.1} / {:.1} {}", bytes, total, unit)
+}
+
+pub fn format_byte(bytes: u64) -> String {
+    let mut bytes = bytes as f64;
+    let mut unit = "B";
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "KB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "MB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "GB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "TB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "PB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "EB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "ZB";
+    }
+    if bytes > 1024.0 {
+        bytes /= 1024.0;
+        unit = "YB";
+    }
+    format!("{:.1} {}", bytes, unit)
 }

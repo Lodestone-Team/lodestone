@@ -1,45 +1,51 @@
-use std::sync::Arc;
-
 use axum::routing::{delete, get, post};
 use axum::Router;
-use axum::{extract::Path, Extension, Json};
+use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
-use futures::future::join_all;
-use log::{error, info};
+
+use log::info;
 use serde::{Deserialize, Serialize};
 
-use tokio::sync::Mutex;
 use ts_rs::TS;
 
 use crate::auth::user::UserAction;
-use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::events::{
+    CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
+    ProgressionStartValue,
+};
 
 use crate::implementations::minecraft::{Flavour, SetupConfig};
-use crate::prelude::{PATH_TO_INSTANCES, get_snowflake};
-use crate::traits::{InstanceInfo, TInstance};
+use crate::prelude::PATH_TO_INSTANCES;
+use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
-use crate::util::rand_alphanumeric;
+use crate::types::{InstanceUuid, Snowflake};
 use crate::{
     implementations::minecraft,
     traits::{t_server::State, Error, ErrorInner},
     AppState,
 };
 
-use super::util::try_auth;
-
 pub async fn get_instance_list(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<InstanceInfo>>, Error> {
-    let mut list_of_configs: Vec<InstanceInfo> = join_all(state.instances.lock().await.iter().map(
-        |(_, instance)| async move {
-            // want id, name, playercount, maxplayer count, port, state and type
-            let instance = instance.lock().await;
-            instance.get_instance_info().await
-        },
-    ))
-    .await
-    .into_iter()
-    .collect();
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+    let mut list_of_configs: Vec<InstanceInfo> = Vec::new();
+
+    let instances = state.instances.lock().await;
+    for instance in instances.values() {
+        if requester.can_perform_action(&UserAction::ViewInstance(instance.uuid().await)) {
+            list_of_configs.push(instance.get_instance_info().await);
+        }
+    }
 
     list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
 
@@ -47,24 +53,34 @@ pub async fn get_instance_list(
 }
 
 pub async fn get_instance_info(
-    Path(uuid): Path<String>,
-    Extension(state): Extension<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
 ) -> Result<Json<InstanceInfo>, Error> {
-    Ok(Json(
-        state
-            .instances
-            .lock()
-            .await
-            .get(&uuid)
-            .ok_or(Error {
-                inner: ErrorInner::InstanceNotFound,
-                detail: "".to_string(),
-            })?
-            .lock()
-            .await
-            .get_instance_info()
-            .await,
-    ))
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+
+    let instances = state.instances.lock().await;
+
+    let instance = instances.get(&uuid).ok_or(Error {
+        inner: ErrorInner::InstanceNotFound,
+        detail: "".to_string(),
+    })?;
+
+    if !requester.can_perform_action(&UserAction::ViewInstance(instance.uuid().await)) {
+        return Err(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "You are not allowed to view this instance".to_string(),
+        });
+    }
+    Ok(Json(instance.get_instance_info().await))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS)]
@@ -90,7 +106,7 @@ pub struct MinecraftSetupConfigPrimitive {
 
 impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
     fn from(config: MinecraftSetupConfigPrimitive) -> Self {
-        let uuid = uuid::Uuid::new_v4().to_string();
+        let uuid = InstanceUuid::default();
         SetupConfig {
             name: config.name.clone(),
             version: config.version,
@@ -111,30 +127,33 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             game_type: "minecraft".to_string(),
             uuid: uuid.clone(),
             path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, &uuid[0..8]))),
+                .with(|path| path.join(format!("{}-{}", config.name, &uuid.no_prefix()[0..8]))),
         }
     }
 }
 pub async fn create_minecraft_instance(
-    Extension(state): Extension<AppState>,
-    Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<String>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
+) -> Result<Json<InstanceUuid>, Error> {
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::CreateInstance) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to get instance state".to_string(),
         });
     }
-    drop(users);
     primitive_setup_config.name = sanitize_filename::sanitize(&primitive_setup_config.name);
     let mut setup_config: SetupConfig = primitive_setup_config.into();
-    let mut name = setup_config.name.clone();
+    let name = setup_config.name.clone();
     if name.is_empty() {
         return Err(Error {
             inner: ErrorInner::MalformedRequest,
@@ -147,15 +166,20 @@ pub async fn create_minecraft_instance(
             detail: "Name must not be longer than 100 characters".to_string(),
         });
     }
-    name = format!("{}-{}", name, &setup_config.uuid[0..5]);
     for (_, instance) in state.instances.lock().await.iter() {
-        let path = instance.lock().await.path().await;
+        let path = instance.path().await;
         if path == setup_config.path {
             while path == setup_config.path {
                 info!("You just hit the lottery");
-                setup_config.uuid = uuid::Uuid::new_v4().to_string();
-                name = format!("{}-{}", name, &setup_config.uuid[0..5]);
-                setup_config.name = name.clone();
+                setup_config.uuid = InstanceUuid::default();
+                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.no_prefix()[0..5]);
+                setup_config.path = PATH_TO_INSTANCES.with(|path| {
+                    path.join(format!(
+                        "{}-{}",
+                        name_with_uuid,
+                        &setup_config.uuid.no_prefix()[0..5]
+                    ))
+                });
             }
         }
     }
@@ -163,47 +187,76 @@ pub async fn create_minecraft_instance(
     let uuid = setup_config.uuid.clone();
     tokio::task::spawn({
         let uuid = uuid.clone();
+        let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
+        let port = setup_config.port;
+        let flavour = setup_config.flavour;
+        let caused_by = CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        };
         async move {
-            let minecraft_instance = match minecraft::Instance::new(
+            let progression_event_id = Snowflake::default();
+            let _ = event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: progression_event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionStart {
+                        progression_name: format!("Setting up Minecraft server {}", name),
+                        producer_id: Some(uuid.clone()),
+                        total: Some(10.0),
+                        inner: Some(ProgressionStartValue::InstanceCreation {
+                            instance_uuid: uuid.clone(),
+                            instance_name: instance_name.clone(),
+                            port,
+                            flavour: flavour.to_string(),
+                            game_type: "minecraft".to_string(),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: caused_by.clone(),
+            });
+            let minecraft_instance = match minecraft::MinecraftInstance::new(
                 setup_config.clone(),
+                progression_event_id,
                 state.event_broadcaster.clone(),
+                state.macro_executor.clone(),
             )
             .await
             {
                 Ok(v) => {
-                    let _ = event_broadcaster
-                        .send(Event {
-                            event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                instance_uuid: uuid.clone(),
-                                instance_name: name.clone(),
-                                instance_event_inner: InstanceEventInner::InstanceCreationSuccess {
-                                    instance : v.get_instance_info().await,
-                                },
-                            }),
-                            details: "".to_string(),
-                            snowflake: get_snowflake(),
-                            idempotency: rand_alphanumeric(5),
-                        })
-                        .map_err(|e| {
-                            error!("Failed to send event: {}", e);
-                        });
+                    let _ = event_broadcaster.send(Event {
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id: progression_event_id,
+                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                                success: true,
+                                message: Some("Instance creation success".to_string()),
+                                inner: Some(ProgressionEndValue::InstanceCreation(
+                                    v.get_instance_info().await,
+                                )),
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: Snowflake::default(),
+                        caused_by: caused_by.clone(),
+                    });
                     v
                 }
                 Err(e) => {
                     let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::InstanceEvent(InstanceEvent {
-                            instance_uuid: uuid.clone(),
-                            instance_name : name.clone(),
-                            instance_event_inner: InstanceEventInner::InstanceCreationFailed {
-                                reason: e.detail,
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id: progression_event_id,
+                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                                success: false,
+                                message: Some(format!("Instance creation failed: {:?}", e)),
+                                inner: None,
                             },
                         }),
                         details: "".to_string(),
-                        snowflake: get_snowflake(),
-                        idempotency : rand_alphanumeric(5),
-                    
-                    }).map_err(|_| error!("Instance setup failed AND failed to communicate this result through websocket"));
+                        snowflake: Snowflake::default(),
+                        caused_by: caused_by.clone(),
+                    });
                     tokio::fs::remove_dir_all(setup_config.path)
                         .await
                         .map_err(|e| Error {
@@ -217,59 +270,142 @@ pub async fn create_minecraft_instance(
                     return;
                 }
             };
-            let mut port_allocator = state.port_allocator.lock().await;
-            port_allocator.add_port(setup_config.port);
+            let mut port_manager = state.port_manager.lock().await;
+            port_manager.add_port(setup_config.port);
             state
                 .instances
                 .lock()
                 .await
-                .insert(uuid.clone(), Arc::new(Mutex::new(minecraft_instance)));
+                .insert(uuid.clone(), minecraft_instance.into());
         }
     });
     Ok(Json(uuid))
 }
 
 pub async fn delete_instance(
-    Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let users = state.users.lock().await;
-    let requester = try_auth(&token, users.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     if !requester.can_perform_action(&UserAction::DeleteInstance) {
         return Err(Error {
             inner: ErrorInner::PermissionDenied,
             detail: "Not authorized to delete instance".to_string(),
         });
     }
-    drop(users);
     let mut instances = state.instances.lock().await;
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
     if let Some(instance) = instances.get(&uuid) {
-        let instance_lock = instance.lock().await;
-        if !(instance_lock.state().await == State::Stopped) {
+        if !(instance.state().await == State::Stopped) {
             Err(Error {
-                inner: ErrorInner::InstanceStarted,
+                inner: ErrorInner::InvalidInstanceState,
                 detail: "Instance is running, cannot remove".to_string(),
             })
         } else {
-            tokio::fs::remove_dir_all(instance_lock.path().await)
+            let progression_id = Snowflake::default();
+            let event_broadcaster = state.event_broadcaster.clone();
+            let _ = event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: progression_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionStart {
+                        progression_name: format!("Deleting instance {}", instance.name().await),
+                        producer_id: Some(uuid.clone()),
+                        total: Some(10.0),
+                        inner: None,
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: caused_by.clone(),
+            });
+            tokio::fs::remove_file(instance.path().await.join(".lodestone_config"))
+                .await
+                .map_err(|e| {
+                    let _ = event_broadcaster.send(Event {
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id: Snowflake::default(),
+                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                                success: false,
+                                message: Some(
+                                    "Failed to delete .lodestone_config. Instance not deleted"
+                                        .to_string(),
+                                ),
+                                inner: None,
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: Snowflake::default(),
+                        caused_by: caused_by.clone(),
+                    });
+                    Error {
+                        inner: ErrorInner::FailedToRemoveFileOrDir,
+                        detail: format!(
+                            "Failed to remove .lodestone_config: {}. Instance not deleted",
+                            e
+                        ),
+                    }
+                })?;
+            state
+                .port_manager
+                .lock()
+                .await
+                .deallocate(instance.port().await);
+            let instance_path = instance.path().await;
+            instances.remove(&uuid);
+            drop(instances);
+            let res = tokio::fs::remove_dir_all(instance_path)
                 .await
                 .map_err(|e| Error {
                     inner: ErrorInner::FailedToRemoveFileOrDir,
-                    detail: format!("Could not remove instance: {}", e),
-                })?;
+                    detail: format!("Could not remove file for instance: {}", e),
+                });
 
-            state
-                .port_allocator
-                .lock()
-                .await
-                .deallocate(instance_lock.port().await);
-            drop(instance_lock);
-            instances.remove(&uuid);
-            Ok(Json(()))
+            if res.is_ok() {
+                let _ = event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id: progression_id,
+                        progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                            success: true,
+                            message: Some("Deleted instance".to_string()),
+                            inner: Some(ProgressionEndValue::InstanceDelete {
+                                instance_uuid: uuid.clone(),
+                            }),
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: Snowflake::default(),
+                    caused_by: caused_by.clone(),
+                });
+            } else {
+                let _ = event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id: progression_id,
+                        progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                            success: false,
+                            message: Some(
+                                "Could not delete some or all of instance's files".to_string(),
+                            ),
+                            inner: None,
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: Snowflake::default(),
+                    caused_by: caused_by.clone(),
+                });
+            }
+            res.map(|_| Json(()))
         }
     } else {
         Err(Error {
@@ -279,10 +415,11 @@ pub async fn delete_instance(
     }
 }
 
-pub fn get_instance_routes() -> Router {
+pub fn get_instance_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/list", get(get_instance_list))
         .route("/instance/minecraft", post(create_minecraft_instance))
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))
+        .with_state(state)
 }

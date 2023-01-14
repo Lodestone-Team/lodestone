@@ -1,50 +1,59 @@
-use std::collections::HashSet;
 use std::env;
 use std::process::Stdio;
+use std::time::Duration;
 
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use crate::events::{Event, EventInner, InstanceEvent, InstanceEventInner};
-use crate::implementations::minecraft::util::read_properties_from_path;
-use crate::macro_executor::LuaExecutionInstruction;
-use crate::prelude::{get_snowflake, LODESTONE_PATH};
+use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::implementations::minecraft::player::MinecraftPlayer;
+use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
+use crate::macro_executor::ExecutionInstruction;
+use crate::prelude::LODESTONE_PATH;
 use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_server::{MonitorReport, State, TServer};
+use crate::traits::t_macro::TMacro;
+use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
-use crate::traits::{Error, ErrorInner, MaybeUnsupported, Supported};
-use crate::util::{dont_spawn_terminal, rand_alphanumeric, scoped_join_win_safe};
+use crate::traits::{Error, ErrorInner};
+use crate::types::Snowflake;
+use crate::util::dont_spawn_terminal;
 
-use super::Instance;
+use super::MinecraftInstance;
 use log::{debug, error, info, warn};
 use tokio::task;
 
 #[async_trait::async_trait]
-impl TServer for Instance {
-    async fn start(&mut self) -> Result<(), Error> {
-        self.state.lock().await.update(State::Starting)?;
+impl TServer for MinecraftInstance {
+    async fn start(&mut self, cause_by: CausedBy) -> Result<(), Error> {
+        self.state.lock().await.try_transition(
+            StateAction::UserStart,
+            Some(&|state| {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::InstanceEvent(InstanceEvent {
+                        instance_name: self.config.name.clone(),
+                        instance_uuid: self.config.uuid.clone(),
+                        instance_event_inner: InstanceEventInner::StateTransition { to: state },
+                    }),
+                    snowflake: Snowflake::default(),
+                    details: "Starting server".to_string(),
+                    caused_by: cause_by.clone(),
+                });
+            }),
+        )?;
+
         env::set_current_dir(&self.config.path).unwrap();
 
-        let prelaunch = self.path().await.join("prelaunch.lua");
+        let prelaunch = self.path().await.join("prelaunch.js");
         if prelaunch.exists() {
-
-            match tokio::fs::read_to_string(prelaunch).await {
-                Ok(script) => {
-                    let uuid = self.macro_executor.spawn(LuaExecutionInstruction {
-                        lua: None,
-                        content: script,
-                        args: vec![],
-                        executor: None,
-                    });
-                    // wait for prelaunch.lua to finish
-                    let _ = self.macro_executor.wait_with_timeout(uuid, Some(5.0)).await;
-                }
-                Err(e) => {
-                    error!("Failed to read prelaunch script: {}", e);
-                }
-            }
-           
+            self.macro_executor.spawn(ExecutionInstruction {
+                name: "prelaunch".to_string(),
+                args: vec![],
+                executor: None,
+                runtime: self.macro_std(),
+                is_in_game: false,
+                instance_uuid: self.config.uuid.clone(),
+            });
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -62,6 +71,7 @@ impl TServer for Instance {
                 "bin"
             })
             .join("java");
+
         match dont_spawn_terminal(
             Command::new(&jre)
                 .arg(format!("-Xmx{}M", self.config.max_ram))
@@ -116,20 +126,20 @@ impl TServer for Instance {
                         detail: "Failed to take stderr during startup".to_string(),
                     }
                 })?;
-                self.process = Some(proc);
+                *self.process.lock().await = Some(proc);
                 task::spawn({
                     use fancy_regex::Regex;
                     use lazy_static::lazy_static;
-                    use std::collections::HashSet;
+
                     let event_broadcaster = self.event_broadcaster.clone();
                     let settings = self.settings.clone();
-                    let state = self.state.clone();
+                    let _state = self.state.clone();
                     let path_to_properties = self.path_to_properties.clone();
                     let uuid = self.config.uuid.clone();
                     let name = self.config.name.clone();
-                    let players = self.players.clone();
+                    let players_manager = self.players_manager.clone();
                     let macro_executor = self.macro_executor.clone();
-                    let path_to_macros = self.path_to_macros.clone();
+                    let mut __self = self.clone();
                     async move {
                         fn parse_system_msg(msg: &str) -> Option<String> {
                             lazy_static! {
@@ -193,7 +203,7 @@ impl TServer for Instance {
                         }
 
                         enum MacroInstruction {
-                            Abort(String),
+                            Abort(usize),
                             Spawn {
                                 player_name: String,
                                 macro_name: String,
@@ -210,7 +220,7 @@ impl TServer for Instance {
                                 if RE.is_match(&msg).unwrap() {
                                     if let Some(cap) = RE.captures(&msg).ok()? {
                                         Some(MacroInstruction::Abort(
-                                            cap.get(1)?.as_str().to_string(),
+                                            cap.get(1)?.as_str().parse().ok()?,
                                         ))
                                     } else {
                                         None
@@ -293,21 +303,73 @@ impl TServer for Instance {
                                     instance_name: name.clone(),
                                 }),
                                 details: "".to_string(),
-                                snowflake: get_snowflake(),
-                                idempotency: rand_alphanumeric(5),
+                                snowflake: Snowflake::default(),
+                                caused_by: CausedBy::System,
                             });
 
                             if parse_server_started(&line) && !did_start {
                                 did_start = true;
-                                state
+                                self.state
                                     .lock()
                                     .await
-                                    .update(State::Running)
-                                    .expect("Failed to update state");
+                                    .try_transition(
+                                        StateAction::InstanceStart,
+                                        Some(&|state| {
+                                            self.event_broadcaster.send(Event {
+                                                event_inner: EventInner::InstanceEvent(
+                                                    InstanceEvent {
+                                                        instance_name: self.config.name.clone(),
+                                                        instance_uuid: self.config.uuid.clone(),
+                                                        instance_event_inner:
+                                                            InstanceEventInner::StateTransition {
+                                                                to: state,
+                                                            },
+                                                    },
+                                                ),
+                                                snowflake: Snowflake::default(),
+                                                details: "Starting server".to_string(),
+                                                caused_by: cause_by.clone(),
+                                            });
+                                        }),
+                                    )
+                                    .unwrap();
                                 *settings.lock().await =
                                     read_properties_from_path(&path_to_properties)
                                         .await
                                         .expect("Failed to read properties");
+                                if let (Ok(Ok(true)), Ok(rcon_psw), Ok(Ok(rcon_port))) = (
+                                    self.get_field("enable-rcon").await.map(|v| v.parse()),
+                                    self.get_field("rcon.password").await,
+                                    self.get_field("rcon.port").await.map(|v| v.parse::<u32>()),
+                                ) {
+                                    let max_retry = 3;
+                                    for i in 0..max_retry {
+                                        let rcon =
+                                            <rcon::Connection<tokio::net::TcpStream>>::builder()
+                                                .enable_minecraft_quirks(true)
+                                                .connect(
+                                                    &format!("localhost:{}", rcon_port),
+                                                    &rcon_psw,
+                                                )
+                                                .await
+                                                .map_err(|e| {
+                                                    warn!(
+                                                    "Failed to connect to RCON: {}, retry {}/{}",
+                                                    e, i, max_retry
+                                                );
+                                                    e
+                                                });
+                                        if let Ok(rcon) = rcon {
+                                            info!("Connected to RCON");
+                                            self.rcon_conn.lock().await.replace(rcon);
+                                            break;
+                                        }
+                                        tokio::time::sleep(Duration::from_secs(2_u64.pow(i))).await;
+                                    }
+                                } else {
+                                    warn!("RCON is not enabled, skipping");
+                                    self.rcon_conn.lock().await.take();
+                                }
                             }
                             if let Some(system_msg) = parse_system_msg(&line) {
                                 let _ = event_broadcaster.send(Event {
@@ -319,23 +381,22 @@ impl TServer for Instance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
-                                    idempotency: rand_alphanumeric(5),
+                                    snowflake: Snowflake::default(),
+                                    caused_by: CausedBy::System,
                                 });
                                 if let Some(player_name) = parse_player_joined(&system_msg) {
-                                    let _ = players.lock().await.transform_cmp(Box::new(
-                                        move |this: &mut HashSet<String>| {
-                                            this.insert(player_name.clone());
-                                            Ok(())
+                                    players_manager.lock().await.add_player(
+                                        MinecraftPlayer {
+                                            name: player_name.clone(),
+                                            uuid: name_to_uuid(&player_name).await,
                                         },
-                                    ));
+                                        self.name().await,
+                                    );
                                 } else if let Some(player_name) = parse_player_left(&system_msg) {
-                                    let _ = players.lock().await.transform_cmp(Box::new(
-                                        move |this: &mut HashSet<String>| {
-                                            this.remove(&player_name);
-                                            Ok(())
-                                        },
-                                    ));
+                                    players_manager
+                                        .lock()
+                                        .await
+                                        .remove_by_name(&player_name, self.name().await);
                                 }
                             } else if let Some((player, msg)) = parse_player_msg(&line) {
                                 let _ = event_broadcaster.send(Event {
@@ -348,8 +409,8 @@ impl TServer for Instance {
                                         instance_name: name.clone(),
                                     }),
                                     details: "".to_string(),
-                                    snowflake: get_snowflake(),
-                                    idempotency: rand_alphanumeric(5),
+                                    snowflake: Snowflake::default(),
+                                    caused_by: CausedBy::System,
                                 });
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {
                                     match macro_instruction {
@@ -365,44 +426,72 @@ impl TServer for Instance {
                                                 "Invoking macro {} with args {:?}",
                                                 macro_name, args
                                             );
-                                            let path = scoped_join_win_safe(
-                                                &path_to_macros.join("in_game"),
-                                                &format!("{}.lua", macro_name),
-                                            )
-                                            .unwrap();
-                                            if let Ok(content) =
-                                                tokio::fs::read_to_string(&path).await
-                                            {
-                                                let exec = LuaExecutionInstruction {
-                                                    content,
+                                            let _ = self
+                                                .run_macro(
+                                                    &macro_name,
                                                     args,
-                                                    executor: Some(player_name),
-                                                    lua: None,
-                                                };
-                                                macro_executor.spawn(exec);
-                                            } else {
-                                                warn!("Failed to read macro file {:?}", path);
-                                            }
+                                                    Some(player_name.as_str()),
+                                                    true,
+                                                )
+                                                .await
+                                                .map_err(|e| {
+                                                    warn!("Failed to run macro: {}", e);
+                                                    e
+                                                });
                                         }
                                     }
                                 }
                             }
                         }
                         info!("Instance {} process shutdown", name);
-                        let _ = state.lock().await.transform(Box::new(|v| {
-                            *v = State::Stopped;
-                            Ok(())
-                        }));
+                        self.state
+                            .lock()
+                            .await
+                            .try_transition(
+                                StateAction::InstanceStop,
+                                Some(&|state| {
+                                    self.event_broadcaster.send(Event {
+                                        event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                            instance_name: self.config.name.clone(),
+                                            instance_uuid: self.config.uuid.clone(),
+                                            instance_event_inner:
+                                                InstanceEventInner::StateTransition { to: state },
+                                        }),
+                                        snowflake: Snowflake::default(),
+                                        details: "Starting server".to_string(),
+                                        caused_by: cause_by.clone(),
+                                    });
+                                }),
+                            )
+                            .unwrap();
+                        self.players_manager.lock().await.clear(name);
                     }
                 });
             }
             Err(e) => {
                 env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 error!("Failed to start server, {}", e);
-                self.state.lock().await.transform(Box::new(|v : &mut State| {
-                    *v = State::Stopped;
-                    Ok(())
-                })).unwrap();
+                self.state
+                    .lock()
+                    .await
+                    .try_transition(
+                        StateAction::InstanceStop,
+                        Some(&|state| {
+                            self.event_broadcaster.send(Event {
+                                event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                    instance_name: self.config.name.clone(),
+                                    instance_uuid: self.config.uuid.clone(),
+                                    instance_event_inner: InstanceEventInner::StateTransition {
+                                        to: state,
+                                    },
+                                }),
+                                snowflake: Snowflake::default(),
+                                details: "Starting server".to_string(),
+                                caused_by: cause_by.clone(),
+                            });
+                        }),
+                    )
+                    .unwrap();
                 return Err(Error {
                     inner: ErrorInner::FailedToExecute,
                     detail: "Failed to start server".into(),
@@ -413,8 +502,22 @@ impl TServer for Instance {
         self.write_config_to_file().await?;
         Ok(())
     }
-    async fn stop(&mut self) -> Result<(), Error> {
-        self.state.lock().await.update(State::Stopping)?;
+    async fn stop(&mut self, cause_by: CausedBy) -> Result<(), Error> {
+        self.state.lock().await.try_transition(
+            StateAction::UserStop,
+            Some(&|state| {
+                self.event_broadcaster.send(Event {
+                    event_inner: EventInner::InstanceEvent(InstanceEvent {
+                        instance_name: self.config.name.clone(),
+                        instance_uuid: self.config.uuid.clone(),
+                        instance_event_inner: InstanceEventInner::StateTransition { to: state },
+                    }),
+                    snowflake: Snowflake::default(),
+                    details: "Starting server".to_string(),
+                    caused_by: cause_by.clone(),
+                });
+            }),
+        )?;
         let name = self.config.name.clone();
         let _uuid = self.config.uuid.clone();
         self.stdin
@@ -441,23 +544,19 @@ impl TServer for Instance {
                     detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
-        self.players
-            .lock()
-            .await
-            .transform(Box::new(|v: &mut HashSet<String>| {
-                v.clear();
-                Ok(())
-            }))
+        Ok(())
     }
-    async fn kill(&mut self) -> Result<(), crate::traits::Error> {
+    async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), crate::traits::Error> {
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", self.config.name.clone());
             return Err(Error {
-                inner: ErrorInner::InstanceStopped,
+                inner: ErrorInner::InvalidInstanceState,
                 detail: "Instance is already stopped".to_string(),
             });
         }
         self.process
+            .lock()
+            .await
             .as_mut()
             .ok_or_else(|| {
                 error!(
@@ -477,40 +576,44 @@ impl TServer for Instance {
                     self.config.name.clone()
                 );
                 Error {
-                    inner: ErrorInner::InstanceStopped,
+                    inner: ErrorInner::InvalidInstanceState,
                     detail: "Failed to kill instance, instance already existed".to_string(),
                 }
             })?;
-        self.players
-            .lock()
-            .await
-            .transform(Box::new(|v: &mut HashSet<String>| {
-                v.clear();
-                Ok(())
-            }))
-            .unwrap();
         Ok(())
     }
 
     async fn state(&self) -> State {
-        self.state.lock().await.get()
+        *self.state.lock().await
     }
 
-    async fn send_command(&mut self, command: &str) -> MaybeUnsupported<Result<(), Error>> {
-        Supported(if self.state().await == State::Stopped {
+    async fn send_command(&self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
+        if self.state().await == State::Stopped {
             Err(Error {
-                inner: ErrorInner::InstanceStopped,
+                inner: ErrorInner::InvalidInstanceState,
                 detail: "Instance not running".to_string(),
             })
         } else {
             match self.stdin.lock().await.as_mut() {
                 Some(stdin) => match {
                     if command == "stop" {
-                        self.state
-                            .lock()
-                            .await
-                            .update(State::Stopping)
-                            .expect("Failed to update state")
+                        self.state.lock().await.try_new_state(
+                            StateAction::UserStop,
+                            Some(&|state| {
+                                self.event_broadcaster.send(Event {
+                                    event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                        instance_name: self.config.name.clone(),
+                                        instance_uuid: self.config.uuid.clone(),
+                                        instance_event_inner: InstanceEventInner::StateTransition {
+                                            to: state,
+                                        },
+                                    }),
+                                    snowflake: Snowflake::default(),
+                                    details: "Starting server".to_string(),
+                                    caused_by: cause_by.clone(),
+                                });
+                            }),
+                        )?;
                     }
                     stdin.write_all(format!("{}\n", command).as_bytes()).await
                 } {
@@ -537,11 +640,12 @@ impl TServer for Instance {
                     })
                 }
             }
-        })
+        }
     }
     async fn monitor(&self) -> MonitorReport {
-        if let Some(pid) = self.process.as_ref().and_then(|p| p.id()) {
-            let mut sys = self.system.lock().await;
+        let mut sys = self.system.lock().await;
+        sys.refresh_memory();
+        if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
             sys.refresh_process(Pid::from_u32(pid));
             let proc = (*sys).process(Pid::from_u32(pid));
             if let Some(proc) = proc {

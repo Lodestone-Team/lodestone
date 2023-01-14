@@ -1,51 +1,48 @@
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
-use axum::{extract::Path, Extension, Json, Router};
+use axum::{extract::Path, Json, Router};
 use log::info;
-use rand_core::OsRng;
 
 use crate::{
     auth::{permission::UserPermission, user::User},
+    events::CausedBy,
     traits::{Error, ErrorInner},
-    util::rand_alphanumeric,
     AppState,
 };
 
+use super::users::LoginReply;
+
+#[derive(serde::Deserialize)]
+pub struct OwnerSetup {
+    username: String,
+    password: String,
+}
+
 pub async fn setup_owner(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Path(key): Path<String>,
-    Json(owner_psw): Json<String>,
-) -> Result<Json<()>, Error> {
+    Json(owner_setup): Json<OwnerSetup>,
+) -> Result<Json<LoginReply>, Error> {
     let mut setup_key_lock = state.first_time_setup_key.lock().await;
     match setup_key_lock.clone() {
         Some(k) if k == key => {
             setup_key_lock.take();
-            let salt = SaltString::generate(&mut OsRng);
-            let argon2 = Argon2::default();
-            let hashed_psw = argon2
-                .hash_password(owner_psw.as_bytes(), &salt)
-                .unwrap()
-                .to_string();
-            let uid = uuid::Uuid::new_v4().to_string();
-            let owner = User {
-                username: "owner".to_string(),
-                is_owner: true,
-                permissions: UserPermission::new(),
-                uid: uid.clone(),
-                hashed_psw,
-                is_admin: false,
-                secret: rand_alphanumeric(32),
-            };
+            let owner = User::new(
+                owner_setup.username,
+                &owner_setup.password,
+                true,
+                false,
+                UserPermission::default(),
+            );
             state
-                .users
-                .lock()
+                .users_manager
+                .write()
                 .await
-                .transform(Box::new(move |users| -> Result<(), Error> {
-                    users.insert(uid.clone(), owner.clone());
-                    Ok(())
-                }))
-                .unwrap();
-            info!("Owner password: {}", owner_psw);
-            Ok(Json(()))
+                .add_user(owner.clone(), CausedBy::System)
+                .await?;
+            info!("Owner password: {}", owner_setup.password);
+            Ok(Json(LoginReply {
+                token: owner.create_jwt()?,
+                user: owner.into(),
+            }))
         }
         None => Err(Error {
             inner: ErrorInner::MalformedRequest,
@@ -58,6 +55,8 @@ pub async fn setup_owner(
     }
 }
 
-pub fn get_setup_route() -> Router {
-    Router::new().route("/setup/:key", axum::routing::post(setup_owner))
+pub fn get_setup_route(state: AppState) -> Router {
+    Router::new()
+        .route("/setup/:key", axum::routing::post(setup_owner))
+        .with_state(state)
 }

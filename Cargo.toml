@@ -1,12 +1,9 @@
 [package]
 name = "lodestone_client"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
-exclude = [
-    "target/*",
-    "InstanceTest/*"
-]
+exclude = ["target/*", "InstanceTest/*"]
 
 [[bin]]
 name = "test_ground"
@@ -19,11 +16,12 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { version = "0.5.13", features = ["headers", "ws"] }
-axum-macros = "0.2.3"
+axum = { version = "0.6.1", features = ["headers", "ws", "multipart"] }
+axum-macros = "0.3.0"
+base64 = "0.20.0"
 futures = "0.3.21"
 headers = "0.3"
-tokio = { version = "1.21.2", features = ["full"] }
+tokio = { version = "1.21.1", features = ["full"] }
 tokio-stream = "0.1"
 tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
 fancy-regex = "0.10.0"
@@ -31,8 +29,9 @@ argon2 = "0.4.1"
 rand_core = { version = "0.6", features = ["std"] }
 serde_json = "1.0.82"
 serde = { version = "1.0", features = ["derive"] }
+dotenvy = { version = "0.15" }
 
-reqwest = { version = "0.11.10", features = ["stream"] }
+reqwest = { version = "0.11.10", features = ["stream", "json"] }
 futures-util = "0.3.14"
 indicatif = "0.15.0"
 
@@ -40,24 +39,36 @@ fs_extra = "1.2.0"
 
 sanitize-filename = "0.4.0"
 sysinfo = "0.26.5"
-mlua = { version = "0.8.4", features = ["lua54", "vendored", "async", "macros", "send"] }
 rand = "0.6.5"
 log = "0.4.17"
 env_logger = "0.9.0"
 zip = "0.6.2"
 async-trait = "0.1.56"
-ts-rs = "6.1"
+ts-rs = "6.2.1"
 lazy_static = "1.4.0"
-axum-auth = "0.2"
+axum-auth = "0.4.0"
 jsonwebtoken = "8.1.1"
 chrono = "0.4.22"
 ringbuffer = "0.8.5"
-semver = {version="1.0", features = ["serde"]}
+semver = { version = "1.0", features = ["serde"] }
 whoami = "1.2.3"
 home = "0.5.3"
 port_scanner = "0.1.5"
-safe-path = {git = "https://github.com/Lodestone-Team/safe_path_subset"}
+safe-path = { git = "https://github.com/Lodestone-Team/safe_path_subset" }
 rs-snowflake = "0.6.0"
+walkdir = "2.3.2"
+enum-kinds = "0.5.1"
+tokio-util = "0.7.4"
+enum_dispatch = "0.3.8"
+rcon = { version = "0.6.0", features = ["rt-tokio"] }
+tempdir = "0.3.7"
+igd = "0.12.0"
+local-ip-address = "0.5.0"
+deno_core = "0.162.0"
+deno_runtime = "0.88.0"
+deno_ast = { version = "0.20.0", features = ["transpiling"] }
+serde-aux = "4.1.2"
+sqlx = { git = "https://github.com/Lodestone-Team/sqlx", features = ["runtime-tokio-rustls", "sqlite", "json" ]}
 
 [dependencies.uuid]
 version = "1.1.2"

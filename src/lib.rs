@@ -1,34 +1,44 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
 use crate::{
+    db::write::write_event_to_db_task,
+    global_settings::GlobalSettingsData,
     handlers::{
-        checks::get_checks_routes, client_info::get_client_info_routes, events::get_events_routes,
-        global_fs::get_global_fs_routes, instance::*, instance_config::get_instance_config_routes,
-        instance_fs::get_instance_fs_routes, instance_macro::get_instance_macro_routes,
-        instance_manifest::get_instance_manifest_routes,
+        checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
+        gateway::get_gateway_routes, global_fs::get_global_fs_routes,
+        global_settings::get_global_settings_routes, instance::*,
+        instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
+        instance_macro::get_instance_macro_routes, instance_manifest::get_instance_manifest_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
-    prelude::{LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_STORES, PATH_TO_USERS},
-    traits::Error,
+    prelude::{
+        LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_GLOBAL_SETTINGS, PATH_TO_STORES, PATH_TO_USERS,
+    },
     util::{download_file, rand_alphanumeric},
 };
-use auth::user::User;
-use axum::{Extension, Router};
-use events::Event;
+use auth::user::UsersManager;
+use axum::Router;
+
+use events::{CausedBy, Event};
+use global_settings::GlobalSettings;
 use implementations::minecraft;
 use log::{debug, error, info, warn};
-use port_allocator::PortAllocator;
+use macro_executor::MacroExecutor;
+use port_manager::PortManager;
+use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
+
 use serde_json::Value;
-use stateful::Stateful;
+use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    path::Path,
-    sync::{atomic::AtomicBool, Arc},
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
     time::Duration,
 };
 use sysinfo::SystemExt;
@@ -38,46 +48,59 @@ use tokio::{
     select,
     sync::{
         broadcast::{self, error::RecvError, Receiver, Sender},
-        Mutex,
+        Mutex, RwLock,
     },
+    task::JoinHandle,
 };
-use tower_http::cors::{Any, CorsLayer};
-use traits::{t_configurable::TConfigurable, t_server::MonitorReport, TInstance};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
+pub use traits::Error;
+use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
+use types::InstanceUuid;
 use util::list_dir;
 use uuid::Uuid;
-mod auth;
+pub mod auth;
+pub mod db;
 mod events;
+pub mod global_settings;
 mod handlers;
 mod implementations;
 pub mod macro_executor;
-mod port_allocator;
+mod output_types;
+mod port_manager;
 pub mod prelude;
-mod stateful;
+pub mod tauri_export;
 mod traits;
+pub mod types;
 mod util;
 
 #[derive(Clone)]
 pub struct AppState {
-    instances: Arc<Mutex<HashMap<String, Arc<Mutex<dyn TInstance>>>>>,
-    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
-    events_buffer: Arc<Mutex<Stateful<AllocRingBuffer<Event>>>>,
-    console_out_buffer: Arc<Mutex<Stateful<HashMap<String, AllocRingBuffer<Event>>>>>,
-    monitor_buffer: Arc<Mutex<HashMap<String, AllocRingBuffer<MonitorReport>>>>,
+    instances: Arc<Mutex<HashMap<InstanceUuid, GameInstance>>>,
+    users_manager: Arc<RwLock<UsersManager>>,
+    events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
+    console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
+    monitor_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<MonitorReport>>>>,
     event_broadcaster: Sender<Event>,
-    is_setup: Arc<AtomicBool>,
     uuid: String,
-    client_name: Arc<Mutex<String>>,
     up_since: i64,
+    global_settings: Arc<Mutex<GlobalSettings>>,
     system: Arc<Mutex<sysinfo::System>>,
-    port_allocator: Arc<Mutex<PortAllocator>>,
+    port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
+    download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
+    macro_executor: MacroExecutor,
+    sqlite_pool: sqlx::SqlitePool,
 }
 
 async fn restore_instances(
     lodestone_path: &Path,
     event_broadcaster: &Sender<Event>,
-) -> HashMap<String, Arc<Mutex<dyn TInstance>>> {
-    let mut ret: HashMap<String, Arc<Mutex<dyn TInstance>>> = HashMap::new();
+    macro_executor: MacroExecutor,
+) -> HashMap<InstanceUuid, GameInstance> {
+    let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
 
     for instance_future in list_dir(&lodestone_path.join("instances"), Some(true))
         .await
@@ -107,9 +130,10 @@ async fn restore_instances(
                         "Restoring Minecraft instance {}",
                         config["name"].as_str().unwrap()
                     );
-                    minecraft::Instance::restore(
+                    minecraft::MinecraftInstance::restore(
                         serde_json::from_value(config).unwrap(),
                         event_broadcaster.clone(),
+                        macro_executor.clone(),
                     )
                 }
                 _ => unimplemented!(),
@@ -117,40 +141,9 @@ async fn restore_instances(
         })
     {
         let instance = instance_future.await;
-        ret.insert(
-            instance.uuid().await.to_string(),
-            Arc::new(Mutex::new(instance)),
-        );
+        ret.insert(instance.uuid().await, instance.into());
     }
     ret
-}
-
-async fn restore_users(path_to_user_json: &Path) -> HashMap<String, User> {
-    // create user file if it doesn't exist
-    if tokio::fs::OpenOptions::new()
-        .read(true)
-        .create(true)
-        .write(true)
-        .open(path_to_user_json)
-        .await
-        .unwrap()
-        .metadata()
-        .await
-        .unwrap()
-        .len()
-        == 0
-    {
-        return HashMap::new();
-    }
-    let users: HashMap<String, User> = serde_json::from_reader(
-        tokio::fs::File::open(path_to_user_json)
-            .await
-            .unwrap()
-            .into_std()
-            .await,
-    )
-    .unwrap();
-    users
 }
 
 async fn download_dependencies() -> Result<(), Error> {
@@ -192,11 +185,10 @@ async fn download_dependencies() -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn run() {
+pub async fn run() -> (JoinHandle<()>, AppState) {
     env_logger::builder()
-        .filter_level(log::LevelFilter::Debug)
+        .filter(Some("lodestone_client"), log::LevelFilter::Debug)
         .format_module_path(false)
-        // .format_timestamp(None)
         .format_target(false)
         .init();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
@@ -221,53 +213,23 @@ pub async fn run() {
 
     let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(256);
 
-    let stateful_users = Stateful::new(
-        restore_users(&PATH_TO_USERS.with(|v| v.to_owned())).await,
-        {
-            Box::new(move |users, _| {
-                serde_json::to_writer(
-                    std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
-                    users,
-                )
-                .unwrap();
-                Ok(())
-            })
-        },
-        {
-            Box::new(move |users, _| {
-                serde_json::to_writer(
-                    std::fs::File::create(&PATH_TO_USERS.with(|v| v.to_owned())).unwrap(),
-                    users,
-                )
-                .unwrap();
-                Ok(())
-            })
-        },
-    );
-
-    let stateful_event_buffer = Stateful::new(
-        AllocRingBuffer::with_capacity(512),
-        Box::new(|_, _| Ok(())),
-        Box::new(|_event_buffer, _| {
-            // todo: write to persistent storage
-            Ok(())
-        }),
-    );
-
-    let stateful_console_out_buffer = Stateful::new(
+    let mut users_manager = UsersManager::new(
+        tx.clone(),
         HashMap::new(),
-        Box::new(|_, _| Ok(())),
-        Box::new(|_event_buffer, _| {
-            // todo: write to persistent storage
-            Ok(())
-        }),
+        PATH_TO_USERS.with(|path| path.clone()),
     );
 
-    let first_time_setup_key = if !stateful_users
-        .get_ref()
-        .iter()
-        .any(|(_, user)| user.is_owner)
-    {
+    users_manager.load_users().await.unwrap();
+
+    let mut global_settings = GlobalSettings::new(
+        PATH_TO_GLOBAL_SETTINGS.with(|path| path.clone()),
+        tx.clone(),
+        GlobalSettingsData::default(),
+    );
+
+    global_settings.load_from_file().await.unwrap();
+
+    let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
         // log the first time setup key in green so it's easy to find
         info!("\x1b[32mFirst time setup key: {}\x1b[0m", key);
@@ -275,12 +237,12 @@ pub async fn run() {
     } else {
         None
     };
-    let instances = restore_instances(&lodestone_path, &tx).await;
-    for instance in instances.values() {
-        let mut instance = instance.lock().await;
+    let macro_executor = MacroExecutor::new(tx.clone());
+    let mut instances = restore_instances(&lodestone_path, &tx, macro_executor.clone()).await;
+    for (_, instance) in instances.iter_mut() {
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
-            if let Err(e) = instance.start().await {
+            if let Err(e) = instance.start(CausedBy::System).await {
                 error!(
                     "Failed to start instance {}: {:?}",
                     instance.name().await,
@@ -291,26 +253,33 @@ pub async fn run() {
     }
     let mut allocated_ports = HashSet::new();
     for (_, instance) in instances.iter() {
-        let instance = instance.lock().await;
         allocated_ports.insert(instance.port().await);
     }
     let shared_state = AppState {
         instances: Arc::new(Mutex::new(instances)),
-        users: Arc::new(Mutex::new(stateful_users)),
-        events_buffer: Arc::new(Mutex::new(stateful_event_buffer)),
-        console_out_buffer: Arc::new(Mutex::new(stateful_console_out_buffer)),
+        users_manager: Arc::new(RwLock::new(users_manager)),
+        events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
+        console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
-        is_setup: Arc::new(AtomicBool::new(false)),
         uuid: Uuid::new_v4().to_string(),
-        client_name: Arc::new(Mutex::new(format!(
-            "{}'s Lodestone client",
-            whoami::realname()
-        ))),
         up_since: chrono::Utc::now().timestamp(),
-        port_allocator: Arc::new(Mutex::new(PortAllocator::new(allocated_ports))),
+        port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
+        download_urls: Arc::new(Mutex::new(HashMap::new())),
+        global_settings: Arc::new(Mutex::new(global_settings)),
+        macro_executor,
+        sqlite_pool: Pool::connect_with(
+            SqliteConnectOptions::from_str(&format!(
+                "sqlite://{}/data.db",
+                PATH_TO_STORES.with(|p| p.clone()).display()
+            ))
+            .unwrap()
+            .create_if_missing(true),
+        )
+        .await
+        .unwrap(),
     };
 
     let event_buffer_task = {
@@ -337,27 +306,17 @@ pub async fn run() {
                     console_out_buffer
                         .lock()
                         .await
-                        .transform(Box::new(move |buffer| -> Result<(), Error> {
-                            buffer
-                                .entry(event.get_instance_uuid().unwrap())
-                                .or_insert_with(|| AllocRingBuffer::with_capacity(512))
-                                .push(event.clone());
-                            Ok(())
-                        }))
-                        .unwrap();
+                        .entry(event.get_instance_uuid().unwrap())
+                        .or_insert_with(|| AllocRingBuffer::with_capacity(1024))
+                        .push(event.clone());
                 } else {
-                    event_buffer
-                        .lock()
-                        .await
-                        .transform(Box::new(move |buffer| -> Result<(), Error> {
-                            buffer.push(event.clone());
-                            Ok(())
-                        }))
-                        .unwrap();
+                    event_buffer.lock().await.push(event.clone());
                 }
             }
         }
     };
+
+    let write_to_db_task = write_event_to_db_task(tx.subscribe(), shared_state.sqlite_pool.clone());
 
     let monitor_report_task = {
         let monitor_buffer = shared_state.monitor_buffer.clone();
@@ -366,7 +325,7 @@ pub async fn run() {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             loop {
                 for (uuid, instance) in instances.lock().await.iter() {
-                    let report = instance.lock().await.monitor().await;
+                    let report = instance.monitor().await;
                     monitor_buffer
                         .lock()
                         .await
@@ -378,51 +337,62 @@ pub async fn run() {
             }
         }
     };
+    (
+        tokio::spawn({
+            let shared_state = shared_state.clone();
+            async move {
+                let cors = CorsLayer::new()
+                    .allow_methods([
+                        Method::GET,
+                        Method::POST,
+                        Method::PATCH,
+                        Method::PUT,
+                        Method::DELETE,
+                        Method::OPTIONS,
+                    ])
+                    .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+                    .allow_origin(Any);
 
-    let cors = CorsLayer::new()
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::OPTIONS,
-            Method::PATCH,
-            Method::DELETE,
-        ])
-        .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
-        .allow_origin(Any);
+                let trace = TraceLayer::new_for_http();
 
-    let api_routes = Router::new()
-        .merge(get_events_routes())
-        .merge(get_instance_setup_config_routes())
-        .merge(get_instance_manifest_routes())
-        .merge(get_instance_server_routes())
-        .merge(get_instance_config_routes())
-        .merge(get_instance_players_routes())
-        .merge(get_instance_routes())
-        .merge(get_system_routes())
-        .merge(get_checks_routes())
-        .merge(get_user_routes())
-        .merge(get_client_info_routes())
-        .merge(get_setup_route())
-        .merge(get_monitor_routes())
-        .merge(get_instance_macro_routes())
-        .merge(get_instance_fs_routes())
-        .merge(get_global_fs_routes())
-        .layer(Extension(shared_state.clone()))
-        .layer(cors);
-    let app = Router::new().nest("/api/v1", api_routes);
-    let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
-    select! {
-        _ = event_buffer_task => info!("Event buffer task exited"),
-        _ = monitor_report_task => info!("Monitor report task exited"),
-        _ = axum::Server::bind(&addr)
-        .serve(app.into_make_service()) => info!("Server exited"),
-        _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
-    }
-    // cleanup
-    let instances = shared_state.instances.lock().await;
-    for (_, instance) in instances.iter() {
-        let mut instance = instance.lock().await;
-        let _ = instance.stop().await;
-    }
+                let api_routes = Router::new()
+                    .merge(get_events_routes(shared_state.clone()))
+                    .merge(get_instance_setup_config_routes())
+                    .merge(get_instance_manifest_routes(shared_state.clone()))
+                    .merge(get_instance_server_routes(shared_state.clone()))
+                    .merge(get_instance_config_routes(shared_state.clone()))
+                    .merge(get_instance_players_routes(shared_state.clone()))
+                    .merge(get_instance_routes(shared_state.clone()))
+                    .merge(get_system_routes(shared_state.clone()))
+                    .merge(get_checks_routes(shared_state.clone()))
+                    .merge(get_user_routes(shared_state.clone()))
+                    .merge(get_core_info_routes(shared_state.clone()))
+                    .merge(get_setup_route(shared_state.clone()))
+                    .merge(get_monitor_routes(shared_state.clone()))
+                    .merge(get_instance_macro_routes(shared_state.clone()))
+                    .merge(get_instance_fs_routes(shared_state.clone()))
+                    .merge(get_global_fs_routes(shared_state.clone()))
+                    .merge(get_global_settings_routes(shared_state.clone()))
+                    .merge(get_gateway_routes(shared_state.clone()))
+                    .layer(cors)
+                    .layer(trace);
+                let app = Router::new().nest("/api/v1", api_routes);
+                let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
+                select! {
+                    _ = write_to_db_task => info!("Write to db task exited"),
+                    _ = event_buffer_task => info!("Event buffer task exited"),
+                    _ = monitor_report_task => info!("Monitor report task exited"),
+                    _ = axum::Server::bind(&addr)
+                    .serve(app.into_make_service()) => info!("Server exited"),
+                    _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
+                }
+                // cleanup
+                let mut instances = shared_state.instances.lock().await;
+                for (_, instance) in instances.iter_mut() {
+                    let _ = instance.stop(CausedBy::System).await;
+                }
+            }
+        }),
+        shared_state,
+    )
 }

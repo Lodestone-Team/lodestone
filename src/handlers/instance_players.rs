@@ -1,17 +1,21 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
-use serde_json::Value;
+use std::collections::HashSet;
 
-use crate::traits::{Supported, Unsupported};
+use axum::{extract::Path, routing::get, Json, Router};
+
 use crate::{
-    traits::{Error, ErrorInner},
+    traits::{
+        t_player::{Player, TPlayerManagement},
+        Error, ErrorInner,
+    },
+    types::InstanceUuid,
     AppState,
 };
 
 pub async fn get_player_count(
-    Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
@@ -20,24 +24,16 @@ pub async fn get_player_count(
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .get_player_count()
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub async fn get_max_player_count(
-    Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
@@ -46,73 +42,49 @@ pub async fn get_max_player_count(
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .get_max_player_count()
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub async fn set_max_player_count(
-    Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
     Json(count): Json<u32>,
 ) -> Result<Json<()>, Error> {
-    match state
+    state
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .set_max_player_count(count)
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
 pub async fn get_player_list(
-    Extension(state): Extension<AppState>,
-    Path(uuid): Path<String>,
-) -> Result<Json<Vec<Value>>, Error> {
-    match state
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+) -> Result<Json<HashSet<Player>>, Error> {
+    state
         .instances
         .lock()
         .await
-        .get(&uuid)
+        .get_mut(&uuid)
         .ok_or(Error {
             inner: ErrorInner::InstanceNotFound,
             detail: "".to_string(),
         })?
-        .lock()
-        .await
         .get_player_list()
         .await
-    {
-        Supported(v) => Ok(Json(v)),
-        Unsupported => Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "".to_string(),
-        }),
-    }
+        .map(Json)
 }
 
-pub fn get_instance_players_routes() -> Router {
+pub fn get_instance_players_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/players/count", get(get_player_count))
         .route(
@@ -120,4 +92,5 @@ pub fn get_instance_players_routes() -> Router {
             get(get_max_player_count).put(set_max_player_count),
         )
         .route("/instance/:uuid/players", get(get_player_list))
+        .with_state(state)
 }

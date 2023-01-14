@@ -1,12 +1,12 @@
-use std::{env, sync::atomic::Ordering};
+use std::env;
 
 use crate::{prelude::VERSION, AppState};
-use axum::{routing::get, Extension, Json, Router};
+use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 
 #[derive(Serialize, Deserialize)]
-pub struct ClientInfo {
+pub struct CoreInfo {
     version: semver::Version,
     is_setup: bool,
     os: String,
@@ -17,15 +17,17 @@ pub struct ClientInfo {
     total_disk: u64,
     host_name: String,
     uuid: String,
-    client_name: String,
+    core_name: String,
     up_since: i64,
 }
 
-pub async fn get_client_info(Extension(state): Extension<AppState>) -> Json<ClientInfo> {
+pub async fn get_core_info(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<CoreInfo> {
     let sys = System::new_all();
-    Json(ClientInfo {
+    Json(CoreInfo {
         version: VERSION.with(|v| v.clone()),
-        is_setup: state.is_setup.load(Ordering::Relaxed),
+        is_setup: state.first_time_setup_key.lock().await.is_none(),
         os: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
         cpu: {
@@ -45,12 +47,14 @@ pub async fn get_client_info(Extension(state): Extension<AppState>) -> Json<Clie
             .unwrap_or_else(|| "Unknown Hostname".to_string()),
         total_ram: sys.total_memory(),
         total_disk: sys.disks().iter().fold(0, |acc, v| acc + v.total_space()),
-        client_name: state.client_name.lock().await.clone(),
+        core_name: state.global_settings.lock().await.core_name(),
         uuid: state.uuid.clone(),
         up_since: state.up_since,
     })
 }
 
-pub fn get_client_info_routes() -> Router {
-    Router::new().route("/info", get(get_client_info))
+pub fn get_core_info_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/info", get(get_core_info))
+        .with_state(state)
 }

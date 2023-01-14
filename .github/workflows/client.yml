@@ -2,9 +2,9 @@ name: client
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,33 +14,34 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest, windows-latest]
-    
+
     runs-on: ${{ matrix.platform }}
     defaults:
       run:
         working-directory: ./
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Install Rust toolchain 
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
 
-    - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: ${{ runner.os }}-client
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-client
 
-    - name: Build Backend
-      run: cargo build --verbose --release
-      
-    - name: Archive production artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: Lodestone
-        path: |
-          ./target/release/Lodestone
-          ./Rocket.toml
+      - name: Build Backend
+        run: cargo build --verbose --release
+
+      # on windows it's ./target/release/main.exe
+      # on linux it's ./target/release/main
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.platform }}-client${{ matrix.platform == 'windows-latest' && '.exe' || '' }}
+          path: ./target/release/${{ matrix.platform == 'windows-latest' && 'main.exe' || 'main' }}

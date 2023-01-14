@@ -1,47 +1,78 @@
 use async_trait::async_trait;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_player::TPlayerManagement;
-use crate::traits::Supported;
+use crate::traits::t_player::{TPlayer, TPlayerManagement};
+use crate::traits::ErrorInner;
+use crate::traits::{t_configurable::TConfigurable, t_player::Player};
+use crate::Error;
 
-use super::Instance;
+use super::MinecraftInstance;
+
+#[derive(Eq, Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct MinecraftPlayer {
+    pub name: String,
+    pub uuid: Option<String>,
+}
+
+impl MinecraftPlayer {
+    pub fn new(name: String, uuid: Option<String>) -> Self {
+        Self { name, uuid }
+    }
+}
+
+impl PartialEq for MinecraftPlayer {
+    fn eq(&self, other: &Self) -> bool {
+        // if uuid is not set, compare by name
+        if self.uuid.is_none() || other.uuid.is_none() {
+            self.name == other.name
+        } else {
+            self.uuid == other.uuid
+        }
+    }
+}
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+impl Hash for MinecraftPlayer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.uuid.hash(state);
+    }
+}
+
+impl TPlayer for MinecraftPlayer {
+    fn get_id(&self) -> String {
+        self.uuid.clone().unwrap_or_else(|| self.name.clone())
+    }
+
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+}
 
 #[async_trait]
-impl TPlayerManagement for Instance {
-    async fn get_player_count(&self) -> crate::traits::MaybeUnsupported<u32> {
-        Supported(self.players.lock().await.get_ref().len() as u32)
+impl TPlayerManagement for MinecraftInstance {
+    async fn get_player_count(&self) -> Result<u32, Error> {
+        Ok(self.players_manager.lock().await.count())
     }
 
-    async fn get_max_player_count(&self) -> crate::traits::MaybeUnsupported<u32> {
-        Supported(
-            self.get_field("max-players")
-                .await
-                .unwrap_or_else(|_| "20".to_string())
-                .parse()
-                .expect("Failed to parse max-players"),
-        )
-    }
-
-    async fn get_player_list(&self) -> crate::traits::MaybeUnsupported<Vec<serde_json::Value>> {
-        Supported(
-            self.players
-                .lock()
-                .await
-                .get_ref()
-                .iter()
-                .map(|name| json!({ "name": name }))
-                .collect(),
-        )
-    }
-
-    async fn set_max_player_count(
-        &mut self,
-        _max_player_count: u32,
-    ) -> crate::traits::MaybeUnsupported<()> {
-        self.set_field("max-players", _max_player_count.to_string())
+    async fn get_max_player_count(&self) -> Result<u32, Error> {
+        self.get_field("max-players")
             .await
-            .expect("Failed to set max-players");
-        Supported(())
+            .unwrap_or_else(|_| "20".to_string())
+            .parse()
+            .map_err(|_| Error {
+                inner: ErrorInner::MalformedFile,
+                detail: "Invalid value for max-players".to_string(),
+            })
+    }
+
+    async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
+        Ok(self.players_manager.lock().await.clone().into())
+    }
+
+    async fn set_max_player_count(&mut self, max_player_count: u32) -> Result<(), Error> {
+        self.set_field("max-players", max_player_count.to_string())
+            .await
     }
 }

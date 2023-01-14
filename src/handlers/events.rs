@@ -1,10 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     extract::{ws::WebSocket, Path, Query, WebSocketUpgrade},
     response::Response,
     routing::get,
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum_auth::AuthBearer;
 
@@ -12,69 +12,187 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 
-use serde::Deserialize;
-use tokio::sync::{broadcast::Receiver, Mutex};
+use crate::{
+    auth::{user::UsersManager, user_id::UserId},
+    db::read::search_events,
+    events::InstanceEventKind,
+    types::TimeRange,
+};
+use crate::{events::EventType, output_types::ClientEvent};
+use crate::{events::UserEventKind, types::InstanceUuid};
 
 use crate::{
-    auth::user::User,
-    events::{Event, EventInner, UserEventInner},
-    stateful::Stateful,
+    events::{Event, EventInner, EventLevel, UserEventInner},
     traits::{Error, ErrorInner},
     AppState,
 };
+use serde::Deserialize;
+use tokio::sync::{broadcast::Receiver, RwLock};
+use ts_rs::TS;
 
-use super::util::{can_user_view_event, parse_bearer_token, try_auth};
+use super::util::parse_bearer_token;
+#[derive(Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct EventQuery {
+    pub event_levels: Option<Vec<EventLevel>>,
+    pub event_types: Option<Vec<EventType>>,
+    pub instance_event_types: Option<Vec<InstanceEventKind>>,
+    pub user_event_types: Option<Vec<UserEventKind>>,
+    pub event_user_ids: Option<Vec<UserId>>,
+    pub event_instance_ids: Option<Vec<InstanceUuid>>,
+    pub bearer_token: Option<String>,
+    pub time_range: Option<TimeRange>,
+}
+
+impl EventQuery {
+    pub fn filter(&self, event: impl AsRef<ClientEvent>) -> bool {
+        let event = event.as_ref();
+        if let Some(event_levels) = &self.event_levels {
+            if !event_levels.contains(&event.level) {
+                return false;
+            }
+        }
+        if let Some(event_types) = &self.event_types {
+            if !event_types.contains(&event.event_inner.as_ref().into()) {
+                return false;
+            }
+        }
+        if let Some(instance_event_types) = &self.instance_event_types {
+            if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
+                if !instance_event_types
+                    .contains(&instance_event.instance_event_inner.as_ref().into())
+                {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(user_event_types) = &self.user_event_types {
+            if let EventInner::UserEvent(user_event) = &event.event_inner {
+                if !user_event_types.contains(&user_event.user_event_inner.as_ref().into()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(event_user_ids) = &self.event_user_ids {
+            if let EventInner::UserEvent(user_event) = &event.event_inner {
+                if !event_user_ids.contains(&user_event.user_id) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(event_instance_ids) = &self.event_instance_ids {
+            if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
+                if !event_instance_ids.contains(&instance_event.instance_uuid) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        // TODO might need to check time too
+        true
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, TS)]
+pub struct EventQueryWrapper {
+    filter: String,
+}
 
 pub async fn get_event_buffer(
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
-    Path(uuid): Path<String>,
+    query: Query<EventQueryWrapper>,
 ) -> Result<Json<Vec<Event>>, Error> {
-    let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
+    // deserialize query
+    let query: EventQuery = serde_json::from_str(&query.filter).map_err(|e| {
+        error!("Error deserializing event query: {}", e);
+        Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: e.to_string(),
+        }
     })?;
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     Ok(Json(
         state
             .events_buffer
             .lock()
             .await
-            .get_ref()
             .iter()
-            .filter(|event| match &event.event_inner {
-                EventInner::InstanceEvent(instance_event) => {
-                    (instance_event.instance_uuid == uuid || uuid == "all")
-                        && can_user_view_event(event, &requester)
-                }
-                _ => false,
+            .filter(|event| {
+                query.filter(ClientEvent::from(*event)) && requester.can_view_event(*event)
             })
             .cloned()
             .collect(),
     ))
 }
 
-pub async fn get_console_buffer(
-    Extension(state): Extension<AppState>,
+// TODO implement me
+pub async fn get_event_search(
+    axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
-    Path(uuid): Path<String>,
-) -> Result<Json<Vec<Event>>, Error> {
-    let requester = try_auth(&token, state.users.lock().await.get_ref()).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
+    query: Query<EventQueryWrapper>,
+) -> Result<Json<Vec<ClientEvent>>, Error> {
+    // deserialize query
+    let query: EventQuery = serde_json::from_str(&query.filter).map_err(|e| {
+        error!("Error deserializing event query: {}", e);
+        Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: e.to_string(),
+        }
     })?;
+    let _requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
+    search_events(&state.sqlite_pool, query).await.map(Json)
+}
+
+pub async fn get_console_buffer(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+    Path(uuid): Path<InstanceUuid>,
+) -> Result<Json<Vec<Event>>, Error> {
+    let requester = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
+        .ok_or(Error {
+            inner: ErrorInner::Unauthorized,
+            detail: "Token error".to_string(),
+        })?;
     Ok(Json(
         state
             .console_out_buffer
             .lock()
             .await
-            .get_ref()
             .get(&uuid)
             .unwrap_or(&AllocRingBuffer::new())
             .iter()
             .filter(|event| match &event.event_inner {
                 EventInner::InstanceEvent(instance_event) => {
                     (instance_event.instance_uuid == uuid || uuid == "all")
-                        && can_user_view_event(event, &requester)
+                        && requester.can_view_event(event)
                 }
                 _ => false,
             })
@@ -90,82 +208,63 @@ pub struct WebsocketQuery {
 
 pub async fn event_stream(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<AppState>,
-    query: Query<WebsocketQuery>,
-    Path(uuid): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    query: Query<EventQueryWrapper>,
 ) -> Result<Response, Error> {
-    let users = state.users.lock().await;
+    let query: EventQuery = serde_json::from_str(query.filter.as_str()).map_err(|e| {
+        error!("Error deserializing event query: {}", e);
+        Error {
+            inner: ErrorInner::MalformedRequest,
+            detail: e.to_string(),
+        }
+    })?;
+    let token = query.bearer_token.clone().ok_or(Error {
+        inner: ErrorInner::MalformedRequest,
+        detail: "No token provided".to_string(),
+    })?;
 
-    let user = parse_bearer_token(query.token.as_str())
-        .and_then(|token| try_auth(&token, users.get_ref()))
+    let user = state
+        .users_manager
+        .read()
+        .await
+        .try_auth(&token)
         .ok_or_else(|| Error {
             inner: ErrorInner::Unauthorized,
             detail: "Token error".to_string(),
         })?;
-    drop(users);
-    let users = state.users.clone();
     let event_receiver = state.event_broadcaster.subscribe();
 
     Ok(ws.on_upgrade(move |socket| {
-        event_stream_ws(socket, event_receiver, uuid.clone(), user.uid, users)
+        event_stream_ws(socket, event_receiver, query, user.uid, state.users_manager)
     }))
 }
 
 async fn event_stream_ws(
     stream: WebSocket,
     mut event_receiver: Receiver<Event>,
-    uuid: String,
-    uid: String,
-    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
+    query: EventQuery,
+    uid: UserId,
+    users_manager: Arc<RwLock<UsersManager>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
     loop {
         tokio::select! {
             Ok(event) = event_receiver.recv() => {
-                match &event.event_inner {
-                    EventInner::InstanceEvent(instance_event) => {
-                        if event.is_event_console_message() {
-                            continue;
-                        }
-                        if instance_event.instance_uuid != uuid && uuid != "all" {
-                            continue;
-                        }
-
-                    },
-                    EventInner::UserEvent(user_event) => {
-                        match user_event.user_event_inner {
-                            UserEventInner::UserLoggedOut | UserEventInner::UserDeleted => {
-                                if user_event.user_id == uid {
-                                    break;
-                                }
-                            },
-                            _ => continue,
-                        }
-                    },
-                    EventInner::MacroEvent(macro_event) => {
-                        if macro_event.instance_uuid != uuid && uuid != "all" {
-                            continue;
-                        }
+                if event.is_event_console_message() {
+                    continue;
+                }
+                let user = match users_manager.read().await.get_user(&uid) {
+                    Some(user) => user,
+                    None => {
+                        break;
                     }
                 };
-                if can_user_view_event(
-                    &event,
-                    match users.lock().await.get_ref().get(&uid) {
-                        Some(user) => user,
-                        None => break,
-                    },
-                ) {
-                    if let Err(e) = sender
-                        .send(axum::extract::ws::Message::Text(
-                            serde_json::to_string(&event).unwrap(),
-                        ))
-                        .await
-                    {
-                        error!("Failed to send event: {}", e);
+                if query.filter(ClientEvent::from(event.clone())) && user.can_view_event(&event) {
+                    if let Err(e) = sender.send(axum::extract::ws::Message::Text(serde_json::to_string(&event).unwrap())).await {
+                        error!("Error sending event to websocket: {}", e);
                         break;
                     }
                 }
-
             }
             Some(Ok(ws_msg)) = receiver.next() => {
                 match sender.send(ws_msg).await {
@@ -179,33 +278,32 @@ async fn event_stream_ws(
 
 pub async fn console_stream(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     query: Query<WebsocketQuery>,
-    Path(uuid): Path<String>,
+    Path(uuid): Path<InstanceUuid>,
 ) -> Result<Response, Error> {
-    let uuid = uuid.as_str().to_owned();
-    let users = state.users.lock().await;
+    let users_manager = state.users_manager.read().await;
 
     let user = parse_bearer_token(query.token.as_str())
-        .and_then(|token| try_auth(&token, users.get_ref()))
+        .and_then(|token| users_manager.try_auth(&token))
         .ok_or_else(|| Error {
             inner: ErrorInner::Unauthorized,
             detail: "Token error".to_string(),
         })?;
-    drop(users);
-    let users = state.users.clone();
+    drop(users_manager);
     let event_receiver = state.event_broadcaster.subscribe();
 
-    Ok(ws
-        .on_upgrade(move |socket| console_stream_ws(socket, event_receiver, user.uid, uuid, users)))
+    Ok(ws.on_upgrade(move |socket| {
+        console_stream_ws(socket, event_receiver, user.uid, uuid, state.users_manager)
+    }))
 }
 
 async fn console_stream_ws(
     stream: WebSocket,
     mut event_receiver: Receiver<Event>,
-    uid: String,
-    uuid: String,
-    users: Arc<Mutex<Stateful<HashMap<String, User>>>>,
+    uid: UserId,
+    uuid: InstanceUuid,
+    users_manager: Arc<RwLock<UsersManager>>,
 ) {
     let (mut sender, mut receiver) = stream.split();
     loop {
@@ -213,14 +311,12 @@ async fn console_stream_ws(
             Ok(event) = event_receiver.recv() => {
                 match &event.event_inner {
                     EventInner::InstanceEvent(instance_event) => {
+                        let user = match users_manager.read().await.get_user(&uid) {
+                            Some(user) => user,
+                            None => break,
+                        };
                         if event.is_event_console_message() && (instance_event.instance_uuid == uuid || uuid == "all")
-                            && can_user_view_event(
-                                &event,
-                                match users.lock().await.get_ref().get(&uid) {
-                                    Some(user) => user,
-                                    None => break,
-                                },
-                            )
+                            && user.can_view_event(&event)
                         {
                             if let Err(e) = sender
                                 .send(axum::extract::ws::Message::Text(
@@ -243,7 +339,9 @@ async fn console_stream_ws(
                             _ => {}
                         }
                     },
-                    EventInner::MacroEvent(_) => continue
+                    EventInner::MacroEvent(_) => continue,
+                    EventInner::ProgressionEvent(_) => continue,
+                    EventInner::FSEvent(_) => continue,
                 }
             }
             Some(Ok(ws_msg)) = receiver.next() => {
@@ -256,10 +354,12 @@ async fn console_stream_ws(
     }
 }
 
-pub fn get_events_routes() -> Router {
+pub fn get_events_routes(state: AppState) -> Router {
     Router::new()
         .route("/events/:uuid/stream", get(event_stream))
         .route("/events/:uuid/buffer", get(get_event_buffer))
+        .route("/events/search", get(get_event_search))
         .route("/instance/:uuid/console/stream", get(console_stream))
         .route("/instance/:uuid/console/buffer", get(get_console_buffer))
+        .with_state(state)
 }

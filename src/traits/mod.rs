@@ -20,10 +20,6 @@ pub mod t_player;
 pub mod t_resource;
 pub mod t_server;
 
-pub type MaybeUnsupported<T> = Option<T>;
-pub use core::option::Option::None as Unsupported;
-pub use core::option::Option::Some as Supported;
-
 #[derive(Debug, Serialize, Clone, TS)]
 #[ts(export)]
 pub enum ErrorInner {
@@ -32,14 +28,18 @@ pub enum ErrorInner {
     FailedToWriteFileOrDir,
     FailedToCreateFileOrDir,
     FailedToRemoveFileOrDir,
+    FailedToMoveFileOrDir,
     FileOrDirNotFound,
     FiledOrDirAlreadyExists,
+    IOError,
 
     // Stdin/stdout errors:
     FailedToWriteStdin,
     FailedToReadStdout,
     StdinNotOpen,
     StdoutNotOpen,
+    RconNotOpen,
+    RconError,
     FailedToAcquireLock,
 
     // Network errors:
@@ -47,11 +47,7 @@ pub enum ErrorInner {
     FailedToDownload,
 
     // Instance operation errors
-    InstanceStarted,
-    InstanceStopped,
-    InstanceStarting,
-    InstanceStopping,
-    InstanceErrored,
+    InvalidInstanceState,
     InstanceNotFound,
     PortInUse,
 
@@ -86,9 +82,22 @@ pub enum ErrorInner {
 
     // User errors:
     UserNotFound,
-    UserAlreadyExists,
+    UsernameAlreadyExists,
     Unauthorized,
     PermissionDenied,
+
+    // DB errors:
+    DBInitError,
+    DBWriteError,
+    DBFetchError,
+    DBPoolError,
+
+    // Gateway (port forwarding) error
+    GatewayError,
+
+    // Generic error
+    NotFound,
+    InternalError,
 }
 #[derive(Debug, Serialize, Clone, TS)]
 #[serde(rename = "ClientError")]
@@ -98,6 +107,15 @@ pub struct Error {
     pub detail: String,
 }
 
+// implement std error trait
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error: {}", self.detail)
+    }
+}
+
+impl std::error::Error for Error {}
+
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self.inner {
@@ -105,16 +123,17 @@ impl IntoResponse for Error {
             ErrorInner::PermissionDenied => (StatusCode::FORBIDDEN, json!(self).to_string()),
             ErrorInner::Unauthorized => (StatusCode::UNAUTHORIZED, json!(self).to_string()),
             ErrorInner::FileOrDirNotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
+            ErrorInner::NotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string()),
         };
         (status, error_message).into_response()
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct InstanceInfo {
-    pub uuid: String,
+    pub uuid: InstanceUuid,
     pub name: String,
     pub flavour: String,
     pub game_type: String,
@@ -132,10 +151,21 @@ pub struct InstanceInfo {
     pub player_count: Option<u32>,
     pub max_player_count: Option<u32>,
 }
-
+use crate::minecraft::MinecraftInstance;
+use crate::prelude::GameInstance;
+use crate::types::InstanceUuid;
 #[async_trait]
+#[enum_dispatch::enum_dispatch]
 pub trait TInstance:
-    TConfigurable + TMacro + TPlayerManagement + TResourceManagement + TServer + TManifest + Sync + Send
+    TConfigurable
+    + TMacro
+    + TPlayerManagement
+    + TResourceManagement
+    + TServer
+    + TManifest
+    + Sync
+    + Send
+    + Clone
 {
     async fn get_instance_info(&self) -> InstanceInfo {
         InstanceInfo {
@@ -146,16 +176,16 @@ pub trait TInstance:
             cmd_args: self.cmd_args().await,
             description: self.description().await,
             port: self.port().await,
-            min_ram: self.min_ram().await,
-            max_ram: self.max_ram().await,
+            min_ram: self.min_ram().await.ok(),
+            max_ram: self.max_ram().await.ok(),
             creation_time: self.creation_time().await,
             path: self.path().await.display().to_string(),
             auto_start: self.auto_start().await,
             restart_on_crash: self.restart_on_crash().await,
             backup_period: self.backup_period().await.unwrap_or(None),
             state: self.state().await,
-            player_count: self.get_player_count().await,
-            max_player_count: self.get_max_player_count().await,
+            player_count: self.get_player_count().await.ok(),
+            max_player_count: self.get_max_player_count().await.ok(),
         }
     }
 }

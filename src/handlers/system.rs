@@ -1,4 +1,4 @@
-use axum::{routing::get, Extension, Json, Router};
+use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuExt, CpuRefreshKind, DiskExt, SystemExt};
 
@@ -13,12 +13,12 @@ pub struct MemInfo {
     free: u64,
 }
 
-pub async fn get_ram(Extension(state): Extension<AppState>) -> Json<MemInfo> {
+pub async fn get_ram(axum::extract::State(state): axum::extract::State<AppState>) -> Json<MemInfo> {
     let mut sys = state.system.lock().await;
     sys.refresh_memory();
     Json(MemInfo {
         total: sys.total_memory(),
-        free: sys.free_memory(),
+        free: sys.available_memory(),
     })
 }
 
@@ -29,7 +29,9 @@ pub struct DiskInfo {
     free: u64,
 }
 
-pub async fn get_disk(Extension(state): Extension<AppState>) -> Json<DiskInfo> {
+pub async fn get_disk(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<DiskInfo> {
     let mut sys = state.system.lock().await;
     sys.refresh_disks_list();
     let disks = sys.disks();
@@ -45,7 +47,9 @@ pub struct CPUInfo {
     pub cpu_load: f32,
 }
 
-pub async fn get_cpu_info(Extension(state): Extension<AppState>) -> Json<CPUInfo> {
+pub async fn get_cpu_info(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<CPUInfo> {
     let mut sys = state.system.lock().await;
     sys.refresh_cpu_specifics(CpuRefreshKind::everything());
     sleep(tokio::time::Duration::from_millis(100)).await;
@@ -59,9 +63,10 @@ pub async fn get_cpu_info(Extension(state): Extension<AppState>) -> Json<CPUInfo
     })
 }
 
-pub fn get_system_routes() -> Router {
+pub fn get_system_routes(state: AppState) -> Router {
     Router::new()
         .route("/system/ram", get(get_ram))
         .route("/system/disk", get(get_disk))
         .route("/system/cpu", get(get_cpu_info))
+        .with_state(state)
 }

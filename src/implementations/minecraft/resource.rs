@@ -2,32 +2,23 @@ use async_trait::async_trait;
 
 use crate::traits::t_resource::TResourceManagement;
 
-use super::Instance;
+use super::MinecraftInstance;
 
 #[async_trait]
-impl TResourceManagement for Instance {
+impl TResourceManagement for MinecraftInstance {
     async fn list(&self) -> Vec<serde_json::Value> {
         todo!()
     }
 
-    async fn load(
-        &mut self,
-        _resource: &str,
-    ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
+    async fn load(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
         todo!()
     }
 
-    async fn unload(
-        &mut self,
-        _resource: &str,
-    ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
+    async fn unload(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
         todo!()
     }
 
-    async fn delete(
-        &mut self,
-        _resource: &str,
-    ) -> crate::traits::MaybeUnsupported<Result<(), crate::traits::Error>> {
+    async fn delete(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
         todo!()
     }
 }

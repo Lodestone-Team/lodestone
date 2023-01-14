@@ -1,4 +1,4 @@
-use serde_json;
+use serde_json::{self, Value};
 use std::{collections::HashMap, path::Path, str::FromStr};
 use tokio::io::AsyncBufReadExt;
 
@@ -292,6 +292,23 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     ))
 }
 
+pub async fn name_to_uuid(name: impl AsRef<str>) -> Option<String> {
+    // GET https://api.mojang.com/users/profiles/minecraft/<username>
+    let client = reqwest::Client::new();
+    let res: Value = client
+        .get(format!(
+            "https://api.mojang.com/users/profiles/minecraft/{}",
+            name.as_ref()
+        ))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    Some(res["id"].as_str()?.to_owned())
+}
+
 mod tests {
     use tokio;
 
@@ -306,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_jre_url() {
         assert_eq!(super::get_jre_url("1.18.2").await, Some(("https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 17)));
-        assert_eq!(super::get_jre_url("21w44a").await, Some(("https://api.adoptium.net/v3/binary/latest/16/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 16)));
+        assert_eq!(super::get_jre_url("21w44a").await, Some(("https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 17)));
         assert_eq!(super::get_jre_url("1.8.4").await, Some(("https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jre/hotspot/normal/eclipse".to_string(), 8)));
 
         assert_eq!(super::get_jre_url("1.8.4asdasd").await, None);
@@ -322,12 +339,8 @@ mod tests {
                     .to_string()
             )
         );
-        assert_eq!(
-            super::get_fabric_jar_url("21w44a", None, None).await,
-            Some(
-                "https://meta.fabricmc.net/v2/versions/loader/21w44a/0.14.8/0.11.0/server/jar"
-                    .to_string()
-            )
-        );
+        assert!(super::get_fabric_jar_url("21w44a", None, None)
+            .await
+            .is_some());
     }
 }

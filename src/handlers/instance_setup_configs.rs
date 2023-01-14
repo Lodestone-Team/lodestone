@@ -5,18 +5,20 @@ use axum::Router;
 use axum::{extract::Path, Json};
 
 use crate::implementations::minecraft::versions::MinecraftVersions;
-use crate::prelude::GameType;
+use crate::prelude::GameInstanceKind;
 
 use crate::implementations::minecraft;
 use crate::traits::Error;
 
-pub async fn get_available_games() -> Json<HashSet<GameType>> {
-    Json(HashSet::from([GameType::Minecraft]))
+pub async fn get_available_games() -> Json<HashSet<GameInstanceKind>> {
+    Json(HashSet::from([GameInstanceKind::MinecraftInstance]))
 }
 
-pub async fn get_available_flavours(Path(game_type): Path<GameType>) -> Json<HashSet<String>> {
+pub async fn get_available_flavours(
+    Path(game_type): Path<GameInstanceKind>,
+) -> Json<HashSet<String>> {
     match game_type {
-        GameType::Minecraft => Json(HashSet::from([
+        GameInstanceKind::MinecraftInstance => Json(HashSet::from([
             minecraft::Flavour::Vanilla.to_string(),
             minecraft::Flavour::Fabric.to_string(),
         ])),
@@ -41,4 +43,5 @@ pub fn get_instance_setup_config_routes() -> Router {
             "/games/minecraft/flavours/:flavour/versions",
             get(get_minecraft_versions),
         )
+        .with_state(())
 }

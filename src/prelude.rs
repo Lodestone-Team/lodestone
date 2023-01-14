@@ -19,7 +19,10 @@ thread_local! {
     pub static PATH_TO_INSTANCES : PathBuf = LODESTONE_PATH.with(|p| p.join("instances"));
     pub static PATH_TO_BINARIES : PathBuf = LODESTONE_PATH.with(|p| p.join("bin"));
     pub static PATH_TO_STORES : PathBuf = LODESTONE_PATH.with(|p| p.join("stores"));
+    pub static PATH_TO_GLOBAL_SETTINGS : PathBuf = LODESTONE_PATH.with(|p| p.join("global_settings.json"));
     pub static PATH_TO_USERS : PathBuf = PATH_TO_STORES.with(|p| p.join("users.json"));
+    pub static LODESTONE_EPOCH_SEC: i64 = 1667530800;
+    pub static LODESTONE_EPOCH_MIL: i64 = 1667530800000;
 }
 
 lazy_static! {
@@ -31,23 +34,30 @@ lazy_static! {
         ));
 }
 
-pub fn get_snowflake() -> i64 {
-    SNOWFLAKE_GENERATOR.lock().unwrap().real_time_generate()
+use crate::minecraft::MinecraftInstance;
+#[enum_dispatch::enum_dispatch(
+    TInstance,
+    TConfigurable,
+    TMacro,
+    TPlayerManagement,
+    TResourceManagement,
+    TServer,
+    TManifest
+)]
+#[derive(Clone, enum_kinds::EnumKind)]
+#[enum_kind(GameInstanceKind, derive(Hash))]
+pub enum GameInstance {
+    MinecraftInstance,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub enum GameType {
-    Minecraft,
-}
-
-impl<'de> serde::Deserialize<'de> for GameType {
+impl<'de> serde::Deserialize<'de> for GameInstanceKind {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         match s.to_lowercase().as_str() {
-            "minecraft" => Ok(GameType::Minecraft),
+            "minecraft" => Ok(GameInstanceKind::MinecraftInstance),
             _ => Err(serde::de::Error::custom(format!(
                 "Unknown game type: {}",
                 s
@@ -55,21 +65,21 @@ impl<'de> serde::Deserialize<'de> for GameType {
         }
     }
 }
-impl serde::Serialize for GameType {
+impl serde::Serialize for GameInstanceKind {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match self {
-            GameType::Minecraft => serializer.serialize_str("minecraft"),
+            GameInstanceKind::MinecraftInstance => serializer.serialize_str("minecraft"),
         }
     }
 }
 
-impl ToString for GameType {
+impl ToString for GameInstanceKind {
     fn to_string(&self) -> String {
         match self {
-            GameType::Minecraft => "minecraft".to_string(),
+            GameInstanceKind::MinecraftInstance => "minecraft".to_string(),
         }
     }
 }

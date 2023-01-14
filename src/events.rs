@@ -1,26 +1,26 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{util::{DownloadProgress, SetupProgress}, traits::InstanceInfo};
+use crate::{
+    auth::{permission::UserPermission, user_id::UserId},
+    output_types::ClientEvent,
+    traits::{t_player::Player, t_server::State, InstanceInfo},
+    types::{InstanceUuid, Snowflake},
+};
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(InstanceEventKind, derive(Serialize, Deserialize, TS))]
 pub enum InstanceEventInner {
-    InstanceStarting,
-    InstanceStarted,
-    InstanceStopping,
-    InstanceStopped,
+    StateTransition {
+        to: State,
+    },
     InstanceWarning,
     InstanceError,
-    InstanceCreationFailed {
-        reason: String,
-    },
-    InstanceCreationSuccess {
-        instance : InstanceInfo
-    },
     InstanceInput {
         message: String,
     },
@@ -31,95 +31,259 @@ pub enum InstanceEventInner {
         message: String,
     },
     PlayerChange {
-        player_list: HashSet<String>,
-        players_joined: HashSet<String>,
-        players_left: HashSet<String>,
+        player_list: HashSet<Player>,
+        players_joined: HashSet<Player>,
+        players_left: HashSet<Player>,
     },
 
     PlayerMessage {
         player: String,
         player_message: String,
     },
-    Downloading(DownloadProgress),
-    Setup(SetupProgress),
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+
+impl AsRef<InstanceEventInner> for InstanceEventInner {
+    fn as_ref(&self) -> &InstanceEventInner {
+        self
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct InstanceEvent {
-    pub instance_uuid: String,
+    pub instance_uuid: InstanceUuid,
     pub instance_name: String,
     pub instance_event_inner: InstanceEventInner,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(UserEventKind, derive(Serialize, Deserialize, TS))]
 pub enum UserEventInner {
     UserCreated,
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
+    PermissionChanged {
+        new_permissions: Box<UserPermission>,
+    },
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+
+impl AsRef<UserEventInner> for UserEventInner {
+    fn as_ref(&self) -> &UserEventInner {
+        self
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct UserEvent {
-    pub user_id: String,
+    pub user_id: UserId,
     pub user_event_inner: UserEventInner,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(MacroEventKind, derive(Serialize, Deserialize, TS))]
 pub enum MacroEventInner {
     MacroStarted,
     MacroStopped,
     MacroErrored { error_msg: String },
 }
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct MacroEvent {
-    pub instance_uuid: String,
-    pub macro_uuid: String,
+    pub instance_uuid: InstanceUuid,
+    pub macro_pid: usize,
     pub macro_event_inner: MacroEventInner,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+impl From<MacroEvent> for Event {
+    fn from(val: MacroEvent) -> Self {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::MacroEvent(val.clone()),
+            caused_by: CausedBy::Macro {
+                macro_pid: val.macro_pid,
+            },
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
+pub enum ProgressionEndValue {
+    InstanceCreation(InstanceInfo),
+    InstanceDelete { instance_uuid: InstanceUuid },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum ProgressionStartValue {
+    InstanceCreation {
+        instance_uuid: InstanceUuid,
+        instance_name: String,
+        port: u32,
+        flavour: String,
+        game_type: String,
+    },
+    InstanceDelete {
+        instance_uuid: InstanceUuid,
+    },
+}
+
+// the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum ProgressionEventInner {
+    ProgressionStart {
+        progression_name: String,
+        producer_id: Option<InstanceUuid>,
+        total: Option<f64>,
+        inner: Option<ProgressionStartValue>,
+    },
+    ProgressionUpdate {
+        progress_message: String,
+        progress: f64,
+    },
+    ProgressionEnd {
+        success: bool,
+        message: Option<String>,
+        inner: Option<ProgressionEndValue>,
+    },
+}
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+pub enum FSOperation {
+    Read,
+    Write,
+    Move { source: PathBuf },
+    Create,
+    Delete,
+    Upload,
+    Download,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[serde(tag = "type", content = "path")]
+#[ts(export)]
+pub enum FSTarget {
+    File(PathBuf),
+    Directory(PathBuf),
+}
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+pub struct FSEvent {
+    pub operation: FSOperation,
+    pub target: FSTarget,
+}
+
+pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedBy) -> Event {
+    Event {
+        details: "".to_string(),
+        snowflake: Snowflake::default(),
+        event_inner: EventInner::FSEvent(FSEvent { operation, target }),
+        caused_by,
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+pub struct ProgressionEvent {
+    pub event_id: Snowflake,
+    pub progression_event_inner: ProgressionEventInner,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type")]
+#[derive(enum_kinds::EnumKind)]
+#[enum_kind(EventType, derive(Serialize, Deserialize, TS))]
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
     MacroEvent(MacroEvent),
+    FSEvent(FSEvent),
+    ProgressionEvent(ProgressionEvent),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+impl AsRef<EventInner> for EventInner {
+    fn as_ref(&self) -> &EventInner {
+        self
+    }
+}
+
+#[test]
+fn event_type_export() {
+    let _ = EventType::export();
+    let _ = MacroEventKind::export();
+    let _ = UserEventKind::export();
+    let _ = InstanceEventKind::export();
+}
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum CausedBy {
+    User { user_id: UserId, user_name: String },
+    Instance { instance_uuid: InstanceUuid },
+    Macro { macro_pid: usize },
+    System,
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[serde(into = "ClientEvent")]
 pub struct Event {
     pub event_inner: EventInner,
     pub details: String,
-    pub snowflake: i64,
-    pub idempotency: String,
+    pub snowflake: Snowflake,
+    pub caused_by: CausedBy,
 }
 
-// a type that Event will be serialized to
-// used to serialize snowflake as string
-#[derive(Serialize, Clone, Debug, TS)]
+pub trait IntoEvent {
+    fn into_event(self, caused_by: CausedBy, details: String) -> Event;
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq, Eq)]
 #[ts(export)]
-struct ClientEvent {
-    pub event_inner: EventInner,
-    pub details: String,
-    pub snowflake: i64,
-    pub snowflake_str: String,
-    pub idempotency: String,
+#[derive(sqlx::Type)]
+pub enum EventLevel {
+    Info,
+    Warning,
+    Error,
 }
 
-impl Into<ClientEvent> for Event {
-    fn into(self) -> ClientEvent {
-        ClientEvent {
-            event_inner: self.event_inner,
-            details: self.details,
-            snowflake: self.snowflake,
-            snowflake_str: self.snowflake.to_string(),
-            idempotency: self.idempotency,
+// impl From<&EventInner> for EventType {
+//     fn from(event_inner: &EventInner) -> Self {
+//         match event_inner {
+//             EventInner::InstanceEvent(_) => EventType::InstanceEvent,
+//             EventInner::UserEvent(_) => EventType::UserEvent,
+//             EventInner::MacroEvent(_) => EventType::MacroEvent,
+//             EventInner::ProgressionEvent(_) => EventType::ProgressionEvent,
+//         }
+//     }
+// }
+
+impl From<&ClientEvent> for Event {
+    fn from(client_event: &ClientEvent) -> Event {
+        Event {
+            event_inner: client_event.event_inner.clone(),
+            details: client_event.details.clone(),
+            snowflake: client_event.snowflake,
+            caused_by: client_event.caused_by.clone(),
         }
+    }
+}
+
+impl AsRef<Event> for Event {
+    fn as_ref(&self) -> &Event {
+        self
     }
 }
 
@@ -148,7 +312,7 @@ impl Event {
             _ => None,
         }
     }
-    pub fn get_instance_uuid(&self) -> Option<String> {
+    pub fn get_instance_uuid(&self) -> Option<InstanceUuid> {
         match &self.event_inner {
             EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
             _ => None,

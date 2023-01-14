@@ -20,11 +20,10 @@ InstanceTest/
 .lodestone/
 LodestoneTest/
 instances/
-db/
+
 web
 lodestone-path/
 
-bindings/
 test_ground/
 run.sh
 bin/

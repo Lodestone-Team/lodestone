@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 use crate::traits::{Error, ErrorInner};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, TS)]
+#[ts(export)]
 pub struct MinecraftVersions {
     old_alpha: Vec<String>,
     snapshot: Vec<String>,
@@ -33,7 +35,7 @@ pub async fn get_vanilla_versions() -> Result<MinecraftVersions, Error> {
 
     let versions = response["versions"]
         .as_array()
-        .ok_or(api_changed_error.clone())?;
+        .ok_or_else(|| api_changed_error.clone())?;
 
     #[derive(Serialize, Deserialize, Debug)]
     struct Version {
