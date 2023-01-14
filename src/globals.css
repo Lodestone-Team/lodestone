@@ -186,7 +186,7 @@ input {
 /* rc-tooltip */
 
 .rc-tooltip-inner {
-  @apply min-h-0 rounded-md bg-gray-850 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md;
+  @apply min-h-0 rounded-md bg-gray-750 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md whitespace-nowrap;
 }
 
 .rc-tooltip {
