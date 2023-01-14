@@ -71,7 +71,7 @@
 
 ## Getting Started (end user)
 
-TODO!
+Follow the instruction on our [Github page](https://github.com/Lodestone-Team#installation)
 
 <!-- GETTING STARTED -->
 ## Getting Started (development)
@@ -114,13 +114,13 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
 
 
 <!-- USAGE EXAMPLES -->
-## Usage
+<!-- ## Usage
 
 Follow the instruction on our [Github page](https://github.com/Lodestone-Team#installation)
 
 _For more examples, please refer to the [Documentation](https://example.com)_
 
-<p align="right">(<a href="#top">back to top</a>)</p>
+<p align="right">(<a href="#top">back to top</a>)</p> -->
 
 
 
