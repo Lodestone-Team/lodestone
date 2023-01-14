@@ -22,6 +22,7 @@ use auth::user::UsersManager;
 use axum::Router;
 
 use events::{CausedBy, Event};
+use futures::Future;
 use global_settings::GlobalSettings;
 use implementations::minecraft;
 use log::{debug, error, info, warn};
@@ -185,7 +186,7 @@ async fn download_dependencies() -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn run() -> (JoinHandle<()>, AppState) {
+pub async fn run() -> (impl Future<Output = ()>, AppState) {
     env_logger::builder()
         .filter(Some("lodestone_core"), log::LevelFilter::Debug)
         .format_module_path(false)
@@ -338,7 +339,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
         }
     };
     (
-        tokio::spawn({
+        {
             let shared_state = shared_state.clone();
             async move {
                 let cors = CorsLayer::new()
@@ -392,7 +393,7 @@ pub async fn run() -> (JoinHandle<()>, AppState) {
                     let _ = instance.stop(CausedBy::System).await;
                 }
             }
-        }),
+        },
         shared_state,
     )
 }
