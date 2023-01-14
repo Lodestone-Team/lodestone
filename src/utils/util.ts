@@ -113,6 +113,8 @@ export function errorToString(error: unknown): string {
   }
   if (error === null) return '';
   if (error instanceof Error) return error.message;
+  // if it's string
+  if (typeof error === 'string') return error;
   return `Unknown error`;
 }
 

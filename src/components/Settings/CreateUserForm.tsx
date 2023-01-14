@@ -4,7 +4,7 @@ import { PublicUser } from 'bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { createNewUser, DISABLE_AUTOFILL } from 'utils/util';
+import { createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import * as yup from 'yup';
 
 export type CreateNewUserValues = {
@@ -59,7 +59,7 @@ export const CreateUserForm = ({
       })
       .catch((error) => {
         // TODO: better form errors
-        actions.setErrors({ username: error });
+        actions.setErrors({ username: errorToString(error) });
       })
       .finally(() => {
         actions.setSubmitting(false);
