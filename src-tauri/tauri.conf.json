@@ -17,6 +17,7 @@
     },
     "bundle": {
       "active": true,
+      "publisher" : "Lodestone Team",
       "category": "DeveloperTool",
       "copyright": "",
       "deb": {
