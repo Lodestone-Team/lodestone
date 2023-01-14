@@ -47,12 +47,23 @@ const FirstTime = () => {
   });
 
   return (
-    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
+    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-16 rounded-2xl bg-gray-850 px-12 py-16 transition-dimensions @container">
       <div className="text flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Welcome to Lodestone
         </h1>
+        <h2 className="text-medium font-medium tracking-medium text-white/75">
+          Learn more about Lodestone and any known issues on our {" "}
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/wiki"
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-200 underline hover:text-blue-300"
+          >
+            wiki
+          </a>
+        </h2>
       </div>
 
       <div className="flex flex-row items-baseline gap-8">
