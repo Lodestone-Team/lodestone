@@ -50,8 +50,9 @@ jobs:
 
       # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
       # on windows cache exe in src-tauri/target/release/Lodestone.exe
-      # on linux, cache deb in src-tauri/target/release/bundle/deb/Lodestone*.deb
-      # on linux, cache appimage in src-tauri/target/release/bundle/appimage/Lodestone*.AppImage
+      # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone*.deb
+      # on linux, cache appimage in src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+      # note linux has lowercase l, windows has uppercase L
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
@@ -60,6 +61,6 @@ jobs:
           path: |
             ./src-tauri/target/release/bundle/msi/Lodestone*.msi
             ./src-tauri/target/release/Lodestone.exe
-            ./src-tauri/target/release/bundle/deb/Lodestone*.deb
-            ./src-tauri/target/release/bundle/appimage/Lodestone*.AppImage
+            ./src-tauri/target/release/bundle/deb/lodestone*.deb
+            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
       
