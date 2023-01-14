@@ -5,7 +5,7 @@ import MyNavigate from './MyNavigate';
 
 export default function RequireSetup({
   children,
-  redirect = '/login/user/select',
+  redirect = '/login/core/first_setup',
 }: {
   children: React.ReactNode;
   redirect?: string;
