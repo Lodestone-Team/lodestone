@@ -1,17 +1,19 @@
-import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
-import { useContext } from 'react';
 import MyNavigate from './MyNavigate';
 
 export default function RequireSetup({
   children,
   redirect = '/login/core/first_setup',
+  lenient = true, // if true, don't redirect if failed to fetch
 }: {
   children: React.ReactNode;
   redirect?: string;
+  lenient?: boolean;
 }) {
-  const { data: coreInfo } = useCoreInfo();
+  const { data: coreInfo, isFetched } = useCoreInfo();
   const { is_setup } = coreInfo ?? {};
 
-  return is_setup ? <>{children}</> : <MyNavigate to={redirect} />;
+  const shouldRedirect = !isFetched ? !lenient : !is_setup;
+
+  return shouldRedirect ? <MyNavigate to={redirect} /> : <>{children}</>;
 }
