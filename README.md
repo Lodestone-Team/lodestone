@@ -69,7 +69,7 @@ Lodestone wouldn't be here if it weren't for our contributors. Check out their w
 
 [issues-shield]: https://img.shields.io/github/issues/Lodestone-Team/dashboard?style=for-the-badge
 [issues-url]: https://github.com/Lodestone-Team/dashboard/issues
-[workflow-shield]: https://img.shields.io/github/workflow/status/Lodestone-Team/dashboard/dashboard?style=for-the-badge
+[workflow-shield]: https://img.shields.io/github/actions/workflow/status/Lodestone-Team/dashboard/desktop.yml?style=for-the-badge
 [workflow-url]: https://github.com/Lodestone-Team/dashboard/actions
 [license-shield]: https://img.shields.io/github/license/github_username/repo_name.svg?style=for-the-badge
 [license-url]: https://github.com/github_username/repo_name/blob/master/LICENSE.txt
