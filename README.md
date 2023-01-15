@@ -22,9 +22,13 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 - [ ] Automated macros and tasks 🚧
 - [ ] Connecting without port forward 🚧
 
-## Installation
+## [Download](https://github.com/Lodestone-Team/dashboard/releases/latest)
 
-You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest). We also have a [webapp](https://www.lodestone.cc/) in early access. For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/dashboard/wiki).
+You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest).
+
+We also have a [webapp](https://www.lodestone.cc/) in early access for remote management.
+
+For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues).
 
 For installing Lodestone Core, check out [here](https://github.com/Lodestone-Team/lodestone_core).
 
@@ -37,7 +41,7 @@ Lodestone is created with security as a top priority. While most of the safety c
 
 ## Contributing
 
-Lodestone is still new and we have *alot* of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
+Lodestone is still new and we have *a lot* of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
 
 
 ## License
@@ -55,9 +59,10 @@ We strive to make Lodestone open source and free for everyone to use. If you lik
 
 ## Have questions?
 
-Checkout our Q&A here for more info: https://github.com/Lodestone-Team/lodestone/wiki/FAQ
+Checkout our FAQ here for more info: https://github.com/Lodestone-Team/lodestone/wiki/FAQ
 
 You can also join our [Discord](https://discord.gg/PkHXRQXkf6) to ask questions and help for setting up Lodestone.
+
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
