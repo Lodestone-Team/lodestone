@@ -20,9 +20,13 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 - [ ] Automated macros and tasks 🚧
 - [ ] Connecting without port forward 🚧
 
-## Installation
+## [Download](https://github.com/Lodestone-Team/dashboard/releases/latest)
 
-You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest). We also have a [webapp](https://www.lodestone.cc/) in early access. For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/dashboard/wiki).
+You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest).
+
+We also have a [webapp](https://www.lodestone.cc/) in early access for remote management.
+
+For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues).
 
 ## Safety & Security
 
