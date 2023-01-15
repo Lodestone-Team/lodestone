@@ -183,6 +183,11 @@ input {
   background: hwb(212.571, 45%, 30%);
 }
 
+/* firefox selection color */
+::moz-selection {
+  background: hwb(212.571, 45%, 30%);
+}
+
 /* rc-tooltip */
 
 .rc-tooltip-inner {
