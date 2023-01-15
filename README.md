@@ -1,4 +1,6 @@
 [![Lodestone Screen Shot](/public/assets/readmeRender.png)](https://www.lodestone.cc/)
+*Note: design above will launch at a later date.*
+
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![Build][workflow-shield]][workflow-url]
@@ -28,14 +30,14 @@ For installing Lodestone Core, check out [here](https://github.com/Lodestone-Tea
 
 ## Safety & Security
 
-Lodestone Core is written entirely in safe Rust, and uses`#![forbid(unsafe_code)]` . However we can't guarantee the safety of the crates and binaries we link to, as those may use unsafe rust.
+Lodestone Core is written entirely in safe Rust, and uses`#![forbid(unsafe_code)]`. However **we can't guarantee the safety of the crates and binaries we link to**, as those may use unsafe rust.
 
 Lodestone is created with security as a top priority. While most of the safety critical code such as login and permissions management have been tested thoroughly, **no formal security audit has been done for any part of Lodestone.**
 
 
 ## Contributing
 
-Lodestone is still new and we have **alot** of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
+Lodestone is still new and we have *alot* of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
 
 
 ## License
