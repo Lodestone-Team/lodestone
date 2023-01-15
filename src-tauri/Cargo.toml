@@ -1,11 +1,11 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+name = "lodestone-client"
+version = "0.4.0"
+description = "Lodestone's Desktop Client"
+authors = ["Lodestone-Team"]
 license = ""
 repository = ""
-default-run = "app"
+default-run = "lodestone-client"
 edition = "2021"
 rust-version = "1.57"
 

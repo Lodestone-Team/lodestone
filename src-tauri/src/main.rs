@@ -42,7 +42,12 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
 
 #[tokio::main]
 async fn main() {
-    let app_state = lodestone_core::run().await.1;
+    let (core_fut, app_state) = lodestone_core::run().await;
+    tokio::spawn(async {
+        core_fut.await;
+        println!("Core has exited");
+        std::process::exit(128);
+    });
     let mut context = tauri::generate_context!();
     let mut builder = tauri::Builder::default();
 
@@ -53,7 +58,7 @@ async fn main() {
         let window_url = WindowUrl::External(url);
         // rewrite the config so the IPC is enabled on this URL
         context.config_mut().build.dist_dir = AppUrl::Url(window_url.clone());
-        context.config_mut().build.dev_path = AppUrl::Url(window_url.clone());
+        context.config_mut().build.dev_path = AppUrl::Url(window_url);
 
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
     }

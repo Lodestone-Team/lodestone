@@ -1,5 +1,5 @@
 {
-  "name": "lodestone-dashboard",
+  "name": "lodestone",
   "version": "0.4.0",
   "private": true,
   "scripts": {
@@ -68,7 +68,7 @@
     "@storybook/testing-library": "^0.0.13",
     "@svgr/webpack": "^6.5.1",
     "@tailwindcss/container-queries": "^0.1.0",
-    "@tauri-apps/cli": "^1.1.1",
+    "@tauri-apps/cli": "^1.2.2",
     "@types/jsonwebtoken": "^8.5.9",
     "@types/node": "18.7.3",
     "@types/react": "18.0.17",

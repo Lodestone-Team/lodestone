@@ -1,4 +1,6 @@
 [![Lodestone Screen Shot](/public/assets/readmeRender.png)](https://www.lodestone.cc/)
+*Note: design above will launch at a later date.*
+
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
 [![Build][workflow-shield]][workflow-url]
@@ -20,22 +22,26 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 - [ ] Automated macros and tasks 🚧
 - [ ] Connecting without port forward 🚧
 
-## Installation
+## [Download](https://github.com/Lodestone-Team/dashboard/releases/latest)
 
-You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest). We also have a [webapp](https://www.lodestone.cc/) in early access. For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/dashboard/wiki).
+You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest).
+
+We also have a [webapp](https://www.lodestone.cc/) in early access for remote management.
+
+For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues).
+
+For installing Lodestone Core, check out [here](https://github.com/Lodestone-Team/lodestone_core).
 
 ## Safety & Security
 
-Lodestone core is written entirely in safe Rust, and uses`#![forbid(unsafe_code)]` . However we can't guarantee the safety of the crates and binaries we link to, as those may use unsafe rust.
+Lodestone Core is written entirely in safe Rust, and uses`#![forbid(unsafe_code)]`. However **we can't guarantee the safety of the crates and binaries we link to**, as those may use unsafe rust.
 
 Lodestone is created with security as a top priority. While most of the safety critical code such as login and permissions management have been tested thoroughly, **no formal security audit has been done for any part of Lodestone.**
-
-We recommend you to always have safe mode on within Lodestone for the best security, read more about safe mode [here](example.com).
 
 
 ## Contributing
 
-Lodestone is still new and we have **alot** of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
+Lodestone is still new and we have *a lot* of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
 
 
 ## License
@@ -45,14 +51,18 @@ This project uses the GNU Affero General Public License v3.0. See our `LICENSE` 
 
 ## Team
 
-Lodestone wouldn't be here if it weren't for our contributors. Check out their work!
+Lodestone wouldn't be here if it weren't for our contributors. Check out our [team](https://github.com/orgs/Lodestone-Team/people) here!
 
-- [Joey Wang (Jopee)](https://github.com/joeywangzr) - Developer
-- [Kevin Huang (Ynng)](https://github.com/Ynng) - Developer
-- [LuDa Yu (BotBot)](https://github.com/ludayu560) - Developer
-- [Mark Sun (Lemonsity)](https://github.com/Lemonsity) - Developer
-- [Peter Jiang (CheatCod)](https://github.com/CheatCod) - Developer
-- [Wilbur Zhang (Arclogger)](https://github.com/Arcslogger) - Designer
+## Support Us
+
+We strive to make Lodestone open source and free for everyone to use. If you like what we are making please consider [buying us a coffee](https://www.buymeacoffee.com/lodestoneteam) to support our development.
+
+## Have questions?
+
+Checkout our FAQ here for more info: https://github.com/Lodestone-Team/lodestone/wiki/FAQ
+
+You can also join our [Discord](https://discord.gg/PkHXRQXkf6) to ask questions and help for setting up Lodestone.
+
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -69,7 +79,7 @@ Lodestone wouldn't be here if it weren't for our contributors. Check out their w
 
 [issues-shield]: https://img.shields.io/github/issues/Lodestone-Team/dashboard?style=for-the-badge
 [issues-url]: https://github.com/Lodestone-Team/dashboard/issues
-[workflow-shield]: https://img.shields.io/github/workflow/status/Lodestone-Team/dashboard/dashboard?style=for-the-badge
+[workflow-shield]: https://img.shields.io/github/actions/workflow/status/Lodestone-Team/dashboard/desktop.yml?style=for-the-badge
 [workflow-url]: https://github.com/Lodestone-Team/dashboard/actions
 [license-shield]: https://img.shields.io/github/license/github_username/repo_name.svg?style=for-the-badge
 [license-url]: https://github.com/github_username/repo_name/blob/master/LICENSE.txt

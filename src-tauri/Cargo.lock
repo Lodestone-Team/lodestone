@@ -131,20 +131,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cb2f989d18dd141ab8ae82f64d1a8cdd37e0840f73a406896cf5e99502fab61"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "lodestone_core",
- "portpicker",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-localhost",
- "tokio",
-]
-
-[[package]]
 name = "argon2"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3430,9 +3416,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "lodestone-client"
+version = "0.4.0"
+dependencies = [
+ "lodestone_core",
+ "portpicker",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-localhost",
+ "tokio",
+]
+
+[[package]]
 name = "lodestone_core"
 version = "0.4.0"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#fb19cf78f0055707c185c54d2ebc46c4ad169604"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#8bbe8f7e79bb573e72ec0e8da489d5b5a2c233e1"
 dependencies = [
  "argon2",
  "async-trait",

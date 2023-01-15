@@ -8,8 +8,8 @@
     "withGlobalTauri": true
   },
   "package": {
-    "productName": "lodestone-dashboard",
-    "version": "0.1.0"
+    "productName": "Lodestone",
+    "version": "0.4.0"
   },
   "tauri": {
     "allowlist": {
@@ -17,6 +17,7 @@
     },
     "bundle": {
       "active": true,
+      "publisher" : "Lodestone Team",
       "category": "DeveloperTool",
       "copyright": "",
       "deb": {
@@ -60,7 +61,7 @@
         "height": 600,
         "minHeight": 500,
         "resizable": true,
-        "title": "lodestone",
+        "title": "Lodestone",
         "width": 1100,
         "minWidth": 1000
       }

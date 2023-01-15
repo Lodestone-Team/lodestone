@@ -26,7 +26,7 @@ const Dashboard = () => {
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
   const { data: globalSettings } = useGlobalSettings();
-  const domain = globalSettings?.domain ?? address;
+  const domain = (globalSettings?.domain ?? address) || 'localhost';
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
