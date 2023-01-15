@@ -100,9 +100,9 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
    ```sh
    git clone https://github.com/Lodestone-Team/client
    ```
-2. Define the `LODESTONE_PATH` environment variable, this is where Lodestone will store its data for development and testing
+2. By default Lodestone stores its data in `~/.lodestone`. If you would like to override it for development & testing please define the `LODESTONE_PATH` environment variable to override it.
    ```sh
-   export LODESTONE_PATH={}
+   export LODESTONE_PATH=~/test_dev
    ```
 3. Running
    ```sh
