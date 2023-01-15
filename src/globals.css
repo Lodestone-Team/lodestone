@@ -179,12 +179,7 @@ input {
 }
 
 /* set the user selection color */
-::selection {
-  background: hwb(212.571, 45%, 30%);
-}
-
-/* firefox selection color */
-::moz-selection {
+html::selection {
   background: hwb(212.571, 45%, 30%);
 }
 
