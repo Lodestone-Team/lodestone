@@ -39,7 +39,7 @@ We recommend you to always have safe mode on within Lodestone for the best secur
 
 ## Contributing
 
-Lodestone is still new and we have **alot** of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
+Lodestone is still new and we have **a lot** of features planned for this year. Either way, we'd love to hear your feedback! If you have any suggestions, leave a GitHub issue or talk to us on our [Discord](https://discord.gg/PkHXRQXkf6).
 
 
 ## License
