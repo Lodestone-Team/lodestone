@@ -2,6 +2,7 @@
   "extends": [
     "plugin:@typescript-eslint/recommended",
     "next/core-web-vitals",
+    "plugin:tailwindcss/recommended",
     "plugin:storybook/recommended",
     "prettier"
   ],
@@ -33,5 +34,6 @@
         "caughtErrorsIgnorePattern": "^_"
       }
     ]
-  }
+  },
+  "plugins": ["tailwindcss"]
 }
