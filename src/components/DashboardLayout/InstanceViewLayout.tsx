@@ -22,7 +22,8 @@ export const InstanceViewLayout = () => {
   useEffect(() => {
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
-      setPathname('/dashboard');
+      if (!location.pathname.startsWith('/dashboard'))
+        setPathname('/dashboard');
     } else {
       setInstanceState(undefined);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');

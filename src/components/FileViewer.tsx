@@ -398,7 +398,7 @@ export default function FileViewer() {
               : 'text-gray-300'
           }
           onClick={() => {
-            setPath('.');
+            setPath('.', false);
           }}
         >
           {instance.path.split(direcotrySeparator).pop()}
@@ -421,7 +421,7 @@ export default function FileViewer() {
                       : 'text-gray-300'
                   }
                   onClick={() => {
-                    setPath(subPath);
+                    setPath(subPath, false);
                   }}
                 >
                   {p}
@@ -477,7 +477,7 @@ export default function FileViewer() {
         )}
         onClick={() => {
           if (file.file_type === 'Directory') {
-            setPath(file.path);
+            setPath(file.path, false);
           } else {
             setOpenedFile(file);
           }
@@ -504,7 +504,7 @@ export default function FileViewer() {
             key={'..'}
             className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-200 hover:underline"
             onClick={() => {
-              setPath(parentPath(path, direcotrySeparator));
+              setPath(parentPath(path, direcotrySeparator), false);
             }}
           >
             <p className="select-none text-medium font-medium">..</p>

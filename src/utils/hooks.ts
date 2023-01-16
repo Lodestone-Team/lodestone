@@ -104,9 +104,9 @@ export function useQueryParam(
   const [value, setValue] = useState(searchParams.get(key) ?? initialValue);
 
   const setValueAndParams = useCallback(
-    (newValue: string) => {
+    (newValue: string, replace = true) => {
       setValue(newValue);
-      setSearchParam(key, newValue, true);
+      setSearchParam(key, newValue, replace);
     },
     [key, setSearchParam]
   );
@@ -144,16 +144,16 @@ export function useQueryParam(
 export function useLocalStorageQueryParam(
   key: string,
   initialValue: string,
-  visible = true
+  visible = true,
 ) {
   const { setSearchParam, searchParams } = useContext(BrowserLocationContext);
   const [value, setValue] = useLocalStorage(key, initialValue);
 
   const setValueAndParams = useCallback(
-    (newValue: string) => {
+    (newValue: string, replace = true) => {
       setValue(newValue);
       // if empty, remove the param
-      setSearchParam(key, newValue, true);
+      setSearchParam(key, newValue, replace);
     },
     [key, setSearchParam, setValue]
   );
