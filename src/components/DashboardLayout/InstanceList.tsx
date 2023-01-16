@@ -6,7 +6,7 @@ import InstanceLoadingCard from 'components/InstanceLoadingCard';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
-import { Fragment, useContext } from 'react';
+import { Fragment, useContext, useEffect } from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
@@ -23,18 +23,20 @@ export default function InstanceList({
     instanceList: instances,
     selectedInstance,
     selectInstance,
+    isReady,
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
   const userLoggedIn = useUserLoggedIn();
 
-  useEffectOnce(() => {
+  useEffect(() => {
+    if (!isReady) return;
     gaEventTracker(
       'View',
       'Instance List',
       true,
       Object.keys(instances).length
     );
-  });
+  }, [isReady, instances]);
 
   return (
     <RadioGroup

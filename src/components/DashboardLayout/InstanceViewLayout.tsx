@@ -13,7 +13,7 @@ export const InstanceViewLayout = () => {
   const userLoggedIn = useUserLoggedIn();
   /* Start Instances */
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
-  const { data: dataInstances } = useInstanceList(userLoggedIn);
+  const { data: dataInstances, isFetched: instanceIsFetched } = useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
   );
@@ -50,6 +50,7 @@ export const InstanceViewLayout = () => {
         instanceList: instances || {},
         selectedInstance: instance,
         selectInstance: selectInstance,
+        isReady: instanceIsFetched && userLoggedIn,
       }}
     >
       <div className="flex grow flex-row justify-center gap-[1vw]">
