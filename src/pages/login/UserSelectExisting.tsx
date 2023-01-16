@@ -12,12 +12,13 @@ import {
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import Avatar from 'components/Atoms/Avatar';
-import { useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
 import { JwtToken } from 'bindings/JwtToken';
 import { isLocalCore } from 'utils/util';
 
 const UserSelectExisting = () => {
+  useDocumentTitle('Select user - Lodestone');
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { setToken, token, core } = useContext(LodestoneContext);
   const { address, port } = core;

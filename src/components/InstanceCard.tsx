@@ -89,7 +89,7 @@ export default function InstanceCard({
 
     setLoading(true);
 
-    gaEventTracker('Change Instance State');
+    gaEventTracker('Change Instance State', stateToActionMessageMap[state]);
 
     axios
       .put(`/instance/${uuid}${stateToApiEndpointMap[state]}`)

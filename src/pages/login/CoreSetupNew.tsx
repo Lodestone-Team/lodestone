@@ -9,7 +9,7 @@ import * as yup from 'yup';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useCoreInfo } from 'data/SystemInfo';
-import { useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
 import { useQueryClient } from '@tanstack/react-query';
 import { LoginReply } from 'bindings/LoginReply';
@@ -35,6 +35,7 @@ const validationSchema = yup.object({
 });
 
 const CoreSetupNew = () => {
+  useDocumentTitle('Setup new core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { data: coreInfo } = useCoreInfo();
   const { setToken, core } = useContext(LodestoneContext);

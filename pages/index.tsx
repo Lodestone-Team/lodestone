@@ -226,7 +226,7 @@ export default function App() {
         >
           <Routes>
             <Route element={<LoginLayout />}>
-              <Route path="/first_setup" element={<FirstTime />} />
+              <Route path="/first_setup" element={<FirstTime />}  />
               <Route
                 path="/login/core/select"
                 element={

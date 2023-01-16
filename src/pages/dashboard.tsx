@@ -20,8 +20,10 @@ import { ToastContainer } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCompass } from '@fortawesome/free-solid-svg-icons';
+import { useDocumentTitle } from 'usehooks-ts';
 
 const Dashboard = () => {
+  useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);

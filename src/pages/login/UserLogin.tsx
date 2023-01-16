@@ -9,6 +9,7 @@ import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { DISABLE_AUTOFILL, isLocalCore, loginToCore } from 'utils/util';
 import { tauri } from 'utils/tauriUtil';
+import { useDocumentTitle } from 'usehooks-ts';
 
 export type LoginValues = {
   username: string;
@@ -21,6 +22,7 @@ const validationSchema = yup.object({
 });
 
 const UserLogin = () => {
+  useDocumentTitle('Sign in - Lodestone');
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { setToken, core } = useContext(LodestoneContext);
   const { address, port } = core;

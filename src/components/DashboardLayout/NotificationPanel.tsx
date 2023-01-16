@@ -2,6 +2,8 @@ import { NotificationContext } from 'data/NotificationContext';
 import { forwardRef, Fragment, useContext } from 'react';
 import NotificationCard from 'components/Atoms/NotificationCard';
 import { Transition } from '@headlessui/react';
+import { useEffectOnce } from 'usehooks-ts';
+import useAnalyticsEventTracker from 'utils/hooks';
 
 const NotificationPanel = forwardRef(
   (
@@ -12,8 +14,12 @@ const NotificationPanel = forwardRef(
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
+    const gaEventTracker = useAnalyticsEventTracker('Notification Panel');
     const { notifications, ongoingNotifications } =
       useContext(NotificationContext);
+    useEffectOnce(() => {
+      gaEventTracker('Notification Panel Opened');
+    });
     return (
       <div
         ref={ref}

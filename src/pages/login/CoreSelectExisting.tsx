@@ -15,6 +15,7 @@ import {
 import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
+import { useDocumentTitle } from 'usehooks-ts';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -31,6 +32,7 @@ const validationSchema = yup.object({
 });
 
 const CoreSelectExisting = () => {
+  useDocumentTitle('Select Core - Lodestone');
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { core, setCore, coreList } = useContext(LodestoneContext);
 

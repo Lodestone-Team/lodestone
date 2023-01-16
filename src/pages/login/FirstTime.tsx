@@ -15,10 +15,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
-import { useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
 
 const FirstTime = () => {
+  useDocumentTitle('Welcome to Lodestone');
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
@@ -54,7 +55,7 @@ const FirstTime = () => {
           Welcome to Lodestone
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/75">
-          Learn more about Lodestone and any known issues on our {" "}
+          Learn more about Lodestone and any known issues on our{' '}
           <a
             href="https://github.com/Lodestone-Team/lodestone/wiki"
             target="_blank"

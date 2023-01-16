@@ -7,6 +7,8 @@ import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
 import { Fragment, useContext } from 'react';
+import { useEffectOnce } from 'usehooks-ts';
+import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 
 export default function InstanceList({
@@ -16,6 +18,7 @@ export default function InstanceList({
   className?: string;
   children?: React.ReactNode;
 }) {
+  const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const {
     instanceList: instances,
     selectedInstance,
@@ -23,6 +26,15 @@ export default function InstanceList({
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
   const userLoggedIn = useUserLoggedIn();
+
+  useEffectOnce(() => {
+    gaEventTracker(
+      'View',
+      'Instance List',
+      true,
+      Object.keys(instances).length
+    );
+  });
 
   return (
     <RadioGroup

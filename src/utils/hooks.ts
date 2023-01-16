@@ -186,8 +186,13 @@ export function usePrevious(value: unknown) {
 }
 
 export const useAnalyticsEventTracker = (category: string) => {
-  const eventTracker = (action = 'test action', label?: string) => {
-    ReactGA.event({ category, action, label });
+  const eventTracker = (
+    action = 'test action',
+    label?: string,
+    nonInteraction?: boolean,
+    value?: number
+  ) => {
+    ReactGA.event({ category, action, label, nonInteraction, value });
   };
   return eventTracker;
 };

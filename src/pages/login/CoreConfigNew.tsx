@@ -14,6 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
+import { useDocumentTitle } from 'usehooks-ts';
 
 type ConfigNewCoreFormValues = {
   coreName: string;
@@ -26,6 +27,7 @@ const validationSchema = yup.object({
 });
 
 const CoreConfigNew = () => {
+  useDocumentTitle('Configure new core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { core } = useContext(LodestoneContext);
   const { address, port } = core;

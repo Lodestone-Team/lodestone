@@ -14,6 +14,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
+import { useDocumentTitle } from 'usehooks-ts';
 
 const validationSchema = yup.object({
   address: yup.string().required('Required'),
@@ -23,6 +24,7 @@ const validationSchema = yup.object({
 });
 
 const CoreConnect = () => {
+  useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
 
@@ -70,7 +72,7 @@ const CoreConnect = () => {
           Add a new core
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/75">
-          You may need to adjust your network and browser settings. {" "}
+          You may need to adjust your network and browser settings.{' '}
           <a
             href="https://github.com/Lodestone-Team/dashboard/wiki/Known-Issues#networking"
             target="_blank"
