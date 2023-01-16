@@ -4,6 +4,7 @@ import { PublicUser } from 'bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
+import useAnalyticsEventTracker from 'utils/hooks';
 import { createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import * as yup from 'yup';
 
@@ -29,6 +30,7 @@ export const CreateUserForm = ({
   onSuccess: (values: CreateNewUserValues) => void;
   onCancel: () => void;
 }) => {
+  const gaEventTracker = useAnalyticsEventTracker('User Management');
   const queryClient = useQueryClient();
   const initialValues: CreateNewUserValues = {
     username: '',
@@ -60,9 +62,11 @@ export const CreateUserForm = ({
       .catch((error) => {
         // TODO: better form errors
         actions.setErrors({ username: errorToString(error) });
+        gaEventTracker('Create User', 'Error');
       })
       .finally(() => {
         actions.setSubmitting(false);
+        gaEventTracker('Create User', 'Success');
       });
   };
   return (

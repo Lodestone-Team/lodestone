@@ -14,6 +14,7 @@ import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
 import { toast } from 'react-toastify';
 import { Small } from './ClipboardTextfield.stories';
+import useAnalyticsEventTracker from 'utils/hooks';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -66,6 +67,7 @@ export default function InstanceCard({
   const canViewInstance = useUserAuthorized('can_view_instance', uuid);
   const canStartInstance = useUserAuthorized('can_start_instance', uuid);
   const canStopInstance = useUserAuthorized('can_stop_instance', uuid);
+  const gaEventTracker = useAnalyticsEventTracker('Instance Card');
   let disabled = !canViewInstance;
   switch (stateToApiEndpointMap[state]) {
     case '/start':
@@ -86,6 +88,8 @@ export default function InstanceCard({
     if (disabled) return;
 
     setLoading(true);
+
+    gaEventTracker('Change Instance State');
 
     axios
       .put(`/instance/${uuid}${stateToApiEndpointMap[state]}`)

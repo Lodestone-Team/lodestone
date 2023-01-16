@@ -1,6 +1,7 @@
 import { BrowserLocationContext } from './../data/BrowserLocationContext';
 import { useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
+import ReactGA from 'react-ga4';
 
 export function useIntervalImmediate(
   callback: () => void,
@@ -119,7 +120,7 @@ export function useQueryParam(
         setSearchParam(key, initialValue, true);
       // if not visible, just set the value
       else setValue(initialValue);
-    }else if(!newValue){
+    } else if (!newValue) {
       // always set the internal value anyways
       setValue(initialValue);
     }
@@ -183,3 +184,11 @@ export function usePrevious(value: unknown) {
   });
   return ref.current;
 }
+
+export const useAnalyticsEventTracker = (category: string) => {
+  const eventTracker = (action = 'test action', label?: string) => {
+    ReactGA.event({ category, action, label });
+  };
+  return eventTracker;
+};
+export default useAnalyticsEventTracker;

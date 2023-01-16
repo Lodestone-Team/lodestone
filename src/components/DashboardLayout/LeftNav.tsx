@@ -1,7 +1,7 @@
 import SystemStat from './SystemStat';
 import InstanceList from './InstanceList';
 import { Fragment, useState } from 'react';
-import { useIntervalImmediate } from 'utils/hooks';
+import useAnalyticsEventTracker, { useIntervalImmediate } from 'utils/hooks';
 import { useCoreInfo } from 'data/SystemInfo';
 import Button from 'components/Atoms/Button';
 import { faPlus } from '@fortawesome/free-solid-svg-icons';
