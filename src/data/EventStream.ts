@@ -142,21 +142,16 @@ export const useEventStream = () => {
               const players_joined_names = players_joined.map((p) => p.name);
               const players_left_names = players_left.map((p) => p.name);
 
-              const title = `${
-                players_joined.length > 0
+              const title =
+                (players_joined.length > 0
                   ? `${players_joined_names.join(', ')} Joined ${name}`
-                  : ''
-              }
-              ${
-                players_left.length > 0 && players_joined.length > 0
+                  : '') +
+                (players_left.length > 0 && players_joined.length > 0
                   ? ' and '
-                  : ''
-              }
-              ${
-                players_left.length > 0
+                  : '') +
+                (players_left.length > 0
                   ? `${players_left_names.join(', ')} Left ${name}`
-                  : ''
-              }`;
+                  : '');
               if (title.length > 0)
                 dispatch({
                   title,
