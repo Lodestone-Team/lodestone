@@ -45,10 +45,16 @@ const Button = forwardRef(
     },
     ref: React.Ref<HTMLButtonElement>
   ) => {
+    const alignClass = {
+      start: 'justify-start',
+      center: 'justify-center',
+      end: 'justify-end',
+    }[align];
     return (
       <button
         className={clsx(
-          `group flex select-none flex-row flex-nowrap items-center justify-${align}`,
+          `group flex select-none flex-row flex-nowrap items-center`,
+          alignClass,
           'leading-normal tracking-medium enabled:focus-visible:ring-4',
           'enabled:focus-visible:ring-blue-faded/50',
           {
@@ -106,7 +112,7 @@ const Button = forwardRef(
       >
         {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
-        <div className={`flex justify-${align} items-center`}>
+        <div className={`${alignClass} flex items-center`}>
           {loading && (
             <BeatLoader size={5} color="#6b7280" className="absolute" />
           )}
