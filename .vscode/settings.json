@@ -1,9 +1,5 @@
 {
-  "cSpell.words": [
-    "clsx",
-    "Formik",
-    "reduxjs"
-  ],
+  "cSpell.words": ["clsx", "Formik", "reduxjs"],
 
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": true
@@ -16,5 +12,9 @@
     "typescript",
     "typescriptreact"
   ],
-  "liveServer.settings.port": 5521
+  "liveServer.settings.port": 5521,
+  "tailwindCSS.experimental.classRegex": [
+    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    "ClassName\\s*=\\s*[`\"']([^`\"']*)"
+  ]
 }
