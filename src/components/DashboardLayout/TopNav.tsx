@@ -80,7 +80,7 @@ export default function TopNav() {
         <Label
           size="small"
           color={colorMap[coreConnectionStatus]}
-          className="w-18 text-center"
+          className="w-20 text-center"
         >
           {statusMap[coreConnectionStatus]}
         </Label>
@@ -117,7 +117,6 @@ export default function TopNav() {
             )
           }
           iconRight={faCaretDown}
-          className="font-medium text-gray-300"
         ></Menu.Button>
         <Transition
           as={Fragment}
@@ -131,7 +130,7 @@ export default function TopNav() {
           <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
             <div className="py-2 px-1.5">
               <Menu.Item>
-                {({ active, disabled }) => (
+                {({ disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
                     label={userState === 'logged-in' ? 'Sign out' : 'Sign in'}
@@ -144,24 +143,20 @@ export default function TopNav() {
                       setSearchParam('instance', undefined);
                       setSearchParam('user', undefined);
                     }}
-                    variant="text"
                     align="end"
                     disabled={disabled}
-                    active={active}
                   />
                 )}
               </Menu.Item>
 
               <Menu.Item>
-                {({ active, disabled }) => (
+                {({ disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
                     label="Change core"
                     iconRight={faArrowRightArrowLeft}
-                    variant="text"
                     align="end"
                     disabled={disabled}
-                    active={active}
                     onClick={() => {
                       setSearchParam('instance', undefined);
                       setSearchParam('user', undefined);
