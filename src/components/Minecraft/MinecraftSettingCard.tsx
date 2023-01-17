@@ -165,6 +165,14 @@ export default function MinecraftSettingCard() {
           ? 'Players without a Mojang-signed public key will not be able to connect to the server'
           : "Players don't need a Mojang-signed public key to connect to the server",
     },
+    'enable-rcon': {
+      name: 'Enable RCON',
+      type: 'toggle',
+      descriptionFunc: (value: boolean) =>
+        value
+          ? 'Enabled remote access to the server console'
+          : 'Disabled remote access to the server console',
+    },
   };
 
   // filter out unsupported settings
