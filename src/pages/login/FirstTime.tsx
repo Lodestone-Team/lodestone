@@ -1,20 +1,12 @@
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
 import {
-  axiosPutSingleValue,
   DEFAULT_LOCAL_CORE,
-  DISABLE_AUTOFILL,
-  errorToString,
 } from 'utils/util';
-import InputField from 'components/Atoms/Form/InputField';
-import { Form, Formik, FormikHelpers } from 'formik';
-import * as yup from 'yup';
-import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useCoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
 
@@ -22,8 +14,6 @@ const FirstTime = () => {
   useDocumentTitle('Welcome to Lodestone');
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
-  const queryClient = useQueryClient();
-  const { data: globalSettings, isLoading, error } = useGlobalSettings();
 
   useEffectOnce(() => {
     if (coreList.length > 0) {
@@ -32,7 +22,7 @@ const FirstTime = () => {
     }
     if (!tauri) return;
     tauri
-      ?.invoke<string | null>('is_setup')
+      .invoke<string | null>('is_setup')
       .then((is_setup) => {
         addCore(DEFAULT_LOCAL_CORE);
         setCore(DEFAULT_LOCAL_CORE);
@@ -49,7 +39,7 @@ const FirstTime = () => {
 
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-16 rounded-2xl bg-gray-850 px-12 py-16 transition-dimensions @container">
-      <div className="text flex flex-col items-start">
+      <div className="flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Welcome to Lodestone
