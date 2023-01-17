@@ -90,6 +90,7 @@ module.exports = {
     },
     fontWeight: {
       medium: 450,
+      mediumbold: 500,
       bold: 550,
       extrabold: 700,
     },
