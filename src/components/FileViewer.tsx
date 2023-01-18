@@ -754,7 +754,7 @@ export default function FileViewer() {
                           ? 'Deselect all'
                           : 'Select all'
                       }
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       onClick={() => {
                         if (!fileList) return;
                         if (tickedFiles.length === fileList.length) {
@@ -774,7 +774,7 @@ export default function FileViewer() {
                 <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
                   {({ active, disabled }) => (
                     <Button
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       label="Cut selected"
                       icon={faScissors}
                       onClick={() => {
@@ -793,7 +793,7 @@ export default function FileViewer() {
                 <Menu.Item disabled={tickedFiles.length === 0 || !canRead}>
                   {({ active, disabled }) => (
                     <Button
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       label="Download selected"
                       icon={faDownload}
                       onClick={downloadTickedFiles}
@@ -807,7 +807,7 @@ export default function FileViewer() {
                 <Menu.Item disabled={tickedFiles.length !== 1 || !canWrite}>
                   {({ active, disabled }) => (
                     <Button
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       label="Unarchive selected"
                       icon={faFileZipper}
                       onClick={unzipTickedFile}
@@ -824,7 +824,7 @@ export default function FileViewer() {
                   {({ active, disabled }) => (
                     <Button
                       label="New file"
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       onClick={() => setCreateFileModalOpen(true)}
                       iconComponent={fileCheckIcon}
                       variant="text"
@@ -838,7 +838,7 @@ export default function FileViewer() {
                   {({ active, disabled }) => (
                     <Button
                       label="New folder"
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       onClick={() => setCreateFolderModalOpen(true)}
                       icon={faFolderPlus}
                       variant="text"
@@ -854,12 +854,12 @@ export default function FileViewer() {
                   {({ active, disabled }) => (
                     <Button
                       label="Delete selected"
-                      className="w-full items-start whitespace-nowrap py-1.5"
+                      className="w-full whitespace-nowrap py-1.5"
                       onClick={() => setDeleteFileModalOpen(true)}
                       icon={faTrashCan}
                       variant="text"
                       align="start"
-                      color="danger"
+                      intention="danger"
                       disabled={disabled}
                       active={active}
                     />
@@ -988,12 +988,12 @@ export default function FileViewer() {
           )}
         </div>
       ) : (
-        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 overflow-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 text-clip rounded-lg border border-gray-faded/30 bg-gray-800">
           <FontAwesomeIcon
             icon={faFolder}
             className="text-title text-gray-400"
           />
-          <p className="text-xl text-center text-white/50 font-medium">
+          <p className="text-xl text-center font-medium text-white/50">
             You don&#39;t have permission to read this folder
           </p>
         </div>

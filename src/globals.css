@@ -179,8 +179,8 @@ input {
 }
 
 /* set the user selection color */
-html::selection {
-  background: hwb(212.571, 45%, 30%);
+::selection {
+  background: hwb(212.571 45% 30%);
 }
 
 /* rc-tooltip */

@@ -77,7 +77,7 @@ export default function ConfirmDialog({
                   <Button
                     label={confirmButtonText || 'Confirm'}
                     className="grow"
-                    color={type === 'danger' ? 'danger' : 'info'}
+                    intention={type === 'danger' ? 'danger' : 'info'}
                     loading={isLoading}
                     onClick={() => {
                       setIsLoading(true);

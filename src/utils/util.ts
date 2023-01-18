@@ -12,6 +12,9 @@ import { LoginReply } from 'bindings/LoginReply';
 import { LoginValues } from 'pages/login/UserLogin';
 import { toast } from 'react-toastify';
 import { UserPermission } from 'bindings/UserPermission';
+import clsx, { ClassValue } from 'clsx';
+// eslint-disable-next-line no-restricted-imports
+import { extendTailwindMerge, twMerge } from 'tailwind-merge';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
@@ -23,6 +26,28 @@ export const DEFAULT_LOCAL_CORE: CoreConnectionInfo = {
   protocol: 'http',
   apiVersion: 'v1',
 };
+export const myTwMerge = extendTailwindMerge({
+  classGroups: {
+    'font-size': [
+      {
+        text: [
+          'caption',
+          'small',
+          'medium',
+          'h3',
+          'h2',
+          'h1',
+          'title',
+          '2xlarge',
+          '3xlarge',
+          '4xlarge',
+          '5xlarge',
+          '6xlarge',
+        ],
+      },
+    ],
+  },
+});
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -748,3 +773,7 @@ export const openPort = async (port: number) => {
     })
   );
 };
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(...inputs));
+}
