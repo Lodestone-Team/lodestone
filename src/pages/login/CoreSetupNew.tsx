@@ -153,7 +153,6 @@ const CoreSetupNew = () => {
               /> */}
               <Button
                 type="submit"
-                color="primary"
                 label="Submit"
                 iconRight={faArrowRight}
                 loading={isSubmitting}

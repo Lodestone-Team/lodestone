@@ -104,12 +104,16 @@ const CoreConfigNew = () => {
           >
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <InputField type="text" name="coreName" label="Core Name" />
-              <InputField type="text" name="domain" label="Public Domain/IP (Optional)" placeholder='123.123.123.123' />
+              <InputField
+                type="text"
+                name="domain"
+                label="Public Domain/IP (Optional)"
+                placeholder="123.123.123.123"
+              />
             </div>
             <div className="flex w-full flex-row justify-end gap-4">
               <Button
                 type="submit"
-                color="primary"
                 label="Continue"
                 iconRight={faArrowRight}
                 loading={isSubmitting}

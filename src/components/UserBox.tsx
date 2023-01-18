@@ -152,7 +152,6 @@ export default function UserBox({
                   variant="text"
                   align="end"
                   disabled={disabled}
-                  active={active}
                 />
               )}
             </Menu.Item>
@@ -163,10 +162,8 @@ export default function UserBox({
                   label="Delete User"
                   iconRight={faTrashCan}
                   variant="text"
-                  color="danger"
                   align="end"
                   disabled={disabled || isSelf}
-                  active={active}
                   onClick={() => setShowDeleteUser(true)}
                 />
               )}
