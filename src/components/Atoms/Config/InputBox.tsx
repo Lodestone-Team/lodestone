@@ -1,4 +1,9 @@
-import { faFloppyDisk, faRotateRight } from '@fortawesome/free-solid-svg-icons';
+import {
+  faFloppyDisk,
+  faRotateRight,
+  faEye,
+  faEyeSlash,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
@@ -10,7 +15,7 @@ import {
 
 const onChangeValidateTimeout = 100;
 
-export type InputBoxType = 'text' | 'number';
+export type InputBoxType = 'text' | 'number' | 'password';
 
 /**
  * A self controlled input box meant to represent a single value of a config
@@ -68,6 +73,7 @@ export default function InputBox({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [touched, setTouched] = useState<boolean>(false);
+  const [typeModified, setTypeModified] = useState<string>(type); //in case we have password field which can switch between "text" and "password"
   const formRef = useRef<HTMLFormElement>(null);
 
   const validate = useCallback(
@@ -177,6 +183,20 @@ export default function InputBox({
         key="reset"
       />
     );
+    if (type === 'password') {
+      icons.push(
+        <FontAwesomeIcon
+          icon={typeModified === 'password' ? faEye : faEyeSlash}
+          className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
+          onClick={() =>
+            typeModified === 'password'
+              ? setTypeModified('text')
+              : setTypeModified('password')
+          }
+          key="reveal password"
+        />
+      );
+    }
   }
   if (isLoading || isLoadingProp) {
     icons = [
@@ -241,7 +261,7 @@ export default function InputBox({
             setValue(value.trim());
           }}
           disabled={disabled}
-          type={type}
+          type={typeModified}
           autoComplete={DISABLE_AUTOFILL}
         />
       </form>

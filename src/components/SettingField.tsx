@@ -23,7 +23,7 @@ export default function SettingField({
   instance: InstanceInfo;
   setting: string;
   label?: string;
-  type?: 'text' | 'number' | 'dropdown' | 'toggle';
+  type?: 'text' | 'number' | 'dropdown' | 'toggle' | 'password';
   min?: number;
   max?: number;
   options?: string[];
@@ -43,7 +43,6 @@ export default function SettingField({
   label = label ?? setting;
   const [value, setValue] = useState(initialSetting ?? '');
 
-
   useIsomorphicLayoutEffect(() => {
     setValue(initialSetting ?? '');
   }, [initialSetting]);
@@ -58,6 +57,26 @@ export default function SettingField({
           label={label}
           value={value}
           type="text"
+          isLoading={isLoading}
+          error={errorString}
+          canRead={can_access_instance_setting}
+          onSubmit={async (value) => {
+            await axiosPutSingleValue<void>(
+              `/instance/${uuid}/game/${setting}`,
+              value
+            );
+            setValue(value);
+          }}
+          description={description}
+          descriptionFunc={descriptionFunc}
+        />
+      );
+    case 'password':
+      return (
+        <InputBox
+          label={label}
+          value={value}
+          type="password"
           isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}
