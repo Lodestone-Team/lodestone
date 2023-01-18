@@ -767,7 +767,6 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>
@@ -786,7 +785,6 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>
@@ -800,7 +798,6 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>
@@ -814,7 +811,6 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>
@@ -830,7 +826,6 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>
@@ -844,7 +839,6 @@ export default function FileViewer() {
                       variant="text"
                       align="start"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>
@@ -861,7 +855,6 @@ export default function FileViewer() {
                       align="start"
                       intention="danger"
                       disabled={disabled}
-                      active={active}
                     />
                   )}
                 </Menu.Item>

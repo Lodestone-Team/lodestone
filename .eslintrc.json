@@ -37,7 +37,8 @@
         "varsIgnorePattern": "^_",
         "caughtErrorsIgnorePattern": "^_"
       }
-    ]
+    ],
+    "tailwindcss/migration-from-tailwind-2": ["off"]
   },
   "plugins": ["tailwindcss"],
   "settings": {
