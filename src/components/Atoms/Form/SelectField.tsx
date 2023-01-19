@@ -37,7 +37,6 @@ export default function SelectField<T extends string | object>(
       } else {
         output = JSON.stringify(option);
       }
-      console.log('optionLabel', option, output);
       return output;
     },
     ...rest

@@ -132,6 +132,7 @@ const CoreConnect = () => {
                 />
                 <Button
                   type="submit"
+                  intention="primary"
                   label="Add and Continue"
                   iconRight={faArrowRight}
                   loading={isSubmitting} //TODO: fix button size changing when loading

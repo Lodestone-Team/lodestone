@@ -112,6 +112,7 @@ const CoreSelectExisting = () => {
                 OR
               </p>
               <Button
+                type="button"
                 icon={faPlus}
                 label="Connect a new core"
                 className="flex-1"
@@ -120,6 +121,7 @@ const CoreSelectExisting = () => {
             </div>
             <div className="flex w-full flex-row justify-end gap-4">
               <Button
+                type="button"
                 iconRight={faDownload}
                 label="Download Lodestone Core"
                 onClick={() => {
@@ -131,6 +133,7 @@ const CoreSelectExisting = () => {
               />
               <Button
                 type="submit"
+                intention="primary"
                 label="Continue"
                 iconRight={faArrowRight}
                 loading={isSubmitting} //TODO: fix button size changing when loading

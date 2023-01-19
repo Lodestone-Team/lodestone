@@ -162,6 +162,7 @@ export default function UserBox({
                   label="Delete User"
                   iconRight={faTrashCan}
                   variant="text"
+                  intention="danger"
                   align="end"
                   disabled={disabled || isSelf}
                   onClick={() => setShowDeleteUser(true)}

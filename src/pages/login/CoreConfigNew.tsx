@@ -114,6 +114,7 @@ const CoreConfigNew = () => {
             <div className="flex w-full flex-row justify-end gap-4">
               <Button
                 type="submit"
+                intention="primary"
                 label="Continue"
                 iconRight={faArrowRight}
                 loading={isSubmitting}
