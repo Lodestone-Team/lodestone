@@ -777,3 +777,13 @@ export const openPort = async (port: number) => {
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(...inputs));
 }
+
+// detect if we are in a browser that supports negative lookbehind
+export const negativeLookbehindSupported = (() => {
+  try {
+    new RegExp('(?<!\\w)foo');
+    return true;
+  } catch (e) {
+    return false;
+  }
+})();

@@ -248,7 +248,8 @@ export default function FileViewer() {
       monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
       monaco.languages.register({ id: 'toml' });
       monaco.languages.setLanguageConfiguration('toml', toml.conf);
-      monaco.languages.setMonarchTokensProvider('toml', toml.language);
+      if(toml.language)
+        monaco.languages.setMonarchTokensProvider('toml', toml.language);
       // monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
       //   noSemanticValidation: true,
       //   noSyntaxValidation: true,

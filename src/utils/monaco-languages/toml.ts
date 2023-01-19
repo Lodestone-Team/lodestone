@@ -1,4 +1,5 @@
 import monaco from 'monaco-editor';
+import { negativeLookbehindSupported } from 'utils/util';
 
 type IRichLanguageConfiguration = monaco.languages.LanguageConfiguration;
 type ILanguage = monaco.languages.IMonarchLanguage;
@@ -68,7 +69,8 @@ export const language = <ILanguage>{
 
     // array: [{ include: '@comments' }, { include: '@dataTypes' }],
 
-    boolean: [[/(?<!\w)(true|false)(?!\w)/, 'constant.other.boolean.toml']],
+    // boolean: [[/(?<!\w)(true|false)(?!\w)/, 'constant.other.boolean.toml']],
+    boolean: [[/(true|false)(?!\w)/, 'constant.other.boolean.toml']],
 
     comments: [
       [
@@ -96,7 +98,8 @@ export const language = <ILanguage>{
 
     dateTimeWithTz: [
       [
-        /(?<!\w)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))(?!\w)/,
+        // /(?<!\w)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))(?!\w)/,
+        /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))/,
         'constant.other.datetime-with-timezone.toml',
       ],
     ],
@@ -112,14 +115,16 @@ export const language = <ILanguage>{
 
     float: [
       [
-        /(?<!\w)([+-]?(0|([1-9](([0-9]|_[0-9])+)?))(?:(?:\.(0|([1-9](([0-9]|_[0-9])+)?)))?[eE][+-]?[1-9]_?[0-9]*|(?:\.[0-9_]*)))(?!\w)/,
+        // /(?<!\w)([+-]?(0|([1-9](([0-9]|_[0-9])+)?))(?:(?:\.(0|([1-9](([0-9]|_[0-9])+)?)))?[eE][+-]?[1-9]_?[0-9]*|(?:\.[0-9_]*)))(?!\w)/,
+        /([+-]?(0|([1-9](([0-9]|_[0-9])+)?))(?:(?:\.(0|([1-9](([0-9]|_[0-9])+)?)))?[eE][+-]?[1-9]_?[0-9]*|(?:\.[0-9_]*)))/,
         'constant.numeric.float.toml',
       ],
     ],
 
     integer: [
       [
-        /(?<!\w)((?:[+-]?(0|([1-9](([0-9]|_[0-9])+)?))))(?!\w)/,
+        // /(?<!\w)((?:[+-]?(0|([1-9](([0-9]|_[0-9])+)?))))(?!\w)/,
+        /((?:[+-]?(0|([1-9](([0-9]|_[0-9])+)?))))/,
         'constant.numeric.integer.toml',
       ],
     ],
