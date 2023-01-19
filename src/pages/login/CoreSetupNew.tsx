@@ -37,7 +37,7 @@ const validationSchema = yup.object({
 const CoreSetupNew = () => {
   useDocumentTitle('Setup new core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
-  const { data: coreInfo } = useCoreInfo();
+  const { data: coreInfo } = useCoreInfo(3000);
   const { setToken, core } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
   const [setupKey, setSetupKey] = useState<string>('');
@@ -168,6 +168,3 @@ const CoreSetupNew = () => {
 };
 
 export default CoreSetupNew;
-function setToken(token: string, socket: any) {
-  throw new Error('Function not implemented.');
-}
