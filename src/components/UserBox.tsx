@@ -129,7 +129,7 @@ export default function UserBox({
             {user.username}
             {/* this text is bigger then the one in inputbox on purpose */}
           </h1>
-          <h2 className="overflow-hidden truncate text-ellipsis text-small font-medium tracking-medium text-white/50">
+          <h2 className="overflow-hidden truncate text-small font-medium tracking-medium text-white/50">
             {userTags.join(', ')}
           </h2>
         </div>
