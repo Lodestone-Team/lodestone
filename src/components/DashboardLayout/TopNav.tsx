@@ -145,6 +145,7 @@ export default function TopNav() {
                     }}
                     align="end"
                     disabled={disabled}
+                    variant='text'
                   />
                 )}
               </Menu.Item>
@@ -162,6 +163,7 @@ export default function TopNav() {
                       setSearchParam('user', undefined);
                       setPathname('/login/core/select');
                     }}
+                    variant='text'
                   />
                 )}
               </Menu.Item>
