@@ -183,20 +183,20 @@ export default function InputBox({
         key="reset"
       />
     );
-    if (type === 'password') {
-      icons.push(
-        <FontAwesomeIcon
-          icon={typeModified === 'password' ? faEye : faEyeSlash}
-          className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
-          onClick={() =>
-            typeModified === 'password'
-              ? setTypeModified('text')
-              : setTypeModified('password')
-          }
-          key="reveal password"
-        />
-      );
-    }
+  }
+  if (type === 'password') {
+    icons.push(
+      <FontAwesomeIcon
+        icon={typeModified === 'password' ? faEye : faEyeSlash}
+        className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
+        onClick={() =>
+          typeModified === 'password'
+            ? setTypeModified('text')
+            : setTypeModified('password')
+        }
+        key="reveal password"
+      />
+    );
   }
   if (isLoading || isLoadingProp) {
     icons = [
