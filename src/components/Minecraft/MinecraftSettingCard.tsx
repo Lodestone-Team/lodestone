@@ -27,7 +27,7 @@ export default function MinecraftSettingCard() {
   const commonSettings: {
     [key: string]: {
       name: string;
-      type: 'toggle' | 'number' | 'text' | 'dropdown';
+      type: 'toggle' | 'number' | 'text' | 'dropdown' | 'password';
       options?: string[];
       description?: React.ReactNode;
       descriptionFunc?: (value: any) => React.ReactNode;
@@ -101,7 +101,7 @@ export default function MinecraftSettingCard() {
   const advancedSettings: {
     [key: string]: {
       name: string;
-      type: 'toggle' | 'number' | 'text' | 'dropdown';
+      type: 'toggle' | 'number' | 'text' | 'dropdown' | 'password';
       options?: string[];
       description?: string;
       descriptionFunc?: (value: any) => string;
@@ -164,6 +164,19 @@ export default function MinecraftSettingCard() {
         value
           ? 'Players without a Mojang-signed public key will not be able to connect to the server'
           : "Players don't need a Mojang-signed public key to connect to the server",
+    },
+    'enable-rcon': {
+      name: 'Enable RCON',
+      type: 'toggle',
+      descriptionFunc: (value: boolean) =>
+        value
+          ? 'Server admins can remotely access the server console'
+          : 'Server admins cannot remote access to the server console',
+    },
+    'rcon.password': {
+      name: 'RCON Password',
+      type: 'password',
+      descriptionFunc: () => 'Set a password for RCON',
     },
   };
 
