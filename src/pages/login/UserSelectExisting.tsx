@@ -80,6 +80,7 @@ const UserSelectExisting = () => {
         </p>
         <Button
           icon={token ? faArrowRightArrowLeft : faRightFromBracket}
+          intention={token ? 'info' : 'primary'}
           label={token ? 'Switch user' : 'Sign in'}
           className="flex-1"
           onClick={() => setPathname('/login/user')}
