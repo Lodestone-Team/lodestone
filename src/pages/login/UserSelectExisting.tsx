@@ -60,6 +60,7 @@ const UserSelectExisting = () => {
       <div className="flex flex-row items-baseline gap-8">
         {token ? (
           <Button
+            type="button"
             iconComponent={<Avatar name={uid} />}
             className="flex-1"
             label={`Continue as ${userInfo?.username ?? 'current user'}`}
@@ -69,6 +70,7 @@ const UserSelectExisting = () => {
         ) : (
           // TODO: better design and layout in this area
           <Button
+            type="button"
             icon={faUser}
             className="flex-1"
             label={`Continue as Current User`}
@@ -79,6 +81,7 @@ const UserSelectExisting = () => {
           OR
         </p>
         <Button
+          type="button"
           icon={token ? faArrowRightArrowLeft : faRightFromBracket}
           intention={token ? 'info' : 'primary'}
           label={token ? 'Switch user' : 'Sign in'}
@@ -88,6 +91,7 @@ const UserSelectExisting = () => {
       </div>
       <div className="flex w-full flex-row justify-start gap-4">
         <Button
+          type="button"
           icon={faArrowLeft}
           label="Change Core"
           onClick={() => setPathname('/login/core/select')}

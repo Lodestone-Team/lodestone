@@ -1,8 +1,6 @@
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
-import {
-  DEFAULT_LOCAL_CORE,
-} from 'utils/util';
+import { DEFAULT_LOCAL_CORE } from 'utils/util';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
@@ -59,6 +57,7 @@ const FirstTime = () => {
 
       <div className="flex flex-row items-baseline gap-8">
         <Button
+          type="button"
           className="flex-1"
           label="Download Lodestone Core"
           onClick={() => {
@@ -72,6 +71,7 @@ const FirstTime = () => {
           OR
         </p>
         <Button
+          type="button"
           className="flex-1"
           label="Connect to existing Core"
           onClick={() => setPathname('/login/core/new')}

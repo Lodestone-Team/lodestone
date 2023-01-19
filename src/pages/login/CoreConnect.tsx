@@ -118,9 +118,15 @@ const CoreConnect = () => {
               />
             </div>
             <div className="flex w-full flex-row justify-between gap-4">
-              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+              <Button
+                type="button"
+                icon={faArrowLeft}
+                label="Back"
+                onClick={navigateBack}
+              />
               <div className="flex flex-row gap-4">
                 <Button
+                  type="button"
                   iconRight={faDownload}
                   label="Download Lodestone Core"
                   onClick={() => {
