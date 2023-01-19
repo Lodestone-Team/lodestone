@@ -33,20 +33,22 @@ import { FileType } from 'bindings/FileType';
 import {
   axiosWrapper,
   chooseFiles,
+  DISABLE_AUTOFILL,
+  formatTimeAgo,
+  getNonDuplicateFolderNameFromFileName,
+  parentPath,
+} from 'utils/util';
+import {
   createInstanceDirectory,
   createInstanceFile,
   deleteInstanceDirectory,
   deleteInstanceFile,
-  DISABLE_AUTOFILL,
   downloadInstanceFiles,
-  formatTimeAgo,
-  getNonDuplicateFolderNameFromFileName,
-  moveInstanceFileOrDirectory,
-  parentPath,
   saveInstanceFile,
   unzipInstanceFile,
   uploadInstanceFiles,
-} from 'utils/util';
+  moveInstanceFileOrDirectory,
+} from 'utils/apis';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
 import InputField from 'components/Atoms/Form/InputField';
@@ -248,7 +250,7 @@ export default function FileViewer() {
       monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
       monaco.languages.register({ id: 'toml' });
       monaco.languages.setLanguageConfiguration('toml', toml.conf);
-      if(toml.language)
+      if (toml.language)
         monaco.languages.setMonarchTokensProvider('toml', toml.language);
       // monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
       //   noSemanticValidation: true,

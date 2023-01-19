@@ -5,7 +5,8 @@ import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import useAnalyticsEventTracker from 'utils/hooks';
-import { createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { createNewUser } from 'utils/apis';
 import * as yup from 'yup';
 
 export type CreateNewUserValues = {

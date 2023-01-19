@@ -4,7 +4,8 @@ import { PublicUser } from 'bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { changePassword, createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { changePassword, createNewUser } from 'utils/apis';
 import * as yup from 'yup';
 
 export type ChangeUserPasswordValues = {

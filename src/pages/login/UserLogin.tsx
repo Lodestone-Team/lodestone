@@ -7,7 +7,8 @@ import * as yup from 'yup';
 import { useCoreInfo } from 'data/SystemInfo';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { DISABLE_AUTOFILL, isLocalCore, loginToCore } from 'utils/util';
+import { DISABLE_AUTOFILL, isLocalCore } from 'utils/util';
+import { loginToCore } from 'utils/apis';
 import { tauri } from 'utils/tauriUtil';
 import { useDocumentTitle } from 'usehooks-ts';
 

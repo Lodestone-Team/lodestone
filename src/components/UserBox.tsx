@@ -10,7 +10,7 @@ import { PublicUser } from 'bindings/PublicUser';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
 import { Fragment, useState } from 'react';
-import { deleteUser } from 'utils/util';
+import { deleteUser } from 'utils/apis';
 import Avatar from './Atoms/Avatar';
 import Button from './Atoms/Button';
 import ConfirmDialog from './Atoms/ConfirmDialog';

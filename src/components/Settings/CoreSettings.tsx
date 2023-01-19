@@ -17,8 +17,8 @@ import {
   catchAsyncToString,
   DISABLE_AUTOFILL,
   errorToString,
-  openPort,
 } from 'utils/util';
+import { openPort } from 'utils/apis';
 import InputField from 'components/Atoms/Form/InputField';
 
 export const CoreSettings = () => {
