@@ -89,6 +89,7 @@ const Button = forwardRef(
       iconComponent,
       icon,
       iconRight,
+      type='button',
       ...props
     }: ButtonProps,
     ref: React.Ref<HTMLButtonElement>
@@ -101,6 +102,7 @@ const Button = forwardRef(
         )}
         disabled={disabled || loading}
         ref={ref}
+        type={type}
         {...props}
       >
         {iconComponent}
