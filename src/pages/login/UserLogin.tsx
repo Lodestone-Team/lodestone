@@ -106,7 +106,6 @@ const UserLogin = () => {
               </div>
               <Button
                 type="submit"
-                color="primary"
                 iconRight={faArrowRight}
                 label="Sign in"
                 loading={isSubmitting}

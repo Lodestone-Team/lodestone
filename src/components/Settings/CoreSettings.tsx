@@ -273,7 +273,6 @@ export const CoreSettings = () => {
             <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
               <Button
                 label="Open Port"
-                color="danger"
                 disabled={!can_change_core_settings}
                 onClick={() => {
                   setShowOpenPortDialog(true);

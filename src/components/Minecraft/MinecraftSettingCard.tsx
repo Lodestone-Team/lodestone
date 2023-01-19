@@ -316,7 +316,6 @@ export default function MinecraftSettingCard() {
             <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
               <Button
                 label="Delete"
-                color="danger"
                 disabled={!can_delete_instance}
                 onClick={() => {
                   setShowDeleteDialog(true);

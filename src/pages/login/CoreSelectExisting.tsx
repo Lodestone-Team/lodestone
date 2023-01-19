@@ -131,7 +131,6 @@ const CoreSelectExisting = () => {
               />
               <Button
                 type="submit"
-                color="primary"
                 label="Continue"
                 iconRight={faArrowRight}
                 loading={isSubmitting} //TODO: fix button size changing when loading
