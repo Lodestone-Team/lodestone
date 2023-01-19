@@ -90,12 +90,14 @@ const UserLogin = () => {
               <div className="flex flex-row justify-between gap-4">
                 {tauri && isLocalCore(core) ? (
                   <Button
+                    type="button"
                     icon={faArrowLeft}
                     label="Switch Account"
                     onClick={navigateBack}
                   />
                 ) : (
                   <Button
+                    type="button"
                     icon={faArrowLeft}
                     label="Change Core"
                     onClick={() => setPathname('/login/core/select')}
