@@ -14,6 +14,9 @@ module.exports = {
 
     return config;
   },
+  experimental: {
+    runtime: 'edge',
+  },
   async rewrites() {
     return [
       {
