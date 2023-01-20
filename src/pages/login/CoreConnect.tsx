@@ -63,14 +63,14 @@ const CoreConnect = () => {
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
+    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
       <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
-        <h1 className="font-title text-h1 font-[500] tracking-medium text-gray-300">
+        <img src="/logo.svg" alt="logo" className="h-8" />
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/75">
-          You may need to adjust your network and browser settings. {" "}
+          You may need to adjust your network and browser settings.{' '}
           <a
             href="https://github.com/Lodestone-Team/dashboard/wiki/Known-Issues#networking"
             target="_blank"

@@ -54,14 +54,14 @@ const Button = forwardRef(
           {
             slim: 'gap-1 rounded-sm py-1 px-1 text-small',
             medium: 'gap-1.5 rounded py-1 px-2 text-medium',
-            large: 'gap-1.5 rounded py-1.5 px-3 text-medium',
+            large: 'gap-1.5 rounded py-1.5 px-3 text-h3',
           }[size],
           color === 'danger'
             ? 'font-bold'
             : {
                 slim: 'font-medium',
                 medium: 'font-medium',
-                large: 'font-medium',
+                large: 'font-bold',
               }[size],
           {
             info: 'text-gray-300 disabled:text-white/50',
@@ -69,7 +69,7 @@ const Button = forwardRef(
               variant === 'text'
                 ? 'text-red-200 disabled:text-red/50'
                 : 'text-red-200 hover:text-white active:text-white disabled:text-white/50',
-            primary: 'text-gray-300 disabled:text-white/50',
+            primary: 'text-white disabled:text-white/50',
           }[color], //icon color, text color is set separately
           active &&
             {

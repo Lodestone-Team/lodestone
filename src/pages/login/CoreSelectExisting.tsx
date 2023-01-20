@@ -77,7 +77,7 @@ const CoreSelectExisting = () => {
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
       <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
+        <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Select Lodestone Core
         </h1>
