@@ -96,7 +96,7 @@ export default function DashboardLayout() {
         select a different core, refresh the page, or simply wait for the core
         to come back online.
       </ConfirmDialog>
-      <div className="flex h-screen flex-col">
+      <div className="flex h-full flex-col">
         <TopNav />
         <div className="flex min-h-0 w-full grow flex-row bg-gray-875">
           <Outlet />
