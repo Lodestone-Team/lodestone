@@ -104,9 +104,7 @@ export const useConsoleStream = (uuid: string) => {
       // this is slow ik
       return mergedLog.filter(
         (event, index) =>
-          mergedLog.findIndex(
-            (e) => e.snowflake === event.snowflake
-          ) === index
+          mergedLog.findIndex((e) => e.snowflake === event.snowflake) === index
       );
     });
   };
@@ -118,29 +116,33 @@ export const useConsoleStream = (uuid: string) => {
     }
     setStatus('loading');
 
-    const websocket = new WebSocket(
-      `ws://${address}:${
-        port ?? LODESTONE_PORT
-      }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
-    );
+    try {
+      const websocket = new WebSocket(
+        `ws://${address}:${
+          port ?? LODESTONE_PORT
+        }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
+      );
 
-    websocket.onopen = () => {
-      if (statusRef.current === 'loading') setStatus('live-no-buffer');
-      if (statusRef.current === 'buffered') setStatus('live');
-    };
+      websocket.onopen = () => {
+        if (statusRef.current === 'loading') setStatus('live-no-buffer');
+        if (statusRef.current === 'buffered') setStatus('live');
+      };
 
-    websocket.onmessage = (messageEvent) => {
-      const event: ClientEvent = JSON.parse(messageEvent.data);
-      mergeConsoleLog([event]);
-    };
+      websocket.onmessage = (messageEvent) => {
+        const event: ClientEvent = JSON.parse(messageEvent.data);
+        mergeConsoleLog([event]);
+      };
 
-    websocket.onclose = (event) => {
-      setStatus(event.code === 1000 ? 'closed' : 'error');
-    };
+      websocket.onclose = (event) => {
+        setStatus(event.code === 1000 ? 'closed' : 'error');
+      };
 
-    return () => {
-      websocket.close();
-    };
+      return () => {
+        websocket.close();
+      };
+    } catch (e) {
+      console.error(e);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, port, apiVersion, uuid, canAccessConsole]);
 

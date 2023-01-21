@@ -419,7 +419,11 @@ export const useEventStream = () => {
       };
     };
 
-    connectWebsocket();
+    try {
+      connectWebsocket();
+    } catch (e) {
+      console.error(e);
+    }
     return () => {
       console.log('unmounting event listener');
       wsConnected.current = false;
