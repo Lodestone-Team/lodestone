@@ -423,6 +423,7 @@ export const useEventStream = () => {
       connectWebsocket();
     } catch (e) {
       console.error(e);
+      setCoreConnectionStatus('degraded');
     }
     return () => {
       console.log('unmounting event listener');

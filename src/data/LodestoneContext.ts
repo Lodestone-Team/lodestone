@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import { LODESTONE_PORT } from 'utils/util';
 
-export type CoreConnectionStatus = 'loading' | 'error' | 'success';
+export type CoreConnectionStatus = 'loading' | 'error' | 'degraded' | 'success';
 
 interface LodestoneContext {
   core: CoreConnectionInfo;

@@ -37,12 +37,14 @@ export default function TopNav() {
     loading: 'Connecting',
     error: 'Error',
     success: 'Connected',
+    degraded: 'Degraded',
   };
 
   const colorMap: Record<string, LabelColor> = {
-    loading: 'yellow',
+    loading: 'gray',
     error: 'red',
     success: 'green',
+    degraded: 'yellow',
   };
 
   useEffect(() => {
