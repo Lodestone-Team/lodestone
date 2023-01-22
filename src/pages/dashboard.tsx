@@ -25,6 +25,7 @@ import packageinfo from '../../package.json';
 import { LODESTONE_PORT } from '../utils/util';
 import axios from 'axios';
 import { Dialog } from '@headlessui/react';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 
 const Dashboard = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -38,43 +39,43 @@ const Dashboard = () => {
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
 
   const [showMajorVersionModal, setShowMajorVersionModal] = useState(false);
+  const [dashboardVersion, setDashboardVersion] = useState(packageinfo.version);
+  const [coreVersion, setCoreVersion] = useState('');
   const openMajorVersionModal = (
-    <Dialog
-      open={showMajorVersionModal}
+    <ConfirmDialog
+      title={`Major Version Mismatch`}
+      type={'danger'}
+      isOpen={showMajorVersionModal}
       onClose={() => setShowMajorVersionModal(false)}
     >
-      <div className="fixed inset-0 bg-[#000]/80" />
-      <div className="fixed inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 bg-gray-800 px-8 pb-8 pt-16">
-            There is a major version mismatch!
-          </Dialog.Panel>
-        </div>
+      <div>
+        <b>Core Version: </b>
+        {coreVersion}
+        <br />
+        <b>Dashboard Version: </b>
+        {dashboardVersion}
       </div>
-    </Dialog>
+      <br />
+      Your dashboard and core have a major version mismatch! Please consider
+      updating to stay up to date with our latest changes.
+    </ConfirmDialog>
   );
 
   useEffect(() => {
     const endpoint = `http://localhost:${LODESTONE_PORT}/api/v1/info`;
     axios.get(endpoint).then((result) => {
       if (!result.data) return;
-      const dashboardVersion = packageinfo.version.split('.');
-      const coreVersion = result.data.version.split('.');
-      if (JSON.stringify(dashboardVersion) === JSON.stringify(coreVersion))
+      setCoreVersion(result.data.version);
+      const tempDashboardVersion = dashboardVersion.split('.');
+      const tempCoreVersion = result.data.version.split('.');
+      if (
+        JSON.stringify(tempDashboardVersion) === JSON.stringify(tempCoreVersion)
+      )
         return;
-      if (dashboardVersion[0] !== coreVersion[0]) {
+      if (tempDashboardVersion[0] !== tempCoreVersion[0]) {
         setShowMajorVersionModal(true);
       } else {
-        toast.warn('There is a minor/patch version mismatch!', {
-          position: 'top-right',
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: 'dark',
-        });
+        toast.warn('There is a minor/patch version mismatch!');
       }
     });
   }, []);
