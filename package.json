@@ -52,6 +52,7 @@
     "react-router-dom": "^6.5.0",
     "react-spinners": "^0.13.4",
     "react-toastify": "^9.1.1",
+    "semver": "^7.3.8",
     "storybook-addon-next-router": "^4.0.0",
     "tailwind-merge": "^1.8.1",
     "usehooks-ts": "^2.6.0",

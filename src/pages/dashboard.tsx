@@ -26,6 +26,8 @@ import { LODESTONE_PORT } from '../utils/util';
 import axios from 'axios';
 import { Dialog } from '@headlessui/react';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { useCoreInfo } from 'data/SystemInfo';
+import { major, minor, patch, valid, eq } from 'semver';
 
 const Dashboard = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -38,10 +40,10 @@ const Dashboard = () => {
   const uuid = instance?.uuid;
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
 
+  const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showMajorVersionModal, setShowMajorVersionModal] = useState(false);
-  const [dashboardVersion, setDashboardVersion] = useState(packageinfo.version);
-  const [coreVersion, setCoreVersion] = useState('');
-  const openMajorVersionModal = (
+  const dashboardVersion = packageinfo.version;
+  const versionMismatchModal = !clientInfoLoading && (
     <ConfirmDialog
       title={`Major Version Mismatch`}
       type={'danger'}
@@ -50,7 +52,7 @@ const Dashboard = () => {
     >
       <div>
         <b>Core Version: </b>
-        {coreVersion}
+        {clientInfo?.version}
         <br />
         <b>Dashboard Version: </b>
         {dashboardVersion}
@@ -62,23 +64,23 @@ const Dashboard = () => {
   );
 
   useEffect(() => {
-    const endpoint = `http://localhost:${LODESTONE_PORT}/api/v1/info`;
-    axios.get(endpoint).then((result) => {
-      if (!result.data) return;
-      setCoreVersion(result.data.version);
-      const tempDashboardVersion = dashboardVersion.split('.');
-      const tempCoreVersion = result.data.version.split('.');
-      if (
-        JSON.stringify(tempDashboardVersion) === JSON.stringify(tempCoreVersion)
-      )
-        return;
-      if (tempDashboardVersion[0] !== tempCoreVersion[0]) {
+    const clientVersion = clientInfoLoading ? undefined : clientInfo?.version;
+    if (clientVersion === undefined) return;
+    if (valid(clientVersion) && valid(dashboardVersion)) {
+      if (eq(clientVersion, dashboardVersion)) return;
+      if (major(clientVersion) !== major(dashboardVersion))
         setShowMajorVersionModal(true);
-      } else {
-        toast.warn('There is a minor/patch version mismatch!');
-      }
-    });
-  }, []);
+      else if (minor(clientVersion) !== minor(dashboardVersion))
+        toast.warn(
+          `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`
+        );
+      else if (patch(clientVersion) !== patch(dashboardVersion))
+        toast.warn(
+          `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`
+        );
+    }
+  }, [clientInfo?.version]);
+
   if (!instance || !uuid) {
     return (
       <div
@@ -185,7 +187,7 @@ const Dashboard = () => {
       className="relative flex h-full w-full flex-row justify-center @container"
       key={uuid}
     >
-      {openMajorVersionModal}
+      {versionMismatchModal}
       {/* main content container */}
       <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
         <div className="flex w-full min-w-0 flex-row items-center gap-4">
