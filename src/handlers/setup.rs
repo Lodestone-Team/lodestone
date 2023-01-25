@@ -1,5 +1,4 @@
 use axum::{extract::Path, Json, Router};
-use log::info;
 
 use crate::{
     auth::{permission::UserPermission, user::User},
@@ -38,7 +37,6 @@ pub async fn setup_owner(
                 .await
                 .add_user(owner.clone(), CausedBy::System)
                 .await?;
-            info!("Owner password: {}", owner_setup.password);
             Ok(Json(LoginReply {
                 token: owner.create_jwt()?,
                 user: owner.into(),

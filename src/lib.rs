@@ -51,7 +51,6 @@ use tokio::{
         broadcast::{self, error::RecvError, Receiver, Sender},
         Mutex, RwLock,
     },
-    task::JoinHandle,
 };
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -234,6 +233,7 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
         let key = rand_alphanumeric(16);
         // log the first time setup key in green so it's easy to find
         info!("\x1b[32mFirst time setup key: {}\x1b[0m", key);
+        info!("DO NOT SHARE THIS KEY WITH ANYONE!");
         Some(key)
     } else {
         None
@@ -243,7 +243,7 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
     for (_, instance) in instances.iter_mut() {
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
-            if let Err(e) = instance.start(CausedBy::System).await {
+            if let Err(e) = instance.start(CausedBy::System, false).await {
                 error!(
                     "Failed to start instance {}: {:?}",
                     instance.name().await,
@@ -383,14 +383,16 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
-                    _ = axum::Server::bind(&addr)
-                    .serve(app.into_make_service()) => info!("Server exited"),
+                    _ = {
+                        info!("Web server live on {}", addr);
+                        axum::Server::bind(&addr).serve(app.into_make_service())
+                    } => info!("Server exited"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    let _ = instance.stop(CausedBy::System).await;
+                    instance.stop(CausedBy::System, true).await.unwrap();
                 }
             }
         },

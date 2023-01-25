@@ -49,6 +49,7 @@ pub enum ErrorInner {
     // Instance operation errors
     InvalidInstanceState,
     InstanceNotFound,
+    InstanceExitedUnexpectedly,
     PortInUse,
 
     // Config file errors:
@@ -62,7 +63,7 @@ pub enum ErrorInner {
     VersionNotFound,
 
     // Macro errors:
-    FailedToRun,
+    FailedToRunMacro,
     MacroNotFound,
 
     // Process errors:
