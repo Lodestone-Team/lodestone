@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::process::Stdio;
 use std::time::Duration;
@@ -21,11 +22,10 @@ use crate::util::dont_spawn_terminal;
 
 use super::MinecraftInstance;
 use log::{debug, error, info, warn};
-use tokio::task;
 
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
-    async fn start(&mut self, cause_by: CausedBy) -> Result<(), Error> {
+    async fn start(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
         self.state.lock().await.try_transition(
             StateAction::UserStart,
             Some(&|state| {
@@ -44,7 +44,7 @@ impl TServer for MinecraftInstance {
 
         env::set_current_dir(&self.config.path).unwrap();
 
-        let prelaunch = self.path().await.join("prelaunch.js");
+        let prelaunch = self.path_to_macros.join("prelaunch.js");
         if prelaunch.exists() {
             self.macro_executor.spawn(ExecutionInstruction {
                 name: "prelaunch".to_string(),
@@ -53,7 +53,7 @@ impl TServer for MinecraftInstance {
                 runtime: self.macro_std(),
                 is_in_game: false,
                 instance_uuid: self.config.uuid.clone(),
-            });
+            }).await;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -127,7 +127,7 @@ impl TServer for MinecraftInstance {
                     }
                 })?;
                 *self.process.lock().await = Some(proc);
-                task::spawn({
+                tokio::task::spawn({
                     use fancy_regex::Regex;
                     use lazy_static::lazy_static;
 
@@ -250,7 +250,6 @@ impl TServer for MinecraftInstance {
                                                 .skip(1)
                                                 .map(|s| s.to_string())
                                                 .collect::<Vec<String>>();
-                                            dbg!(&args);
 
                                             Some(MacroInstruction::Spawn {
                                                 player_name: player,
@@ -333,10 +332,14 @@ impl TServer for MinecraftInstance {
                                         }),
                                     )
                                     .unwrap();
+
                                 *settings.lock().await =
                                     read_properties_from_path(&path_to_properties)
-                                        .await
-                                        .expect("Failed to read properties");
+                                        .await.map_err(|e| {
+                                            error!("Failed to read properties: {}, falling back to empty properties map", e);
+                                            e
+                                        }).map_or_else(|_| HashMap::new(), |v| v);
+
                                 if let (Ok(Ok(true)), Ok(rcon_psw), Ok(Ok(rcon_port))) = (
                                     self.get_field("enable-rcon").await.map(|v| v.parse()),
                                     self.get_field("rcon.password").await,
@@ -367,7 +370,7 @@ impl TServer for MinecraftInstance {
                                         tokio::time::sleep(Duration::from_secs(2_u64.pow(i))).await;
                                     }
                                 } else {
-                                    warn!("RCON is not enabled, skipping");
+                                    warn!("RCON is not enabled or misconfigured, skipping");
                                     self.rcon_conn.lock().await.take();
                                 }
                             }
@@ -467,10 +470,43 @@ impl TServer for MinecraftInstance {
                         self.players_manager.lock().await.clear(name);
                     }
                 });
+
+                self.config.has_started = true;
+                self.write_config_to_file().await?;
+                let instance_uuid = self.config.uuid.clone();
+                let mut rx = self.event_broadcaster.subscribe();
+
+                if block {
+                    while let Ok(event) = rx.recv().await {
+                        if let EventInner::InstanceEvent(InstanceEvent {
+                            instance_uuid: event_instance_uuid,
+                            instance_event_inner: InstanceEventInner::StateTransition { to },
+                            ..
+                        }) = event.event_inner
+                        {
+                            if instance_uuid == event_instance_uuid {
+                                if to == State::Running {
+                                    break;
+                                } else if to == State::Stopped {
+                                    return Err(Error {
+                                        inner: ErrorInner::InstanceExitedUnexpectedly,
+                                        detail: "Failed to start server".to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Err(Error {
+                        inner: ErrorInner::InstanceExitedUnexpectedly,
+                        detail: "Sender shutdown".to_string(),
+                    })
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => {
-                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 error!("Failed to start server, {}", e);
+                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 self.state
                     .lock()
                     .await
@@ -492,17 +528,14 @@ impl TServer for MinecraftInstance {
                         }),
                     )
                     .unwrap();
-                return Err(Error {
+                Err(Error {
                     inner: ErrorInner::FailedToExecute,
-                    detail: "Failed to start server".into(),
-                });
+                    detail: e.to_string(),
+                })
             }
         }
-        self.config.has_started = true;
-        self.write_config_to_file().await?;
-        Ok(())
     }
-    async fn stop(&mut self, cause_by: CausedBy) -> Result<(), Error> {
+    async fn stop(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
         self.state.lock().await.try_transition(
             StateAction::UserStop,
             Some(&|state| {
@@ -513,7 +546,7 @@ impl TServer for MinecraftInstance {
                         instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
                     snowflake: Snowflake::default(),
-                    details: "Starting server".to_string(),
+                    details: "Stopping server".to_string(),
                     caused_by: cause_by.clone(),
                 });
             }),
@@ -544,8 +577,37 @@ impl TServer for MinecraftInstance {
                     detail: format!("Failed to write to stdin: {}", e),
                 }
             })?;
-        Ok(())
+        self.rcon_conn.lock().await.take();
+        let mut rx = self.event_broadcaster.subscribe();
+        let instance_uuid = self.config.uuid.clone();
+
+        if block {
+            while let Ok(event) = rx.recv().await {
+                if let EventInner::InstanceEvent(InstanceEvent {
+                    instance_uuid: event_instance_uuid,
+                    instance_event_inner: InstanceEventInner::StateTransition { to },
+                    ..
+                }) = event.event_inner
+                {
+                    if instance_uuid == event_instance_uuid && to == State::Stopped {
+                        break;
+                    }
+                }
+            }
+            Err(Error {
+                inner: ErrorInner::InstanceExitedUnexpectedly,
+                detail: "Sender shutdown".to_string(),
+            })
+        } else {
+            Ok(())
+        }
     }
+
+    async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+        self.stop(caused_by.clone(), block).await?;
+        self.start(caused_by, block).await
+    }
+
     async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), crate::traits::Error> {
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", self.config.name.clone());
