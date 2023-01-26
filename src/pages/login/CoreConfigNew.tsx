@@ -78,8 +78,8 @@ const CoreConfigNew = () => {
   };
 
   return (
-    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
-      <div className="text flex flex-col items-start">
+    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions @container">
+      <div className="flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-medium tracking-medium text-gray-300">
           Customize your core
