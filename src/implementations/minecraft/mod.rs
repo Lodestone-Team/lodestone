@@ -244,7 +244,8 @@ impl MinecraftInstance {
             )
             .await?;
 
-            let unzipped_content = unzip_file(&downloaded, &path_to_runtimes.join("java"), true).await?;
+            let unzipped_content =
+                unzip_file(&downloaded, &path_to_runtimes.join("java"), true).await?;
             if unzipped_content.len() != 1 {
                 return Err(Error {
                     inner: ErrorInner::APIChanged,

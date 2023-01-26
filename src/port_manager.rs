@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    net::{SocketAddrV4},
-};
+use std::{collections::HashSet, net::SocketAddrV4};
 
 use serde::{Deserialize, Serialize};
 

@@ -124,10 +124,10 @@ impl MinecraftInstance {
         &self,
     ) -> Box<
         dyn Fn(
-                String, // macro name
-                String, // executor
+                String,      // macro name
+                String,      // executor
                 Vec<String>, // args
-                bool, // is_in_game
+                bool,        // is_in_game
             ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
             + Send,
     > {
