@@ -1,22 +1,35 @@
 import Button from 'components/Atoms/Button';
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import packageinfo from '../../../package.json';
+import { DEFAULT_LOCAL_CORE } from 'utils/util';
 
 const FirstTime = () => {
   useDocumentTitle('Welcome to Lodestone');
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
+  const [tauriIsSetup, setTauriIsSetup] = useState(false);
 
   useEffectOnce(() => {
     if (coreList.length > 0) {
       setPathname('/login/core/select');
       return;
     }
+    if (!tauri) return;
+    tauri
+      .invoke<string | null>('is_setup')
+      .then((is_setup) => {
+        addCore(DEFAULT_LOCAL_CORE);
+        setCore(DEFAULT_LOCAL_CORE);
+        setTauriIsSetup(is_setup === 'true');
+      })
+      .catch((err: any) => {
+        console.error('Tauri call failed is_setup', err);
+      });
   });
 
   return (
@@ -77,7 +90,7 @@ const FirstTime = () => {
         </p>
       </div>
 
-      <div className="flex flex-row items-baseline gap-4">
+      <div className="flex flex-row flex-wrap items-baseline gap-4">
         {!tauri ? (
           <>
             <Button
@@ -90,6 +103,7 @@ const FirstTime = () => {
               }}
               intention="primary"
               size="large"
+              className="whitespace-nowrap"
             />
 
             <Button
@@ -97,14 +111,24 @@ const FirstTime = () => {
               onClick={() => setPathname('/login/core/new')}
               intention="primary"
               size="large"
+              className="whitespace-nowrap"
             />
           </>
+        ) : tauriIsSetup ? (
+          <Button
+            label="Continue"
+            onClick={() => setPathname('/')}
+            intention="primary"
+            size="large"
+            className="whitespace-nowrap"
+          />
         ) : (
           <Button
-            label="Connect to existing Core"
+            label="Setup Lodestone Core"
             onClick={() => setPathname('/login/core/first_setup')}
             intention="primary"
             size="large"
+            className="whitespace-nowrap"
           />
         )}
       </div>
