@@ -42,18 +42,23 @@ impl TServer for MinecraftInstance {
             }),
         )?;
 
-        env::set_current_dir(&self.config.path).unwrap();
+        env::set_current_dir(&self.config.path).map_err(|e| Error {
+            inner: ErrorInner::IOError,
+            detail: e.to_string(),
+        })?;
 
         let prelaunch = self.path_to_macros.join("prelaunch.js");
         if prelaunch.exists() {
-            self.macro_executor.spawn(ExecutionInstruction {
-                name: "prelaunch".to_string(),
-                args: vec![],
-                executor: None,
-                runtime: self.macro_std(),
-                is_in_game: false,
-                instance_uuid: self.config.uuid.clone(),
-            }).await;
+            self.macro_executor
+                .spawn(ExecutionInstruction {
+                    name: "prelaunch".to_string(),
+                    args: vec![],
+                    executor: None,
+                    runtime: self.macro_std(),
+                    is_in_game: false,
+                    instance_uuid: self.config.uuid.clone(),
+                })
+                .await;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -461,7 +466,8 @@ impl TServer for MinecraftInstance {
                                                 InstanceEventInner::StateTransition { to: state },
                                         }),
                                         snowflake: Snowflake::default(),
-                                        details: "Starting server".to_string(),
+                                        details: "Instance stopping as server process exited"
+                                            .to_string(),
                                         caused_by: cause_by.clone(),
                                     });
                                 }),
@@ -604,8 +610,22 @@ impl TServer for MinecraftInstance {
     }
 
     async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
-        self.stop(caused_by.clone(), block).await?;
-        self.start(caused_by, block).await
+        if block {
+            self.stop(caused_by.clone(), block).await?;
+            self.start(caused_by, block).await
+        } else {
+            self.state
+                .lock()
+                .await
+                .try_new_state(StateAction::UserStop, None)?;
+
+            let mut __self = self.clone();
+            tokio::task::spawn(async move {
+                self.stop(caused_by.clone(), block).await?;
+                self.start(caused_by, block).await
+            });
+            Ok(())
+        }
     }
 
     async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), crate::traits::Error> {
