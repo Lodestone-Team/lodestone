@@ -5,7 +5,7 @@ import DashboardCard from 'components/DashboardCard';
 import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,11 +16,18 @@ import FileViewer from 'components/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
-import { ToastContainer } from 'react-toastify';
+import { toast } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCompass } from '@fortawesome/free-solid-svg-icons';
 import { useDocumentTitle } from 'usehooks-ts';
+import packageinfo from '../../package.json';
+import { LODESTONE_PORT } from '../utils/util';
+import axios from 'axios';
+import { Dialog } from '@headlessui/react';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { useCoreInfo } from 'data/SystemInfo';
+import { major, minor, patch, valid, eq } from 'semver';
 
 const Dashboard = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -32,6 +39,47 @@ const Dashboard = () => {
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+
+  const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
+  const [showMajorVersionModal, setShowMajorVersionModal] = useState(false);
+  const dashboardVersion = packageinfo.version;
+  const versionMismatchModal = !clientInfoLoading && (
+    <ConfirmDialog
+      title={`Major Version Mismatch`}
+      type={'danger'}
+      isOpen={showMajorVersionModal}
+      onClose={() => setShowMajorVersionModal(false)}
+    >
+      <div>
+        <b>Core Version: </b>
+        {clientInfo?.version}
+        <br />
+        <b>Dashboard Version: </b>
+        {dashboardVersion}
+      </div>
+      <br />
+      Your dashboard and core have a major version mismatch! Please consider
+      updating to stay up to date with our latest changes.
+    </ConfirmDialog>
+  );
+
+  useEffect(() => {
+    const clientVersion = clientInfoLoading ? undefined : clientInfo?.version;
+    if (clientVersion === undefined) return;
+    if (valid(clientVersion) && valid(dashboardVersion)) {
+      if (eq(clientVersion, dashboardVersion)) return;
+      if (major(clientVersion) !== major(dashboardVersion))
+        setShowMajorVersionModal(true);
+      else if (minor(clientVersion) !== minor(dashboardVersion))
+        toast.warn(
+          `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`
+        );
+      else if (patch(clientVersion) !== patch(dashboardVersion))
+        toast.warn(
+          `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`
+        );
+    }
+  }, [clientInfo?.version]);
 
   if (!instance || !uuid) {
     return (
@@ -139,6 +187,7 @@ const Dashboard = () => {
       className="relative flex h-full w-full flex-row justify-center @container"
       key={uuid}
     >
+      {versionMismatchModal}
       {/* main content container */}
       <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
         <div className="flex w-full min-w-0 flex-row items-center gap-4">
