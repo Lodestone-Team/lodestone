@@ -97,7 +97,7 @@ pub async fn restart_instance(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<()>, Error> {
     let requester = state
         .users_manager
         .read()
@@ -131,7 +131,7 @@ pub async fn restart_instance(
         });
     }
     instance.restart(caused_by, false).await?;
-    Ok(Json(json!("ok")))
+    Ok(Json(()))
 }
 
 pub async fn kill_instance(
