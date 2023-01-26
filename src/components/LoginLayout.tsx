@@ -7,6 +7,7 @@ const LoginLayout = () => {
       style={{
         background: "url('/login_background.svg')",
         backgroundSize: 'cover',
+        backgroundPosition: 'center',
       }}
     >
       <Outlet />
