@@ -27,6 +27,7 @@ const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
+
   const initialValues: CoreConnectionInfo = {
     address: '',
     port: LODESTONE_PORT.toString(),
@@ -54,11 +55,10 @@ const CoreConnect = () => {
           setPathname('/login/user/select');
         }
         actions.setSubmitting(false);
-        actions.setStatus({});
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setStatus({ error: errorMessages });
+        actions.setErrors({ address: errorMessages }); //TODO: put the error in a better place, it's not just an address problem
         actions.setSubmitting(false);
         return;
       });
@@ -90,13 +90,12 @@ const CoreConnect = () => {
         validateOnBlur={false}
         validateOnChange={false}
       >
-        {({ isSubmitting, status }) => (
+        {({ isSubmitting }) => (
           <Form
             id="addCoreForm"
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
-            <div>{status ? status.error : ''}</div>
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <SelectField
                 name="apiVersion"
