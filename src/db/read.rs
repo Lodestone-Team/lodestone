@@ -112,7 +112,7 @@ mod tests {
                 target: FSTarget::File(PathBuf::from("/test")),
             }),
             details: "Dummy detail 1".to_string(),
-            snowflake: snowflake,
+            snowflake,
             level: EventLevel::Info,
             caused_by: CausedBy::System,
         };
