@@ -21,6 +21,7 @@ use crate::{
 use auth::user::UsersManager;
 use axum::Router;
 
+use axum_server::tls_rustls::RustlsConfig;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
@@ -338,6 +339,13 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
             }
         }
     };
+
+    let tls_config_result = RustlsConfig::from_pem_file(
+        lodestone_path.join("tls").join("cert.pem"),
+        lodestone_path.join("tls").join("key.pem"),
+    )
+    .await;
+
     (
         {
             let shared_state = shared_state.clone();
@@ -385,14 +393,24 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = {
                         info!("Web server live on {}", addr);
-                        axum::Server::bind(&addr).serve(app.into_make_service())
+                        async {
+                            match tls_config_result {
+                                Ok(config) => {
+                                    info!("TLS enabled");
+                                    axum_server::bind_rustls(addr, config).serve(app.into_make_service()).await
+                                },
+                                Err(e) => {
+                                    warn!("Invalid TLS config : {e}, using HTTP");
+                                    axum_server::bind(addr).serve(app.into_make_service()).await},
+                            }.unwrap();
+                        }
                     } => info!("Server exited"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    instance.stop(CausedBy::System, true).await.unwrap();
+                    instance.stop(CausedBy::System, true).await;
                 }
             }
         },
