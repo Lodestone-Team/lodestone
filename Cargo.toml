@@ -20,6 +20,7 @@ argon2 = "0.4.1"
 async-trait = "0.1.56"
 axum = { version = "0.6.1", features = ["headers", "ws", "multipart"] }
 axum-auth = "0.4.0"
+axum-server = { version = "0.4.4", features = ["tls-rustls"] }
 axum-macros = "0.3.0"
 base64 = "0.20.0"
 chrono = "0.4.22"
@@ -55,7 +56,11 @@ semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde-aux = "4.1.2"
 serde_json = "1.0.82"
-sqlx = { git = "https://github.com/Lodestone-Team/sqlx", features = ["runtime-tokio-rustls", "sqlite", "json" ]}
+sqlx = { git = "https://github.com/Lodestone-Team/sqlx", features = [
+    "runtime-tokio-rustls",
+    "sqlite",
+    "json",
+] }
 sysinfo = "0.26.5"
 tempdir = "0.3.7"
 tokio = { version = "1.21.1", features = ["full"] }
@@ -66,7 +71,6 @@ ts-rs = "6.2.1"
 walkdir = "2.3.2"
 whoami = "1.2.3"
 zip = "0.6.2"
-
 [dependencies.uuid]
 version = "1.1.2"
 features = [
