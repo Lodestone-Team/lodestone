@@ -62,7 +62,7 @@ export const CreateUserForm = ({
         actions.resetForm();
       })
       .catch((error) => {
-        actions.setStatus({ username: errorToString(error) });
+        actions.setStatus({ error: errorToString(error) });
         gaEventTracker('Create User', 'Error');
       })
       .finally(() => {
@@ -84,7 +84,7 @@ export const CreateUserForm = ({
         >
           {status && (
             <WarningAlert>
-              <p>{status.username}</p>
+              <p>{status.error}</p>
             </WarningAlert>
           )}
           <InputField name="username" label="Username" />

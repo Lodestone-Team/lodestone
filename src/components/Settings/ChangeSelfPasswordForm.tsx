@@ -51,7 +51,7 @@ export const ChangeSelfPasswordForm = ({
         actions.resetForm();
       })
       .catch((error) => {
-        actions.setStatus({ old_password: errorToString(error) });
+        actions.setStatus({ error: errorToString(error) });
       })
       .finally(() => {
         actions.setSubmitting(false);
@@ -71,7 +71,7 @@ export const ChangeSelfPasswordForm = ({
         >
           {status && (
             <WarningAlert>
-              <p>{status.old_password}</p>
+              <p>{status.error}</p>
             </WarningAlert>
           )}
           <InputField

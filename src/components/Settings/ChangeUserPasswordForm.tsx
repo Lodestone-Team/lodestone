@@ -50,7 +50,7 @@ export const ChangeUserPasswordForm = ({
         actions.resetForm();
       })
       .catch((error) => {
-        actions.setStatus({ password: errorToString(error) });
+        actions.setStatus({ error: errorToString(error) });
       })
       .finally(() => {
         actions.setSubmitting(false);
@@ -70,7 +70,7 @@ export const ChangeUserPasswordForm = ({
         >
           {status && (
             <WarningAlert>
-              <p>{status.password}</p>
+              <p>{status.error}</p>
             </WarningAlert>
           )}
           <InputField name="password" label="Password" type="password" />
