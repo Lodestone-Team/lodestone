@@ -16,21 +16,23 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ansi_term = "0.12.1"
+anyhow = "1.0.68"
 argon2 = "0.4.1"
 async-trait = "0.1.56"
 axum = { version = "0.6.1", features = ["headers", "ws", "multipart"] }
 axum-auth = "0.4.0"
-axum-server = { version = "0.4.4", features = ["tls-rustls"] }
 axum-macros = "0.3.0"
+axum-server = { version = "0.4.4", features = ["tls-rustls"] }
 base64 = "0.20.0"
 chrono = "0.4.22"
+color-eyre = "0.6.2"
 deno_ast = { version = "0.20.0", features = ["transpiling"] }
 deno_core = "0.162.0"
 deno_runtime = "0.88.0"
 dotenvy = { version = "0.15" }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.8"
-env_logger = "0.9.0"
 fancy-regex = "0.10.0"
 fs_extra = "1.2.0"
 futures = "0.3.21"
@@ -42,7 +44,6 @@ indicatif = "0.15.0"
 jsonwebtoken = "8.1.1"
 lazy_static = "1.4.0"
 local-ip-address = "0.5.0"
-log = "0.4.17"
 port_scanner = "0.1.5"
 rand = "0.6.5"
 rand_core = { version = "0.6", features = ["std"] }
@@ -63,10 +64,19 @@ sqlx = { git = "https://github.com/Lodestone-Team/sqlx", features = [
 ] }
 sysinfo = "0.26.5"
 tempdir = "0.3.7"
+thiserror = "1.0.38"
+time = { version = "0.3.17", features = ["macros"] }
 tokio = { version = "1.21.1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = "0.7.4"
 tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = [
+    "env-filter",
+    "fmt",
+    "local-time",
+    "time",
+] }
 ts-rs = "6.2.1"
 walkdir = "2.3.2"
 whoami = "1.2.3"
