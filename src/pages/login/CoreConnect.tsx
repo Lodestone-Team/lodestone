@@ -66,10 +66,10 @@ const CoreConnect = () => {
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
-      <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
-        <h1 className="font-title text-h1 font-mediumbold tracking-medium text-gray-300">
+    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+      <div className="flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-8" />
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/75">
@@ -84,6 +84,19 @@ const CoreConnect = () => {
           </a>
         </h2>
       </div>
+      <WarningAlert>
+        <p>
+          You may need to adjust your network and browser settings. Learn more{' '}
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-200 underline hover:text-blue-300"
+          >
+            here.
+          </a>
+        </p>
+      </WarningAlert>
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}

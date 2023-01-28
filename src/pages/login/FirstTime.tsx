@@ -1,17 +1,18 @@
 import Button from 'components/Atoms/Button';
-import { useContext } from 'react';
-import { DEFAULT_LOCAL_CORE } from 'utils/util';
+import { useContext, useState } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { useQueryClient } from '@tanstack/react-query';
-import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
+import WarningAlert from 'components/Atoms/WarningAlert';
+import packageinfo from '../../../package.json';
+import { DEFAULT_LOCAL_CORE } from 'utils/util';
 
 const FirstTime = () => {
   useDocumentTitle('Welcome to Lodestone');
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
+  const [tauriIsSetup, setTauriIsSetup] = useState(false);
 
   useEffectOnce(() => {
     if (coreList.length > 0) {
@@ -24,58 +25,95 @@ const FirstTime = () => {
       .then((is_setup) => {
         addCore(DEFAULT_LOCAL_CORE);
         setCore(DEFAULT_LOCAL_CORE);
-        if (is_setup) {
-          setPathname('/');
-        } else {
-          setPathname('/login/core/first_setup');
-        }
+        setTauriIsSetup(is_setup === 'true');
       })
       .catch((err: any) => {
-        console.log('Tauri call failed is_setup', err);
+        console.error('Tauri call failed is_setup', err);
       });
   });
 
   return (
-    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-16 rounded-2xl bg-gray-850 px-12 py-16 transition-dimensions @container">
-      <div className="flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
-        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Welcome to Lodestone
-        </h1>
-        <h2 className="text-medium font-medium tracking-medium text-white/75">
-          Learn more about Lodestone and any known issues on our{' '}
-          <a
+    <div className="flex w-[680px] max-w-full flex-col items-stretch justify-center gap-16 transition-dimensions @container">
+      <div className="flex flex-col items-start gap-4">
+        <div className="flex w-full flex-row items-center gap-4">
+          <img src="/logo.svg" alt="logo" className="h-8" />
+          {/* HACK HACK HACK HACK */}
+          <a // solution to get tauri to open links in the browser
             href="https://github.com/Lodestone-Team/lodestone/wiki"
+            rel="noreferrer"
+            target="_blank"
+          >
+            <Button // literally just here as a visual component
+              label="Wiki & FAQ"
+            />
+          </a>
+        </div>
+
+        <div className="flex flex-row items-start gap-4">
+          <h1 className="font-title text-title font-bold tracking-medium text-gray-300">
+            Welcome to Lodestone!
+          </h1>
+          <span className="mt-3 text-right text-small font-medium tracking-medium text-green-200">
+            VERSION {packageinfo.version}
+          </span>
+        </div>
+
+        <p className="text-medium font-medium tracking-medium text-white">
+          Our product is still in its beta release cycle. Browser support is
+          limited and bugs are expected. You can check known issues and report
+          any new ones on our{' '}
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/issues"
             target="_blank"
             rel="noreferrer"
             className="text-blue-200 underline hover:text-blue-300"
           >
-            wiki
+            Github.
           </a>
-        </h2>
+        </p>
       </div>
 
-      <div className="flex flex-row items-baseline gap-8">
-        <Button
-          type="button"
-          className="flex-1"
-          label="Download Lodestone Core"
-          onClick={() => {
-            window.open(
-              'https://github.com/Lodestone-Team/dashboard/releases/',
-              '_self'
-            );
-          }}
-        />
-        <p className="text-medium font-medium tracking-medium text-white/50">
-          OR
-        </p>
-        <Button
-          type="button"
-          className="flex-1"
-          label="Connect to existing Core"
-          onClick={() => setPathname('/login/core/new')}
-        />
+      <div className="flex flex-row flex-wrap items-baseline gap-4">
+        {!tauri ? (
+          <>
+            <Button
+              label="Download Lodestone Core"
+              onClick={() => {
+                window.open(
+                  'https://github.com/Lodestone-Team/dashboard/releases/',
+                  '_self'
+                );
+              }}
+              intention="primary"
+              size="large"
+              className="whitespace-nowrap"
+            />
+
+            <Button
+              label="Connect to existing Core"
+              onClick={() => setPathname('/login/core/new')}
+              intention="primary"
+              size="large"
+              className="whitespace-nowrap"
+            />
+          </>
+        ) : tauriIsSetup ? (
+          <Button
+            label="Continue"
+            onClick={() => setPathname('/')}
+            intention="primary"
+            size="large"
+            className="whitespace-nowrap"
+          />
+        ) : (
+          <Button
+            label="Setup Lodestone Core"
+            onClick={() => setPathname('/login/core/first_setup')}
+            intention="primary"
+            size="large"
+            className="whitespace-nowrap"
+          />
+        )}
       </div>
     </div>
   );

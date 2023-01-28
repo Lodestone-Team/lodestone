@@ -24,7 +24,7 @@ const buttonClasses = cva(
       size: {
         slim: ['gap-1 rounded-sm p-1 text-small'],
         medium: ['gap-1.5 rounded py-1 px-2 text-medium'],
-        large: ['gap-1.5 rounded py-1.5 px-3 text-medium'],
+        large: ['gap-1.5 rounded py-1.5 px-3 text-h3'],
       },
       intention: {
         info: [
@@ -40,7 +40,7 @@ const buttonClasses = cva(
           'outline-gray-faded/30 enabled:hover:outline-white/50',
         ],
         primary: [
-          'text-gray-300 disabled:text-white/50',
+          'text-white disabled:text-white/50',
           'font-medium',
           'bg-blue enabled:hover:bg-blue-400 enabled:active:bg-blue-500 disabled:bg-blue-faded/50 enabled:ui-active:bg-blue-400',
           'outline-blue-faded/50 enabled:hover:outline-blue-200/75',
@@ -48,7 +48,7 @@ const buttonClasses = cva(
       },
       variant: {
         contained: 'outline outline-1',
-        text:  '',
+        text: '',
       },
     },
     defaultVariants: {
@@ -89,7 +89,7 @@ const Button = forwardRef(
       iconComponent,
       icon,
       iconRight,
-      type='button',
+      type = 'button',
       ...props
     }: ButtonProps,
     ref: React.Ref<HTMLButtonElement>
