@@ -7,7 +7,6 @@ import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
 import SelectField from 'components/Atoms/Form/SelectField';
-import { tauri } from 'utils/tauriUtil';
 import {
   faArrowLeft,
   faArrowRight,
@@ -85,21 +84,19 @@ const CoreConnect = () => {
           </a>
         </h2>
       </div>
-      {!tauri && (
-        <WarningAlert>
-          <p>
-            You may need to adjust your network and browser settings. Learn more{' '}
-            <a
-              href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-200 underline hover:text-blue-300"
-            >
-              here.
-            </a>
-          </p>
-        </WarningAlert>
-      )}
+      <WarningAlert>
+        <p>
+          You may need to adjust your network and browser settings. Learn more{' '}
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-200 underline hover:text-blue-300"
+          >
+            here.
+          </a>
+        </p>
+      </WarningAlert>
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}
