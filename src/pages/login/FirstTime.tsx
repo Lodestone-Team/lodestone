@@ -58,23 +58,6 @@ const FirstTime = () => {
           </span>
         </div>
 
-        {!tauri && (
-          <WarningAlert>
-            <p>
-              Lodestone requires mixed/insecure content to be allowed in your
-              browser. Learn how to do it{' '}
-              <a
-                href="https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en"
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-200 underline hover:text-blue-300"
-              >
-                here.
-              </a>
-            </p>
-          </WarningAlert>
-        )}
-
         <p className="text-medium font-medium tracking-medium text-white">
           Our product is still in its beta release cycle. Browser support is
           limited and bugs are expected. You can check known issues and report
