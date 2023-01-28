@@ -16,6 +16,7 @@ import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
+import WarningAlert from 'components/Atoms/WarningAlert';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -63,14 +64,7 @@ const CoreSelectExisting = () => {
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setErrors({
-          core: {
-            address: errorMessages,
-            port: errorMessages,
-            apiVersion: errorMessages,
-            protocol: errorMessages,
-          },
-        });
+        actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
         return;
       });
@@ -92,12 +86,20 @@ const CoreSelectExisting = () => {
         validateOnChange={false}
         validateOnBlur={false}
       >
-        {({ isSubmitting }) => (
+        {({ isSubmitting, status }) => (
           <Form
             id="addCoreForm"
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
+            {status && (
+              <WarningAlert>
+                <p>
+                  <b>{status.error}</b>: Please ensure your fields are filled
+                  out correctly.
+                </p>
+              </WarningAlert>
+            )}
             <div className="flex flex-row items-baseline gap-8">
               <SelectField
                 name="core"
