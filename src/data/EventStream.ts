@@ -419,7 +419,12 @@ export const useEventStream = () => {
       };
     };
 
-    connectWebsocket();
+    try {
+      connectWebsocket();
+    } catch (e) {
+      console.error(e);
+      setCoreConnectionStatus('degraded');
+    }
     return () => {
       console.log('unmounting event listener');
       wsConnected.current = false;
