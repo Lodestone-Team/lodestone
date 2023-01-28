@@ -45,7 +45,7 @@ const UserLogin = () => {
       .then((response) => {
         if (!response) {
           // this should never end
-          actions.setErrors({ password: 'Sign in failed' });
+          actions.setStatus({ error: 'Sign in failed' });
           actions.setSubmitting(false);
           return;
         }
