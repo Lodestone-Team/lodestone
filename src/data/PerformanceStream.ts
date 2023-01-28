@@ -34,28 +34,32 @@ export const usePerformanceStream = (uuid: string) => {
   }, 1000);
 
   useEffect(() => {
-    const websocket = new WebSocket(
-      `ws://${address}:${
-        port ?? LODESTONE_PORT
-      }/api/${apiVersion}/monitor/${uuid}`
-    );
+    try {
+      const websocket = new WebSocket(
+        `ws://${address}:${
+          port ?? LODESTONE_PORT
+        }/api/${apiVersion}/monitor/${uuid}`
+      );
 
-    websocket.onmessage = (messageEvent) => {
-      const event: PerformanceReport = JSON.parse(messageEvent.data);
-      setBuffer((oldBuffer) => {
-        if (oldBuffer.length > 60) {
-          oldBuffer.shift();
-        }
-        oldBuffer.push(event);
-        return oldBuffer;
-      });
-      setCounter((oldCounter) => oldCounter + 1);
-      setLastPing(Date.now());
-    };
+      websocket.onmessage = (messageEvent) => {
+        const event: PerformanceReport = JSON.parse(messageEvent.data);
+        setBuffer((oldBuffer) => {
+          if (oldBuffer.length > 60) {
+            oldBuffer.shift();
+          }
+          oldBuffer.push(event);
+          return oldBuffer;
+        });
+        setCounter((oldCounter) => oldCounter + 1);
+        setLastPing(Date.now());
+      };
 
-    return () => {
-      websocket.close();
-    };
+      return () => {
+        websocket.close();
+      };
+    } catch (e) {
+      console.error(e);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, port, apiVersion, uuid]);
 
