@@ -19,9 +19,9 @@ use tokio::process::Child;
 use tokio::sync::Mutex;
 
 use ::serde::{Deserialize, Serialize};
-use log::{debug, error, info};
 use serde_json::to_string_pretty;
 use tokio::sync::broadcast::Sender;
+use tracing::{debug, error, info};
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::{self};

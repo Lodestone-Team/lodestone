@@ -26,12 +26,12 @@ use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
 use implementations::minecraft;
-use log::{debug, error, info, warn};
 use macro_executor::MacroExecutor;
 use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
+use tracing::{debug, error, info, warn};
 
 use serde_json::Value;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
@@ -44,6 +44,7 @@ use std::{
     time::Duration,
 };
 use sysinfo::SystemExt;
+use time::macros::format_description;
 use tokio::{
     fs::create_dir_all,
     process::Command,
@@ -57,6 +58,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
+use tracing_subscriber::fmt::time::{LocalTime};
 pub use traits::Error;
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::InstanceUuid;
@@ -95,7 +97,6 @@ pub struct AppState {
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
 }
-
 async fn restore_instances(
     lodestone_path: &Path,
     event_broadcaster: &Sender<Event>,
@@ -147,6 +148,44 @@ async fn restore_instances(
     ret
 }
 
+fn setup_tracing() {
+    let timer = LocalTime::new(format_description!(
+        "[year]-[month]-[day]T[hour]:[minute]:[second]"
+    ));
+    #[cfg(debug_assertions)]
+    tracing_subscriber::fmt()
+        // Use a more compact, abbreviated log format
+        .compact()
+        // display minimal time stamps
+        .with_timer(timer)
+        // Display source code file paths
+        .with_file(true)
+        // Display source code line numbers
+        .with_line_number(true)
+        // Display the thread ID an event was recorded on
+        .with_thread_ids(false)
+        // Don't display the event's target (module path)
+        .with_target(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_env_filter("lodestone_core=debug")
+        // Build the subscriber
+        .init();
+    #[cfg(not(debug_assertions))]
+    tracing_subscriber::fmt()
+        // Use a more compact, abbreviated log format
+        .compact()
+        // display minimal time stamps
+        .with_timer(timer)
+        // Display the thread ID an event was recorded on
+        .with_thread_ids(false)
+        // Don't display the event's target (module path)
+        .with_target(false)
+        .with_max_level(tracing::Level::INFO)
+        .with_env_filter("lodestone_core=info")
+        // Build the subscriber
+        .init();
+}
+
 async fn download_dependencies() -> Result<(), Error> {
     let arch = if std::env::consts::ARCH == "x86_64" {
         "x64"
@@ -187,11 +226,7 @@ async fn download_dependencies() -> Result<(), Error> {
 }
 
 pub async fn run() -> (impl Future<Output = ()>, AppState) {
-    env_logger::builder()
-        .filter(Some("lodestone_core"), log::LevelFilter::Debug)
-        .format_module_path(false)
-        .format_target(false)
-        .init();
+    setup_tracing();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
     create_dir_all(&lodestone_path).await.unwrap();
     std::env::set_current_dir(&lodestone_path).expect("Failed to set current dir");
@@ -233,8 +268,14 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
         // log the first time setup key in green so it's easy to find
-        info!("\x1b[32mFirst time setup key: {}\x1b[0m", key);
-        info!("DO NOT SHARE THIS KEY WITH ANYONE!");
+        info!(
+            "First time setup key: {}",
+            ansi_term::Color::Green.paint(key.clone())
+        );
+        info!(
+            "{}",
+            ansi_term::Color::Red.paint("DO NOT SHARE THIS KEY WITH ANYONE!")
+        );
         Some(key)
     } else {
         None

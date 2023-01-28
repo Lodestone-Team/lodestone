@@ -21,7 +21,7 @@ use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
 use super::MinecraftInstance;
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {

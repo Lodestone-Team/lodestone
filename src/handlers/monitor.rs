@@ -7,9 +7,9 @@ use axum::{
     Router,
 };
 use futures::{SinkExt, StreamExt};
-use log::error;
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 use tokio::sync::Mutex;
+use tracing::error;
 
 use crate::{
     prelude::GameInstance,

@@ -9,8 +9,8 @@ use axum::{
 use axum_auth::AuthBearer;
 
 use futures::{SinkExt, StreamExt};
-use log::{debug, error};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
+use tracing::{debug, error};
 
 use crate::{
     auth::{user::UsersManager, user_id::UserId},

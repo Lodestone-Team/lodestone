@@ -3,8 +3,8 @@ use axum::Router;
 use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
-use log::info;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use ts_rs::TS;
 

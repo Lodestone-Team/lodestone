@@ -2,9 +2,9 @@ use std::{collections::HashMap, path::PathBuf};
 
 use argon2::{Argon2, PasswordVerifier};
 use jsonwebtoken::{Algorithm, Validation};
-use log::warn;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::broadcast::Sender};
+use tracing::warn;
 use ts_rs::TS;
 
 use crate::{

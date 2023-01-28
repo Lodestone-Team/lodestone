@@ -5,9 +5,9 @@ use crate::{
     Error,
 };
 
-use log::{info, warn};
 use sqlx::sqlite::SqlitePool;
 use tokio::sync::broadcast::{error::RecvError, Receiver};
+use tracing::{info, warn};
 
 use super::types::ClientEventRow;
 

@@ -10,9 +10,9 @@ use axum::{
 use axum_auth::AuthBearer;
 
 use headers::{HeaderMap, HeaderName};
-use log::debug;
 use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;

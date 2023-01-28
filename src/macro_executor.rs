@@ -9,12 +9,12 @@ use std::{
     time::Duration,
 };
 
-use log::{debug, error};
 use tokio::{
     runtime::Builder,
     sync::{broadcast, oneshot, Mutex},
     task::LocalSet,
 };
+use tracing::{debug, error};
 
 use crate::{
     events::{Event, EventInner, MacroEvent, MacroEventInner},
@@ -197,7 +197,7 @@ impl Debug for Instruction {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<usize, deno_core::v8::IsolateHandle>>>,
     event_broadcaster: broadcast::Sender<Event>,

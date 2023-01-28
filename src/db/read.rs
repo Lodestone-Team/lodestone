@@ -3,8 +3,8 @@ use crate::{
     traits::ErrorInner, Error,
 };
 
-use log::error;
 use sqlx::sqlite::SqlitePool;
+use tracing::error;
 
 // TODO clean up all unwraps
 

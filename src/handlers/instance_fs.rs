@@ -8,9 +8,9 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 use headers::HeaderMap;
-use log::debug;
 use reqwest::header::CONTENT_LENGTH;
 use tokio::io::AsyncWriteExt;
+use tracing::debug;
 use walkdir::WalkDir;
 
 use crate::{
