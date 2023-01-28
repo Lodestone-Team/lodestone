@@ -74,11 +74,13 @@ export default function DashboardLayout() {
         setShowMajorVersionModal(true);
       else if (minor(clientVersion) !== minor(dashboardVersion))
         toast.warn(
-          `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`
+          `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+          { toastId: 'minorVersionMismatch' }
         );
       else if (patch(clientVersion) !== patch(dashboardVersion))
         toast.warn(
-          `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`
+          `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+          { toastId: 'patchVersionMismatch' }
         );
     }
   }, [coreInfo?.version]);
