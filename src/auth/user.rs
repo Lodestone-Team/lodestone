@@ -322,13 +322,10 @@ impl UsersManager {
     }
 
     async fn write_to_file(&self) -> Result<(), Error> {
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&self.path_to_users)
+        let mut file = tokio::fs::File::create(&self.path_to_users)
             .await
             .map_err(|e| Error {
-                inner: ErrorInner::InternalError,
+                inner: ErrorInner::FailedToReadFileOrDir,
                 detail: format!("Failed to open user file: {}", e),
             })?;
 
@@ -693,7 +690,28 @@ mod tests {
             .await
             .unwrap();
 
-        users_manager.get_user_by_username("test_user1").unwrap();
+        let test_user2 = User::new(
+            "test_user2".to_string(),
+            "12345",
+            true,
+            false,
+            UserPermission::default(),
+        );
+
+        users_manager
+            .add_user(test_user2.clone(), CausedBy::System)
+            .await
+            .unwrap();
+
+        users_manager.get_user_by_username("test_user2").unwrap();
+
+        // delete user
+        users_manager
+            .delete_user(&test_user2.uid, CausedBy::System)
+            .await
+            .unwrap();
+
+        assert!(users_manager.get_user_by_username("test_user2").is_none());
 
         drop(users_manager);
 
