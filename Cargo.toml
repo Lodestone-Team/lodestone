@@ -1,6 +1,6 @@
 [package]
 name = "lodestone_core"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 
 exclude = ["target/*", "InstanceTest/*"]
@@ -17,7 +17,6 @@ path = "src/main.rs"
 
 [dependencies]
 ansi_term = "0.12.1"
-anyhow = "1.0.68"
 argon2 = "0.4.1"
 async-trait = "0.1.56"
 axum = { version = "0.6.1", features = ["headers", "ws", "multipart"] }

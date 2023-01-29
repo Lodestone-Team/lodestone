@@ -5,8 +5,8 @@ use semver::{BuildMetadata, Prerelease};
 thread_local! {
     pub static VERSION: semver::Version = semver::Version {
         major: 0,
-        minor: 3,
-        patch: 0,
+        minor: 4,
+        patch: 1,
         pre: Prerelease::new("").unwrap(),
         build: BuildMetadata::EMPTY,
     };
