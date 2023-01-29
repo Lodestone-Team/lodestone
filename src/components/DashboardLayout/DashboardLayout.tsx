@@ -11,6 +11,9 @@ import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { Popover } from '@headlessui/react';
 import { DEFAULT_LOCAL_CORE } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
+import { major, minor, patch, valid, eq } from 'semver';
+import { toast } from 'react-toastify';
+import packageinfo from '../../../package.json';
 
 export default function DashboardLayout() {
   const { data: userInfo } = useUserInfo();
@@ -22,8 +25,31 @@ export default function DashboardLayout() {
     useContext(LodestoneContext);
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
-  const { data: coreInfo } = useCoreInfo();
+  const { data: coreInfo, isLoading: coreInfoLoading } = useCoreInfo();
   const { data: localCoreInfo } = useLocalCoreInfo();
+  const [showMajorVersionModal, setShowMajorVersionModal] = useState(false);
+  const dashboardVersion = packageinfo.version;
+
+  const versionMismatchModal = !coreInfoLoading && (
+    <ConfirmDialog
+      title={`Major Version Mismatch`}
+      type={'danger'}
+      isOpen={showMajorVersionModal}
+      onClose={() => setShowMajorVersionModal(false)}
+    >
+      <div>
+        <b>Core Version: </b>
+        {coreInfo?.version}
+        <br />
+        <b>Dashboard Version: </b>
+        {dashboardVersion}
+      </div>
+      <br />
+      Your dashboard and core have a major version mismatch! Please consider
+      updating to stay up to date with our latest changes.
+    </ConfirmDialog>
+  );
+
   useEffect(() => {
     if (coreInfo?.is_setup === false) {
       setShowSetupPrompt(true);
@@ -38,6 +64,26 @@ export default function DashboardLayout() {
     }
   }, [localCoreInfo, showSetupPrompt]);
   /* End Core */
+
+  useEffect(() => {
+    const clientVersion = coreInfoLoading ? undefined : coreInfo?.version;
+    if (clientVersion === undefined) return;
+    if (valid(clientVersion) && valid(dashboardVersion)) {
+      if (eq(clientVersion, dashboardVersion)) return;
+      if (major(clientVersion) !== major(dashboardVersion))
+        setShowMajorVersionModal(true);
+      else if (minor(clientVersion) !== minor(dashboardVersion))
+        toast.warn(
+          `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+          { toastId: 'minorVersionMismatch' }
+        );
+      else if (patch(clientVersion) !== patch(dashboardVersion))
+        toast.warn(
+          `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+          { toastId: 'patchVersionMismatch' }
+        );
+    }
+  }, [coreInfo?.version]);
 
   return (
     <>
@@ -99,6 +145,7 @@ export default function DashboardLayout() {
       <div className="flex h-screen flex-col">
         <TopNav />
         <div className="flex min-h-0 w-full grow flex-row bg-gray-875">
+          {versionMismatchModal}
           <Outlet />
         </div>
       </div>

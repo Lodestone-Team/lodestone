@@ -5,7 +5,7 @@ import DashboardCard from 'components/DashboardCard';
 import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,12 +16,14 @@ import FileViewer from 'components/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
-import { ToastContainer } from 'react-toastify';
+import { toast } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCompass } from '@fortawesome/free-solid-svg-icons';
+import { useDocumentTitle } from 'usehooks-ts';
 
 const Dashboard = () => {
+  useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);

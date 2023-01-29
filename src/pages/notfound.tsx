@@ -1,6 +1,8 @@
 import Button from 'components/Atoms/Button';
+import { useDocumentTitle } from 'usehooks-ts';
 
 export default function NotFound() {
+  useDocumentTitle('404 - Lodestone');
   return (
     <div className="flex h-screen w-full flex-col items-center justify-center bg-gray-900">
       <h1 className="font-title text-6xlarge font-bold">404</h1>

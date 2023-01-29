@@ -1,6 +1,6 @@
 [package]
 name = "lodestone-client"
-version = "0.4.0"
+version = "0.4.1"
 description = "Lodestone's Desktop Client"
 authors = ["Lodestone-Team"]
 license = ""

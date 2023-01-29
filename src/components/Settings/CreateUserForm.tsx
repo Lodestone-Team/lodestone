@@ -4,8 +4,11 @@ import { PublicUser } from 'bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import useAnalyticsEventTracker from 'utils/hooks';
+import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { createNewUser } from 'utils/apis';
 import * as yup from 'yup';
+import WarningAlert from 'components/Atoms/WarningAlert';
 
 export type CreateNewUserValues = {
   username: string;
@@ -29,6 +32,7 @@ export const CreateUserForm = ({
   onSuccess: (values: CreateNewUserValues) => void;
   onCancel: () => void;
 }) => {
+  const gaEventTracker = useAnalyticsEventTracker('User Management');
   const queryClient = useQueryClient();
   const initialValues: CreateNewUserValues = {
     username: '',
@@ -58,11 +62,12 @@ export const CreateUserForm = ({
         actions.resetForm();
       })
       .catch((error) => {
-        // TODO: better form errors
-        actions.setErrors({ username: errorToString(error) });
+        actions.setStatus({ error: errorToString(error) });
+        gaEventTracker('Create User', 'Error');
       })
       .finally(() => {
         actions.setSubmitting(false);
+        gaEventTracker('Create User', 'Success');
       });
   };
   return (
@@ -71,12 +76,17 @@ export const CreateUserForm = ({
       validationSchema={validationSchema}
       onSubmit={onSubmit}
     >
-      {({ isSubmitting }) => (
+      {({ isSubmitting, status }) => (
         <Form
           id="create-user-form"
           autoComplete={DISABLE_AUTOFILL}
           className="mt-10 flex flex-col gap-16 text-left"
         >
+          {status && (
+            <WarningAlert>
+              <p>{status.error}</p>
+            </WarningAlert>
+          )}
           <InputField name="username" label="Username" />
           <InputField name="password" label="Password" type="password" />
           <InputField

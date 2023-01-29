@@ -1,6 +1,7 @@
 import axios from 'axios';
 import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
+import { useDocumentTitle } from 'usehooks-ts';
 import { round } from 'utils/util';
 
 type CpuUsageReply = {
@@ -31,6 +32,7 @@ const getRamUsage = async (): Promise<[number, number]> => {
 };
 
 const Home = () => {
+  useDocumentTitle('Home - Lodestone');
   return (
     // used to possibly center the content
     <div className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container">

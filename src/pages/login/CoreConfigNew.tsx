@@ -14,6 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
+import { useDocumentTitle } from 'usehooks-ts';
 
 type ConfigNewCoreFormValues = {
   coreName: string;
@@ -26,6 +27,7 @@ const validationSchema = yup.object({
 });
 
 const CoreConfigNew = () => {
+  useDocumentTitle('Configure new core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { core } = useContext(LodestoneContext);
   const { address, port } = core;
@@ -76,10 +78,10 @@ const CoreConfigNew = () => {
   };
 
   return (
-    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
-      <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
-        <h1 className="font-title text-h1 font-[500] tracking-medium text-gray-300">
+    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions @container">
+      <div className="flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-8" />
+        <h1 className="font-title text-h1 font-medium tracking-medium text-gray-300">
           Customize your core
         </h1>
         <h2 className="text-h3 font-bold tracking-medium text-white/50">
@@ -102,12 +104,17 @@ const CoreConfigNew = () => {
           >
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <InputField type="text" name="coreName" label="Core Name" />
-              <InputField type="text" name="domain" label="Public Domain/IP (Optional)" placeholder='123.123.123.123' />
+              <InputField
+                type="text"
+                name="domain"
+                label="Public Domain/IP (Optional)"
+                placeholder="123.123.123.123"
+              />
             </div>
             <div className="flex w-full flex-row justify-end gap-4">
               <Button
                 type="submit"
-                color="primary"
+                intention="primary"
                 label="Continue"
                 iconRight={faArrowRight}
                 loading={isSubmitting}

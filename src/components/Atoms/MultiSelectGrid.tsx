@@ -30,7 +30,6 @@ export default function MultiSelectGrid<T extends string | object>(
       } else {
         output = JSON.stringify(option);
       }
-      console.log('optionLabel', option, output);
       return output;
     },
   } = props;

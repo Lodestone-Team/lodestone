@@ -17,8 +17,8 @@ import {
   catchAsyncToString,
   DISABLE_AUTOFILL,
   errorToString,
-  openPort,
 } from 'utils/util';
+import { openPort } from 'utils/apis';
 import InputField from 'components/Atoms/Form/InputField';
 
 export const CoreSettings = () => {
@@ -273,7 +273,7 @@ export const CoreSettings = () => {
             <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
               <Button
                 label="Open Port"
-                color="danger"
+                intention="danger"
                 disabled={!can_change_core_settings}
                 onClick={() => {
                   setShowOpenPortDialog(true);

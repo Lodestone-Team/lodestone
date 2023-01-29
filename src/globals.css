@@ -180,7 +180,7 @@ input {
 
 /* set the user selection color */
 ::selection {
-  background: hwb(212.571, 45%, 30%);
+  background: hwb(212.571 45% 30%);
 }
 
 /* rc-tooltip */

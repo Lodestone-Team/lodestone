@@ -15,7 +15,7 @@ import { SettingsContext } from 'data/SettingsContext';
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useState } from 'react';
 import { toast } from 'react-toastify';
-import { changeUserPermissions } from 'utils/util';
+import { changeUserPermissions } from 'utils/apis';
 import CreateUserForm from './CreateUserForm';
 
 const NormalPermissions: {

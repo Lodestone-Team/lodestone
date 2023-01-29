@@ -4,8 +4,10 @@ import { PublicUser } from 'bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { changePassword, createNewUser, DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { changePassword, createNewUser } from 'utils/apis';
 import * as yup from 'yup';
+import WarningAlert from 'components/Atoms/WarningAlert';
 
 export type ChangeUserPasswordValues = {
   password: string;
@@ -48,8 +50,7 @@ export const ChangeUserPasswordForm = ({
         actions.resetForm();
       })
       .catch((error) => {
-        // TODO: better form errors
-        actions.setErrors({ password: errorToString(error) });
+        actions.setStatus({ error: errorToString(error) });
       })
       .finally(() => {
         actions.setSubmitting(false);
@@ -61,12 +62,17 @@ export const ChangeUserPasswordForm = ({
       validationSchema={validationSchema}
       onSubmit={onSubmit}
     >
-      {({ isSubmitting }) => (
+      {({ isSubmitting, status }) => (
         <Form
           id="change-password-form"
           autoComplete={DISABLE_AUTOFILL}
           className="mt-10 flex flex-col gap-16 text-left"
         >
+          {status && (
+            <WarningAlert>
+              <p>{status.error}</p>
+            </WarningAlert>
+          )}
           <InputField name="password" label="Password" type="password" />
           <InputField
             name="password_confirm"

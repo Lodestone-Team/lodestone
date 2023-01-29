@@ -14,6 +14,8 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
+import { useDocumentTitle } from 'usehooks-ts';
+import WarningAlert from 'components/Atoms/WarningAlert';
 
 const validationSchema = yup.object({
   address: yup.string().required('Required'),
@@ -23,9 +25,9 @@ const validationSchema = yup.object({
 });
 
 const CoreConnect = () => {
+  useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
-
   const initialValues: CoreConnectionInfo = {
     address: '',
     port: LODESTONE_PORT.toString(),
@@ -53,24 +55,25 @@ const CoreConnect = () => {
           setPathname('/login/user/select');
         }
         actions.setSubmitting(false);
+        actions.setStatus(null);
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setErrors({ address: errorMessages }); //TODO: put the error in a better place, it's not just an address problem
+        actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
         return;
       });
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
-      <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
-        <h1 className="font-title text-h1 font-[500] tracking-medium text-gray-300">
+    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+      <div className="flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-8" />
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/75">
-          You may need to adjust your network and browser settings. {" "}
+          You may need to adjust your network and browser settings.{' '}
           <a
             href="https://github.com/Lodestone-Team/dashboard/wiki/Known-Issues#networking"
             target="_blank"
@@ -81,6 +84,19 @@ const CoreConnect = () => {
           </a>
         </h2>
       </div>
+      <WarningAlert>
+        <p>
+          You may need to adjust your network and browser settings. Learn more{' '}
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-200 underline hover:text-blue-300"
+          >
+            here.
+          </a>
+        </p>
+      </WarningAlert>
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}
@@ -88,12 +104,20 @@ const CoreConnect = () => {
         validateOnBlur={false}
         validateOnChange={false}
       >
-        {({ isSubmitting }) => (
+        {({ isSubmitting, status }) => (
           <Form
             id="addCoreForm"
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
+            {status && (
+              <WarningAlert>
+                <p>
+                  <b>{status.error}</b>: Please ensure your fields are filled
+                  out correctly.
+                </p>
+              </WarningAlert>
+            )}
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <SelectField
                 name="apiVersion"
@@ -116,9 +140,15 @@ const CoreConnect = () => {
               />
             </div>
             <div className="flex w-full flex-row justify-between gap-4">
-              <Button icon={faArrowLeft} label="Back" onClick={navigateBack} />
+              <Button
+                type="button"
+                icon={faArrowLeft}
+                label="Back"
+                onClick={navigateBack}
+              />
               <div className="flex flex-row gap-4">
                 <Button
+                  type="button"
                   iconRight={faDownload}
                   label="Download Lodestone Core"
                   onClick={() => {
@@ -130,7 +160,7 @@ const CoreConnect = () => {
                 />
                 <Button
                   type="submit"
-                  color="primary"
+                  intention="primary"
                   label="Add and Continue"
                   iconRight={faArrowRight}
                   loading={isSubmitting} //TODO: fix button size changing when loading

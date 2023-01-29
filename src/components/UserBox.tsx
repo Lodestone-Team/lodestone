@@ -10,7 +10,7 @@ import { PublicUser } from 'bindings/PublicUser';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
 import { Fragment, useState } from 'react';
-import { deleteUser } from 'utils/util';
+import { deleteUser } from 'utils/apis';
 import Avatar from './Atoms/Avatar';
 import Button from './Atoms/Button';
 import ConfirmDialog from './Atoms/ConfirmDialog';
@@ -129,7 +129,7 @@ export default function UserBox({
             {user.username}
             {/* this text is bigger then the one in inputbox on purpose */}
           </h1>
-          <h2 className="overflow-hidden truncate text-ellipsis text-small font-medium tracking-medium text-white/50">
+          <h2 className="overflow-hidden truncate text-small font-medium tracking-medium text-white/50">
             {userTags.join(', ')}
           </h2>
         </div>
@@ -143,7 +143,7 @@ export default function UserBox({
         <Menu.Items className="absolute right-0 z-10 mt-0.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
           <div className="py-2 px-1.5">
             <Menu.Item>
-              {({ active, disabled }) => (
+              {({ disabled }) => (
                 <Button
                   className="w-full flex-nowrap whitespace-nowrap"
                   label={'Change Password'}
@@ -152,21 +152,19 @@ export default function UserBox({
                   variant="text"
                   align="end"
                   disabled={disabled}
-                  active={active}
                 />
               )}
             </Menu.Item>
             <Menu.Item>
-              {({ active, disabled }) => (
+              {({ disabled }) => (
                 <Button
                   className="w-full flex-nowrap whitespace-nowrap"
                   label="Delete User"
                   iconRight={faTrashCan}
                   variant="text"
-                  color="danger"
+                  intention="danger"
                   align="end"
                   disabled={disabled || isSelf}
-                  active={active}
                   onClick={() => setShowDeleteUser(true)}
                 />
               )}

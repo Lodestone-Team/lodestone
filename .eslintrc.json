@@ -1,7 +1,8 @@
 {
   "extends": [
-    "plugin:@typescript-eslint/recommended",
     "next/core-web-vitals",
+    "plugin:tailwindcss/recommended",
+    "plugin:@typescript-eslint/recommended",
     "plugin:storybook/recommended",
     "prettier"
   ],
@@ -21,6 +22,10 @@
       {
         "name": "next/router",
         "message": "Please use react-router-dom instead"
+      },
+      {
+        "name": "tailwind-merge",
+        "message": "Please use \"myTwMerge\" from \"utils.ts\" instead"
       }
     ],
     "@next/next/no-img-element": "off",
@@ -32,6 +37,13 @@
         "varsIgnorePattern": "^_",
         "caughtErrorsIgnorePattern": "^_"
       }
-    ]
+    ],
+    "tailwindcss/migration-from-tailwind-2": ["off"]
+  },
+  "plugins": ["tailwindcss"],
+  "settings": {
+    "tailwindcss": {
+      "callees": ["cn", "clsx", "variants"]
+    }
   }
 }

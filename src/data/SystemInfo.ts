@@ -63,18 +63,21 @@ export interface CoreInfo {
  * Will change the core status to success if the connection is successful
  * Will change the core status to error if the connection is unsuccessful
  */
-export const useCoreInfo = () => {
-  const { setCoreConnectionStatus } = useContext(LodestoneContext);
+export const useCoreInfo = (refetchInterval: number | false = false) => {
+  const { setCoreConnectionStatus, coreConnectionStatus } =
+    useContext(LodestoneContext);
   return useQuery<CoreInfo, AxiosError>(
     ['systeminfo', 'CoreInfo'],
     () => axios.get<CoreInfo>(`/info`).then((res) => res.data),
     {
       onSuccess: () => {
-        setCoreConnectionStatus('success');
+        if (coreConnectionStatus !== 'degraded')
+          setCoreConnectionStatus('success');
       },
       onError: () => {
         setCoreConnectionStatus('error');
       },
+      refetchInterval,
     }
   );
 };

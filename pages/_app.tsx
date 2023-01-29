@@ -8,11 +8,14 @@ import axios from 'axios';
 import NoSSR from 'react-no-ssr';
 import { BrowserRouter } from 'react-router-dom';
 import { BrowserLocationContextProvider } from 'data/BrowserLocationContext';
-import { ToastContainer, Zoom } from 'react-toastify';
+import { toast, ToastContainer, Zoom } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
+import ReactGA from 'react-ga4';
 
 config.autoAddCss = false;
 axios.defaults.timeout = 5000;
+const TRACKING_ID = 'G-LZQ3VZ6N26';
+if (process.env.NODE_ENV === 'production') ReactGA.initialize(TRACKING_ID);
 
 const contextClass = {
   default: '!bg-gray-500',

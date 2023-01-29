@@ -57,7 +57,7 @@ export const BrowserLocationContextProvider = ({
     navigate(location, { replace });
   };
   const setPathname = (pathname: string, replace = false) => {
-    console.log('setPathname', pathname);
+    if(pathname === location.pathname) return;
     setLocation((loc) => ({ ...loc, pathname }), replace);
   };
   const setSearchParam = (key: string, value: string | undefined, replace = false) => {

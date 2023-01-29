@@ -13,7 +13,7 @@ export const InstanceViewLayout = () => {
   const userLoggedIn = useUserLoggedIn();
   /* Start Instances */
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
-  const { data: dataInstances } = useInstanceList(userLoggedIn);
+  const { data: dataInstances, isFetched: instanceIsFetched } = useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
   );
@@ -22,7 +22,8 @@ export const InstanceViewLayout = () => {
   useEffect(() => {
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
-      setPathname('/dashboard');
+      if (!location.pathname.startsWith('/dashboard'))
+        setPathname('/dashboard');
     } else {
       setInstanceState(undefined);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
@@ -49,6 +50,7 @@ export const InstanceViewLayout = () => {
         instanceList: instances || {},
         selectedInstance: instance,
         selectInstance: selectInstance,
+        isReady: instanceIsFetched && userLoggedIn,
       }}
     >
       <div className="flex grow flex-row justify-center gap-[1vw]">

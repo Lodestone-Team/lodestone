@@ -3,6 +3,8 @@ import { MinecraftSetupConfigPrimitive } from 'bindings/MinecraftSetupConfigPrim
 import Button from 'components/Atoms/Button';
 import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef, useState } from 'react';
+import { useEffectOnce } from 'usehooks-ts';
+import useAnalyticsEventTracker from 'utils/hooks';
 import { axiosWrapper } from 'utils/util';
 import {
   formId,
@@ -37,8 +39,13 @@ export default function CreateMinecraftInstance({
   const [activeStep, setActiveStep] = useState(0);
   const currentValidationSchema = validationSchema[activeStep];
   const formReady = activeStep === steps.length - 1;
+  const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const formikRef =
     useRef<FormikProps<MinecraftSetupConfigPrimitiveForm>>(null);
+
+  useEffectOnce(() => {
+    gaEventTracker('Create Instance Start');
+  });
 
   const createInstance = async (value: MinecraftSetupConfigPrimitive) => {
     await axiosWrapper<void>({
@@ -65,6 +72,7 @@ export default function CreateMinecraftInstance({
     actions.setSubmitting(false);
 
     setActiveStep(activeStep + 1);
+    gaEventTracker('Create Instance Complete');
     onComplete();
   }
 

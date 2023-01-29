@@ -5,6 +5,7 @@ interface InstanceContextType {
   instanceList: { [uuid: string]: InstanceInfo };
   selectedInstance?: InstanceInfo;
   selectInstance: (instance?: InstanceInfo) => void;
+  isReady: boolean;
 }
 
 export const InstanceContext = createContext<InstanceContextType>({
@@ -13,4 +14,5 @@ export const InstanceContext = createContext<InstanceContextType>({
   selectInstance: () => {
     throw new Error('InstanceContext not initialized');
   },
+  isReady: false,
 });

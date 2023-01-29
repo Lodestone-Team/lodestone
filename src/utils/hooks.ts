@@ -1,6 +1,7 @@
 import { BrowserLocationContext } from './../data/BrowserLocationContext';
 import { useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
+import ReactGA from 'react-ga4';
 
 export function useIntervalImmediate(
   callback: () => void,
@@ -103,9 +104,9 @@ export function useQueryParam(
   const [value, setValue] = useState(searchParams.get(key) ?? initialValue);
 
   const setValueAndParams = useCallback(
-    (newValue: string) => {
+    (newValue: string, replace = true) => {
       setValue(newValue);
-      setSearchParam(key, newValue, true);
+      setSearchParam(key, newValue, replace);
     },
     [key, setSearchParam]
   );
@@ -119,7 +120,7 @@ export function useQueryParam(
         setSearchParam(key, initialValue, true);
       // if not visible, just set the value
       else setValue(initialValue);
-    }else if(!newValue){
+    } else if (!newValue) {
       // always set the internal value anyways
       setValue(initialValue);
     }
@@ -143,16 +144,16 @@ export function useQueryParam(
 export function useLocalStorageQueryParam(
   key: string,
   initialValue: string,
-  visible = true
+  visible = true,
 ) {
   const { setSearchParam, searchParams } = useContext(BrowserLocationContext);
   const [value, setValue] = useLocalStorage(key, initialValue);
 
   const setValueAndParams = useCallback(
-    (newValue: string) => {
+    (newValue: string, replace = true) => {
       setValue(newValue);
       // if empty, remove the param
-      setSearchParam(key, newValue, true);
+      setSearchParam(key, newValue, replace);
     },
     [key, setSearchParam, setValue]
   );
@@ -183,3 +184,16 @@ export function usePrevious(value: unknown) {
   });
   return ref.current;
 }
+
+export const useAnalyticsEventTracker = (category: string) => {
+  const eventTracker = (
+    action = 'test action',
+    label?: string,
+    nonInteraction?: boolean,
+    value?: number
+  ) => {
+    ReactGA.event({ category, action, label, nonInteraction, value });
+  };
+  return eventTracker;
+};
+export default useAnalyticsEventTracker;

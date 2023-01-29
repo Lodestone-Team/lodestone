@@ -3,6 +3,76 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { DOMAttributes, forwardRef } from 'react';
 import clsx from 'clsx';
 import { BeatLoader } from 'react-spinners';
+import { cva, VariantProps } from 'class-variance-authority';
+import { myTwMerge } from 'utils/util';
+
+const buttonClasses = cva(
+  [
+    'group flex',
+    'select-none flex-row flex-nowrap items-center',
+    'leading-normal tracking-medium',
+    'enabled:focus-visible:ring-4',
+    'enabled:focus-visible:ring-blue-faded/50',
+  ],
+  {
+    variants: {
+      align: {
+        start: 'justify-start',
+        center: 'justify-center',
+        end: 'justify-end',
+      },
+      size: {
+        slim: ['gap-1 rounded-sm p-1 text-small'],
+        medium: ['gap-1.5 rounded py-1 px-2 text-medium'],
+        large: ['gap-1.5 rounded py-1.5 px-3 text-h3'],
+      },
+      intention: {
+        info: [
+          'text-gray-300 disabled:text-white/50',
+          'font-medium',
+          'bg-gray-800 enabled:hover:bg-gray-700 enabled:active:bg-gray-800 enabled:ui-active:bg-gray-700',
+          'outline-gray-faded/30 enabled:hover:outline-white/50',
+        ],
+        danger: [
+          'text-red-200 active:text-white enabled:hover:text-white disabled:text-white/50 enabled:ui-active:text-white',
+          'font-bold',
+          'bg-gray-800 enabled:hover:bg-red-300 enabled:active:bg-red-400 enabled:ui-active:bg-red-300',
+          'outline-gray-faded/30 enabled:hover:outline-white/50',
+        ],
+        primary: [
+          'text-white disabled:text-white/50',
+          'font-medium',
+          'bg-blue enabled:hover:bg-blue-400 enabled:active:bg-blue-500 disabled:bg-blue-faded/50 enabled:ui-active:bg-blue-400',
+          'outline-blue-faded/50 enabled:hover:outline-blue-200/75',
+        ],
+      },
+      variant: {
+        contained: 'outline outline-1',
+        text: '',
+      },
+    },
+    defaultVariants: {
+      align: 'center',
+      size: 'medium',
+      intention: 'info',
+      variant: 'contained',
+    },
+  }
+);
+
+export interface ButtonProps extends VariantProps<typeof buttonClasses> {
+  label: string;
+  disabled?: boolean;
+  loading?: boolean;
+  className?: string;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  type?: 'button' | 'submit' | 'reset';
+  iconComponent?: React.ReactNode;
+  icon?: IconDefinition;
+  iconRight?: IconDefinition;
+  form?: string;
+  value?: string;
+}
 
 // A styled button component
 const Button = forwardRef(
@@ -11,102 +81,33 @@ const Button = forwardRef(
       label,
       disabled = false,
       loading = false,
-      active,
-      variant = 'contained',
-      align = 'center',
-      color = 'info',
-      size = 'medium',
+      align,
+      intention,
+      size,
+      variant,
       className,
-      onClick,
-      type = 'button',
       iconComponent,
       icon,
       iconRight,
-      form,
-      value,
+      type = 'button',
       ...props
-    }: {
-      label: string;
-      disabled?: boolean;
-      loading?: boolean;
-      active?: boolean;
-      variant?: 'contained' | 'text';
-      align?: 'start' | 'center' | 'end';
-      color?: 'info' | 'danger' | 'primary';
-      size?: 'slim' | 'medium' | 'large';
-      className?: string;
-      iconComponent?: React.ReactNode;
-      icon?: IconDefinition;
-      iconRight?: IconDefinition;
-      form?: string;
-      value?: string;
-      onClick?: DOMAttributes<HTMLButtonElement>['onClick'];
-      type?: 'button' | 'submit' | 'reset';
-    },
+    }: ButtonProps,
     ref: React.Ref<HTMLButtonElement>
   ) => {
     return (
       <button
-        className={clsx(
-          `group flex select-none flex-row flex-nowrap items-center justify-${align}`,
-          'leading-normal tracking-medium enabled:focus-visible:ring-4',
-          'enabled:focus-visible:ring-blue-faded/50',
-          {
-            slim: 'gap-1 rounded-sm py-1 px-1 text-small',
-            medium: 'gap-1.5 rounded py-1 px-2 text-medium',
-            large: 'gap-1.5 rounded py-1.5 px-3 text-medium',
-          }[size],
-          color === 'danger'
-            ? 'font-bold'
-            : {
-                slim: 'font-medium',
-                medium: 'font-medium',
-                large: 'font-medium',
-              }[size],
-          {
-            info: 'text-gray-300 disabled:text-white/50',
-            danger:
-              variant === 'text'
-                ? 'text-red-200 disabled:text-red/50'
-                : 'text-red-200 hover:text-white active:text-white disabled:text-white/50',
-            primary: 'text-gray-300 disabled:text-white/50',
-          }[color], //icon color, text color is set separately
-          active &&
-            {
-              info: 'bg-gray-700',
-              danger: variant === 'text' ? 'bg-red-faded/25' : 'bg-red-300',
-              primary: 'bg-blue-400',
-            }[color],
-          !active &&
-            {
-              info: `bg-gray-800 enabled:hover:bg-gray-700 enabled:active:bg-gray-800`,
-              danger:
-                variant === 'text'
-                  ? 'bg-gray-800 enabled:hover:bg-red-faded/25 enabled:active:bg-red-faded/10'
-                  : 'bg-gray-800 enabled:hover:bg-red-300 enabled:active:bg-red-400',
-              primary: `bg-blue enabled:hover:bg-blue-400 enabled:active:bg-blue-500 disabled:bg-blue-faded/50`,
-            }[color],
-          variant !== 'text' &&
-            {
-              info: 'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
-              danger:
-                'outline outline-1 outline-gray-faded/30 enabled:hover:outline-white/50',
-              primary:
-                'outline outline-1 outline-blue-faded/50 enabled:hover:outline-blue-200/75', //TODO: remove hardcoded colors
-            }[color],
+        className={myTwMerge(
+          buttonClasses({ align, intention, size, variant }),
           className
         )}
         disabled={disabled || loading}
-        onClick={onClick}
-        type={type}
-        form={form}
-        value={value}
         ref={ref}
+        type={type}
         {...props}
       >
         {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
-        <div className={`flex justify-${align} items-center`}>
+        <div className={`flex items-center`}>
           {loading && (
             <BeatLoader size={5} color="#6b7280" className="absolute" />
           )}

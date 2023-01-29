@@ -1,6 +1,6 @@
 {
   "name": "lodestone",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
@@ -29,6 +29,7 @@
     "babel-plugin-macros": "^3.1.0",
     "boring-avatars": "^1.7.0",
     "chart.js": "^3.9.1",
+    "class-variance-authority": "^0.4.0",
     "clsx": "^1.2.1",
     "formik": "^2.2.9",
     "js-base64": "^3.7.3",
@@ -46,11 +47,14 @@
     "react-device-detect": "^2.2.2",
     "react-dom": "^18.2.0",
     "react-draggable": "^4.4.5",
+    "react-ga4": "^1.4.1",
     "react-no-ssr": "^1.1.0",
     "react-router-dom": "^6.5.0",
     "react-spinners": "^0.13.4",
     "react-toastify": "^9.1.1",
+    "semver": "^7.3.8",
     "storybook-addon-next-router": "^4.0.0",
+    "tailwind-merge": "^1.8.1",
     "usehooks-ts": "^2.6.0",
     "variant": "^3.0.0-dev.24",
     "yup": "^0.32.11"
@@ -83,6 +87,7 @@
     "eslint-config-next": "^13.0.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-storybook": "^0.6.4",
+    "eslint-plugin-tailwindcss": "^3.8.0",
     "postcss": "^8.4.16",
     "prettier": "^2.7.1",
     "prettier-plugin-tailwindcss": "^0.1.13",
