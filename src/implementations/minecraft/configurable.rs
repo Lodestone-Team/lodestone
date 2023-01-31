@@ -1,13 +1,14 @@
 use std::{collections::HashMap, sync::atomic};
 
 use async_trait::async_trait;
+use color_eyre::eyre::{eyre, Context};
 use serde_json::json;
 use tempdir::TempDir;
 
+use crate::error::{Error, ErrorKind};
+use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::State;
-use crate::traits::{self, t_configurable::TConfigurable, ErrorInner};
 
-use crate::traits::Error;
 use crate::types::InstanceUuid;
 use crate::util::download_file;
 
@@ -76,17 +77,17 @@ impl TConfigurable for MinecraftInstance {
         json!(self.config)
     }
 
-    async fn set_name(&mut self, name: String) -> Result<(), traits::Error> {
+    async fn set_name(&mut self, name: String) -> Result<(), Error> {
         if name.is_empty() {
-            return Err(traits::Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Name cannot be empty".to_string(),
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Name cannot be empty"),
             });
         }
         if name.len() > 100 {
-            return Err(traits::Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Name cannot be longer than 100 characters".to_string(),
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Name cannot be longer than 100 characters"),
             });
         }
         self.config.name = name;
@@ -94,13 +95,13 @@ impl TConfigurable for MinecraftInstance {
         Ok(())
     }
 
-    async fn set_description(&mut self, description: String) -> Result<(), traits::Error> {
+    async fn set_description(&mut self, description: String) -> Result<(), Error> {
         self.config.description = description;
         self.write_config_to_file().await?;
         Ok(())
     }
 
-    async fn set_port(&mut self, port: u32) -> Result<(), traits::Error> {
+    async fn set_port(&mut self, port: u32) -> Result<(), Error> {
         self.config.port = port;
         *self
             .settings
@@ -113,35 +114,35 @@ impl TConfigurable for MinecraftInstance {
             .and(self.write_properties_to_file().await)
     }
 
-    async fn set_cmd_args(&mut self, cmd_args: Vec<String>) -> Result<(), traits::Error> {
+    async fn set_cmd_args(&mut self, cmd_args: Vec<String>) -> Result<(), Error> {
         self.config.cmd_args = cmd_args;
         self.write_config_to_file().await
     }
 
-    async fn set_min_ram(&mut self, min_ram: u32) -> Result<(), traits::Error> {
+    async fn set_min_ram(&mut self, min_ram: u32) -> Result<(), Error> {
         self.config.min_ram = min_ram;
         self.write_config_to_file().await
     }
 
-    async fn set_max_ram(&mut self, max_ram: u32) -> Result<(), traits::Error> {
+    async fn set_max_ram(&mut self, max_ram: u32) -> Result<(), Error> {
         self.config.max_ram = max_ram;
         self.write_config_to_file().await
     }
 
-    async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), traits::Error> {
+    async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), Error> {
         self.config.auto_start = auto_start;
         self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
     }
 
-    async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), traits::Error> {
+    async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), Error> {
         self.config.restart_on_crash = restart_on_crash;
         self.auto_start
             .store(restart_on_crash, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
     }
 
-    async fn set_backup_period(&mut self, backup_period: Option<u32>) -> Result<(), traits::Error> {
+    async fn set_backup_period(&mut self, backup_period: Option<u32>) -> Result<(), Error> {
         self.config.backup_period = backup_period;
         self.backup_sender
             .send(BackupInstruction::SetPeriod(backup_period))
@@ -161,8 +162,8 @@ impl TConfigurable for MinecraftInstance {
             .await
             .get(field)
             .ok_or(Error {
-                inner: ErrorInner::FieldNotFound,
-                detail: format!("Field {} not found", field),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Field {} not found", field),
             })?
             .to_string())
     }
@@ -170,8 +171,8 @@ impl TConfigurable for MinecraftInstance {
     async fn change_version(&mut self, version: String) -> Result<(), Error> {
         if *self.state.lock().await != State::Stopped {
             return Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Server must be stopped to change version".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Cannot change version while server is running"),
             });
         }
         if version == self.config.version {
@@ -182,25 +183,23 @@ impl TConfigurable for MinecraftInstance {
                 let error_msg =
                     format!("Cannot get the vanilla jar version for version {}", version);
                 Error {
-                    inner: ErrorInner::VersionNotFound,
-                    detail: error_msg,
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!(error_msg),
                 }
             })?,
             super::Flavour::Fabric => get_fabric_jar_url(&version, None, None).await.ok_or({
                 let error_msg =
                     format!("Cannot get the fabric jar version for version {}", version);
                 Error {
-                    inner: ErrorInner::VersionNotFound,
-                    detail: error_msg,
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!(error_msg),
                 }
             })?,
             super::Flavour::Paper => todo!(),
             super::Flavour::Spigot => todo!(),
         };
-        let temp_dir = TempDir::new("lodestone").map_err(|e| Error {
-            inner: ErrorInner::FailedToCreateFileOrDir,
-            detail: format!("Cannot create temp dir: {}", e),
-        })?;
+        let temp_dir = TempDir::new("lodestone")
+            .context("Cannot create temporary directory to download the server jar file")?;
         download_file(
             &url,
             temp_dir.path(),
@@ -212,10 +211,7 @@ impl TConfigurable for MinecraftInstance {
         let jar_path = temp_dir.path().join("server.jar");
         tokio::fs::rename(jar_path, self.path().await.join("server.jar"))
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToCreateFileOrDir,
-                detail: format!("Cannot rename jar file: {}", e),
-            })?;
+            .context("Cannot move the downloaded server jar file to the server directory")?;
         self.config.version = version;
         self.write_config_to_file().await
     }

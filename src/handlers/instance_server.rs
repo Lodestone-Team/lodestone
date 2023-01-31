@@ -7,12 +7,18 @@ use axum::{
 use axum::Json;
 use axum_auth::AuthBearer;
 
+use color_eyre::eyre::eyre;
 use serde_json::{json, Value};
 
-use crate::{auth::user::UserAction, events::CausedBy, types::InstanceUuid};
+use crate::{
+    auth::user::UserAction,
+    error::{Error, ErrorKind},
+    events::CausedBy,
+    types::InstanceUuid,
+};
 
 use crate::{
-    traits::{t_configurable::TConfigurable, t_server::TServer, Error, ErrorInner},
+    traits::{t_configurable::TConfigurable, t_server::TServer},
     AppState,
 };
 
@@ -21,34 +27,22 @@ pub async fn start_instance(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::StartInstance(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to start instance".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::StartInstance(uuid.clone()))?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
     let mut instance_list = state.instances.lock().await;
-    let instance = instance_list.get_mut(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instance_list.get_mut(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
-    if !port_scanner::local_port_available(instance.port().await as u16) {
+    let port = instance.port().await;
+    if !port_scanner::local_port_available(port as u16) {
         return Err(Error {
-            inner: ErrorInner::PortInUse,
-            detail: format!("Port {} is already in use", instance.port().await),
+            kind: ErrorKind::Internal,
+            source: eyre!("Port {} is already in use", port),
         });
     }
     instance.start(caused_by, false).await?;
@@ -60,21 +54,8 @@ pub async fn stop_instance(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::StopInstance(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to stop instance".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::StopInstance(uuid.clone()))?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -84,9 +65,9 @@ pub async fn stop_instance(
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .stop(caused_by, false)
         .await?;
@@ -98,36 +79,26 @@ pub async fn restart_instance(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::StartInstance(uuid.clone()))
-        || !requester.can_perform_action(&UserAction::StopInstance(uuid.clone()))
-    {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to restart instance".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester
+        .try_action(&UserAction::StopInstance(uuid.clone()))
+        .and_then(|_x| requester.try_action(&UserAction::StartInstance(uuid.clone())))?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
     let mut instance_list = state.instances.lock().await;
-    let instance = instance_list.get_mut(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instance_list.get_mut(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
-    if !port_scanner::local_port_available(instance.port().await as u16) {
+
+    let port = instance.port().await;
+
+    if !port_scanner::local_port_available(port as u16) {
         return Err(Error {
-            inner: ErrorInner::PortInUse,
-            detail: format!("Port {} is already in use", instance.port().await),
+            kind: ErrorKind::Internal,
+            source: eyre!("Port {} is already in use", port),
         });
     }
     instance.restart(caused_by, false).await?;
@@ -139,21 +110,8 @@ pub async fn kill_instance(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::StopInstance(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to kill instance".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::StopInstance(uuid.clone()))?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -163,9 +121,9 @@ pub async fn kill_instance(
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .kill(caused_by)
         .await?;
@@ -178,21 +136,8 @@ pub async fn send_command(
     AuthBearer(token): AuthBearer,
     Json(command): Json<String>,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessConsole(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to send command".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessConsole(uuid.clone()))?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -202,9 +147,9 @@ pub async fn send_command(
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .send_command(&command, caused_by)
         .await
@@ -216,19 +161,11 @@ pub async fn get_instance_state(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     if !requester.can_perform_action(&UserAction::ViewInstance(uuid.clone())) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to get instance state".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You don't have permission to view this instance"),
         });
     }
     Ok(Json(json!(
@@ -237,9 +174,9 @@ pub async fn get_instance_state(
             .lock()
             .await
             .get(&uuid)
-            .ok_or(Error {
-                inner: ErrorInner::InstanceNotFound,
-                detail: "".to_string(),
+            .ok_or_else(|| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Instance not found"),
             })?
             .state()
             .await

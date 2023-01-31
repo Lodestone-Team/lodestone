@@ -1,27 +1,28 @@
+use color_eyre::eyre::{eyre, Context};
 use serde_json::{self, Value};
 use std::{collections::HashMap, path::Path, str::FromStr};
 use tokio::io::AsyncBufReadExt;
 
-use crate::traits::{Error, ErrorInner};
+use crate::error::Error;
 
 pub async fn read_properties_from_path(
     path_to_properties: &Path,
 ) -> Result<HashMap<String, String>, Error> {
     let properties_file = tokio::fs::File::open(path_to_properties)
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: "Failed to open properties file. Has the instance been started at least once?"
-                .to_string(),
-        })?;
+        .context(format!(
+            "Failed to open properties file at {}",
+            path_to_properties.display()
+        ))?;
     let buf_reader = tokio::io::BufReader::new(properties_file);
     let mut stream = buf_reader.lines();
     let mut ret = HashMap::new();
 
-    while let Some(line) = stream.next_line().await.map_err(|_| Error {
-        inner: ErrorInner::FailedToReadFileOrDir,
-        detail: "".to_string(),
-    })? {
+    while let Some(line) = stream
+        .next_line()
+        .await
+        .context("Failed to read line from properties file")?
+    {
         // if a line starts with '#', it is a comment, skip it
         if line.starts_with('#') {
             continue;
@@ -30,17 +31,11 @@ pub async fn read_properties_from_path(
         let mut split = line.split('=');
         let key = split
             .next()
-            .ok_or(Error {
-                inner: ErrorInner::MalformedFile,
-                detail: String::new(),
-            })?
+            .ok_or_else(|| eyre!("Failed to read key from properties file"))?
             .trim();
         let value = split
             .next()
-            .ok_or(Error {
-                inner: ErrorInner::MalformedFile,
-                detail: String::new(),
-            })?
+            .ok_or_else(|| eyre!("Failed to read value from properties file for key {}", key))?
             .trim();
 
         ret.insert(key.to_string(), value.to_string());

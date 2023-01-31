@@ -1,9 +1,7 @@
 use async_trait::async_trait;
-use axum::response::IntoResponse;
 
-use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+
 use ts_rs::TS;
 
 use self::t_manifest::TManifest;
@@ -19,117 +17,6 @@ pub mod t_manifest;
 pub mod t_player;
 pub mod t_resource;
 pub mod t_server;
-
-#[derive(Debug, Serialize, Clone, TS)]
-#[ts(export)]
-pub enum ErrorInner {
-    // IO errors:
-    FailedToReadFileOrDir,
-    FailedToWriteFileOrDir,
-    FailedToCreateFileOrDir,
-    FailedToRemoveFileOrDir,
-    FailedToMoveFileOrDir,
-    FileOrDirNotFound,
-    FiledOrDirAlreadyExists,
-    IOError,
-
-    // Stdin/stdout errors:
-    FailedToWriteStdin,
-    FailedToReadStdout,
-    StdinNotOpen,
-    StdoutNotOpen,
-    RconNotOpen,
-    RconError,
-    FailedToAcquireLock,
-
-    // Network errors:
-    FailedToUpload,
-    FailedToDownload,
-
-    // Instance operation errors
-    InvalidInstanceState,
-    InstanceNotFound,
-    InstanceExitedUnexpectedly,
-    PortInUse,
-
-    // Config file errors:
-    MalformedFile,
-    FieldNotFound,
-    ValueNotFound,
-    TypeMismatch,
-
-    // version string errors:
-    MalformedVersionString,
-    VersionNotFound,
-
-    // Macro errors:
-    FailedToRunMacro,
-    MacroNotFound,
-
-    // Process errors:
-    FailedToExecute,
-    FailedToAcquireStdin,
-    FailedToAcquireStdout,
-    FailedToAcquireStderr,
-
-    // API changed
-    APIChanged,
-
-    // Unsupported Op
-    UnsupportedOperation,
-
-    // Malformed request
-    MalformedRequest,
-
-    // User errors:
-    UserNotFound,
-    UsernameAlreadyExists,
-    Unauthorized,
-    PermissionDenied,
-
-    // DB errors:
-    DBInitError,
-    DBWriteError,
-    DBFetchError,
-    DBPoolError,
-
-    // Gateway (port forwarding) error
-    GatewayError,
-
-    // Generic error
-    NotFound,
-    InternalError,
-}
-#[derive(Debug, Serialize, Clone, TS)]
-#[serde(rename = "ClientError")]
-#[ts(export)]
-pub struct Error {
-    pub inner: ErrorInner,
-    pub detail: String,
-}
-
-// implement std error trait
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Error: {}", self.detail)
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl IntoResponse for Error {
-    fn into_response(self) -> axum::response::Response {
-        let (status, error_message) = match self.inner {
-            ErrorInner::MalformedRequest => (StatusCode::BAD_REQUEST, json!(self).to_string()),
-            ErrorInner::PermissionDenied => (StatusCode::FORBIDDEN, json!(self).to_string()),
-            ErrorInner::Unauthorized => (StatusCode::UNAUTHORIZED, json!(self).to_string()),
-            ErrorInner::FileOrDirNotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
-            ErrorInner::NotFound => (StatusCode::NOT_FOUND, json!(self).to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, json!(self).to_string()),
-        };
-        (status, error_message).into_response()
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]

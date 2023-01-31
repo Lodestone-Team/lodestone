@@ -1,12 +1,11 @@
 use std::collections::HashSet;
 
 use axum::{extract::Path, routing::get, Json, Router};
+use color_eyre::eyre::eyre;
 
 use crate::{
-    traits::{
-        t_player::{Player, TPlayerManagement},
-        Error, ErrorInner,
-    },
+    error::{Error, ErrorKind},
+    traits::t_player::{Player, TPlayerManagement},
     types::InstanceUuid,
     AppState,
 };
@@ -20,9 +19,9 @@ pub async fn get_player_count(
         .lock()
         .await
         .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .get_player_count()
         .await
@@ -38,9 +37,9 @@ pub async fn get_max_player_count(
         .lock()
         .await
         .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .get_max_player_count()
         .await
@@ -57,9 +56,9 @@ pub async fn set_max_player_count(
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .set_max_player_count(count)
         .await
@@ -75,9 +74,9 @@ pub async fn get_player_list(
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .get_player_list()
         .await

@@ -4,11 +4,11 @@ use axum::routing::get;
 use axum::Router;
 use axum::{extract::Path, Json};
 
+use crate::error::Error;
 use crate::implementations::minecraft::versions::MinecraftVersions;
 use crate::prelude::GameInstanceKind;
 
 use crate::implementations::minecraft;
-use crate::traits::Error;
 
 pub async fn get_available_games() -> Json<HashSet<GameInstanceKind>> {
     Json(HashSet::from([GameInstanceKind::MinecraftInstance]))

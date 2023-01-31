@@ -1,3 +1,4 @@
+use color_eyre::eyre::{eyre, Context};
 use std::collections::HashSet;
 use tempdir::TempDir;
 use tokio::fs::File;
@@ -5,7 +6,6 @@ use tokio::fs::File;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::path::{Path, PathBuf};
-use tokio::fs::remove_file;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
@@ -21,8 +21,8 @@ pub struct Authentication {
     password: String,
 }
 
+use crate::error::Error;
 use crate::prelude::PATH_TO_BINARIES;
-use crate::traits::{Error, ErrorInner};
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -45,18 +45,19 @@ pub async fn download_file(
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
     let client = Client::new();
-    let response = client.get(url).send().await.map_err(|e| Error {
-        inner: ErrorInner::FailedToUpload,
-        detail: format!("Failed to send GET request to {} : {}", url, e),
-    })?;
-    response.error_for_status_ref().map_err(|e| Error {
-        inner: ErrorInner::APIChanged,
-        detail: format!("Failed to download file {} : {}", url, e),
-    })?;
-    tokio::fs::create_dir_all(path).await.map_err(|_| Error {
-        inner: ErrorInner::FailedToUpload,
-        detail: format!("Failed to create directory {}", path.display()),
-    })?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .context("Failed to send GET request")?;
+    response.error_for_status_ref().context(
+        "
+        Failed to download file
+    ",
+    )?;
+    tokio::fs::create_dir_all(path)
+        .await
+        .context(format!("Failed to create dir {}", &path.display()))?;
 
     let file_name;
     if let Some(name) = name_override {
@@ -82,12 +83,9 @@ pub async fn download_file(
             .replace('\"', "");
     }
     if !overwrite_old && path.join(&file_name).exists() {
-        return Err(Error {
-            inner: ErrorInner::FiledOrDirAlreadyExists,
-            detail: format!("{} already exists", path.join(&file_name).display()),
-        });
+        return Err(eyre!("File {} already exists", path.join(&file_name).display()).into());
     }
-    remove_file(path.join(&file_name)).await.ok();
+    fs::remove_file(path.join(&file_name)).await.ok();
     let total_size = response.content_length();
     let pb = ProgressBar::new(total_size.unwrap_or(0));
     pb.set_style(ProgressStyle::default_bar()
@@ -97,24 +95,17 @@ pub async fn download_file(
 
     let mut downloaded_file = File::create(path.join(&file_name))
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("Failed to create file {}", path.join(&file_name).display()),
-        })?;
+        .context(format!("Failed to create file {}", &path.display()))?;
     let mut downloaded: u64 = 0;
     let mut new_downloaded: u64 = 0;
     let threshold = total_size.unwrap_or(500000) / 100;
     let mut stream = response.bytes_stream();
     while let Some(item) = stream.next().await {
         let chunk = item.expect("Error while downloading file");
-        downloaded_file.write_all(&chunk).await.map_err(|e| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!(
-                "Failed to write to file {}, {}",
-                path.join(&file_name).display(),
-                e
-            ),
-        })?;
+        downloaded_file
+            .write_all(&chunk)
+            .await
+            .context(format!("Failed to write to file {}", &file_name))?;
         new_downloaded += chunk.len() as u64;
         let step = new_downloaded - downloaded;
         if step > threshold {
@@ -142,10 +133,7 @@ pub async fn list_dir(
         let path = path.to_owned();
         move || {
             Ok(std::fs::read_dir(&path)
-                .map_err(|_| Error {
-                    inner: ErrorInner::FailedToReadFileOrDir,
-                    detail: "".to_string(),
-                })?
+                .context(format!("failed to read directory {}", path.display()))?
                 .into_iter()
                 .filter_map(|entry| entry.ok())
                 .filter(|entry| entry.file_type().is_ok())
@@ -183,28 +171,31 @@ pub async fn unzip_file(
         .join("7zip")
         .join(&_7zip_name);
     if !_7zip_path.is_file() {
-        return Err(Error{ inner: ErrorInner::FileOrDirNotFound, detail: format!("Runtime dependency {} is not found at {}. Consider downloading the dependency to .lodestone/bin/7zip/, or reinstall Lodestone", _7zip_name, _7zip_path.display()) });
+        return Err(
+            eyre!(
+                "Runtime depedency 7zip is missing, please download it from https://github.com/Lodestone-Team/dependencies or reinstall Lodestone"
+            ).into()
+        );
     }
-    tokio::fs::create_dir_all(dest).await.map_err(|_| Error {
-        inner: ErrorInner::FailedToWriteFileOrDir,
-        detail: format!("Failed to create directory {}", dest.display()),
-    })?;
+    tokio::fs::create_dir_all(dest)
+        .await
+        .context(format!("Failed to create directory {}", dest.display()))?;
     let before: HashSet<PathBuf>;
 
     let tmp_dir = TempDir::new("lodestone")
-        .map_err(|e| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("Failed to create temp dir, {}", e),
-        })?
+        .context(format!(
+            "Failed to create temporary directory for unzipping {}",
+            file.display()
+        ))?
         .path()
         .to_owned();
 
     let overwrite_arg = if overwrite_old { "-aoa" } else { "-aou" };
 
-    if file.extension().ok_or(Error {
-        inner: ErrorInner::MalformedFile,
-        detail: "Not a zip file".to_string(),
-    })? == "gz"
+    if file
+        .extension()
+        .ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?
+        == "gz"
     {
         dont_spawn_terminal(
             Command::new(&_7zip_path)
@@ -215,20 +206,9 @@ pub async fn unzip_file(
         )
         .status()
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToExecute,
-            detail: "Failed to execute 7zip".to_string(),
-        })?;
+        .context("Failed to execute 7zip")?;
 
-        before = list_dir(dest, None)
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToReadFileOrDir,
-                detail: "".to_string(),
-            })?
-            .iter()
-            .cloned()
-            .collect();
+        before = list_dir(dest, None).await?.iter().cloned().collect();
 
         dont_spawn_terminal(
             Command::new(&_7zip_path)
@@ -240,20 +220,9 @@ pub async fn unzip_file(
         )
         .status()
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToExecute,
-            detail: "Failed to execute 7zip".to_string(),
-        })?;
+        .context("Failed to execute 7zip")?;
     } else {
-        before = list_dir(dest, None)
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToReadFileOrDir,
-                detail: "".to_string(),
-            })?
-            .iter()
-            .cloned()
-            .collect();
+        before = list_dir(dest, None).await?.iter().cloned().collect();
         dont_spawn_terminal(
             Command::new(&_7zip_path)
                 .arg("x")
@@ -263,20 +232,9 @@ pub async fn unzip_file(
         )
         .status()
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToExecute,
-            detail: "Failed to execute 7zip".to_string(),
-        })?;
+        .context("Failed to execute 7zip")?;
     }
-    let after: HashSet<PathBuf> = list_dir(dest, None)
-        .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToReadFileOrDir,
-            detail: "".to_string(),
-        })?
-        .iter()
-        .cloned()
-        .collect();
+    let after: HashSet<PathBuf> = list_dir(dest, None).await?.iter().cloned().collect();
     Ok((&after - &before).iter().cloned().collect())
 }
 
@@ -290,10 +248,11 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     root: R,
     unsafe_path: U,
 ) -> Result<PathBuf, Error> {
-    let mut ret = safe_path::scoped_join(&root, unsafe_path).map_err(|e| Error {
-        inner: ErrorInner::MalformedFile,
-        detail: format!("Failed to join path: {}", e),
-    })?;
+    let mut ret = safe_path::scoped_join(&root, &unsafe_path).context(format!(
+        "Failed to join path {} with {}",
+        root.as_ref().display(),
+        unsafe_path.as_ref().display()
+    ))?;
     if cfg!(windows) {
         // construct a new path
         // that replace the prefix component with the component of the root path
@@ -307,7 +266,75 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     }
     Ok(ret)
 }
+pub mod fs {
+    use std::path::Path;
 
+    use color_eyre::eyre::Context;
+    use tokio::fs::File;
+
+    use crate::error::Error;
+
+    pub async fn remove_file(file: impl AsRef<Path>) -> Result<(), Error> {
+        let file = file.as_ref();
+        if file.is_file() {
+            tokio::fs::remove_file(file)
+                .await
+                .context(format!("Failed to remove file at {}", file.display()))?;
+        }
+        Ok(())
+    }
+
+    pub async fn write_all(file: impl AsRef<Path>, data: impl AsRef<[u8]>) -> Result<(), Error> {
+        let file = file.as_ref();
+        tokio::fs::write(file, data)
+            .await
+            .context(format!("Failed to write to file at {}", file.display()))?;
+        Ok(())
+    }
+
+    pub async fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<(), Error> {
+        let from = from.as_ref();
+        let to = to.as_ref();
+        tokio::fs::rename(from, to).await.context(format!(
+            "Failed to rename file {} to {}",
+            from.display(),
+            to.display()
+        ))?;
+        Ok(())
+    }
+
+    pub async fn create_dir_all(dir: impl AsRef<Path>) -> Result<(), Error> {
+        let dir = dir.as_ref();
+        tokio::fs::create_dir_all(dir)
+            .await
+            .context(format!("Failed to create directory at {}", dir.display()))?;
+        Ok(())
+    }
+
+    pub async fn remove_dir_all(dir: impl AsRef<Path>) -> Result<(), Error> {
+        let dir = dir.as_ref();
+        tokio::fs::remove_dir_all(dir)
+            .await
+            .context(format!("Failed to remove directory at {}", dir.display()))?;
+        Ok(())
+    }
+
+    pub async fn read_to_string(file: impl AsRef<Path>) -> Result<String, Error> {
+        let file = file.as_ref();
+        let data = tokio::fs::read_to_string(file)
+            .await
+            .context(format!("Failed to read file at {}", file.display()))?;
+        Ok(data)
+    }
+
+    pub async fn create(file: impl AsRef<Path>) -> Result<File, Error> {
+        let file = file.as_ref();
+        let file = tokio::fs::File::create(file)
+            .await
+            .context(format!("Failed to create file at {}", file.display()))?;
+        Ok(file)
+    }
+}
 pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);

@@ -4,13 +4,15 @@ use axum::{
     Json, Router,
 };
 use axum_auth::AuthBearer;
+use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
 
 use crate::{
     auth::user::UserAction,
-    traits::{t_configurable::TConfigurable, Error, ErrorInner},
+    error::{Error, ErrorKind},
+    traits::t_configurable::TConfigurable,
     types::InstanceUuid,
     AppState,
 };
@@ -40,25 +42,12 @@ pub async fn get_instance_setting(
     Path((uuid, key)): Path<(InstanceUuid, InstanceSetting)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to get instance setting".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     Ok(Json(match key {
         InstanceSetting::Uuid => json!(instance.uuid().await),
@@ -84,39 +73,26 @@ pub async fn set_instance_setting(
     AuthBearer(token): AuthBearer,
     Json(value): Json<Value>,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to change instance setting".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     let mut instances = state.instances.lock().await;
     let instance = instances.get_mut(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
 
     match value {
         Value::Null => match key {
             InstanceSetting::BackupPeriod => instance.set_backup_period(None).await,
             _ => Err(Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Cannot set null to this setting"),
             }),
         },
         Value::Number(n) => {
-            let number = n.as_u64().ok_or(Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "".to_string(),
+            let number = n.as_u64().ok_or_else(|| Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Cannot convert number to u64"),
             })? as u32;
 
             match key {
@@ -125,8 +101,8 @@ pub async fn set_instance_setting(
                 InstanceSetting::MinRam => instance.set_min_ram(number).await,
                 InstanceSetting::Port => instance.set_port(number).await,
                 _ => Err(Error {
-                    inner: ErrorInner::MalformedRequest,
-                    detail: "".to_string(),
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("Cannot set number to this setting"),
                 }),
             }
         }
@@ -134,16 +110,16 @@ pub async fn set_instance_setting(
             InstanceSetting::AutoStart => instance.set_auto_start(b).await,
             InstanceSetting::RestartOnCrash => instance.set_restart_on_crash(b).await,
             _ => Err(Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Cannot set bool to this setting"),
             }),
         },
         Value::String(s) => match key {
             InstanceSetting::Name => instance.set_name(s).await,
             InstanceSetting::Description => instance.set_description(s).await,
             _ => Err(Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Cannot set string to this setting"),
             }),
         },
         Value::Array(a) => match key {
@@ -154,8 +130,8 @@ pub async fn set_instance_setting(
                             .map(|v| {
                                 v.as_str()
                                     .ok_or(Error {
-                                        inner: ErrorInner::MalformedRequest,
-                                        detail: "".to_string(),
+                                        kind: ErrorKind::BadRequest,
+                                        source: eyre!("Cannot convert value to string"),
                                     })
                                     .map(|s| s.to_string())
                             })
@@ -164,13 +140,13 @@ pub async fn set_instance_setting(
                     .await
             }
             _ => Err(Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Cannot set array to this setting"),
             }),
         },
         _ => Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Cannot set value to this setting"),
         }),
     }?;
 
@@ -182,25 +158,13 @@ pub async fn get_game_setting(
     Path((uuid, key)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<String>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to get game setting".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     Ok(Json(instance.get_field(&key).await?))
 }
@@ -211,29 +175,16 @@ pub async fn set_game_setting(
     AuthBearer(token): AuthBearer,
     Json(value): Json<String>,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to change game setting".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     state
         .instances
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .set_field(&key, value)
         .await?;
@@ -245,29 +196,16 @@ pub async fn change_version(
     Path((uuid, new_version)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessSetting(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to change game setting".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     state
         .instances
         .lock()
         .await
         .get_mut(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: "".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .change_version(new_version)
         .await?;

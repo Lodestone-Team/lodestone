@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
+use color_eyre::eyre::Context;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::broadcast::Sender};
 use ts_rs::TS;
 
-use crate::{events::Event, traits::ErrorInner, Error};
+use crate::{error::Error, events::Event};
 
 #[derive(Serialize, Deserialize, Clone, TS)]
 #[ts(export)]
@@ -49,16 +50,16 @@ impl GlobalSettings {
             .write(true)
             .open(&self.path_to_global_settings)
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToCreateFileOrDir,
-                detail: format!("Failed to create global settings file: {}", e),
-            })?
+            .context(format!(
+                "Failed to open global settings file at {}",
+                self.path_to_global_settings.display()
+            ))?
             .metadata()
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToReadFileOrDir,
-                detail: format!("Failed to read global settings file: {}", e),
-            })?
+            .context(format!(
+                "Failed to get metadata for global settings file at {}",
+                self.path_to_global_settings.display()
+            ))?
             .len()
             == 0
         {
@@ -67,35 +68,35 @@ impl GlobalSettings {
             self.global_settings_data = serde_json::from_slice(
                 &tokio::fs::read(&self.path_to_global_settings)
                     .await
-                    .map_err(|e| Error {
-                        inner: ErrorInner::FailedToReadFileOrDir,
-                        detail: format!("Failed to read global settings file: {}", e),
-                    })?,
+                    .context(format!(
+                        "Failed to read global settings file at {}",
+                        self.path_to_global_settings.display()
+                    ))?,
             )
-            .map_err(|e| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: format!("Failed to parse global settings file: {}", e),
-            })?;
+            .context(format!(
+                "Failed to parse global settings file at {}",
+                self.path_to_global_settings.display()
+            ))?;
         }
         Ok(())
     }
     async fn write_to_file(&self) -> Result<(), Error> {
         let mut file = tokio::fs::File::create(&self.path_to_global_settings)
             .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToCreateFileOrDir,
-                detail: "Failed to create global settings file".to_string(),
-            })?;
+            .context(format!(
+                "Failed to create global settings file at {}",
+                self.path_to_global_settings.display()
+            ))?;
         file.write_all(
             serde_json::to_string_pretty(&self.global_settings_data)
                 .unwrap()
                 .as_bytes(),
         )
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: "Failed to write to global settings file".to_string(),
-        })?;
+        .context(format!(
+            "Failed to write to global settings file at {}",
+            self.path_to_global_settings.display()
+        ))?;
         Ok(())
     }
     pub async fn set_core_name(&mut self, name: String) -> Result<(), Error> {

@@ -1,10 +1,11 @@
 use async_trait::async_trait;
+use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::ErrorInner;
+use crate::error::{Error, ErrorKind};
 use crate::minecraft::player::MinecraftPlayer;
-use crate::{traits::GameInstance, Error};
+use crate::traits::GameInstance;
 
 #[enum_dispatch::enum_dispatch]
 pub trait TPlayer {
@@ -38,27 +39,27 @@ impl Hash for Player {
 pub trait TPlayerManagement {
     async fn get_player_count(&self) -> Result<u32, Error> {
         Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "Getting player count is unsupported for this instance".to_string(),
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("Getting player count is unsupported for this instance"),
         })
     }
     async fn get_max_player_count(&self) -> Result<u32, Error> {
         Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "Getting max player count is unsupported for this instance".to_string(),
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("Getting max player count is unsupported for this instance"),
         })
     }
     async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
         Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "Getting player list is unsupported for this instance".to_string(),
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("Getting player list is unsupported for this instance"),
         })
     }
 
     async fn set_max_player_count(&mut self, _max_player_count: u32) -> Result<(), Error> {
         Err(Error {
-            inner: ErrorInner::UnsupportedOperation,
-            detail: "Setting max player count is unsupported for this instance".to_string(),
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("Setting max player count is unsupported for this instance"),
         })
     }
 }

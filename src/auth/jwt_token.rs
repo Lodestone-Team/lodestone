@@ -1,7 +1,8 @@
+use color_eyre::eyre::Context;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{traits::ErrorInner, Error};
+use crate::error::Error;
 
 use super::{user::Claim, user_secrets::UserSecret};
 
@@ -36,10 +37,7 @@ impl JwtToken {
                 &claim,
                 &jsonwebtoken::EncodingKey::from_secret(secret.as_ref().as_bytes()),
             )
-            .map_err(|e| Error {
-                inner: ErrorInner::InternalError,
-                detail: format!("Failed to generate JWT: {}", e),
-            })?,
+            .context("Failed to encode JWT token")?,
         ))
     }
 }

@@ -22,6 +22,7 @@ use auth::user::UsersManager;
 use axum::Router;
 
 use axum_server::tls_rustls::RustlsConfig;
+use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
@@ -58,14 +59,14 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing_subscriber::fmt::time::{LocalTime};
-pub use traits::Error;
+use tracing_subscriber::fmt::time::LocalTime;
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::InstanceUuid;
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
 pub mod db;
+pub mod error;
 mod events;
 pub mod global_settings;
 mod handlers;

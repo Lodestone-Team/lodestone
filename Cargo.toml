@@ -76,6 +76,7 @@ tracing-subscriber = { version = "0.3.16", features = [
     "local-time",
     "time",
 ] }
+tracing-error = "0.2.0"
 ts-rs = "6.2.1"
 walkdir = "2.3.2"
 whoami = "1.2.3"

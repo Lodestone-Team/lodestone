@@ -6,14 +6,16 @@ use axum::{
     routing::get,
     Router,
 };
+use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 use tokio::sync::Mutex;
 use tracing::error;
 
 use crate::{
+    error::Error,
     prelude::GameInstance,
-    traits::{t_server::MonitorReport, t_server::TServer, Error, ErrorInner},
+    traits::{t_server::MonitorReport, t_server::TServer},
     types::InstanceUuid,
     AppState,
 };
@@ -28,9 +30,9 @@ pub async fn monitor(
         .lock()
         .await
         .get(&uuid)
-        .ok_or(Error {
-            inner: ErrorInner::MalformedFile,
-            detail: "Instance not found".to_string(),
+        .ok_or_else(|| Error {
+            kind: crate::error::ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })?
         .to_owned();
     Ok(ws.on_upgrade(move |stream| {

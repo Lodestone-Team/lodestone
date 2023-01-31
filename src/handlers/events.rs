@@ -8,6 +8,7 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 
+use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 use tracing::{debug, error};
@@ -15,6 +16,7 @@ use tracing::{debug, error};
 use crate::{
     auth::{user::UsersManager, user_id::UserId},
     db::read::search_events,
+    error::{Error, ErrorKind},
     events::InstanceEventKind,
     types::TimeRange,
 };
@@ -23,7 +25,6 @@ use crate::{events::UserEventKind, types::InstanceUuid};
 
 use crate::{
     events::{Event, EventInner, EventLevel, UserEventInner},
-    traits::{Error, ErrorInner},
     AppState,
 };
 use serde::Deserialize;
@@ -114,8 +115,8 @@ pub async fn get_event_buffer(
     let query: EventQuery = serde_json::from_str(&query.filter).map_err(|e| {
         error!("Error deserializing event query: {}", e);
         Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: e.to_string(),
+            kind: ErrorKind::BadRequest,
+            source: e.into(),
         }
     })?;
     let requester = state
@@ -123,9 +124,9 @@ pub async fn get_event_buffer(
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
     Ok(Json(
         state
@@ -151,8 +152,8 @@ pub async fn get_event_search(
     let query: EventQuery = serde_json::from_str(&query.filter).map_err(|e| {
         error!("Error deserializing event query: {}", e);
         Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: e.to_string(),
+            kind: ErrorKind::BadRequest,
+            source: e.into(),
         }
     })?;
     let _requester = state
@@ -160,9 +161,9 @@ pub async fn get_event_search(
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
     search_events(&state.sqlite_pool, query).await.map(Json)
 }
@@ -177,9 +178,9 @@ pub async fn get_console_buffer(
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
     Ok(Json(
         state
@@ -214,13 +215,13 @@ pub async fn event_stream(
     let query: EventQuery = serde_json::from_str(query.filter.as_str()).map_err(|e| {
         error!("Error deserializing event query: {}", e);
         Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: e.to_string(),
+            kind: ErrorKind::BadRequest,
+            source: e.into(),
         }
     })?;
     let token = query.bearer_token.clone().ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "No token provided".to_string(),
+        kind: ErrorKind::BadRequest,
+        source: eyre!("Missing token"),
     })?;
 
     let user = state
@@ -229,8 +230,8 @@ pub async fn event_stream(
         .await
         .try_auth(&token)
         .ok_or_else(|| Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
     let event_receiver = state.event_broadcaster.subscribe();
 
@@ -287,8 +288,8 @@ pub async fn console_stream(
     let user = parse_bearer_token(query.token.as_str())
         .and_then(|token| users_manager.try_auth(&token))
         .ok_or_else(|| Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
     drop(users_manager);
     let event_receiver = state.event_broadcaster.subscribe();

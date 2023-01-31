@@ -9,6 +9,7 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 
+use color_eyre::eyre::{eyre, Context};
 use headers::{HeaderMap, HeaderName};
 use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
@@ -20,11 +21,11 @@ use ts_rs::TS;
 
 use crate::{
     auth::user::UserAction,
+    error::{Error, ErrorKind},
     events::{
         new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEvent,
         ProgressionEventInner,
     },
-    traits::{Error, ErrorInner},
     types::Snowflake,
     util::{list_dir, rand_alphanumeric},
     AppState,
@@ -85,33 +86,20 @@ async fn list_files(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+
+    requester.try_action(&UserAction::ReadGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if !path.exists() || !path.is_dir() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "Path is not a directory".to_string(),
-        });
-    }
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,
@@ -137,38 +125,25 @@ async fn read_file(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
 
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::ReadGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File not found".to_string(),
-        });
-    }
-    let ret = tokio::fs::read_to_string(&path).await.map_err(|_| Error {
-        inner: ErrorInner::FileOrDirNotFound,
-        detail: "You may only view text files encoded in UTF-8.".to_string(),
-    })?;
+    let ret = tokio::fs::read_to_string(&path).await.context(
+        "
+        Failed to read file
+    ",
+    )?;
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,
@@ -187,38 +162,24 @@ async fn write_file(
     AuthBearer(token): AuthBearer,
     body: Bytes,
 ) -> Result<Json<()>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
 
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File not found".to_string(),
-        });
-    }
-    tokio::fs::write(&path, body).await.map_err(|e| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: format!("Error writing file: {}", e),
-    })?;
+
+    tokio::fs::write(&path, body)
+        .await
+        .context(format!("Failed to write to file {}", path.display()))?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -237,38 +198,26 @@ async fn make_directory(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
 
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File or directory already exists".to_string(),
-        });
-    }
-    tokio::fs::create_dir(&path).await.map_err(|e| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: format!("Failed to create directory: {}", e),
-    })?;
+    tokio::fs::create_dir(&path).await.context(format!(
+        "
+        Failed to create directory {}
+    ",
+        path.display()
+    ))?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -287,38 +236,27 @@ async fn move_file(
     Path((base64_absolute_path_source, base64_absolute_path_dest)): Path<(String, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let path_source = decode_base64(&base64_absolute_path_source).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let path_dest = decode_base64(&base64_absolute_path_dest).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
+    let path_source = decode_base64(&base64_absolute_path_source)?;
+    let path_dest = decode_base64(&base64_absolute_path_dest)?;
 
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
 
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     tokio::fs::rename(&path_source, &path_dest)
         .await
-        .map_err(|e| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: format!("Failed to move file: {}", e),
-        })?;
+        .context(format!(
+            "Failed to move file from {} to {}",
+            path_source, path_dest
+        ))?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -341,44 +279,24 @@ async fn remove_file(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File or directory not found".to_string(),
-        });
-    }
-    if path.is_file() {
-        tokio::fs::remove_file(&path).await.map_err(|e| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: format!("Failed to remove file: {}", e),
-        })?;
-    } else {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a file.".to_string(),
-        });
-    }
+
+    tokio::fs::remove_file(&path)
+        .await
+        .context(format!("Failed to remove file {}", path.display()))?;
+
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,
@@ -396,44 +314,23 @@ async fn remove_dir(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File or directory not found".to_string(),
-        });
-    }
-    if path.is_dir() {
-        tokio::fs::remove_file(&path).await.map_err(|e| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: format!("Failed to remove dir: {}", e),
-        })?;
-    } else {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a directory.".to_string(),
-        });
-    }
+
+    tokio::fs::remove_dir_all(&path)
+        .await
+        .context(format!("Failed to remove directory {}", path.display()))?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -453,38 +350,23 @@ async fn new_file(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     let path = PathBuf::from(absolute_path);
-    if path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FiledOrDirAlreadyExists,
-            detail: "File already exists.".to_string(),
-        });
-    }
 
-    tokio::fs::File::create(&path).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Failed to create file".to_string(),
-    })?;
+    tokio::fs::File::create(&path)
+        .await
+        .context(format!("Failed to create file {}", path.display()))?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -504,38 +386,19 @@ async fn download_file(
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::ReadGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::ReadGlobalFile)?;
     let path = PathBuf::from(absolute_path);
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File not found".to_string(),
-        });
-    }
-    if !path.is_file() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "Path is not a file".to_string(),
-        });
-    }
+
     let key = rand_alphanumeric(32);
     state
         .download_urls
@@ -561,41 +424,27 @@ async fn upload_file(
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
 ) -> Result<Json<()>, Error> {
-    let absolute_path = decode_base64(&base64_absolute_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Absolute path is not valid urlsafe base64".to_string(),
-    })?;
+    let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access global files".to_string(),
-        });
-    }
+
+    requester.try_action(&UserAction::WriteGlobalFile)?;
 
     let path_to_dir = PathBuf::from(absolute_path);
-    if path_to_dir.exists() && !path_to_dir.is_dir() {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a directory".to_string(),
-        });
-    }
-    if !path_to_dir.exists() {
-        tokio::fs::create_dir_all(&path_to_dir)
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToCreateFileOrDir,
-                detail: "Failed to create directory".to_string(),
-            })?;
-    }
+
+    tokio::fs::create_dir_all(&path_to_dir)
+        .await
+        .context(format!(
+            "Failed to create directory {}",
+            path_to_dir.display()
+        ))?;
 
     let total = headers
         .get(CONTENT_LENGTH)
@@ -625,8 +474,8 @@ async fn upload_file(
         let name = field
             .file_name()
             .ok_or_else(|| Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "No file name".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Missing file name"),
             })?
             .to_owned();
         let path = path_to_dir.join(&name);
@@ -650,10 +499,9 @@ async fn upload_file(
         } else {
             path
         };
-        let mut file = tokio::fs::File::create(&path).await.map_err(|_| Error {
-            inner: ErrorInner::FailedToCreateFileOrDir,
-            detail: "Failed to create file".to_string(),
-        })?;
+        let mut file = tokio::fs::File::create(&path)
+            .await
+            .context(format!("Failed to create file {}", path.display()))?;
 
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
@@ -674,8 +522,8 @@ async fn upload_file(
                 },
             });
             Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Failed to read chunk".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Failed to read chunk: {}", e),
             }
         })? {
             let _ = state.event_broadcaster.send(Event {
@@ -696,10 +544,7 @@ async fn upload_file(
             debug!("Received chunk of size {}", chunk.len());
             file.write_all(&chunk).await.map_err(|_| {
                 std::fs::remove_file(&path).ok();
-                Error {
-                    inner: ErrorInner::FailedToCreateFileOrDir,
-                    detail: "Failed to write to file".to_string(),
-                }
+                eyre!("Failed to write chunk")
             })?;
         }
 
@@ -744,10 +589,9 @@ async fn download(
     Error,
 > {
     if let Some(path) = state.download_urls.lock().await.get(&key) {
-        let file = tokio::fs::File::open(&path).await.map_err(|_| Error {
-            inner: ErrorInner::IOError,
-            detail: "Failed to open file".to_string(),
-        })?;
+        let file = tokio::fs::File::open(&path)
+            .await
+            .context(format!("Failed to open file {}", path.display()))?;
 
         let headers = [
             (
@@ -777,8 +621,8 @@ async fn download(
         Ok((headers, body))
     } else {
         Err(Error {
-            inner: ErrorInner::NotFound,
-            detail: "File not found with the given key".to_string(),
+            kind: ErrorKind::NotFound,
+            source: eyre!("File not found with the download key"),
         })
     }
 }
