@@ -70,6 +70,7 @@ tokio-stream = "0.1"
 tokio-util = "0.7.4"
 tower-http = { version = "0.3.0", features = ["fs", "trace", "cors"] }
 tracing = "0.1.37"
+tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.16", features = [
     "env-filter",
     "fmt",
