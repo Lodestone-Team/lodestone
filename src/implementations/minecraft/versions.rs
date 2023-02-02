@@ -124,11 +124,11 @@ pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
     };
     for item in response["versions"]
         .as_array()
-        .ok_or_else(|| eyre!("Failed to get paper versions. Game array is not an array"))?
+        .ok_or_else(|| eyre!("Failed to get paper versions. Versions array is not an array"))?
     {
         let version_str = item
             .as_str()
-            .ok_or_else(|| eyre!("Failed to get paper versions. Game array is not an array"))?;
+            .ok_or_else(|| eyre!("Failed to get paper versions. Versions element is not a string"))?;
         if vanilla_versions.release.contains(&version_str.to_string()) {
             ret.release.push(version_str.to_string());
         }

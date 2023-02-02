@@ -358,7 +358,7 @@ mod tests {
 
     /// Test subject to fail if fabric updates their installer or loader
     #[tokio::test]
-    async fn test_get_fabric_url() {
+    async fn test_get_fabric_jar_url() {
         assert_eq!(
             super::get_fabric_jar_url("1.19", Some("0.14.8"), Some("0.11.0")).await,
             Some(
@@ -369,5 +369,14 @@ mod tests {
         assert!(super::get_fabric_jar_url("21w44a", None, None)
             .await
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_paper_jar_url() {
+        assert_eq!(super::get_paper_jar_url("1.19.3", Some("308")).await, Some("https://api.papermc.io/v2/projects/paper/versions/1.19.3/builds/308/downloads/paper-1.19.3-308.jar".to_string()));
+        assert_eq!(super::get_paper_jar_url("1.13-pre7", Some("1")).await, Some("https://api.papermc.io/v2/projects/paper/versions/1.13-pre7/builds/1/downloads/paper-1.13-pre7-1.jar".to_string()));
+        assert_eq!(super::get_paper_jar_url("1.19.3", None).await, Some("https://api.papermc.io/v2/projects/paper/versions/1.19.3/builds/386/downloads/paper-1.19.3-386.jar".to_string()));
+        
+        assert_eq!(super::get_paper_jar_url("1.19.3bruh", None).await, None);
     }
 }
