@@ -36,7 +36,6 @@ export default function InputBox({
   required,
   maxLength = 1024,
   error: errorProp,
-  removeArrows,
   disabled = false,
   canRead = true,
   isLoading: isLoadingProp = false,
@@ -57,7 +56,6 @@ export default function InputBox({
   required?: boolean;
   maxLength?: number;
   error?: string;
-  removeArrows?: boolean;
   disabled?: boolean;
   canRead?: boolean;
   isLoading?: boolean;
@@ -240,9 +238,7 @@ export default function InputBox({
         id={id}
       >
         <div
-          className={`pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 ${
-            !removeArrows && type === 'number' ? 'pl-3 pr-9' : 'px-3'
-          }`}
+          className={`pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3`}
         >
           <div className="pointer-events-auto flex flex-row gap-2">
             {showIcons && icons}
@@ -253,10 +249,10 @@ export default function InputBox({
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
-          className={`input-base w-full ${
+          className={`input-base w-full ${icons.length ? 'pr-16' : 'pr-4'} ${
             errorText ? 'border-error' : 'border-normal'
           }
-            ${removeArrows && 'noSpin'}`}
+           `}
           onBlur={() => {
             setValue(value.trim());
           }}
