@@ -393,7 +393,13 @@ impl MinecraftInstance {
             }
             Flavour::Paper => todo!(),
             Flavour::Spigot => todo!(),
-        }?;
+        }
+        .map_err(|e| {
+            // delete the server.jar if it exists
+            error!("Error downloading server.jar: {}", e);
+            let _ = std::fs::remove_file(config.path.join("server.jar"));
+            e
+        })?;
 
         let _ = event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
@@ -543,53 +549,6 @@ impl MinecraftInstance {
                 }
             }
         });
-
-        // let players_callback = {
-        //     let event_broadcaster = event_broadcaster.clone();
-        //     let uuid = config.uuid.clone();
-        //     let name = config.name.clone();
-        //     move |old_players: &HashSet<String>,
-        //           new_players: &HashSet<String>,
-        //           _cause: &CausedBy| {
-        //         if old_players.len() > new_players.len() {
-        //             let player_diff = old_players.difference(new_players);
-        //             // debug!("[{}] Detected player joined: {}", name, player_diff.last().unwrap());
-        //             let _ = event_broadcaster.send(Event {
-        //                 event_inner: EventInner::InstanceEvent(InstanceEvent {
-        //                     instance_uuid: uuid.clone(),
-        //                     instance_name: name.clone(),
-        //                     instance_event_inner: InstanceEventInner::PlayerChange {
-        //                         player_list: new_players.clone(),
-        //                         players_joined: player_diff.map(|s| s.to_owned()).collect(),
-        //                         players_left: HashSet::new(),
-        //                     },
-        //                 }),
-        //                 details: "".to_string(),
-        //                 snowflake: Snowflake::default(),
-        //                 caused_by: CausedBy::Unknown,
-        //             });
-        //         } else if old_players.len() < new_players.len() {
-        //             let player_diff = new_players.difference(old_players);
-        //             // debug!("[{}] Detected player left: {}", name, player_diff);
-        //             let _ = event_broadcaster.send(Event {
-        //                 event_inner: EventInner::InstanceEvent(InstanceEvent {
-        //                     instance_uuid: uuid.clone(),
-        //                     instance_name: name.clone(),
-        //                     instance_event_inner: InstanceEventInner::PlayerChange {
-        //                         player_list: new_players.clone(),
-        //                         players_joined: HashSet::new(),
-        //                         players_left: player_diff.map(|s| s.to_owned()).collect(),
-        //                     },
-        //                 }),
-        //                 details: "".to_string(),
-        //                 snowflake: Snowflake::default(),
-        //                 caused_by: CausedBy::Unknown,
-        //             });
-        //         }
-        //         Ok(())
-        //     }
-        // };
-
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
