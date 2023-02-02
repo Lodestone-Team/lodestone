@@ -32,8 +32,6 @@ use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use tracing::{debug, error, info, warn};
-
 use serde_json::Value;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
@@ -59,7 +57,11 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing_subscriber::fmt::time::LocalTime;
+use tracing::{debug, error, info, warn};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{
+    fmt::time::LocalTime, prelude::__tracing_subscriber_SubscriberExt, EnvFilter,
+};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::InstanceUuid;
 use util::list_dir;
@@ -149,42 +151,104 @@ async fn restore_instances(
     ret
 }
 
-fn setup_tracing() {
+fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     let timer = LocalTime::new(format_description!(
         "[year]-[month]-[day]T[hour]:[minute]:[second]"
     ));
+
+    let file_appender = tracing_appender::rolling::hourly(
+        LODESTONE_PATH.with(|v| v.join("log")),
+        "lodestone_core.log",
+    );
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // set up a subscriber that logs formatted tracing events to stdout without colors without setting it as the default
+
     #[cfg(debug_assertions)]
-    tracing_subscriber::fmt()
-        // Use a more compact, abbreviated log format
-        .compact()
-        // display minimal time stamps
-        .with_timer(timer)
-        // Display source code file paths
-        .with_file(true)
-        // Display source code line numbers
-        .with_line_number(true)
-        // Display the thread ID an event was recorded on
-        .with_thread_ids(false)
-        // Don't display the event's target (module path)
-        .with_target(false)
-        .with_max_level(tracing::Level::DEBUG)
-        .with_env_filter("lodestone_core=debug")
-        // Build the subscriber
-        .init();
+    {
+        let fmt_layer_stdout = tracing_subscriber::fmt::layer()
+            // Use a more compact, abbreviated log format
+            .compact()
+            // display minimal time stamps
+            .with_timer(timer.clone())
+            // Display source code file paths
+            .with_file(true)
+            // Display source code line numbers
+            .with_line_number(true)
+            // Display the thread ID an event was recorded on
+            .with_thread_ids(false)
+            // Don't display the event's target (module path)
+            .with_target(false)
+            .with_writer(std::io::stdout);
+
+        let fmt_layer_file = tracing_subscriber::fmt::layer()
+            // Use a more compact, abbreviated log format
+            .compact()
+            // display minimal time stamps
+            .with_timer(timer)
+            // Display source code file paths
+            .with_file(true)
+            // Display source code line numbers
+            .with_line_number(true)
+            // Display the thread ID an event was recorded on
+            .with_thread_ids(false)
+            // Don't display the event's target (module path)
+            .with_target(false)
+            .with_ansi(false)
+            .with_writer(non_blocking);
+        let filter_layer = EnvFilter::from("lodestone_core=debug");
+
+        tracing_subscriber::registry()
+            // .with(ErrorLayer::default())
+            .with(fmt_layer_stdout)
+            .with(fmt_layer_file)
+            .with(filter_layer)
+            .init();
+    }
+
     #[cfg(not(debug_assertions))]
-    tracing_subscriber::fmt()
-        // Use a more compact, abbreviated log format
-        .compact()
-        // display minimal time stamps
-        .with_timer(timer)
-        // Display the thread ID an event was recorded on
-        .with_thread_ids(false)
-        // Don't display the event's target (module path)
-        .with_target(false)
-        .with_max_level(tracing::Level::INFO)
-        .with_env_filter("lodestone_core=info")
-        // Build the subscriber
-        .init();
+    {
+        let fmt_layer_stdout = tracing_subscriber::fmt::layer()
+            // Use a more compact, abbreviated log format
+            .compact()
+            // display minimal time stamps
+            .with_timer(timer.clone())
+            // Display source code file paths
+            .with_file(false)
+            // Display source code line numbers
+            .with_line_number(false)
+            // Display the thread ID an event was recorded on
+            .with_thread_ids(false)
+            // Don't display the event's target (module path)
+            .with_target(false)
+            .with_writer(std::io::stdout);
+
+        let fmt_layer_file = tracing_subscriber::fmt::layer()
+            // Use a more compact, abbreviated log format
+            .compact()
+            // display minimal time stamps
+            .with_timer(timer)
+            // Display source code file paths
+            .with_file(false)
+            // Display source code line numbers
+            .with_line_number(false)
+            // Display the thread ID an event was recorded on
+            .with_thread_ids(false)
+            // Don't display the event's target (module path)
+            .with_target(false)
+            .with_ansi(false)
+            .with_writer(non_blocking);
+        let filter_layer = EnvFilter::from("lodestone_core=info");
+
+        tracing_subscriber::registry()
+            // .with(ErrorLayer::default())
+            .with(fmt_layer_stdout)
+            .with(fmt_layer_file)
+            .with(filter_layer)
+            .init();
+    }
+
+    _guard
 }
 
 async fn download_dependencies() -> Result<(), Error> {
@@ -226,8 +290,12 @@ async fn download_dependencies() -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn run() -> (impl Future<Output = ()>, AppState) {
-    setup_tracing();
+pub async fn run() -> (
+    impl Future<Output = ()>,
+    AppState,
+    tracing_appender::non_blocking::WorkerGuard,
+) {
+    let guard = setup_tracing();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
     create_dir_all(&lodestone_path).await.unwrap();
     std::env::set_current_dir(&lodestone_path).expect("Failed to set current dir");
@@ -457,5 +525,6 @@ pub async fn run() -> (impl Future<Output = ()>, AppState) {
             }
         },
         shared_state,
+        guard,
     )
 }
