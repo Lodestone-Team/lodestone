@@ -7,7 +7,7 @@ use crate::{
 use color_eyre::eyre::Context;
 use sqlx::sqlite::SqlitePool;
 use tokio::sync::broadcast::{error::RecvError, Receiver};
-use tracing::{info, warn};
+use tracing::{error, warn};
 
 use super::types::ClientEventRow;
 
@@ -37,21 +37,13 @@ pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_
 
         let client_event: ClientEvent = result.unwrap().into();
         if let EventInner::ProgressionEvent(pe) = &client_event.event_inner {
-            if let ProgressionEventInner::ProgressionUpdate {
-                progress_message, ..
-            } = &pe.progression_event_inner
-            {
-                info!("Update event: {}", progress_message);
-                info!("Skipped storage...");
+            if let ProgressionEventInner::ProgressionUpdate { .. } = &pe.progression_event_inner {
                 continue;
             }
         }
         let insertion_result = write_client_event(&sqlite_pool, client_event).await;
-        if insertion_result.is_err() {
-            warn!(
-                "Error inserting into database: {}",
-                insertion_result.err().unwrap()
-            );
+        if let Err(e) = insertion_result.as_ref() {
+            error!("Error inserting into database: {}", e);
             break;
         }
     }
