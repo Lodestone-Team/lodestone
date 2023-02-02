@@ -5,7 +5,7 @@ pub mod player;
 mod players_manager;
 pub mod resource;
 pub mod server;
-mod util;
+pub mod util;
 pub mod versions;
 
 use color_eyre::eyre::{eyre, Context};
@@ -40,7 +40,7 @@ use crate::types::{InstanceUuid, Snowflake};
 use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
 
 use self::players_manager::PlayersManager;
-use self::util::{get_fabric_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
+use self::util::{get_fabric_jar_url, get_paper_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
 
 #[derive(Debug, Clone, Copy, TS, Serialize, Deserialize)]
 #[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
@@ -76,6 +76,7 @@ pub struct SetupConfig {
     pub description: Option<String>,
     pub fabric_loader_version: Option<String>,
     pub fabric_installer_version: Option<String>,
+    pub paper_build_version: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
@@ -93,7 +94,7 @@ pub struct RestoreConfig {
     pub version: String,
     pub fabric_loader_version: Option<String>,
     pub fabric_installer_version: Option<String>,
-    // TODO: add paper support
+    pub paper_build_version: Option<String>,
     pub flavour: Flavour,
     pub description: String,
     pub cmd_args: Vec<String>,
@@ -159,6 +160,7 @@ impl MinecraftInstance {
         let path_to_properties = config.path.join("server.properties");
         let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
 
+        // Step 1: Create Directories
         let _ = event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id,
@@ -187,6 +189,7 @@ impl MinecraftInstance {
                 e
             })?;
 
+        // Step 2: Download JRE
         let (url, jre_major_version) = get_jre_url(config.version.as_str())
             .await
             .ok_or(eyre!("Could not find a JRE for version {}", config.version))?;
@@ -266,135 +269,89 @@ impl MinecraftInstance {
                 caused_by: CausedBy::Unknown,
             });
         }
-        match config.flavour {
-            Flavour::Vanilla => {
-                download_file(
-                    get_vanilla_jar_url(config.version.as_str())
-                        .await
-                        .ok_or_else({
-                            || {
-                                eyre!(
-                                    "Could not find a vanilla server.jar for version {}",
-                                    config.version
-                                )
-                            }
-                        })?
-                        .as_str(),
-                    &config.path,
-                    Some("server.jar"),
-                    {
-                        let event_broadcaster = event_broadcaster.clone();
-                        let progression_event_id = progression_event_id;
-                        &move |dl| {
-                            if let Some(total) = dl.total {
-                                let _ = event_broadcaster.send(Event {
-                                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id,
-                                        progression_event_inner:
-                                            ProgressionEventInner::ProgressionUpdate {
-                                                progress: (dl.step as f64 / total as f64) * 5.0,
-                                                progress_message: format!(
-                                                    "3/4: Downloading vanilla server.jar {}",
-                                                    format_byte_download(dl.downloaded, total)
-                                                ),
-                                            },
-                                    }),
-                                    details: "".to_string(),
-                                    snowflake: Snowflake::default(),
-                                    caused_by: CausedBy::Unknown,
-                                });
-                            } else {
-                                let _ = event_broadcaster.send(Event {
-                                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id,
-                                        progression_event_inner:
-                                            ProgressionEventInner::ProgressionUpdate {
-                                                progress: 0.0,
-                                                progress_message: format!(
-                                                    "3/4: Downloading vanilla server.jar {:.1} MB",
-                                                    format_byte(dl.downloaded),
-                                                ),
-                                            },
-                                    }),
-                                    details: "".to_string(),
-                                    snowflake: Snowflake::default(),
-                                    caused_by: CausedBy::Unknown,
-                                });
-                            }
-                        }
-                    },
-                    true,
-                )
-                .await
-            }
-            Flavour::Fabric => {
-                download_file(
-                    get_fabric_jar_url(
-                        &config.version,
-                        config.fabric_installer_version.as_deref(),
-                        config.fabric_loader_version.as_deref(),
-                    )
-                    .await
-                    .ok_or_else({
-                        || {
-                            eyre!(
-                                "Could not find a Fabric server.jar for version {}",
-                                config.version
-                            )
-                        }
-                    })?
-                    .as_str(),
-                    &config.path,
-                    Some("server.jar"),
-                    {
-                        let event_broadcaster = event_broadcaster.clone();
-                        let progression_event_id = progression_event_id;
-                        &move |dl| {
-                            if let Some(total) = dl.total {
-                                let _ = event_broadcaster.send(Event {
-                                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id,
-                                        progression_event_inner:
-                                            ProgressionEventInner::ProgressionUpdate {
-                                                progress: (dl.step as f64 / total as f64) * 5.0,
-                                                progress_message: format!(
-                                                    "3/4: Downloading Fabric server.jar {}",
-                                                    format_byte_download(dl.downloaded, total),
-                                                ),
-                                            },
-                                    }),
-                                    details: "".to_string(),
-                                    snowflake: Snowflake::default(),
-                                    caused_by: CausedBy::Unknown,
-                                });
-                            } else {
-                                let _ = event_broadcaster.send(Event {
-                                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                        event_id: progression_event_id,
-                                        progression_event_inner:
-                                            ProgressionEventInner::ProgressionUpdate {
-                                                progress: 0.0,
-                                                progress_message: format!(
-                                                    "3/4: Downloading Fabric server.jar {}",
-                                                    format_byte(dl.downloaded),
-                                                ),
-                                            },
-                                    }),
-                                    details: "".to_string(),
-                                    snowflake: Snowflake::default(),
-                                    caused_by: CausedBy::Unknown,
-                                });
-                            }
-                        }
-                    },
-                    true,
-                )
-                .await
-            }
-            Flavour::Paper => todo!(),
-            Flavour::Spigot => todo!(),
-        }?;
+        
+        // Step 3: Download server.jar
+        let jar_url = match config.flavour {
+            Flavour::Vanilla =>
+                get_vanilla_jar_url(config.version.as_str()).await,
+            Flavour::Fabric =>
+                get_fabric_jar_url(
+                    &config.version,
+                    config.fabric_installer_version.as_deref(),
+                    config.fabric_loader_version.as_deref(),
+                ).await,
+            Flavour::Paper =>
+                get_paper_jar_url(
+                    config.version.as_str(),
+                    config.paper_build_version.as_deref(),
+                ).await,
+            Flavour::Spigot =>
+                todo!(),
+        };
+        let flavour_name = config.flavour.to_string();
 
+        download_file(
+            jar_url
+                .ok_or_else({
+                    || {
+                        eyre!(
+                            "Could not find a {} server.jar for version {}",
+                            flavour_name,
+                            config.version
+                        )
+                    }
+                })?
+                .as_str(),
+            &config.path,
+            Some("server.jar"),
+            {
+                let event_broadcaster = event_broadcaster.clone();
+                let progression_event_id = progression_event_id;
+                &move |dl| {
+                    if let Some(total) = dl.total {
+                        let _ = event_broadcaster.send(Event {
+                            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                                event_id: progression_event_id,
+                                progression_event_inner:
+                                    ProgressionEventInner::ProgressionUpdate {
+                                        progress: (dl.step as f64 / total as f64) * 5.0,
+                                        progress_message: format!(
+                                            "3/4: Downloading {} server.jar {}",
+                                            flavour_name,
+                                            format_byte_download(dl.downloaded, total),
+                                        ),
+                                    },
+                            }),
+                            details: "".to_string(),
+                            snowflake: Snowflake::default(),
+                            caused_by: CausedBy::Unknown,
+                        });
+                    } else {
+                        let _ = event_broadcaster.send(Event {
+                            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                                event_id: progression_event_id,
+                                progression_event_inner:
+                                    ProgressionEventInner::ProgressionUpdate {
+                                        progress: 0.0,
+                                        progress_message: format!(
+                                            "3/4: Downloading {} server.jar {}",
+                                            flavour_name,
+                                            format_byte(dl.downloaded),
+                                        ),
+                                    },
+                            }),
+                            details: "".to_string(),
+                            snowflake: Snowflake::default(),
+                            caused_by: CausedBy::Unknown,
+                        });
+                    }
+                }
+            },
+            true,
+        )
+        .await?;
+
+        // Step 4: Finishing Up
         let _ = event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id,
@@ -415,6 +372,7 @@ impl MinecraftInstance {
             version: config.version,
             fabric_loader_version: config.fabric_loader_version,
             fabric_installer_version: config.fabric_installer_version,
+            paper_build_version: config.paper_build_version,
             flavour: config.flavour,
             description: config.description.unwrap_or_default(),
             cmd_args: config.cmd_args.unwrap_or_default(),

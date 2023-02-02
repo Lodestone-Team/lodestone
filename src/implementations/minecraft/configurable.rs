@@ -12,7 +12,7 @@ use crate::traits::t_server::State;
 use crate::types::InstanceUuid;
 use crate::util::download_file;
 
-use super::util::{get_fabric_jar_url, get_vanilla_jar_url};
+use super::util::{get_fabric_jar_url, get_vanilla_jar_url, get_paper_jar_url};
 use super::{BackupInstruction, MinecraftInstance};
 
 #[async_trait]
@@ -195,7 +195,14 @@ impl TConfigurable for MinecraftInstance {
                     source: eyre!(error_msg),
                 }
             })?,
-            super::Flavour::Paper => todo!(),
+            super::Flavour::Paper => get_paper_jar_url(&version, None).await.ok_or({
+                let error_msg =
+                    format!("Cannot get the paper jar version for version {}", version);
+                Error {
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!(error_msg),
+                }
+            })?,
             super::Flavour::Spigot => todo!(),
         };
         let temp_dir = TempDir::new("lodestone")

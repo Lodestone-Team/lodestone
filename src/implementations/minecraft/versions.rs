@@ -100,3 +100,48 @@ pub async fn get_fabric_versions() -> Result<MinecraftVersions, Error> {
 
     Ok(ret)
 }
+
+pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
+    let http = reqwest::Client::new();
+    
+    let response: Value = serde_json::from_str(
+        http.get("https://api.papermc.io/v2/projects/paper")
+            .send()
+            .await
+            .context("Failed to get paper versions")?
+            .text()
+            .await
+            .context("Failed to get paper versions")?
+            .as_str(),
+    )
+    .context("Failed to get paper versions")?;
+
+    let vanilla_versions = get_vanilla_versions().await?;
+    let mut ret = MinecraftVersions {
+        release: Vec::new(),
+        snapshot: Vec::new(),
+        old_alpha: Vec::new(),
+    };
+    for item in response["versions"]
+        .as_array()
+        .ok_or_else(|| eyre!("Failed to get paper versions. Game array is not an array"))?
+    {
+        let version_str = item
+            .as_str()
+            .ok_or_else(|| eyre!("Failed to get paper versions. Game array is not an array"))?;
+        if vanilla_versions.release.contains(&version_str.to_string()) {
+            ret.release.push(version_str.to_string());
+        }
+        if vanilla_versions.snapshot.contains(&version_str.to_string()) {
+            ret.snapshot.push(version_str.to_string());
+        }
+        if vanilla_versions
+            .old_alpha
+            .contains(&version_str.to_string())
+        {
+            ret.old_alpha.push(version_str.to_string());
+        }
+    }
+
+    Ok(ret)
+}
