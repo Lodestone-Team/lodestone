@@ -1,7 +1,9 @@
+use color_eyre::eyre::eyre;
+
 use crate::{
     auth::{jwt_token::JwtToken, permission::UserPermission, user::User},
+    error::{Error, ErrorKind},
     events::CausedBy,
-    traits::{Error, ErrorInner},
     AppState,
 };
 
@@ -33,8 +35,8 @@ pub async fn setup_owner_account(
 ) -> Result<(), Error> {
     if is_owner_account_present(app_state).await {
         return Err(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Owner account already exists.".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Owner account already present"),
         });
     }
     let user = User::new(username, password, true, false, UserPermission::default());

@@ -8,6 +8,7 @@ pub mod server;
 mod util;
 pub mod versions;
 
+use color_eyre::eyre::{eyre, Context};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -27,13 +28,14 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::{self};
 use ts_rs::TS;
 
+use crate::error::Error;
 use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_server::State;
-use crate::traits::{Error, ErrorInner, TInstance};
+use crate::traits::TInstance;
 use crate::types::{InstanceUuid, Snowflake};
 use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
 
@@ -179,32 +181,15 @@ impl MinecraftInstance {
             .and(
                 tokio::fs::write(&path_to_properties, format!("server-port={}", config.port)).await,
             )
+            .context("Could not create some files or directories for instance")
             .map_err(|e| {
-                let error = format!("IO Error: {}", e);
-                error!("{}", error);
-                Error {
-                    inner: ErrorInner::IOError,
-                    detail: error,
-                }
+                error!("{e}");
+                e
             })?;
 
-        let (url, jre_major_version) = get_jre_url(config.version.as_str()).await.ok_or({
-            // let _ = event_broadcaster.send(Event {
-            //     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-            //         event_id: progression_event_id.clone(),
-            //         progression_event_inner: ProgressionEventInner::ProgressionEnd {
-            //             success: false,
-            //             message: Some("Could not find a JRE for the specified version".to_string()),
-            //         },
-            //     }),
-            //     details: "".to_string(),
-            //     snowflake: Snowflake::default(),
-            // });
-            Error {
-                inner: ErrorInner::VersionNotFound,
-                detail: format!("Cannot get the jre version for version {}", config.version),
-            }
-        })?;
+        let (url, jre_major_version) = get_jre_url(config.version.as_str())
+            .await
+            .ok_or(eyre!("Could not find a JRE for version {}", config.version))?;
         if !path_to_runtimes
             .join("java")
             .join(format!("jre{}", jre_major_version))
@@ -247,21 +232,17 @@ impl MinecraftInstance {
             let unzipped_content =
                 unzip_file(&downloaded, &path_to_runtimes.join("java"), true).await?;
             if unzipped_content.len() != 1 {
-                return Err(Error {
-                    inner: ErrorInner::APIChanged,
-                    detail: format!(
-                        "Unzipped content has {} entries, expected 1. Please report this issue.",
-                        unzipped_content.len()
-                    ),
-                });
+                return Err(eyre!(
+                    "Expected only one file in the JRE archive, got {}",
+                    unzipped_content.len()
+                )
+                .into());
             }
 
-            tokio::fs::remove_file(&downloaded)
-                .await
-                .map_err(|_| Error {
-                    inner: ErrorInner::FailedToRemoveFileOrDir,
-                    detail: format!("failed to delete {}", &downloaded.display()),
-                })?;
+            tokio::fs::remove_file(&downloaded).await.context(format!(
+                "Could not remove downloaded JRE file {}",
+                downloaded.display()
+            ))?;
 
             tokio::fs::rename(
                 unzipped_content.iter().last().unwrap(),
@@ -290,14 +271,12 @@ impl MinecraftInstance {
                 download_file(
                     get_vanilla_jar_url(config.version.as_str())
                         .await
-                        .ok_or({
-                            let error_msg = format!(
-                                "Cannot get the vanilla jar version for version {}",
-                                config.version
-                            );
-                            Error {
-                                inner: ErrorInner::VersionNotFound,
-                                detail: error_msg,
+                        .ok_or_else({
+                            || {
+                                eyre!(
+                                    "Could not find a vanilla server.jar for version {}",
+                                    config.version
+                                )
                             }
                         })?
                         .as_str(),
@@ -356,14 +335,12 @@ impl MinecraftInstance {
                         config.fabric_loader_version.as_deref(),
                     )
                     .await
-                    .ok_or({
-                        let error_msg = format!(
-                            "Cannot get the fabric jar version for version {}",
-                            config.version
-                        );
-                        Error {
-                            inner: ErrorInner::VersionNotFound,
-                            detail: error_msg,
+                    .ok_or_else({
+                        || {
+                            eyre!(
+                                "Could not find a Fabric server.jar for version {}",
+                                config.version
+                            )
                         }
                     })?
                     .as_str(),
@@ -455,16 +432,15 @@ impl MinecraftInstance {
         // create config file
         tokio::fs::write(
             &path_to_config,
-            to_string_pretty(&restore_config).map_err(|_| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: "config json malformed".to_string(),
-            })?,
+            to_string_pretty(&restore_config).context(
+                "Failed to serialize config to string. This is a bug, please report it.",
+            )?,
         )
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!("failed to write to config {}", &path_to_config.display()),
-        })?;
+        .context(format!(
+            "Failed to write config file at {}",
+            &path_to_config.display()
+        ))?;
         Ok(MinecraftInstance::restore(restore_config, event_broadcaster, macro_executor).await)
     }
 
@@ -649,28 +625,19 @@ impl MinecraftInstance {
     async fn write_config_to_file(&self) -> Result<(), Error> {
         tokio::fs::write(
             &self.path_to_config,
-            to_string_pretty(&self.config).map_err(|_| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: "config json malformed".to_string(),
-            })?,
+            to_string_pretty(&self.config)
+                .context("Failed to serialize config to string, this is a bug, please report it")?,
         )
         .await
-        .map_err(|_| Error {
-            inner: ErrorInner::FailedToWriteFileOrDir,
-            detail: format!(
-                "failed to write to config {}",
-                &self.path_to_config.display()
-            ),
-        })
+        .context(format!(
+            "Failed to write config to file at {}",
+            &self.path_to_config.display()
+        ))?;
+        Ok(())
     }
 
     async fn read_properties(&mut self) -> Result<(), Error> {
-        *self.settings.lock().await = read_properties_from_path(&self.path_to_properties)
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToReadFileOrDir,
-                detail: "".to_string(),
-            })?;
+        *self.settings.lock().await = read_properties_from_path(&self.path_to_properties).await?;
         Ok(())
     }
 
@@ -678,10 +645,10 @@ impl MinecraftInstance {
         // open the file in write-only mode, returns `io::Result<File>`
         let mut file = tokio::fs::File::create(&self.path_to_properties)
             .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToWriteFileOrDir,
-                detail: "failed to open properties file".to_string(),
-            })?;
+            .context(format!(
+                "Failed to open properties file at {}",
+                &self.path_to_properties.display()
+            ))?;
         let mut setting_str = "".to_string();
         for (key, value) in self.settings.lock().await.iter() {
             // print the key and value separated by a =
@@ -690,10 +657,10 @@ impl MinecraftInstance {
         }
         file.write_all(setting_str.as_bytes())
             .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToWriteFileOrDir,
-                detail: "Failed to write to properties file".to_string(),
-            })?;
+            .context(format!(
+                "Failed to write properties to file at {}",
+                &self.path_to_properties.display()
+            ))?;
         Ok(())
     }
 
@@ -704,16 +671,12 @@ impl MinecraftInstance {
             .lock()
             .await
             .as_mut()
-            .ok_or_else(|| Error {
-                inner: ErrorInner::RconNotOpen,
-                detail: "Rcon not open".to_string(),
+            .ok_or_else(|| {
+                eyre!("Failed to send rcon command, rcon connection is not initialized")
             })?
             .cmd(cmd)
             .await
-            .map_err(|_| Error {
-                inner: ErrorInner::RconError,
-                detail: "Rcon error".to_string(),
-            })?;
+            .context("Failed to send rcon command")?;
         Ok(a)
     }
 }

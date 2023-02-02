@@ -1,7 +1,9 @@
 use axum::{extract::Path, routing::get, Json, Router};
+use color_eyre::eyre::eyre;
 
 use crate::{
-    traits::{t_manifest::Manifest, t_manifest::TManifest, Error, ErrorInner},
+    error::{Error, ErrorKind},
+    traits::{t_manifest::Manifest, t_manifest::TManifest},
     types::InstanceUuid,
     AppState,
 };
@@ -16,9 +18,9 @@ pub async fn get_instance_manifest(
             .lock()
             .await
             .get(&uuid)
-            .ok_or(Error {
-                inner: ErrorInner::InstanceNotFound,
-                detail: "".to_string(),
+            .ok_or_else(|| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Instance not found"),
             })?
             .get_manifest()
             .await,

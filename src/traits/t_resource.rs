@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use color_eyre::eyre::eyre;
 use serde::Serialize;
 use serde_json;
 
@@ -20,7 +21,10 @@ where
     runtime: Vec<T>,
 }
 
-use crate::traits::GameInstance;
+use crate::{
+    error::{Error, ErrorKind},
+    traits::GameInstance,
+};
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TResourceManagement {
@@ -31,33 +35,33 @@ pub trait TResourceManagement {
         vec![]
     }
 
-    async fn load(&mut self, _resource: &str) -> Result<(), super::Error>
+    async fn load(&mut self, _resource: &str) -> Result<(), Error>
     where
         Self: Sized,
     {
-        Err(super::Error {
-            inner: super::ErrorInner::UnsupportedOperation,
-            detail: "This instance does not support loading resources".to_string(),
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support loading resources"),
         })
     }
 
-    async fn unload(&mut self, _resource: &str) -> Result<(), super::Error>
+    async fn unload(&mut self, _resource: &str) -> Result<(), Error>
     where
         Self: Sized,
     {
-        Err(super::Error {
-            inner: super::ErrorInner::UnsupportedOperation,
-            detail: "This instance does not support unloading resources".to_string(),
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support unloading resources"),
         })
     }
 
-    async fn delete(&mut self, _resource: &str) -> Result<(), super::Error>
+    async fn delete(&mut self, _resource: &str) -> Result<(), Error>
     where
         Self: Sized,
     {
-        Err(super::Error {
-            inner: super::ErrorInner::UnsupportedOperation,
-            detail: "This instance does not support deleting resources".to_string(),
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support deleting resources"),
         })
     }
 }

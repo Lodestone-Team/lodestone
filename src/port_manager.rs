@@ -1,8 +1,9 @@
 use std::{collections::HashSet, net::SocketAddrV4};
 
+use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::{traits::ErrorInner, Error};
+use crate::error::Error;
 
 pub struct PortManager {
     allocated_ports: HashSet<u32>,
@@ -61,29 +62,18 @@ impl PortManager {
                 };
 
                 igd::search_gateway(Default::default())
-                    .map_err(|_| Error {
-                        inner: ErrorInner::GatewayError,
-                        detail: "Could not find gateway".to_string(),
-                    })
-                    .and_then(|gateway| {
-                        gateway
-                            .add_port(
-                                igd::PortMappingProtocol::TCP,
-                                port,
-                                local_ip,
-                                0,
-                                "Port opened by Lodestone",
-                            )
-                            .map_err(|_| Error {
-                                inner: ErrorInner::GatewayError,
-                                detail: "Could not open port".to_string(),
-                            })
-                    })
+                    .context("Could not find gateway")?
+                    .add_port(
+                        igd::PortMappingProtocol::TCP,
+                        port,
+                        local_ip,
+                        0,
+                        "Port opened by Lodestone",
+                    )
+                    .context("Could not open port")?;
+                Ok(())
             } else {
-                Err(Error {
-                    inner: ErrorInner::InternalError,
-                    detail: "Could not find local ip".to_string(),
-                })
+                Err(eyre!("Could not find local ip address").into())
             }
         })
         .await

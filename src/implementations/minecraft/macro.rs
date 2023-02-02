@@ -1,15 +1,17 @@
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use async_trait::async_trait;
+use color_eyre::eyre::{eyre, Context};
 use deno_core::{
     anyhow::{self},
     op, OpState,
 };
 
 use crate::{
+    error::{Error, ErrorKind},
     events::{CausedBy, EventInner},
     macro_executor::{self, ExecutionInstruction},
-    traits::{t_macro::TMacro, t_server::TServer, Error, ErrorInner},
+    traits::{t_macro::TMacro, t_server::TServer},
     util::list_dir,
 };
 
@@ -145,8 +147,8 @@ impl MinecraftInstance {
                     is_in_game,
                 )
                 .ok_or_else(|| Error {
-                    inner: ErrorInner::MacroNotFound,
-                    detail: "Macro not found".to_string(),
+                    kind: ErrorKind::NotFound,
+                    source: eyre!("Macro not found"),
                 })?;
 
                 let bootstrap_options = deno_runtime::BootstrapOptions {
@@ -177,10 +179,10 @@ impl MinecraftInstance {
                 worker_options.extensions.push(ext);
                 worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader);
                 let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
-                    .map_err(|_| Error {
-                    inner: ErrorInner::MacroNotFound,
-                    detail: "Deno failed to resolve main module".to_string(),
-                })?;
+                    .context(format!(
+                    "Failed to resolve path to main module: {}",
+                    path_to_main_module.to_string_lossy()
+                ))?;
                 // todo(CheatCod3) : limit the permissions
                 let permissions = deno_runtime::permissions::Permissions::allow_all();
                 let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
@@ -215,35 +217,19 @@ impl TMacro for MinecraftInstance {
             .collect()
     }
 
-    async fn delete_macro(&mut self, name: &str) -> Result<(), crate::traits::Error> {
-        tokio::fs::remove_file(self.path_to_macros.join(name))
-            .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToRemoveFileOrDir,
-                detail: format!("Failed to delete macro {}, {}", name, e),
-            })?;
+    async fn delete_macro(&mut self, name: &str) -> Result<(), Error> {
+        crate::util::fs::remove_file(self.path_to_macros.join(name)).await?;
         Ok(())
     }
 
-    async fn create_macro(
-        &mut self,
-        name: &str,
-        content: &str,
-    ) -> Result<(), crate::traits::Error> {
+    async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), Error> {
         // if macro already exists, return error
         if self.get_macro_list().await.contains(&name.to_string()) {
-            return Err(Error {
-                inner: ErrorInner::FiledOrDirAlreadyExists,
-                detail: format!("Macro {} already exists", name),
-            });
+            return Err(eyre!("Macro {} already exists", name).into());
         }
-        tokio::fs::write(self.path_to_macros.join(name), content)
+
+        crate::util::fs::write_all(self.path_to_macros.join(name), content.as_bytes().to_vec())
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToUpload,
-                detail: format!("Failed to create macro {}, {}", name, e),
-            })?;
-        Ok(())
     }
 
     async fn run_macro(
@@ -252,7 +238,7 @@ impl TMacro for MinecraftInstance {
         args: Vec<String>,
         executor: Option<&str>,
         is_in_game: bool,
-    ) -> Result<(), crate::traits::Error> {
+    ) -> Result<(), Error> {
         let exec_instruction = ExecutionInstruction {
             name: name.to_string(),
             args,

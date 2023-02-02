@@ -1,10 +1,10 @@
 use crate::{
+    error::Error,
     events::{Event, EventInner, ProgressionEventInner},
     output_types::ClientEvent,
-    traits::ErrorInner,
-    Error,
 };
 
+use color_eyre::eyre::Context;
 use sqlx::sqlite::SqlitePool;
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tracing::{info, warn};
@@ -58,10 +58,10 @@ pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_
 }
 
 async fn write_client_event(pool: &SqlitePool, client_event: ClientEvent) -> Result<i64, Error> {
-    let mut connection = pool.acquire().await.map_err(|err| Error {
-        inner: ErrorInner::DBPoolError,
-        detail: format!("Failed to acquire connection: {}", err),
-    })?;
+    let mut connection = pool
+        .acquire()
+        .await
+        .context("Failed to aquire db connection")?;
 
     let row = ClientEventRow::from(&client_event);
     let id = sqlx::query!(
@@ -80,19 +80,16 @@ VALUES
     )
     .execute(&mut connection)
     .await
-    .map_err(|err| Error {
-        inner: ErrorInner::DBWriteError,
-        detail: format!("Failed to write to DB: {}", err),
-    })?
+    .context("Failed to write to DB")?
     .last_insert_rowid();
     Ok(id)
 }
 
 pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
-    let mut connection = pool.acquire().await.map_err(|err| Error {
-        inner: ErrorInner::DBPoolError,
-        detail: format!("Failed to acquire connection: {}", err),
-    })?;
+    let mut connection = pool
+        .acquire()
+        .await
+        .context("Failed to aquire db connection")?;
 
     sqlx::query!(
         r#"
@@ -109,10 +106,8 @@ pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
     )
     .execute(&mut connection)
     .await
-    .map_err(|err| Error {
-        inner: ErrorInner::DBInitError,
-        detail: format!("Failed to init table: {}", err),
-    })?;
+    .context("Failed to create table")?;
+
     Ok(())
 }
 

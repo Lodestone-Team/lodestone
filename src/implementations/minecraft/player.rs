@@ -1,9 +1,9 @@
 use async_trait::async_trait;
+use color_eyre::eyre::Context;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::traits::t_player::{TPlayer, TPlayerManagement};
-use crate::traits::ErrorInner;
 use crate::traits::{t_configurable::TConfigurable, t_player::Player};
 use crate::Error;
 
@@ -57,14 +57,12 @@ impl TPlayerManagement for MinecraftInstance {
     }
 
     async fn get_max_player_count(&self) -> Result<u32, Error> {
-        self.get_field("max-players")
+        Ok(self
+            .get_field("max-players")
             .await
             .unwrap_or_else(|_| "20".to_string())
             .parse()
-            .map_err(|_| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: "Invalid value for max-players".to_string(),
-            })
+            .context("Failed to parse max player count from server.properties")?)
     }
 
     async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {

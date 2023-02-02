@@ -3,8 +3,9 @@ use axum::{
     Json, Router,
 };
 use axum_auth::AuthBearer;
+use color_eyre::eyre::eyre;
 
-use crate::{traits::ErrorInner, AppState, Error, GlobalSettingsData};
+use crate::{error::ErrorKind, AppState, Error, GlobalSettingsData};
 
 pub async fn get_core_settings(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -16,8 +17,8 @@ pub async fn get_core_settings(
         .await
         .try_auth(&token)
         .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
 
     Ok(Json(state.global_settings.lock().await.as_ref().clone()))
@@ -28,31 +29,24 @@ pub async fn change_core_name(
     AuthBearer(token): AuthBearer,
     Json(new_name): Json<String>,
 ) -> Result<(), Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+
     if !requester.is_owner {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to change core name".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Not authorized to change core name"),
         });
     }
     if new_name.len() > 32 {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Name too long".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Name too long"),
         });
     }
     if new_name.is_empty() {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Name too short".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Name cannot be empty"),
         });
     }
     state
@@ -69,19 +63,12 @@ pub async fn change_core_safe_mode(
     AuthBearer(token): AuthBearer,
     Json(safe_mode): Json<bool>,
 ) -> Result<(), Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+
     if !requester.is_owner {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to change core name".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Not authorized to change core safe mode"),
         });
     }
     state
@@ -98,25 +85,17 @@ pub async fn change_domain(
     AuthBearer(token): AuthBearer,
     Json(new_domain): Json<String>,
 ) -> Result<(), Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     if !requester.is_owner {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to change core domain".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Not authorized to change core domain"),
         });
     }
     if new_domain.len() > 253 {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Domain too long".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Domain too long"),
         });
     }
     state

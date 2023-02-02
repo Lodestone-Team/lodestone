@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use axum_auth::AuthBearer;
+use color_eyre::eyre::{eyre, Context};
 use headers::HeaderMap;
 use reqwest::header::CONTENT_LENGTH;
 use tokio::io::AsyncWriteExt;
@@ -15,11 +16,12 @@ use walkdir::WalkDir;
 
 use crate::{
     auth::user::UserAction,
+    error::{Error, ErrorKind},
     events::{
         new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEvent,
         ProgressionEventInner,
     },
-    traits::{t_configurable::TConfigurable, Error, ErrorInner},
+    traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
     util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file},
     AppState,
@@ -63,45 +65,19 @@ async fn list_instance_files(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<File>>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::ReadInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+
+    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
     let path = scoped_join_win_safe(&root, relative_path)?;
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File not found".to_string(),
-        });
-    }
-    if !path.is_dir() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "Path is not a directory".to_string(),
-        });
-    }
+
     let ret: Vec<File> = list_dir(&path, None)
         .await?
         .iter()
@@ -129,44 +105,19 @@ async fn read_instance_file(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::ReadInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
-    if !path.exists() || !path.is_file() {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a file".to_string(),
-        });
-    }
-    let ret = tokio::fs::read_to_string(&path).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedFile,
-        detail: "Only text file encoded in UTF-8 is supported.".to_string(),
-    })?;
 
+    let ret = crate::util::fs::read_to_string(&path).await?;
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,
@@ -185,29 +136,13 @@ async fn write_instance_file(
     AuthBearer(token): AuthBearer,
     body: Bytes,
 ) -> Result<Json<()>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
@@ -215,20 +150,12 @@ async fn write_instance_file(
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: format!(
-                "File extension {} is protected",
-                path.extension()
-                    .map(|s| s.to_str().unwrap())
-                    .unwrap_or("none")
-            ),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You don't have permission to write to this file"),
         });
     }
     // create the file if it doesn't exist
-    tokio::fs::write(&path, body).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Failed to write file".to_string(),
-    })?;
+    crate::util::fs::write_all(&path, body).await?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -247,38 +174,19 @@ async fn make_instance_directory(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
     // create the file if it doesn't exist
-    tokio::fs::create_dir_all(&path).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Failed to create directory".to_string(),
-    })?;
+    crate::util::fs::create_dir_all(&path).await?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -301,33 +209,14 @@ async fn move_instance_file(
     )>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let relative_path_source = decode_base64(&base64_relative_path_source).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let relative_path_dest = decode_base64(&base64_relative_path_dest).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path_source = decode_base64(&base64_relative_path_source)?;
+    let relative_path_dest = decode_base64(&base64_relative_path_dest)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
@@ -338,16 +227,11 @@ async fn move_instance_file(
         && (is_path_protected(&path_source) || is_path_protected(&path_dest))
     {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to move instance files".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("File extension is protected"),
         });
     }
-    tokio::fs::rename(&path_source, &path_dest)
-        .await
-        .map_err(|e| Error {
-            inner: ErrorInner::FailedToMoveFileOrDir,
-            detail: format!("Failed to move file or directory: {}", e),
-        })?;
+    crate::util::fs::rename(&path_source, &path_dest).await?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -370,29 +254,13 @@ async fn remove_instance_file(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
@@ -400,32 +268,12 @@ async fn remove_instance_file(
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: format!(
-                "File extension {} is protected",
-                path.extension()
-                    .map(|s| s.to_str().unwrap())
-                    .unwrap_or("none")
-            ),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("File extension is protected"),
         });
     }
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "Path does not exist".to_string(),
-        });
-    }
-    if path.is_file() {
-        tokio::fs::remove_file(&path).await.map_err(|_| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Failed to remove file".to_string(),
-        })?;
-    } else {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a file".to_string(),
-        });
-    }
+
+    crate::util::fs::remove_file(&path).await?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -444,95 +292,46 @@ async fn remove_instance_dir(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if path == root {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Cannot delete instance root".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Cannot delete instance root"),
         });
     }
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: format!(
-                "File extension {} is protected",
-                path.extension()
-                    .map(|s| s.to_str().unwrap())
-                    .unwrap_or("none")
-            ),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("File extension is protected"),
         });
     }
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "Path does not exist".to_string(),
-        });
-    }
-    if path.is_dir() {
-        if requester.can_perform_action(&UserAction::WriteGlobalFile) {
-            tokio::fs::remove_dir_all(&path).await.map_err(|_| Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Failed to remove directory".to_string(),
-            })?;
-        } else {
-            // recursively access all files in the directory and check if they are protected
-            for entry in WalkDir::new(path.clone()) {
-                let entry = entry.map_err(|_| Error {
-                    inner: ErrorInner::MalformedRequest,
-                    detail: "Failed to read directory while scanning for protected files"
-                        .to_string(),
-                })?;
-                if entry.file_type().is_file() && is_path_protected(entry.path()) {
-                    return Err(Error {
-                        inner: ErrorInner::PermissionDenied,
-                        detail: format!(
-                            "File extension {} is protected",
-                            entry
-                                .path()
-                                .extension()
-                                .map(|s| s.to_str().unwrap())
-                                .unwrap_or("none")
-                        ),
-                    });
-                }
-            }
-            tokio::fs::remove_dir_all(&path).await.map_err(|_| Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Failed to remove directory".to_string(),
-            })?;
-        }
+
+    if requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        crate::util::fs::remove_dir_all(&path).await?;
     } else {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a directory".to_string(),
-        });
+        // recursively access all files in the directory and check if they are protected
+        for entry in WalkDir::new(path.clone()) {
+            let entry =
+                entry.context("Failed to walk directory while scanning for protected files")?;
+            if entry.file_type().is_file() && is_path_protected(entry.path()) {
+                return Err(Error {
+                    kind: ErrorKind::PermissionDenied,
+                    source: eyre!("File extension is protected"),
+                });
+            }
+        }
+        crate::util::fs::remove_dir_all(&path).await?;
     }
 
     let caused_by = CausedBy::User {
@@ -552,29 +351,13 @@ async fn new_instance_file(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
@@ -582,25 +365,12 @@ async fn new_instance_file(
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: format!(
-                "File extension {} is protected",
-                path.extension()
-                    .map(|s| s.to_str().unwrap())
-                    .unwrap_or("none")
-            ),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("File extension is protected"),
         });
     }
-    if path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FiledOrDirAlreadyExists,
-            detail: "Path already exists".to_string(),
-        });
-    }
-    tokio::fs::File::create(&path).await.map_err(|_| Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Failed to create file".to_string(),
-    })?;
+
+    crate::util::fs::create(&path).await?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -619,45 +389,18 @@ async fn download_instance_file(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
 ) -> Result<String, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::ReadInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
     let path = scoped_join_win_safe(&root, relative_path)?;
-    if !path.exists() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File not found".to_string(),
-        });
-    }
-    if !path.is_file() {
-        return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "Path is not a file".to_string(),
-        });
-    }
+
     let key = rand_alphanumeric(32);
     state
         .download_urls
@@ -686,47 +429,18 @@ async fn upload_instance_file(
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
 ) -> Result<Json<()>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to write instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
     let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
-    if path_to_dir.exists() && !path_to_dir.is_dir() {
-        return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Path is not a directory".to_string(),
-        });
-    }
-    if !path_to_dir.exists() {
-        tokio::fs::create_dir_all(&path_to_dir)
-            .await
-            .map_err(|_| Error {
-                inner: ErrorInner::FailedToCreateFileOrDir,
-                detail: "Failed to create directory".to_string(),
-            })?;
-    }
+    crate::util::fs::create_dir_all(&path_to_dir).await?;
 
     let event_id = Snowflake::default();
     let total = headers
@@ -752,21 +466,16 @@ async fn upload_instance_file(
     });
     while let Ok(Some(mut field)) = multipart.next_field().await {
         let name = field.file_name().ok_or_else(|| Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "No file name".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Missing file name"),
         })?;
         let name = sanitize_filename::sanitize(name);
         let path = scoped_join_win_safe(&path_to_dir, &name)?;
         // if the file has a protected extension, or no extension, deny
         if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
             return Err(Error {
-                inner: ErrorInner::PermissionDenied,
-                detail: format!(
-                    "File extension {} is protected",
-                    path.extension()
-                        .map(|s| s.to_str().unwrap())
-                        .unwrap_or("none")
-                ),
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("File extension is protected"),
             });
         }
         let path = if path.exists() {
@@ -789,10 +498,7 @@ async fn upload_instance_file(
         } else {
             path
         };
-        let mut file = tokio::fs::File::create(&path).await.map_err(|_| Error {
-            inner: ErrorInner::FailedToCreateFileOrDir,
-            detail: "Failed to create file".to_string(),
-        })?;
+        let mut file = crate::util::fs::create(&path).await?;
 
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
@@ -812,10 +518,9 @@ async fn upload_instance_file(
                     user_name: requester.username.clone(),
                 },
             });
-            Error {
-                inner: ErrorInner::MalformedRequest,
-                detail: "Failed to read chunk".to_string(),
-            }
+            Err::<(), axum::extract::multipart::MultipartError>(e)
+                .context("Failed to read chunk")
+                .unwrap_err()
         })? {
             let _ = state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
@@ -851,10 +556,9 @@ async fn upload_instance_file(
                         user_name: requester.username.clone(),
                     },
                 });
-                Error {
-                    inner: ErrorInner::FailedToCreateFileOrDir,
-                    detail: "Failed to write to file".to_string(),
-                }
+                Err::<(), std::io::Error>(e)
+                    .context("Failed to write chunk")
+                    .unwrap_err()
             })?;
         }
 
@@ -896,33 +600,14 @@ pub async fn unzip_instance_file(
     )>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<HashSet<PathBuf>>, Error> {
-    let relative_path = decode_base64(&base64_relative_path).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let relative_path_to_dest = decode_base64(&base64_relative_path_to_dest).ok_or(Error {
-        inner: ErrorInner::MalformedRequest,
-        detail: "Relative path is not valid urlsafe base64".to_string(),
-    })?;
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to write instance files".to_string(),
-        });
-    }
+    let relative_path = decode_base64(&base64_relative_path)?;
+    let relative_path_to_dest = decode_base64(&base64_relative_path_to_dest)?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
     drop(instances);
@@ -930,8 +615,8 @@ pub async fn unzip_instance_file(
     let path_to_dest = scoped_join_win_safe(&root, relative_path_to_dest)?;
     if !path_to_zip_file.is_file() {
         return Err(Error {
-            inner: ErrorInner::FileOrDirNotFound,
-            detail: "File not found".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("File does not exist"),
         });
     }
 
@@ -941,15 +626,15 @@ pub async fn unzip_instance_file(
         .unwrap_or(false)
     {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "File is not a zip file".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("File is not a zip file"),
         });
     }
 
     if !path_to_dest.is_dir() {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Destination is not a directory".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Destination is not a directory"),
         });
     }
 
@@ -957,8 +642,8 @@ pub async fn unzip_instance_file(
         && is_path_protected(&path_to_dest)
     {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Destination path is protected".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Destination is protected"),
         });
     }
 

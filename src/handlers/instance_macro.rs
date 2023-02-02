@@ -1,10 +1,12 @@
 use axum::{extract::Path, routing::get, Json, Router};
 
 use axum_auth::AuthBearer;
+use color_eyre::eyre::eyre;
 
 use crate::{
     auth::user::UserAction,
-    traits::{t_macro::TMacro, Error, ErrorInner},
+    error::{Error, ErrorKind},
+    traits::t_macro::TMacro,
     types::InstanceUuid,
     AppState,
 };
@@ -15,25 +17,12 @@ pub async fn run_macro(
     AuthBearer(token): AuthBearer,
     Json(args): Json<Vec<String>>,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::AccessMacro(uuid.clone())) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to access macro for this instance".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessMacro(uuid.clone()))?;
     let mut instances = state.instances.lock().await;
-    let instance = instances.get_mut(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get_mut(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
     instance.run_macro(&macro_name, args, None, false).await?;
     Ok(Json(()))

@@ -3,12 +3,14 @@ use axum::Router;
 use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
+use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use ts_rs::TS;
 
 use crate::auth::user::UserAction;
+use crate::error::{Error, ErrorKind};
 use crate::events::{
     CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
     ProgressionStartValue,
@@ -19,25 +21,13 @@ use crate::prelude::PATH_TO_INSTANCES;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
 use crate::types::{InstanceUuid, Snowflake};
-use crate::{
-    implementations::minecraft,
-    traits::{t_server::State, Error, ErrorInner},
-    AppState,
-};
+use crate::{implementations::minecraft, traits::t_server::State, AppState};
 
 pub async fn get_instance_list(
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<InstanceInfo>>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     let mut list_of_configs: Vec<InstanceInfo> = Vec::new();
 
     let instances = state.instances.lock().await;
@@ -57,29 +47,16 @@ pub async fn get_instance_info(
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<InstanceInfo>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
 
     let instances = state.instances.lock().await;
 
-    let instance = instances.get(&uuid).ok_or(Error {
-        inner: ErrorInner::InstanceNotFound,
-        detail: "".to_string(),
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
     })?;
 
-    if !requester.can_perform_action(&UserAction::ViewInstance(instance.uuid().await)) {
-        return Err(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "You are not allowed to view this instance".to_string(),
-        });
-    }
+    requester.try_action(&UserAction::ViewInstance(uuid.clone()))?;
     Ok(Json(instance.get_instance_info().await))
 }
 
@@ -136,34 +113,21 @@ pub async fn create_minecraft_instance(
     AuthBearer(token): AuthBearer,
     Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
 ) -> Result<Json<InstanceUuid>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::CreateInstance) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to get instance state".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::CreateInstance)?;
     primitive_setup_config.name = sanitize_filename::sanitize(&primitive_setup_config.name);
     let mut setup_config: SetupConfig = primitive_setup_config.into();
     let name = setup_config.name.clone();
     if name.is_empty() {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Name must not be empty".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Name must not be empty"),
         });
     }
     if name.len() > 100 {
         return Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Name must not be longer than 100 characters".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Name must not be longer than 100 characters"),
         });
     }
     for (_, instance) in state.instances.lock().await.iter() {
@@ -257,15 +221,9 @@ pub async fn create_minecraft_instance(
                         snowflake: Snowflake::default(),
                         caused_by: caused_by.clone(),
                     });
-                    tokio::fs::remove_dir_all(setup_config.path)
+                    crate::util::fs::remove_dir_all(setup_config.path)
                         .await
-                        .map_err(|e| Error {
-                            inner: ErrorInner::FailedToRemoveFileOrDir,
-                            detail: format!(
-                            "Instance creation failed. Failed to clean up instance directory: {}",
-                            e
-                        ),
-                        })
+                        .context("Failed to remove directory after instance creation failed")
                         .unwrap();
                     return;
                 }
@@ -287,21 +245,8 @@ pub async fn delete_instance(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
-        })?;
-    if !requester.can_perform_action(&UserAction::DeleteInstance) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "Not authorized to delete instance".to_string(),
-        });
-    }
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::DeleteInstance)?;
     let mut instances = state.instances.lock().await;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
@@ -310,8 +255,8 @@ pub async fn delete_instance(
     if let Some(instance) = instances.get(&uuid) {
         if !(instance.state().await == State::Stopped) {
             Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Instance is running, cannot remove".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Instance must be stopped before deletion"),
             })
         } else {
             let progression_id = Snowflake::default();
@@ -349,13 +294,9 @@ pub async fn delete_instance(
                         snowflake: Snowflake::default(),
                         caused_by: caused_by.clone(),
                     });
-                    Error {
-                        inner: ErrorInner::FailedToRemoveFileOrDir,
-                        detail: format!(
-                            "Failed to remove .lodestone_config: {}. Instance not deleted",
-                            e
-                        ),
-                    }
+                    Err::<(), std::io::Error>(e)
+                        .context("Failed to delete .lodestone_config file. Instance not deleted")
+                        .unwrap_err()
                 })?;
             state
                 .port_manager
@@ -365,12 +306,7 @@ pub async fn delete_instance(
             let instance_path = instance.path().await;
             instances.remove(&uuid);
             drop(instances);
-            let res = tokio::fs::remove_dir_all(instance_path)
-                .await
-                .map_err(|e| Error {
-                    inner: ErrorInner::FailedToRemoveFileOrDir,
-                    detail: format!("Could not remove file for instance: {}", e),
-                });
+            let res = crate::util::fs::remove_dir_all(instance_path).await;
 
             if res.is_ok() {
                 let _ = event_broadcaster.send(Event {
@@ -409,8 +345,8 @@ pub async fn delete_instance(
         }
     } else {
         Err(Error {
-            inner: ErrorInner::InstanceNotFound,
-            detail: format!("Instance with uuid {} does not exist", uuid),
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
         })
     }
 }

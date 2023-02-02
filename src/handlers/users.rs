@@ -5,8 +5,8 @@ use crate::{
         user::{PublicUser, User, UserAction},
         user_id::UserId,
     },
+    error::{Error, ErrorKind},
     events::CausedBy,
-    traits::{Error, ErrorInner},
     AppState,
 };
 
@@ -17,6 +17,7 @@ use axum::{
 };
 use axum_auth::{AuthBasic, AuthBearer};
 
+use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
@@ -33,16 +34,8 @@ pub async fn new_user(
     Json(config): Json<NewUser>,
 ) -> Result<Json<LoginReply>, Error> {
     let mut users_manager = state.users_manager.write().await;
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
-    if !requester.can_perform_action(&UserAction::ManageUser) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to create users".to_string(),
-        });
-    }
+    let requester = users_manager.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::ManageUser)?;
     let user = User::new(
         config.username,
         config.password,
@@ -69,21 +62,13 @@ pub async fn delete_user(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let mut users_manager = state.users_manager.write().await;
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
-    if !requester.can_perform_action(&UserAction::ManageUser) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to create users".to_string(),
-        });
-    }
+    let requester = users_manager.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::ManageUser)?;
 
     if uid == requester.uid {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to delete yourself".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("You cannot delete yourself"),
         });
     }
 
@@ -104,14 +89,12 @@ pub async fn logout(
 ) -> Result<Json<()>, Error> {
     let mut users_manager = state.users_manager.write().await;
 
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Token error".to_string(),
-    })?;
+    let requester = users_manager.try_auth_or_err(&token)?;
+
     if requester.uid != uid && !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to log out this user".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You are not authorized to logout other users"),
         });
     }
     let caused_by = CausedBy::User {
@@ -132,16 +115,8 @@ pub async fn update_permissions(
 ) -> Result<Json<()>, Error> {
     let mut users_manager = state.users_manager.write().await;
 
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "".to_string(),
-    })?;
-    if !requester.can_perform_action(&UserAction::ManageUser) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to update permissions".to_string(),
-        });
-    }
+    let requester = users_manager.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::ManagePermission)?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -157,15 +132,11 @@ pub async fn get_self_info(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<PublicUser>, Error> {
     Ok(Json(
-        (&state
+        state
             .users_manager
             .read()
             .await
-            .try_auth(&token)
-            .ok_or(Error {
-                inner: ErrorInner::Unauthorized,
-                detail: "Token error".to_string(),
-            })?)
+            .try_auth_or_err(&token)?
             .into(),
     ))
 }
@@ -177,22 +148,19 @@ pub async fn get_user_info(
 ) -> Result<Json<PublicUser>, Error> {
     let users_manager = state.users_manager.read().await;
 
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "".to_string(),
-    })?;
+    let requester = users_manager.try_auth_or_err(&token)?;
     if requester.uid != uid && !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to get this user's info".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You are not authorized to get other users info"),
         });
     }
     Ok(Json(
         users_manager
             .get_user(&uid)
             .ok_or(Error {
-                inner: ErrorInner::NotFound,
-                detail: "User not found".to_string(),
+                kind: ErrorKind::NotFound,
+                source: eyre!("User not found"),
             })?
             .into(),
     ))
@@ -211,15 +179,13 @@ pub async fn change_password(
     Json(config): Json<ChangePasswordConfig>,
 ) -> Result<Json<()>, Error> {
     let mut users_manager = state.users_manager.write().await;
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Invalid authorization".to_string(),
-    })?;
+
+    let requester = users_manager.try_auth_or_err(&token)?;
 
     if requester.uid != config.uid && requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to change this user's password".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You are not authorized to change other users password"),
         });
     }
 
@@ -234,8 +200,8 @@ pub async fn change_password(
                 None
             } else {
                 Some(config.old_password.ok_or_else(|| Error {
-                    inner: ErrorInner::MalformedRequest,
-                    detail: "Old password is required".to_string(),
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("You must provide your old password"),
                 })?)
             },
             config.new_password,
@@ -265,15 +231,15 @@ pub async fn login(
             user: users_manager
                 .get_user_by_username(&username)
                 .ok_or_else(|| Error {
-                    inner: ErrorInner::UserNotFound,
-                    detail: "User not found".to_string(),
+                    kind: ErrorKind::NotFound,
+                    source: eyre!("User not found"),
                 })?
                 .into(),
         }))
     } else {
         Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid request, password must be present".to_string(),
+            kind: ErrorKind::BadRequest,
+            source: eyre!("You must provide a password"),
         })
     }
 }
@@ -283,16 +249,10 @@ pub async fn get_all_users(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<PublicUser>>, Error> {
     let users_manager = state.users_manager.read().await;
-    let requester = users_manager.try_auth(&token).ok_or(Error {
-        inner: ErrorInner::Unauthorized,
-        detail: "Invalid authorization".to_string(),
-    })?;
-    if !requester.can_perform_action(&UserAction::ManageUser) {
-        return Err(Error {
-            inner: ErrorInner::PermissionDenied,
-            detail: "You are not authorized to get all users".to_string(),
-        });
-    }
+
+    let requester = users_manager.try_auth_or_err(&token)?;
+
+    requester.try_action(&UserAction::ManageUser)?;
 
     Ok(Json(
         users_manager

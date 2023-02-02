@@ -1,7 +1,12 @@
 use axum::{extract::Path, routing::put, Json, Router};
 use axum_auth::AuthBearer;
 
-use crate::{traits::ErrorInner, AppState, Error};
+use color_eyre::eyre::eyre;
+
+use crate::{
+    error::{Error, ErrorKind},
+    AppState,
+};
 
 pub async fn open_port(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -13,14 +18,14 @@ pub async fn open_port(
         .read()
         .await
         .try_auth(&token)
-        .ok_or(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Token error".to_string(),
+        .ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Token error"),
         })?;
     if !requester.is_owner {
         return Err(Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Only owner is allowed to open ports".to_string(),
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Only owners can open ports"),
         });
     }
 

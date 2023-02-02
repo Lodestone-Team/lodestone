@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::traits::t_resource::TResourceManagement;
+use crate::{error::Error, traits::t_resource::TResourceManagement};
 
 use super::MinecraftInstance;
 
@@ -10,15 +10,15 @@ impl TResourceManagement for MinecraftInstance {
         todo!()
     }
 
-    async fn load(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
+    async fn load(&mut self, _resource: &str) -> Result<(), Error> {
         todo!()
     }
 
-    async fn unload(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
+    async fn unload(&mut self, _resource: &str) -> Result<(), Error> {
         todo!()
     }
 
-    async fn delete(&mut self, _resource: &str) -> Result<(), crate::traits::Error> {
+    async fn delete(&mut self, _resource: &str) -> Result<(), Error> {
         todo!()
     }
 }

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 
 use ts_rs::TS;
@@ -72,34 +73,28 @@ impl State {
         on_transit: Option<&dyn Fn(State)>,
     ) -> Result<State, Error> {
         let state = match (*self, action) {
-            (State::Starting, StateAction::UserStart) => Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Cannot start an instance that is already starting".to_string(),
-            }),
-            (State::Starting, StateAction::UserStop) => Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Cannot stop an instance that is starting".to_string(),
-            }),
+            (State::Starting, StateAction::UserStart) => {
+                Err(eyre!("Cannot start an instance that is already starting"))
+            }
+            (State::Starting, StateAction::UserStop) => {
+                Err(eyre!("Cannot stop an instance that is starting"))
+            }
             (_, StateAction::InstanceStart) => Ok(State::Running),
             (_, StateAction::InstanceStop) => Ok(State::Stopped),
-            (State::Running, StateAction::UserStart) => Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Cannot start an instance that is already running".to_string(),
-            }),
+            (State::Running, StateAction::UserStart) => {
+                Err(eyre!("Cannot start an instance that is already running"))
+            }
             (State::Running, StateAction::UserStop) => Ok(State::Stopping),
-            (State::Stopping, StateAction::UserStart) => Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Cannot start an instance that is stopping".to_string(),
-            }),
-            (State::Stopping, StateAction::UserStop) => Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Cannot stop an instance that is already stopping".to_string(),
-            }),
+            (State::Stopping, StateAction::UserStart) => {
+                Err(eyre!("Cannot start an instance that is stopping"))
+            }
+            (State::Stopping, StateAction::UserStop) => {
+                Err(eyre!("Cannot stop an instance that is already stopping"))
+            }
             (State::Stopped, StateAction::UserStart) => Ok(State::Starting),
-            (State::Stopped, StateAction::UserStop) => Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Cannot stop an instance that is already stopped".to_string(),
-            }),
+            (State::Stopped, StateAction::UserStop) => {
+                Err(eyre!("Cannot stop an instance that is already stopped"))
+            }
             (State::Error, StateAction::UserStart) => todo!(),
             (State::Error, StateAction::UserStop) => todo!(),
         }?;
@@ -122,15 +117,14 @@ impl State {
 
 use crate::traits::GameInstance;
 
-use super::ErrorInner;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TServer {
     async fn start(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
     async fn stop(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
     async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
-    async fn kill(&mut self, caused_by: CausedBy) -> Result<(), super::Error>;
+    async fn kill(&mut self, caused_by: CausedBy) -> Result<(), Error>;
     async fn state(&self) -> State;
-    async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), super::Error>;
+    async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error>;
     async fn monitor(&self) -> MonitorReport;
 }

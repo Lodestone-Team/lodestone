@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use argon2::{Argon2, PasswordVerifier};
+use color_eyre::eyre::{eyre, Context};
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, sync::broadcast::Sender};
@@ -8,8 +9,8 @@ use tracing::warn;
 use ts_rs::TS;
 
 use crate::{
+    error::{Error, ErrorKind},
     events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
-    traits::{Error, ErrorInner},
     types::{InstanceUuid, Snowflake},
 };
 
@@ -71,8 +72,8 @@ impl User {
     ) -> Result<(), Error> {
         if self.get_permission_level() <= other.get_permission_level() {
             return Err(Error {
-                inner: ErrorInner::PermissionDenied,
-                detail: "You do not have permission to update this user's permissions.".to_string(),
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("You don't have permission to manage other users' permission"),
             });
         }
         if self.is_owner {
@@ -87,19 +88,18 @@ impl User {
                 || !permissions.can_write_instance_file.is_empty()
             {
                 Err(Error {
-                    inner: ErrorInner::PermissionDenied,
-                    detail:
+                    kind: ErrorKind::PermissionDenied,
+                    source: eyre!(
                         "Unsafe and owner exclusive permissions can only be granted by the owner"
-                            .to_string(),
+                    ),
                 })
             } else if self.is_admin || self.permissions.can_manage_permission {
                 other.permissions = permissions;
                 Ok(())
             } else {
                 Err(Error {
-                    inner: ErrorInner::PermissionDenied,
-                    detail: "You don't have permission to manage other users' permission"
-                        .to_string(),
+                    kind: ErrorKind::PermissionDenied,
+                    source: eyre!("You don't have permission to manage other users' permission"),
                 })
             }
         }
@@ -172,6 +172,64 @@ impl User {
         }
     }
 
+    pub fn try_action(&self, action: &UserAction) -> Result<(), Error> {
+        if self.can_perform_action(action) {
+            Ok(())
+        } else {
+            Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: match action {
+                    UserAction::ViewInstance(_) => {
+                        eyre!("You don't have permission to view this instance")
+                    }
+                    UserAction::StartInstance(_) => {
+                        eyre!("You don't have permission to start this instance")
+                    }
+                    UserAction::StopInstance(_) => {
+                        eyre!("You don't have permission to stop this instance")
+                    }
+                    UserAction::AccessConsole(_) => {
+                        eyre!("You don't have permission to access this instance's console")
+                    }
+                    UserAction::AccessSetting(_) => {
+                        eyre!("You don't have permission to access this instance's setting")
+                    }
+                    UserAction::ReadResource(_) => {
+                        eyre!("You don't have permission to read this instance's resource")
+                    }
+                    UserAction::WriteResource(_) => {
+                        eyre!("You don't have permission to write this instance's resource")
+                    }
+                    UserAction::AccessMacro(_) => {
+                        eyre!("You don't have permission to access this instance's macro")
+                    }
+                    UserAction::ReadInstanceFile(_) => {
+                        eyre!("You don't have permission to read this instance's file")
+                    }
+                    UserAction::WriteInstanceFile(_) => {
+                        eyre!("You don't have permission to write this instance's file")
+                    }
+                    UserAction::CreateInstance => {
+                        eyre!("You don't have permission to create instance")
+                    }
+                    UserAction::DeleteInstance => {
+                        eyre!("You don't have permission to delete instance")
+                    }
+                    UserAction::ReadGlobalFile => {
+                        eyre!("You don't have permission to read global file")
+                    }
+                    UserAction::WriteGlobalFile => {
+                        eyre!("You don't have permission to write global file")
+                    }
+                    UserAction::ManageUser => eyre!("You don't have permission to manage user"),
+                    UserAction::ManagePermission => {
+                        eyre!("You don't have permission to manage permission")
+                    }
+                },
+            })
+        }
+    }
+
     pub fn can_view_event(&self, event: impl AsRef<Event>) -> bool {
         match &event.as_ref().event_inner {
             EventInner::InstanceEvent(event) => {
@@ -190,10 +248,7 @@ impl User {
     pub fn create_jwt(&self) -> Result<JwtToken, Error> {
         let exp = chrono::Utc::now()
             .checked_add_signed(chrono::Duration::days(60))
-            .ok_or(Error {
-                inner: ErrorInner::InternalError,
-                detail: "Failed to generate JWT".to_string(),
-            })?
+            .ok_or_else(|| eyre!("Failed to create JWT token"))?
             .timestamp();
         let claim = Claim {
             uid: self.uid.clone(),
@@ -286,16 +341,16 @@ impl UsersManager {
             .write(true)
             .open(&self.path_to_users)
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToReadFileOrDir,
-                detail: format!("Failed to open user file: {}", e),
-            })?
+            .context(format!(
+                "Failed to open user file : {}",
+                &self.path_to_users.display()
+            ))?
             .metadata()
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: format!("Failed to read metadata : {}", e),
-            })?
+            .context(format!(
+                "Failed to access metadata : {}",
+                &self.path_to_users.display()
+            ))?
             .len()
             == 0
         {
@@ -305,17 +360,14 @@ impl UsersManager {
             let users: HashMap<UserId, User> = serde_json::from_reader(
                 tokio::fs::File::open(&self.path_to_users)
                     .await
-                    .map_err(|e| Error {
-                        inner: ErrorInner::FailedToReadFileOrDir,
-                        detail: format!("Failed to open user file: {}", e),
-                    })?
+                    .context(format!(
+                        "Failed to open user file : {}",
+                        &self.path_to_users.display()
+                    ))?
                     .into_std()
                     .await,
             )
-            .map_err(|e| Error {
-                inner: ErrorInner::MalformedFile,
-                detail: format!("Failed to deserialize users: {}", e),
-            })?;
+            .context("Failed to deserialize user json")?;
             self.users = users;
         }
         Ok(())
@@ -324,17 +376,18 @@ impl UsersManager {
     async fn write_to_file(&self) -> Result<(), Error> {
         let mut file = tokio::fs::File::create(&self.path_to_users)
             .await
-            .map_err(|e| Error {
-                inner: ErrorInner::FailedToReadFileOrDir,
-                detail: format!("Failed to open user file: {}", e),
-            })?;
+            .context(format!(
+                "Failed to open/create json file {}",
+                &self.path_to_users.display()
+            ))?;
 
-        file.write_all(serde_json::to_string(&self.users).unwrap().as_bytes())
-            .await
-            .map_err(|e| Error {
-                inner: ErrorInner::InternalError,
-                detail: format!("Failed to serialize users: {}", e),
-            })?;
+        file.write_all(
+            serde_json::to_string(&self.users)
+                .context("Failed to deserialize user json")?
+                .as_bytes(),
+        )
+        .await
+        .context("Failed to write to user json".to_string())?;
         Ok(())
     }
     pub fn get_user(&self, uid: impl AsRef<UserId>) -> Option<User> {
@@ -343,8 +396,8 @@ impl UsersManager {
     pub async fn add_user(&mut self, user: User, caused_by: CausedBy) -> Result<(), Error> {
         if self.get_user_by_username(&user.username).is_some() {
             return Err(Error {
-                inner: ErrorInner::UsernameAlreadyExists,
-                detail: "User already exists".to_string(),
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Username already exist"),
             });
         }
         let uid = user.uid.clone();
@@ -407,8 +460,8 @@ impl UsersManager {
             .users
             .get_mut(uid.as_ref())
             .ok_or_else(|| Error {
-                inner: ErrorInner::UserNotFound,
-                detail: "User not found".to_string(),
+                kind: ErrorKind::NotFound,
+                source: eyre!("User id not found"),
             })?
             .secret
             .clone();
@@ -449,8 +502,8 @@ impl UsersManager {
             .users
             .get_mut(uid.as_ref())
             .ok_or_else(|| Error {
-                inner: ErrorInner::UserNotFound,
-                detail: "User not found".to_string(),
+                kind: ErrorKind::NotFound,
+                source: eyre!("User id not found"),
             })?
             .hashed_psw
             .clone();
@@ -461,8 +514,8 @@ impl UsersManager {
                     &argon2::PasswordHash::new(old_data.as_ref()).unwrap(),
                 )
                 .map_err(|_| Error {
-                    inner: ErrorInner::Unauthorized,
-                    detail: "Wrong password".to_string(),
+                    kind: ErrorKind::Unauthorized,
+                    source: eyre!("Credential mismatch"),
                 })?;
         }
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
@@ -481,14 +534,11 @@ impl UsersManager {
                 });
                 self.logout_user(uid, caused_by).await
             }
-            Err(_) => {
+            Err(e) => {
                 if let Some(user) = self.users.get_mut(uid.as_ref()) {
                     user.hashed_psw = old_data;
                 }
-                Err(Error {
-                    inner: ErrorInner::InternalError,
-                    detail: "Failed to write to file".to_string(),
-                })
+                Err(e)
             }
         }
     }
@@ -510,8 +560,8 @@ impl UsersManager {
             .users
             .get_mut(uid.as_ref())
             .ok_or_else(|| Error {
-                inner: ErrorInner::UserNotFound,
-                detail: "User not found".to_string(),
+                kind: ErrorKind::NotFound,
+                source: eyre!("User id not found"),
             })?
             .permissions
             .clone();
@@ -533,14 +583,11 @@ impl UsersManager {
                 });
                 Ok(())
             }
-            Err(_) => {
+            Err(e) => {
                 if let Some(user) = self.users.get_mut(uid.as_ref()) {
                     user.permissions = old_permission;
                 }
-                Err(Error {
-                    inner: ErrorInner::InternalError,
-                    detail: "Failed to write to file".to_string(),
-                })
+                Err(e)
             }
         }
     }
@@ -555,14 +602,21 @@ impl UsersManager {
         Some(claimed_requester.to_owned())
     }
 
+    pub fn try_auth_or_err(&self, token: &str) -> Result<User, Error> {
+        self.try_auth(token).ok_or_else(|| Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Unauthorized"),
+        })
+    }
+
     pub fn login(
         &self,
         username: impl AsRef<str>,
         password: impl AsRef<str>,
     ) -> Result<JwtToken, Error> {
         let user = self.get_user_by_username(username).ok_or_else(|| Error {
-            inner: ErrorInner::Unauthorized,
-            detail: "Username not found".to_string(),
+            kind: ErrorKind::NotFound,
+            source: eyre!("Username not found"),
         })?;
         Argon2::default()
             .verify_password(
@@ -570,8 +624,8 @@ impl UsersManager {
                 &argon2::PasswordHash::new(user.hashed_psw.as_ref()).unwrap(),
             )
             .map_err(|_| Error {
-                inner: ErrorInner::Unauthorized,
-                detail: "Wrong username or password".to_string(),
+                kind: ErrorKind::Unauthorized,
+                source: eyre!("Credential mismatch"),
             })?;
         user.create_jwt()
     }

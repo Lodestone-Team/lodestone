@@ -1,9 +1,10 @@
 use axum::{extract::Path, Json, Router};
+use color_eyre::eyre::eyre;
 
 use crate::{
     auth::{permission::UserPermission, user::User},
+    error::{Error, ErrorKind},
     events::CausedBy,
-    traits::{Error, ErrorInner},
     AppState,
 };
 
@@ -43,12 +44,12 @@ pub async fn setup_owner(
             }))
         }
         None => Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "This Lodestone client has been setup. Please login instead.".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Setup key already used."),
         }),
         Some(_) => Err(Error {
-            inner: ErrorInner::MalformedRequest,
-            detail: "Invalid setup key.".to_string(),
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Invalid setup key."),
         }),
     }
 }

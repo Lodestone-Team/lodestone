@@ -3,10 +3,12 @@ use std::env;
 use std::process::Stdio;
 use std::time::Duration;
 
+use color_eyre::eyre::{eyre, Context};
 use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
+use crate::error::Error;
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
@@ -16,7 +18,6 @@ use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TMacro;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
-use crate::traits::{Error, ErrorInner};
 use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
@@ -42,10 +43,9 @@ impl TServer for MinecraftInstance {
             }),
         )?;
 
-        env::set_current_dir(&self.config.path).map_err(|e| Error {
-            inner: ErrorInner::IOError,
-            detail: e.to_string(),
-        })?;
+        env::set_current_dir(&self.config.path).context(
+            "Failed to set current directory to the instance's path, is the path valid?",
+        )?;
 
         let prelaunch = self.path_to_macros.join("prelaunch.js");
         if prelaunch.exists() {
@@ -99,16 +99,15 @@ impl TServer for MinecraftInstance {
         .spawn()
         {
             Ok(mut proc) => {
-                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
+                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone()))
+                    .context("Failed to set current directory to the Lodestone path, is the path")
+                    .unwrap();
                 let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
                         self.config.name.clone()
                     );
-                    Error {
-                        inner: ErrorInner::FailedToAcquireStdin,
-                        detail: "Failed to take stdin during startup".to_string(),
-                    }
+                    eyre!("Failed to take stdin during startup")
                 })?;
                 self.stdin.lock().await.replace(stdin);
                 let stdout = proc.stdout.take().ok_or_else(|| {
@@ -116,20 +115,14 @@ impl TServer for MinecraftInstance {
                         "[{}] Failed to take stdout during startup",
                         self.config.name.clone()
                     );
-                    Error {
-                        inner: ErrorInner::FailedToAcquireStdout,
-                        detail: "Failed to take stdout during startup".to_string(),
-                    }
+                    eyre!("Failed to take stdout during startup")
                 })?;
                 let stderr = proc.stderr.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stderr during startup",
                         self.config.name.clone()
                     );
-                    Error {
-                        inner: ErrorInner::FailedToAcquireStderr,
-                        detail: "Failed to take stderr during startup".to_string(),
-                    }
+                    eyre!("Failed to take stderr during startup")
                 })?;
                 *self.process.lock().await = Some(proc);
                 tokio::task::spawn({
@@ -494,18 +487,15 @@ impl TServer for MinecraftInstance {
                                 if to == State::Running {
                                     break;
                                 } else if to == State::Stopped {
-                                    return Err(Error {
-                                        inner: ErrorInner::InstanceExitedUnexpectedly,
-                                        detail: "Failed to start server".to_string(),
-                                    });
+                                    return Err(eyre!(
+                                        "Instance exited unexpectedly before starting"
+                                    )
+                                    .into());
                                 }
                             }
                         }
                     }
-                    Err(Error {
-                        inner: ErrorInner::InstanceExitedUnexpectedly,
-                        detail: "Sender shutdown".to_string(),
-                    })
+                    Err(eyre!("Sender shutdown").into())
                 } else {
                     Ok(())
                 }
@@ -534,10 +524,8 @@ impl TServer for MinecraftInstance {
                         }),
                     )
                     .unwrap();
-                Err(Error {
-                    inner: ErrorInner::FailedToExecute,
-                    detail: e.to_string(),
-                })
+                Err(e).context("Failed to start server")?;
+                unreachable!();
             }
         }
     }
@@ -565,23 +553,14 @@ impl TServer for MinecraftInstance {
             .as_mut()
             .ok_or_else(|| {
                 error!("[{}] Failed to stop instance: stdin not available", name);
-                Error {
-                    inner: ErrorInner::FailedToAcquireStdin,
-                    detail: "Failed to stop instance: stdin not available".to_string(),
-                }
+                eyre!("Failed to stop instance: stdin not available")
             })?
             .write_all(b"stop\n")
             .await
+            .context("Failed to write to stdin")
             .map_err(|e| {
-                error!(
-                    "[{}] Failed to write to stdin: {}",
-                    self.config.name.clone(),
-                    e.to_string()
-                );
-                Error {
-                    inner: ErrorInner::FailedToWriteStdin,
-                    detail: format!("Failed to write to stdin: {}", e),
-                }
+                error!("[{}] Failed to stop instance: {}", name, e);
+                e
             })?;
         self.rcon_conn.lock().await.take();
         let mut rx = self.event_broadcaster.subscribe();
@@ -600,10 +579,7 @@ impl TServer for MinecraftInstance {
                     }
                 }
             }
-            Err(Error {
-                inner: ErrorInner::InstanceExitedUnexpectedly,
-                detail: "Sender shutdown".to_string(),
-            })
+            Err(eyre!("Sender shutdown").into())
         } else {
             Ok(())
         }
@@ -628,13 +604,10 @@ impl TServer for MinecraftInstance {
         }
     }
 
-    async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), crate::traits::Error> {
+    async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), Error> {
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", self.config.name.clone());
-            return Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Instance is already stopped".to_string(),
-            });
+            return Err(eyre!("Instance is already stopped").into());
         }
         self.process
             .lock()
@@ -645,22 +618,18 @@ impl TServer for MinecraftInstance {
                     "[{}] Failed to kill instance: process not available",
                     self.config.name.clone()
                 );
-                Error {
-                    inner: ErrorInner::StdinNotOpen,
-                    detail: "Failed to kill instance:  process not available".to_string(),
-                }
+                eyre!("Failed to kill instance: process not available")
             })?
             .kill()
             .await
-            .map_err(|_| {
+            .context("Failed to kill process")
+            .map_err(|e| {
                 error!(
-                    "[{}] Failed to kill instance, instance already existed",
-                    self.config.name.clone()
+                    "[{}] Failed to kill instance: {}",
+                    self.config.name.clone(),
+                    e
                 );
-                Error {
-                    inner: ErrorInner::InvalidInstanceState,
-                    detail: "Failed to kill instance, instance already existed".to_string(),
-                }
+                e
             })?;
         Ok(())
     }
@@ -671,10 +640,7 @@ impl TServer for MinecraftInstance {
 
     async fn send_command(&self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
         if self.state().await == State::Stopped {
-            Err(Error {
-                inner: ErrorInner::InvalidInstanceState,
-                detail: "Instance not running".to_string(),
-            })
+            Err(eyre!("Instance is stopped").into())
         } else {
             match self.stdin.lock().await.as_mut() {
                 Some(stdin) => match {
@@ -706,20 +672,15 @@ impl TServer for MinecraftInstance {
                             self.config.name.clone(),
                             e
                         );
-                        Err(Error {
-                            inner: ErrorInner::FailedToWriteStdin,
-                            detail: format!("Failed to write to stdin: {}", e),
-                        })
+                        Err(e).context("Failed to send command to instance")?;
+                        unreachable!()
                     }
                 },
                 None => {
                     let err_msg =
                         "Failed to write to stdin because stdin is None. Please report this bug.";
                     error!("[{}] {}", self.config.name.clone(), err_msg);
-                    Err(Error {
-                        inner: ErrorInner::StdinNotOpen,
-                        detail: err_msg.to_string(),
-                    })
+                    Err(eyre!(err_msg).into())
                 }
             }
         }

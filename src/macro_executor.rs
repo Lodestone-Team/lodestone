@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use color_eyre::eyre::Context;
 use tokio::{
     runtime::Builder,
     sync::{broadcast, oneshot, Mutex},
@@ -17,10 +18,12 @@ use tokio::{
 use tracing::{debug, error};
 
 use crate::{
+    error::{Error, ErrorKind},
     events::{Event, EventInner, MacroEvent, MacroEventInner},
-    traits::{Error, ErrorInner},
     types::InstanceUuid,
 };
+
+use color_eyre::eyre::eyre;
 
 use std::pin::Pin;
 
@@ -316,20 +319,15 @@ impl MacroExecutor {
                         }
                     }
                 } else {
-                    break Err(Error {
-                        inner: ErrorInner::InternalError,
-                        detail: "Failed to receive".to_owned(),
-                    });
+                    break Err(eyre!("Failed to receive macro started event"));
                 }
             }
         };
 
         tokio::time::timeout(Duration::from_secs(1), fut)
             .await
-            .map_err(|_| Error {
-                inner: ErrorInner::InternalError,
-                detail: "Timeout while waiting for macro to start".to_owned(),
-            })?
+            .context("Failed to spawn macro")?;
+        Ok(pid)
     }
 
     /// abort a macro execution
@@ -339,8 +337,8 @@ impl MacroExecutor {
             .await
             .get(pid)
             .ok_or_else(|| Error {
-                inner: ErrorInner::MacroNotFound,
-                detail: "Macro not found".to_owned(),
+                kind: ErrorKind::NotFound,
+                source: eyre!("Macro with pid {} not found", pid),
             })?
             .terminate_execution();
         Ok(())
@@ -388,8 +386,8 @@ impl MacroExecutor {
     pub async fn get_macro_status(&self, pid: usize) -> Result<bool, Error> {
         let table = self.macro_process_table.lock().await;
         let handle = table.get(&pid).ok_or_else(|| Error {
-            inner: ErrorInner::MacroNotFound,
-            detail: "Macro not found".to_owned(),
+            kind: ErrorKind::NotFound,
+            source: eyre!("Macro with pid {} not found", pid),
         })?;
         Ok(!handle.is_execution_terminating())
     }
