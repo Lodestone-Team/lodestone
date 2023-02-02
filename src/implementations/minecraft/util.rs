@@ -226,6 +226,38 @@ pub async fn get_fabric_jar_url(
     ))
 }
 
+pub async fn get_paper_jar_url(version: &str, paper_build_version: Option<&str>) -> Option<String> {
+    let client = reqwest::Client::new();
+
+    let builds_text = client
+        .get(format!("https://api.papermc.io/v2/projects/paper/versions/{}/builds/", version))
+        .send().await.ok()?
+        .text().await.ok()?;
+    let builds: serde_json::Value = serde_json::from_str(&builds_text).ok()?;
+    let mut builds = builds.get("builds")?.as_array()?.iter();
+
+
+    let build = if let Some(b) = paper_build_version {
+        builds
+            .find(|build| build.get("build").unwrap().as_i64().unwrap().to_string().eq(b))?
+    } else {
+        builds
+            .filter(|build| build.get("channel").unwrap().as_str().unwrap().to_string().eq("default"))
+            .max_by(|a, b|  {
+                let a = a.get("build").unwrap().as_i64().unwrap();
+                let b = b.get("build").unwrap().as_i64().unwrap();
+                a.cmp(&b)
+            })?
+    };
+
+    Some(format!(
+        "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
+        version,
+        build.get("build")?.as_i64()?,
+        build.get("downloads")?.get("application")?.get("name")?.as_str()?.to_string(),
+    ))
+}
+
 pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     let client = reqwest::Client::new();
     let os = if std::env::consts::OS == "macos" {

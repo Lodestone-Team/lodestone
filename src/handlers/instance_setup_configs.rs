@@ -21,6 +21,7 @@ pub async fn get_available_flavours(
         GameInstanceKind::MinecraftInstance => Json(HashSet::from([
             minecraft::Flavour::Vanilla.to_string(),
             minecraft::Flavour::Fabric.to_string(),
+            minecraft::Flavour::Paper.to_string(),
         ])),
     }
 }
@@ -31,6 +32,7 @@ pub async fn get_minecraft_versions(
     Ok(Json(match flavour {
         minecraft::Flavour::Vanilla => minecraft::versions::get_vanilla_versions().await?,
         minecraft::Flavour::Fabric => minecraft::versions::get_fabric_versions().await?,
+        minecraft::Flavour::Paper => minecraft::versions::get_paper_versions().await?,
         _ => unimplemented!(),
     }))
 }
