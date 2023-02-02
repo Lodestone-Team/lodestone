@@ -39,12 +39,7 @@ pub async fn start_instance(
         source: eyre!("Instance not found"),
     })?;
     let port = instance.port().await;
-    if !port_scanner::local_port_available(port as u16) {
-        return Err(Error {
-            kind: ErrorKind::Internal,
-            source: eyre!("Port {} is already in use", port),
-        });
-    }
+
     instance.start(caused_by, false).await?;
     Ok(Json(()))
 }

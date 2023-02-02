@@ -8,7 +8,7 @@ use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
@@ -42,6 +42,13 @@ impl TServer for MinecraftInstance {
                 });
             }),
         )?;
+
+        if !port_scanner::local_port_available(self.config.port as u16) {
+            return Err(Error {
+                kind: ErrorKind::Internal,
+                source: eyre!("Port {} is already in use", self.config.port),
+            });
+        }
 
         env::set_current_dir(&self.config.path).context(
             "Failed to set current directory to the instance's path, is the path valid?",
