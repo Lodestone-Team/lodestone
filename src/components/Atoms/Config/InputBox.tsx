@@ -250,7 +250,7 @@ export default function InputBox({
           onChange={onChange}
           maxLength={maxLength}
           style={{ paddingRight: `${icons.length * 1.5 + 0.75}rem` }} //0.75, 2.25, 3.75
-          className={`input-shape input-background input-outlines input-text-style  w-full ${
+          className={`input-shape input-background input-outlines input-text-style w-full ${
             errorText ? 'input-border-error' : 'input-border-normal'
           }
            `}

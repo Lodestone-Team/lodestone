@@ -120,7 +120,7 @@ export default function SelectField<T extends string | object>(
         >
           <Listbox.Button
             className={clsx(
-              'input-shape input-background input-outlines input-text-style  group min-h-[1em] w-full py-1.5 px-3',
+              'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
               'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
               'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
               'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
@@ -150,7 +150,7 @@ export default function SelectField<T extends string | object>(
           >
             <Listbox.Options
               className={clsx(
-                'input-shape input-background input-outlines input-text-style  absolute z-40 mt-2 max-h-60 w-full overflow-auto p-0 py-1',
+                'input-outlines input-text-style absolute z-40 mt-2 max-h-60 w-full overflow-auto rounded p-0 py-1',
                 'bg-gray-850 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
               )}
             >

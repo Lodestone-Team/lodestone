@@ -121,7 +121,7 @@ export default function ComboField(props: ComboFieldProps) {
             <>
               <Combobox.Input
                 className={clsx(
-                  'input-shape input-background input-outlines input-text-style  group min-h-[1em] w-full py-1.5 px-3',
+                  'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
                   'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
                   'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
                   'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
@@ -150,7 +150,7 @@ export default function ComboField(props: ComboFieldProps) {
               >
                 <Combobox.Options
                   className={clsx(
-                    'input-shape input-background input-outlines input-text-style  absolute z-40 mt-2 w-full rounded-md',
+                    'input-shape input-outlines input-text-style  absolute z-40 mt-2 w-full rounded-md',
                     'bg-gray-850 p-0 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
                   )}
                 >

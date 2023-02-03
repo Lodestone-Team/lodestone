@@ -63,24 +63,12 @@ body {
     @apply text-left font-medium leading-snug tracking-tight placeholder:text-white/30 enabled:text-gray-300 disabled:text-white/50;
   }
 
-  .input-text-style.radio-text{
-    @apply ui-not-disabled:text-gray-300 ui-disabled:text-white/50;
-  }
-
   .input-border-normal {
     @apply outline-gray-faded/30 invalid:outline-red invalid:focus-visible:outline-red enabled:focus-visible:ring-blue-faded/50;
   }
 
-  .input-border-normal.radio-border-normal {
-    @apply ui-not-disabled:focus-visible:ring-blue-faded/50;
-  }
-
   .input-border-error {
     @apply outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30;
-  }
-
-  .input-border-error.radio-border-error {
-    @apply ui-not-disabled:focus-visible:ring-red-faded/30;
   }
   
 }
