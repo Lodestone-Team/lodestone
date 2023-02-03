@@ -59,8 +59,10 @@ export default function RadioField(props: RadioFieldProps) {
         >
           {loadingVisual ? (
             <div
-              className={`input-base disabled w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md ${
-                isError ? 'border-error' : 'border-normal'
+              className={`input-shape input-background input-outlines input-text-style  disabled w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md ${
+                isError
+                  ? 'input-border-error radio-border-error'
+                  : 'input-border-normal radio-border-normal'
               }`}
             >
               <span className="block h-full w-full select-none bg-gray-800 py-1.5 px-3 text-center text-white/50">
@@ -72,9 +74,12 @@ export default function RadioField(props: RadioFieldProps) {
               <RadioGroup.Option
                 value={option}
                 key={option}
-                className={`input-base w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md
-              ${disabledVisual ? 'disabled' : 'enabled cursor-pointer'}
-              ${isError ? 'border-error' : 'border-normal'}`}
+                className={`input-shape input-background input-outlines input-text-style  w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md ui-not-disabled:cursor-pointer
+              ${
+                isError
+                  ? 'input-border-error radio-border-error'
+                  : 'input-border-normal radio-border-normal'
+              }`}
               >
                 {({ checked }) => (
                   <span
