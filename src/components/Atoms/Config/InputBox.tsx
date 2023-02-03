@@ -249,7 +249,8 @@ export default function InputBox({
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
-          className={`input-base w-full ${icons.length ? 'pr-16' : 'pr-4'} ${
+          style={{ paddingRight: `${icons.length * 1.5 + 0.75}rem` }} //0.75, 2.25, 3.75
+          className={`input-base w-full ${
             errorText ? 'border-error' : 'border-normal'
           }
            `}
