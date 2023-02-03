@@ -72,7 +72,7 @@ pub mod error;
 mod events;
 pub mod global_settings;
 mod handlers;
-mod implementations;
+pub mod implementations;
 pub mod macro_executor;
 mod output_types;
 mod port_manager;
