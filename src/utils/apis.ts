@@ -292,7 +292,7 @@ export async function loginToCore(
         error.response.status === 403 ||
         error.response.status === 500
       ) {
-        throw `Error: ${error.response.data.inner}: ${error.response.data.detail}`;
+        throw `Error: ${error.response.data.kind}: ${error.response.data.causes}`;
       }
     } else {
       throw `Login failed: ${errorToString(error)}`;
