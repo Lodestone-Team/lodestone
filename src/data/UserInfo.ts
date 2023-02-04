@@ -24,7 +24,7 @@ export const useUserInfo = (enabled = true) => {
     {
       enabled: token !== '' && enabled,
       onError: (error) => {
-        if (error.response?.data?.inner === 'Unauthorized')
+        if (error.response?.data?.kind === 'Unauthorized')
           // then token is invalid, delete it
           setToken('', socket);
       },

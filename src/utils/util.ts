@@ -126,7 +126,7 @@ export function errorToString(error: unknown): string {
         // };
       }
 
-      if (data && data.inner) {
+      if (data && data.kind) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(data);
         return clientError.toString();
