@@ -4,7 +4,7 @@ import { ErrorKind } from './ErrorKind';
 // implement toString
 export class ClientError {
   kind: ErrorKind | undefined;
-  causes: Array<String> | undefined;
+  causes: Array<string> | undefined;
 
   constructor(source: Partial<ClientError>) {
     Object.assign(this, source);
@@ -16,7 +16,10 @@ export class ClientError {
     if (this.kind) {
       kind = this.kind.replace(/([A-Z])/g, ' $1').trim();
     }
-    let causes = this.causes ? this.causes.join(', ') : '';
+    let causes = ''
+    if (this.causes) {
+      causes = this.causes.join(', ');
+    }
     if (!kind && !causes) return 'Unknown error';
     return `${kind}${causes ? `: ${causes}` : ''}`;
   }
