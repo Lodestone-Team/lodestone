@@ -55,7 +55,7 @@ Lodestone wouldn't be here if it weren't for our contributors. Check out our [te
 
 ## Support Us
 
-We strive to make Lodestone open source and free for everyone to use. If you like what we are making please consider [buying us a coffee](https://www.buymeacoffee.com/lodestoneteam) to support our development.
+We strive to make Lodestone open source and free for everyone to use. If you like what we are making please consider [buying us a coffee](https://ko-fi.com/lodestone_team) to support our development.
 
 ## Have questions?
 
