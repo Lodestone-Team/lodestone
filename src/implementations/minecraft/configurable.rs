@@ -178,7 +178,7 @@ impl TConfigurable for MinecraftInstance {
         if version == self.config.version {
             return Ok(());
         }
-        let url = match self.config.flavour {
+        let (url, _) = match self.config.flavour {
             super::Flavour::Vanilla => get_vanilla_jar_url(&version).await.ok_or_else(|| {
                 let error_msg =
                     format!("Cannot get the vanilla jar version for version {}", version);
@@ -187,7 +187,7 @@ impl TConfigurable for MinecraftInstance {
                     source: eyre!(error_msg),
                 }
             })?,
-            super::Flavour::Fabric => get_fabric_jar_url(&version, None, None).await.ok_or_else(|| {
+            super::Flavour::Fabric {..} => get_fabric_jar_url(&version, None, None).await.ok_or_else(|| {
                 let error_msg =
                     format!("Cannot get the fabric jar version for version {}", version);
                 Error {
@@ -195,7 +195,7 @@ impl TConfigurable for MinecraftInstance {
                     source: eyre!(error_msg),
                 }
             })?,
-            super::Flavour::Paper => get_paper_jar_url(&version, None).await.ok_or_else(|| {
+            super::Flavour::Paper {..} => get_paper_jar_url(&version, None).await.ok_or_else(|| {
                 let error_msg =
                     format!("Cannot get the paper jar version for version {}", version);
                 Error {
@@ -204,6 +204,12 @@ impl TConfigurable for MinecraftInstance {
                 }
             })?,
             super::Flavour::Spigot => todo!(),
+            super::Flavour::Forge {..} => return Err(
+                Error {
+                    kind: ErrorKind::UnsupportedOperation,
+                    source: eyre!("Changing versions is unsupported for forge servers"),
+                }
+            ),
         };
         let temp_dir = TempDir::new("lodestone")
             .context("Cannot create temporary directory to download the server jar file")?;

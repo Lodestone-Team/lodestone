@@ -21,7 +21,7 @@ use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
-use super::MinecraftInstance;
+use super::{MinecraftInstance, Flavour};
 use tracing::{debug, error, info, warn};
 
 #[async_trait::async_trait]
@@ -83,6 +83,16 @@ impl TServer for MinecraftInstance {
                 "bin"
             })
             .join("java");
+        let server_executable = match &self.config.flavour {
+            Flavour::Forge { build_version } => {
+                let build_version = build_version.as_deref().ok_or_else(|| eyre!("Forge version not found"))?;
+                match std::env::consts::OS {
+                    "windows" => format!("@libraries/net/minecraftforge/forge/{}-{}/win_args.txt", self.config.version, build_version),
+                    _ => format!("@libraries/net/minecraftforge/forge/{}-{}/unix_args.txt", self.config.version, build_version),
+                }
+            }
+            _ => "server.jar".to_string(),
+        };
 
         match dont_spawn_terminal(
             Command::new(&jre)
@@ -97,7 +107,7 @@ impl TServer for MinecraftInstance {
                         .collect::<Vec<&String>>(),
                 )
                 .arg("-jar")
-                .arg(&self.config.path.join("server.jar"))
+                .arg(&self.config.path.join(server_executable))
                 .arg("nogui"),
         )
         .stdout(Stdio::piped())
