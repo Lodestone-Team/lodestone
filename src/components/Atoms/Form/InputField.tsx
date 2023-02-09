@@ -27,8 +27,8 @@ export default function InputField(props: InputFieldProps) {
       )}
       <div className="mt-1">
         <input
-          className={`input-base w-full ${
-            errorText ? 'border-error' : 'border-normal'
+          className={`input-shape input-background input-outlines input-text-style w-full ${
+            errorText ? 'input-border-error' : 'input-border-normal'
           }`}
           type={type}
           value={field.value}
