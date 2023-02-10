@@ -1,6 +1,4 @@
-import Button from 'components/Atoms/Button';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useEffect, useState } from 'react';
 import {
   faCaretDown,
@@ -17,21 +15,16 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
 import { AxiosError } from 'axios';
 import Label, { LabelColor } from 'components/Atoms/Label';
-import Avatar from 'components/Atoms/Avatar';
+
 import NotificationPanel from './NotificationPanel';
 import TopBanner from 'components/Atoms/TopBanner';
 
-export type UserState = 'loading' | 'logged-in' | 'logged-out';
-
 export default function TopNav() {
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
-  const { isLoading, isError, data: user } = useUserInfo();
-  const [userState, setUserState] = useState<UserState>('logged-out');
-  const uid = useUid();
+
   const { token, setToken, core, coreConnectionStatus } =
     useContext(LodestoneContext);
-  const { address, port } = core;
-  const socket = `${address}:${port}`;
+
   const { data: coreData } = useCoreInfo();
 
   const statusMap = {
@@ -48,20 +41,6 @@ export default function TopNav() {
     degraded: 'yellow',
   };
 
-  useEffect(() => {
-    if (!token) {
-      setUserState('logged-out');
-    } else if (isLoading) {
-      setUserState('loading');
-      return;
-    } else if (isError) {
-      setUserState('logged-out');
-      return;
-    } else {
-      setUserState('logged-in');
-    }
-  }, [token, isLoading, isError, user]);
-
   return (
     <>
       {coreConnectionStatus === 'degraded' && (
@@ -76,7 +55,7 @@ export default function TopNav() {
             >
               Refresh
             </a>{' '}
-            to get the latest data on Firefox.{" "}
+            to get the latest data on Firefox.{' '}
             <a
               href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#firefox"
               target="_blank"
@@ -113,13 +92,7 @@ export default function TopNav() {
             {statusMap[coreConnectionStatus]}
           </Label>
         </div>
-        <FontAwesomeIcon
-          icon={faCog}
-          className="w-4 select-none text-white/50 hover:cursor-pointer hover:text-white/75"
-          onClick={() => {
-            setPathname('/settings');
-          }}
-        />
+
         <Popover className="relative">
           <Popover.Button
             as={FontAwesomeIcon}
@@ -130,77 +103,6 @@ export default function TopNav() {
             <NotificationPanel className="rounded-lg border" />
           </Popover.Panel>
         </Popover>
-        <Menu as="div" className="relative inline-block text-left">
-          <Menu.Button
-            as={Button}
-            loading={userState === 'loading'}
-            label={
-              userState === 'logged-in' && user
-                ? `Hi, ${user.username}`
-                : 'Guest'
-            }
-            iconComponent={
-              userState == 'logged-in' ? (
-                <Avatar name={uid} />
-              ) : (
-                <FontAwesomeIcon icon={faUser} className="w-4 opacity-50" />
-              )
-            }
-            iconRight={faCaretDown}
-          ></Menu.Button>
-          <Transition
-            as={Fragment}
-            enter="transition ease-out duration-200"
-            enterFrom="opacity-0 -translate-y-1"
-            enterTo="opacity-100 translate-y-0"
-            leave="transition ease-in duration-150"
-            leaveFrom="opacity-100 translate-y-0"
-            leaveTo="opacity-0 -translate-y-1"
-          >
-            <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
-              <div className="py-2 px-1.5">
-                <Menu.Item>
-                  {({ disabled }) => (
-                    <Button
-                      className="w-full flex-nowrap whitespace-nowrap"
-                      label={userState === 'logged-in' ? 'Sign out' : 'Sign in'}
-                      loading={userState === 'loading'}
-                      iconRight={faRightFromBracket}
-                      onClick={() => {
-                        // remove the current token
-                        // a logged out user will be auto-redirected to the login page
-                        setToken('', socket);
-                        setSearchParam('instance', undefined);
-                        setSearchParam('user', undefined);
-                      }}
-                      align="end"
-                      disabled={disabled}
-                      variant="text"
-                    />
-                  )}
-                </Menu.Item>
-
-                <Menu.Item>
-                  {({ disabled }) => (
-                    <Button
-                      className="w-full flex-nowrap whitespace-nowrap"
-                      label="Change core"
-                      iconRight={faArrowRightArrowLeft}
-                      align="end"
-                      disabled={disabled}
-                      onClick={() => {
-                        setSearchParam('instance', undefined);
-                        setSearchParam('user', undefined);
-                        setPathname('/login/core/select');
-                      }}
-                      variant="text"
-                    />
-                  )}
-                </Menu.Item>
-              </div>
-            </Menu.Items>
-          </Transition>
-        </Menu>
       </div>
     </>
   );

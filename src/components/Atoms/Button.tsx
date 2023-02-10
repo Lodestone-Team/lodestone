@@ -20,6 +20,7 @@ const buttonClasses = cva(
         start: 'justify-start',
         center: 'justify-center',
         end: 'justify-end',
+        between: 'justify-between',
       },
       size: {
         slim: ['gap-1 rounded-sm p-1 text-small'],
@@ -107,7 +108,7 @@ const Button = forwardRef(
       >
         {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
-        <div className={`flex items-center`}>
+        <div className={`flex items-center truncate`}>
           {loading && (
             <BeatLoader size={5} color="#6b7280" className="absolute" />
           )}

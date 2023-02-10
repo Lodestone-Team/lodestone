@@ -8,7 +8,7 @@ import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
 import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
-
+import UserMenu from 'components/Atoms/UserMenu';
 export default function LeftNav({ className }: { className?: string }) {
   const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
@@ -25,8 +25,9 @@ export default function LeftNav({ className }: { className?: string }) {
   }, 1000);
 
   return (
-    <div className={`flex w-full flex-col items-center px-4 ${className}`}>
-      <div className="flex h-full w-full grow flex-col">
+    <div className={`flex w-[250px] flex-col items-center px-4 ${className}`}>
+      <div className="mt-12 flex h-full w-full grow flex-col ">
+        <UserMenu />
         <Transition
           appear
           show={showCreateInstance}
