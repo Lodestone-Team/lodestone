@@ -95,7 +95,7 @@ pub enum MacroEventInner {
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct MacroEvent {
-    pub instance_uuid: InstanceUuid,
+    pub instance_uuid: Option<InstanceUuid>,
     pub macro_pid: usize,
     pub macro_event_inner: MacroEventInner,
 }
@@ -318,4 +318,81 @@ impl Event {
             _ => None,
         }
     }
+
+    pub fn new_instance_output(
+        instance_uuid: InstanceUuid,
+        instance_name: String,
+        output: String,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                instance_uuid,
+                instance_name,
+                instance_event_inner: InstanceEventInner::InstanceOutput { message: output },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+    pub fn new_player_message(
+        instance_uuid: InstanceUuid,
+        instance_name: String,
+        player: String,
+        player_message: String,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                instance_uuid,
+                instance_name,
+                instance_event_inner: InstanceEventInner::PlayerMessage {
+                    player,
+                    player_message,
+                },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+    pub fn new_system_message(
+        instance_uuid: InstanceUuid,
+        instance_name: String,
+        system_message: String,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                instance_uuid,
+                instance_name,
+                instance_event_inner: InstanceEventInner::SystemMessage {
+                    message: system_message,
+                },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+
+    pub fn new_instance_state_transition(
+        instance_uuid: InstanceUuid,
+        instance_name: String,
+        state: State,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                instance_uuid,
+                instance_name,
+                instance_event_inner: InstanceEventInner::StateTransition { to: state },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+
 }
