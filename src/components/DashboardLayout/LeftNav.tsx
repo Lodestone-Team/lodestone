@@ -4,11 +4,12 @@ import { Fragment, useState } from 'react';
 import useAnalyticsEventTracker, { useIntervalImmediate } from 'utils/hooks';
 import { useCoreInfo } from 'data/SystemInfo';
 import Button from 'components/Atoms/Button';
-import { faPlus } from '@fortawesome/free-solid-svg-icons';
+import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
 import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
 import UserMenu from 'components/Atoms/UserMenu';
+import clsx from 'clsx';
 export default function LeftNav({ className }: { className?: string }) {
   const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
@@ -58,10 +59,17 @@ export default function LeftNav({ className }: { className?: string }) {
         <InstanceList className="pt-12 pb-4">
           <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
             <Button
-              label="Add"
-              className="w-full"
+              label="New instance..."
+              className={
+                'w-full text-medium text-gray-faded/30 hover:bg-gray-800 active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
+                clsx(
+                  showCreateInstance &&
+                    'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10 '
+                )
+              }
+              intention="none"
               variant="text"
-              icon={faPlus}
+              icon={faSquarePlus}
               disabled={!canCreateInstance}
               onClick={() => setShowCreateInstance(true)}
             />
