@@ -41,13 +41,13 @@ const UserMenu = () => {
   }, [token, isLoading, isError, user]);
 
   return (
-    <div className="flex gap-2">
+    <div className="flex gap-2 px-2">
       {/* flex flex-row items-center px-1 py-2 */}
-      <Menu as="div" className="relative inline-block w-full text-left">
+      <Menu as="div" className="relative inline-block text-left">
         <Menu.Button
           as={Button}
-          align="between"
-          className="w-full"
+          align="start"
+          className="w-[165px]"
           loading={userState === 'loading'}
           label={
             userState === 'logged-in' && user ? `Hi, ${user.username}` : 'Guest'
