@@ -249,7 +249,7 @@ pub async fn get_paper_jar_url(version: &str, paper_build_version: Option<&str>)
         "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
         version,
         build.get("build")?.as_i64()?,
-        build.get("downloads")?.get("application")?.get("name")?.as_str()?.to_string(),
+        build.get("downloads")?.get("application")?.get("name")?.as_str()?,
     ))
 }
 
