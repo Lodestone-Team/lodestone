@@ -28,6 +28,7 @@ const buttonClasses = cva(
         large: ['gap-1.5 rounded py-1.5 px-3 text-h3'],
       },
       intention: {
+        none: [],
         info: [
           'text-gray-300 disabled:text-white/50',
           'font-medium',
