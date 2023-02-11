@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -19,7 +19,7 @@ use tracing::{debug, error};
 
 use crate::{
     error::{Error, ErrorKind},
-    events::{Event, EventInner, MacroEvent, MacroEventInner},
+    events::{CausedBy, Event, EventInner, MacroEvent, MacroEventInner},
     types::InstanceUuid,
 };
 
@@ -31,50 +31,28 @@ use anyhow::bail;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceTextInfo;
-use deno_core::anyhow;
-use deno_core::anyhow::anyhow;
 use deno_core::resolve_import;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
+use deno_core::{anyhow, error::generic_error};
 use futures::FutureExt;
-pub struct TypescriptModuleLoader;
 
-pub fn resolve_macro_invocation(
-    path_to_macro: &Path,
-    macro_name: &str,
-    is_in_game: bool,
-) -> Option<PathBuf> {
-    let path_to_macro = if is_in_game {
-        path_to_macro.join("in_game")
-    } else {
-        path_to_macro.to_owned()
-    };
+pub trait MainWorkerGenerator: Send + Sync {
+    fn generate(&self, args: Vec<String>, caused_by: CausedBy) -> deno_runtime::worker::MainWorker;
+}
+pub struct TypescriptModuleLoader {
+    http: reqwest::Client,
+}
 
-    let ts_macro = path_to_macro.join(macro_name).with_extension("ts");
-    let js_macro = path_to_macro.join(macro_name).with_extension("js");
-
-    let macro_folder = path_to_macro.join(macro_name);
-
-    if ts_macro.is_file() {
-        return Some(ts_macro);
-    } else if js_macro.is_file() {
-        return Some(js_macro);
-    } else if macro_folder.is_dir() {
-        // check if index.ts exists
-        let index_ts = macro_folder.join("index.ts");
-        let index_js = macro_folder.join("index.js");
-        if index_ts.exists() {
-            return Some(index_ts);
-        } else if index_js.exists() {
-            return Some(index_js);
+impl Default for TypescriptModuleLoader {
+    fn default() -> Self {
+        Self {
+            http: reqwest::Client::new(),
         }
-    } else if !is_in_game {
-        return resolve_macro_invocation(&path_to_macro.join("in_game"), macro_name, true);
-    };
-    None
+    }
 }
 
 impl ModuleLoader for TypescriptModuleLoader {
@@ -94,49 +72,91 @@ impl ModuleLoader for TypescriptModuleLoader {
         _is_dyn_import: bool,
     ) -> Pin<Box<ModuleSourceFuture>> {
         let module_specifier = module_specifier.clone();
+        let http = self.http.clone();
         async move {
-            let path = module_specifier
+            let (code, module_type, media_type, should_transpile) = match module_specifier
                 .to_file_path()
-                .map_err(|_| anyhow!("Only file: URLs are supported."))?;
+            {
+                Ok(path) => {
+                    let path = if path.extension().is_none() && path.with_extension("ts").exists() {
+                        path.with_extension("ts")
+                    } else if path.with_extension("js").exists() {
+                        path.with_extension("js")
+                    } else {
+                        path
+                    };
 
-            let path = if path.extension().is_none() && path.with_extension("ts").exists() {
-                path.with_extension("ts")
-            } else if path.with_extension("js").exists() {
-                path.with_extension("js")
-            } else {
-                path
-            };
+                    let path = if path.is_dir() {
+                        // check if index.ts exists
+                        let index_ts = path.join("index.ts");
+                        if index_ts.exists() {
+                            index_ts
+                        } else {
+                            path.join("index.js")
+                        }
+                    } else {
+                        path
+                    };
 
-            let path = if path.is_dir() {
-                // check if index.ts exists
-                let index_ts = path.join("index.ts");
-                if index_ts.exists() {
-                    index_ts
-                } else {
-                    path.join("index.js")
+                    let media_type = MediaType::from(&path);
+                    let (module_type, should_transpile) = match media_type {
+                        MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
+                            (ModuleType::JavaScript, false)
+                        }
+                        MediaType::Jsx => (ModuleType::JavaScript, true),
+                        MediaType::TypeScript
+                        | MediaType::Mts
+                        | MediaType::Cts
+                        | MediaType::Dts
+                        | MediaType::Dmts
+                        | MediaType::Dcts
+                        | MediaType::Tsx => (ModuleType::JavaScript, true),
+                        MediaType::Json => (ModuleType::Json, false),
+                        _ => bail!("Unknown extension {:?}", path.extension()),
+                    };
+
+                    (
+                        tokio::fs::read_to_string(&path).await?,
+                        module_type,
+                        media_type,
+                        should_transpile,
+                    )
                 }
-            } else {
-                path
-            };
-
-            let media_type = MediaType::from(&path);
-            let (module_type, should_transpile) = match MediaType::from(&path) {
-                MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
-                    (ModuleType::JavaScript, false)
+                Err(_) => {
+                    if module_specifier.scheme() == "http" || module_specifier.scheme() == "https" {
+                        let http_res = http.get(module_specifier.to_string()).send().await?;
+                        if !http_res.status().is_success() {
+                            bail!("Bad status code: {}", http_res.status());
+                        }
+                        let content_type = http_res
+                            .headers()
+                            .get("content-type")
+                            .and_then(|ct| ct.to_str().ok())
+                            .ok_or_else(|| generic_error("No content-type header"))?;
+                        let media_type =
+                            MediaType::from_content_type(&module_specifier, content_type);
+                        let (module_type, should_transpile) = match media_type {
+                            MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
+                                (ModuleType::JavaScript, false)
+                            }
+                            MediaType::Jsx => (ModuleType::JavaScript, true),
+                            MediaType::TypeScript
+                            | MediaType::Mts
+                            | MediaType::Cts
+                            | MediaType::Dts
+                            | MediaType::Dmts
+                            | MediaType::Dcts
+                            | MediaType::Tsx => (ModuleType::JavaScript, true),
+                            MediaType::Json => (ModuleType::Json, false),
+                            _ => bail!("Unknown content-type {:?}", content_type),
+                        };
+                        let code = http_res.text().await?;
+                        (code, module_type, media_type, should_transpile)
+                    } else {
+                        bail!("Unsupported module specifier: {}", module_specifier);
+                    }
                 }
-                MediaType::Jsx => (ModuleType::JavaScript, true),
-                MediaType::TypeScript
-                | MediaType::Mts
-                | MediaType::Cts
-                | MediaType::Dts
-                | MediaType::Dmts
-                | MediaType::Dcts
-                | MediaType::Tsx => (ModuleType::JavaScript, true),
-                MediaType::Json => (ModuleType::Json, false),
-                _ => bail!("Unknown extension {:?}", path.extension()),
             };
-
-            let code = std::fs::read_to_string(&path)?;
             let code = if should_transpile {
                 let parsed = deno_ast::parse_module(ParseParams {
                     specifier: module_specifier.to_string(),
@@ -146,12 +166,17 @@ impl ModuleLoader for TypescriptModuleLoader {
                     scope_analysis: false,
                     maybe_syntax: None,
                 })?;
-                parsed.transpile(&Default::default())?.text
+                parsed
+                    .transpile(&Default::default())?
+                    .text
+                    .into_bytes()
+                    .into_boxed_slice()
             } else {
-                code
+                code.into_bytes().into_boxed_slice()
             };
+
             let module = ModuleSource {
-                code: code.into_bytes().into_boxed_slice(),
+                code,
                 module_type,
                 module_url_specified: module_specifier.to_string(),
                 module_url_found: module_specifier.to_string(),
@@ -159,44 +184,6 @@ impl ModuleLoader for TypescriptModuleLoader {
             Ok(module)
         }
         .boxed_local()
-    }
-}
-
-pub struct ExecutionInstruction {
-    pub runtime: Box<
-        dyn Fn(
-                String,
-                String,
-                Vec<String>,
-                bool,
-            ) -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error>
-            + Send,
-    >,
-    pub name: String,
-    pub executor: Option<String>,
-    pub args: Vec<String>,
-    pub is_in_game: bool,
-    pub instance_uuid: InstanceUuid,
-}
-
-pub enum Instruction {
-    Spawn(ExecutionInstruction),
-    Abort(usize),
-}
-
-impl Debug for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Instruction::Spawn(exec_instruction) => f
-                .debug_struct("Instruction::Spawn")
-                .field("name", &exec_instruction.name)
-                .field("args", &exec_instruction.args)
-                .field("executor", &exec_instruction.executor)
-                .finish(),
-            Instruction::Abort(uuid) => {
-                write!(f, "Abort {{ uuid: {} }}", uuid)
-            }
-        }
     }
 }
 
@@ -218,7 +205,14 @@ impl MacroExecutor {
         }
     }
 
-    pub async fn spawn(&self, exec_instruction: ExecutionInstruction) -> Result<usize, Error> {
+    pub async fn spawn(
+        &self,
+        path_to_main_module: PathBuf,
+        args: Vec<String>,
+        caused_by: CausedBy,
+        main_worker_generator: Box<dyn MainWorkerGenerator>,
+        instance_uuid: Option<InstanceUuid>,
+    ) -> Result<usize, Error> {
         let pid = self.next_process_id.fetch_add(1, Ordering::SeqCst);
 
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
@@ -228,23 +222,8 @@ impl MacroExecutor {
             move || {
                 let local = LocalSet::new();
                 local.spawn_local(async move {
-                    let ExecutionInstruction {
-                        runtime,
-                        name,
-                        args,
-                        executor,
-                        is_in_game,
-                        instance_uuid,
-                    } = exec_instruction;
-                    let executor = executor.unwrap_or_default();
-                    let (mut runtime, path_to_main_module) =
-                        match runtime(name, executor, args, is_in_game) {
-                            Ok((runtime, path_to_main_module)) => (runtime, path_to_main_module),
-                            Err(e) => {
-                                error!("Error creating runtime: {}", e);
-                                return;
-                            }
-                        };
+                    let mut runtime = main_worker_generator.generate(args, caused_by);
+
                     let isolate_handle = runtime.js_runtime.v8_isolate().thread_safe_handle();
 
                     let main_module =
@@ -270,13 +249,13 @@ impl MacroExecutor {
                         .execute_main_module(&main_module)
                         .await
                         .map_err(|e| {
-                            error!("Error executing main module: {}", e);
+                            println!("Error executing main module: {}", e);
                             e
                         });
                     let event_broadcaster = event_broadcaster.clone();
 
                     let _ = runtime.run_event_loop(false).await.map_err(|e| {
-                        error!("Error while running event loop: {}", e);
+                        println!("Error while running event loop: {}", e);
                     });
 
                     let _ = event_broadcaster.send(
@@ -326,7 +305,7 @@ impl MacroExecutor {
 
         tokio::time::timeout(Duration::from_secs(1), fut)
             .await
-            .context("Failed to spawn macro")?;
+            .context("Failed to spawn macro")??;
         Ok(pid)
     }
 
@@ -395,199 +374,128 @@ impl MacroExecutor {
 
 #[allow(unused_imports)]
 mod tests {
+    use std::path::Path;
+    use std::pin::Pin;
     use std::{path::PathBuf, rc::Rc};
 
-    use tokio::sync::broadcast;
-
-    use super::{resolve_macro_invocation, TypescriptModuleLoader};
+    use super::{MainWorkerGenerator, TypescriptModuleLoader};
+    use crate::error::Error;
+    use crate::events::CausedBy;
     use crate::types::InstanceUuid;
-    use crate::Error;
+    use deno_core::error::generic_error;
+    use deno_core::{anyhow, op, ModuleSpecifier};
+    use deno_core::{resolve_import, ModuleLoader, ModuleSource, ModuleSourceFuture, ModuleType};
+    use futures::FutureExt;
+    use serde_json::{json, Value};
+    use tokio::sync::broadcast;
+    struct BasicMainWorkerGenerator;
 
+
+    impl MainWorkerGenerator for BasicMainWorkerGenerator {
+        fn generate(
+            &self,
+            args: Vec<String>,
+            caused_by: CausedBy,
+        ) -> deno_runtime::worker::MainWorker {
+            let bootstrap_options = deno_runtime::BootstrapOptions {
+                args,
+                ..Default::default()
+            };
+
+            let mut worker_options = deno_runtime::worker::WorkerOptions {
+                bootstrap: bootstrap_options,
+                ..Default::default()
+            };
+
+            worker_options.module_loader = Rc::new(TypescriptModuleLoader::default());
+            let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
+                deno_core::resolve_path(".").unwrap(),
+                deno_runtime::permissions::Permissions::allow_all(),
+                worker_options,
+            );
+
+            worker
+                .execute_script(
+                    "[dep_inject]",
+                    format!(
+                        "const caused_by = {};",
+                        serde_json::to_string(&caused_by).unwrap()
+                    )
+                    .as_str(),
+                )
+                .unwrap();
+            worker
+        }
+    }
     #[tokio::test]
-    async fn test_macro_executor() {
+    async fn basic_execution() {
         let (event_broadcaster, _) = broadcast::channel(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
 
         // create a temp directory
-        let path_to_macros = tempdir::TempDir::new("macro_executor_test")
-            .unwrap()
-            .into_path();
-        // create test js file
+        let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
 
-        let runtime = Box::new({
-            let path_to_macros = path_to_macros.clone();
-            move |macro_name: String,
-                  _executor: String,
-                  args: Vec<String>,
-                  is_in_game: bool|
-                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
-                let path_to_main_module =
-                    resolve_macro_invocation(&path_to_macros, &macro_name, is_in_game)
-                        .expect("Failed to resolve macro invocation");
+        // create a macro file
 
-                let bootstrap_options = deno_runtime::BootstrapOptions {
-                    args,
-                    ..Default::default()
-                };
-
-                let mut worker_options = deno_runtime::worker::WorkerOptions {
-                    bootstrap: bootstrap_options,
-                    ..Default::default()
-                };
-
-                worker_options.module_loader = Rc::new(TypescriptModuleLoader);
-                let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
-                    .expect("Failed to resolve path");
-                // todo(CheatCod3) : limit the permissions
-                let permissions = deno_runtime::permissions::Permissions::allow_all();
-                let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-                    main_module,
-                    permissions,
-                    worker_options,
-                );
-
-                Ok((worker, path_to_main_module))
-            }
-        });
-
-        let path_to_basic_js = path_to_macros.join("basic.js");
-
-        std::fs::write(path_to_basic_js, "console.log('hello world')").unwrap();
-
-        let instruction = super::ExecutionInstruction {
-            runtime: runtime.clone(),
-            name: "basic".to_owned(),
-            args: vec![],
-            executor: None,
-            is_in_game: false,
-            instance_uuid: InstanceUuid::default(),
-        };
-        executor.spawn(instruction).await.unwrap();
-
-        let path_to_loop_js = path_to_macros.join("loop.js");
+        let path_to_macro = temp_dir.join("test.ts");
 
         std::fs::write(
-            path_to_loop_js,
-            "
-            let total = 0;
-            console.log('starting loop in js');
-            for (let i = 0; i < 100; i++) {
-                await new Promise(r => setTimeout(r, 100));
-                total++;
-                console.log('looping', total);
-            }",
-        )
-        .unwrap();
-        let mut last_pid = 0;
-        for i in 0..2 {
-            println!("starting sync loop {}", i);
-            let instruction = super::ExecutionInstruction {
-                runtime: runtime.clone(),
-                name: "loop".to_owned(),
-                args: vec![],
-                executor: None,
-                is_in_game: false,
-                instance_uuid: InstanceUuid::default(),
-            };
-            last_pid = executor.spawn(instruction).await.unwrap();
-        }
-        assert!(executor.wait_with_timeout(last_pid, None).await);
-        println!("done");
+            &path_to_macro,
+            r#"
+            console.log("hello world");
+            "#,
+        ).unwrap();
 
-        // let pid = executor.spawn(instruction);
+        let basic_worker_generator = BasicMainWorkerGenerator;
 
-        // tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.01)).await;
-
-        // executor.abort_macro(&pid).await.unwrap();
-
-        // tokio::time::sleep(tokio::time::Duration::from_secs_f64(0.001)).await;
-
-        // let instruction = super::ExecutionInstruction {
-        //     runtime: runtime.clone(),
-        //     name: "loop".to_owned(),
-        //     args: vec![],
-        //     executor: None,
-        //     is_in_game: false,
-        //     instance_uuid: InstanceUuid::default(),
-        // };
-        // executor.spawn(instruction);
+        let pid = executor
+            .spawn(
+                path_to_macro,
+                Vec::new(),
+                CausedBy::Unknown,
+                Box::new(basic_worker_generator),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(executor.wait_with_timeout(pid, None).await);
     }
 
-    #[tokio::test]
-    async fn test_abort() {
-        let (event_broadcaster, _) = broadcast::channel(10);
 
+    #[tokio::test]
+    async fn test_http_url() {
+        let (event_broadcaster, _) = broadcast::channel(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
 
         // create a temp directory
-        let path_to_macros = tempdir::TempDir::new("macro_executor_test")
-            .unwrap()
-            .into_path();
-        // create test js file
+        let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
 
-        let runtime = Box::new({
-            let path_to_macros = path_to_macros.clone();
-            move |macro_name: String,
-                  _executor: String,
-                  args: Vec<String>,
-                  is_in_game: bool|
-                  -> Result<(deno_runtime::worker::MainWorker, PathBuf), Error> {
-                let path_to_main_module =
-                    resolve_macro_invocation(&path_to_macros, &macro_name, is_in_game)
-                        .expect("Failed to resolve macro invocation");
+        // create a macro file
 
-                let bootstrap_options = deno_runtime::BootstrapOptions {
-                    args,
-                    ..Default::default()
-                };
+        let path_to_macro = temp_dir.join("test.ts");
 
-                let mut worker_options = deno_runtime::worker::WorkerOptions {
-                    bootstrap: bootstrap_options,
-                    ..Default::default()
-                };
+        std::fs::write(
+            &path_to_macro,
+            r#"
+            import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
+            console.log("hello world");
+            "#,
+        ).unwrap();
 
-                worker_options.module_loader = Rc::new(TypescriptModuleLoader);
-                let main_module = deno_core::resolve_path(&path_to_main_module.to_string_lossy())
-                    .expect("Failed to resolve path");
-                // todo(CheatCod3) : limit the permissions
-                let permissions = deno_runtime::permissions::Permissions::allow_all();
-                let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-                    main_module,
-                    permissions,
-                    worker_options,
-                );
+        let basic_worker_generator = BasicMainWorkerGenerator;
 
-                Ok((worker, path_to_main_module))
-            }
-        });
-
-        let path_to_basic_js = path_to_macros.join("abort.js");
-
-        std::fs::write(path_to_basic_js, "while (true) {}").unwrap();
-
-        let instruction = super::ExecutionInstruction {
-            runtime: runtime.clone(),
-            name: "abort".to_owned(),
-            args: vec![],
-            executor: None,
-            is_in_game: false,
-            instance_uuid: InstanceUuid::default(),
-        };
-
-        let pid = executor.spawn(instruction).await.unwrap();
-
-        tokio::spawn({
-            let pid = pid;
-            let executor = executor.clone();
-            async move {
-                assert!(executor.wait_with_timeout(pid, None).await);
-            }
-        });
-
-        tokio::time::sleep(tokio::time::Duration::from_secs_f64(1.0)).await;
-
-        executor.abort_macro(&pid).await.unwrap();
+        let pid = executor
+            .spawn(
+                path_to_macro,
+                Vec::new(),
+                CausedBy::Unknown,
+                Box::new(basic_worker_generator),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(executor.wait_with_timeout(pid, None).await);
     }
 }

@@ -12,7 +12,6 @@ use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
-use crate::macro_executor::ExecutionInstruction;
 use crate::prelude::LODESTONE_PATH;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TMacro;
@@ -21,6 +20,7 @@ use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
+use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
 use super::{MinecraftInstance, Flavour};
 use tracing::{debug, error, info, warn};
 
@@ -54,18 +54,21 @@ impl TServer for MinecraftInstance {
             "Failed to set current directory to the instance's path, is the path valid?",
         )?;
 
-        let prelaunch = self.path_to_macros.join("prelaunch.js");
-        if prelaunch.exists() {
-            self.macro_executor
-                .spawn(ExecutionInstruction {
-                    name: "prelaunch".to_string(),
-                    args: vec![],
-                    executor: None,
-                    runtime: self.macro_std(),
-                    is_in_game: false,
-                    instance_uuid: self.config.uuid.clone(),
-                })
-                .await;
+        let prelaunch = resolve_macro_invocation(&self.path_to_macros, "prelaunch", false);
+        if let Some(prelaunch) = prelaunch {
+            let _ = self.macro_executor
+                .spawn(
+                    prelaunch,
+                    Vec::new(),
+                    cause_by.clone(),
+                    Box::new(MinecraftMainWorkerGenerator::new(self.clone())),
+                    Some(self.config.uuid.clone()),
+                )
+                .await
+                .map_err(|e| {
+                    error!("Failed to spawn prelaunch script: {}", e);
+                    e
+                })?;
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -458,7 +461,7 @@ impl TServer for MinecraftInstance {
                                             let _ = macro_executor.abort_macro(&macro_id).await;
                                         }
                                         MacroInstruction::Spawn {
-                                            player_name,
+                                            player_name: _,
                                             macro_name,
                                             args,
                                         } => {
@@ -470,7 +473,7 @@ impl TServer for MinecraftInstance {
                                                 .run_macro(
                                                     &macro_name,
                                                     args,
-                                                    Some(player_name.as_str()),
+                                                    CausedBy::Unknown,
                                                     true,
                                                 )
                                                 .await

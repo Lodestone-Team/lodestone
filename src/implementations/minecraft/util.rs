@@ -290,7 +290,7 @@ pub async fn get_paper_jar_url(version: &str, paper_build_version: Option<i64>) 
             "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
             version,
             build_version,
-            build.get("downloads")?.get("application")?.get("name")?.as_str()?.to_string(),
+            build.get("downloads")?.get("application")?.get("name")?.as_str()?,
         ),
         Flavour::Paper {
             build_version: Some(build_version),

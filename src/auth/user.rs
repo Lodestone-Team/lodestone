@@ -159,10 +159,12 @@ impl User {
                         .can_write_instance_file
                         .contains(instance_id)
             }
-            UserAction::AccessMacro(instance_id) => self
+            UserAction::AccessMacro(Some(instance_id)) => self
                 .permissions
                 .can_access_instance_macro
                 .contains(instance_id),
+            // TODO(CheatCod3): check if the macro is global
+            UserAction::AccessMacro(None) => false,
             UserAction::CreateInstance => self.is_admin || self.permissions.can_create_instance,
             UserAction::DeleteInstance => self.is_admin || self.permissions.can_delete_instance,
             UserAction::ReadGlobalFile => self.permissions.can_read_global_file,
@@ -268,7 +270,7 @@ pub enum UserAction {
     AccessSetting(InstanceUuid),
     ReadResource(InstanceUuid),
     WriteResource(InstanceUuid),
-    AccessMacro(InstanceUuid),
+    AccessMacro(Option<InstanceUuid>),
     ReadInstanceFile(InstanceUuid),
     WriteInstanceFile(InstanceUuid),
 

@@ -79,6 +79,19 @@ pub struct MinecraftSetupConfigPrimitive {
     pub backup_period: Option<u32>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct GenericSetupConfigPrimitive {
+    pub name: String,
+    pub description: Option<String>,
+    pub port: u32,
+    pub auto_start: Option<bool>,
+    pub restart_on_crash: Option<bool>,
+    pub timeout_last_left: Option<u32>,
+    pub timeout_no_activity: Option<u32>,
+    pub start_on_connection: Option<bool>,
+}
+
 impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
     fn from(config: MinecraftSetupConfigPrimitive) -> Self {
         let uuid = InstanceUuid::default();
