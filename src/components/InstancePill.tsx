@@ -28,8 +28,8 @@ export default function InstancePill({
       className={clsx(
         'flex flex-row items-center gap-x-1.5',
         'cursor-pointer rounded-md py-1 px-2',
-        'text-mediud font-bold tracking-medium  ui-not-checked:hover:bg-gray-800',
-        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700'
+        'text-medium font-bold leading-5 tracking-medium text-white/50 ui-checked:text-gray-300',
+        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
       )}
       onClick={cardOnClick}
     >
@@ -38,9 +38,7 @@ export default function InstancePill({
         game_flavour={flavour}
         className="h-4 w-4"
       />
-      <p className="grow truncate text-medium font-bold tracking-medium text-gray-300">
-        {name}
-      </p>
+      <p className="grow truncate">{name}</p>
       <FontAwesomeIcon
         icon={faCircle}
         className={`select-none text-[8px] ${stateColor}`}
