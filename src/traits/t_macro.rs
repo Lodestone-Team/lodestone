@@ -3,6 +3,7 @@ use color_eyre::eyre::eyre;
 
 use crate::{
     error::{Error, ErrorKind},
+    events::CausedBy,
     traits::GameInstance,
 };
 #[async_trait]
@@ -15,7 +16,7 @@ pub trait TMacro {
         &mut self,
         _name: &str,
         _args: Vec<String>,
-        _executor: Option<&str>,
+        _caused_by: CausedBy,
         _is_in_game: bool,
     ) -> Result<(), Error> {
         Err(Error {
