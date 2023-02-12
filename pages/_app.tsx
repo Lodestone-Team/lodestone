@@ -8,7 +8,7 @@ import axios from 'axios';
 import NoSSR from 'react-no-ssr';
 import { BrowserRouter } from 'react-router-dom';
 import { BrowserLocationContextProvider } from 'data/BrowserLocationContext';
-import { ToastContainer, Zoom } from 'react-toastify';
+import { ToastContainer, Zoom, IconProps } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import ReactGA from 'react-ga4';
 import localFont from '@next/font/local';
@@ -77,6 +77,18 @@ const MinecraftFont = localFont({
 
 
 function MyApp({ Component, pageProps }: AppProps) {
+  const renderIcon = (props: IconProps) => {
+    // Cannot assign 'Success' to EventLevel, so I guess there won't be a success toast
+    switch (props.type) {
+      case 'error':
+        return <LoadingStatusIcon level={'Error'} bright={true} />;
+      case 'warning':
+        return <LoadingStatusIcon level={'Warning'} bright={true} />;
+      default:
+        return <LoadingStatusIcon level={'Info'} bright={true} />;
+    }
+  }
+
   return (
     <main
       className={`${ChillaxFont.variable} ${JetBrainsMonoFont.variable} ${ClashGroteskFont.variable} ${MinecraftFont.variable}`}
@@ -93,7 +105,7 @@ function MyApp({ Component, pageProps }: AppProps) {
               contextClass[type] + ' relative ' + context?.defaultClassName
             );
           }}
-          icon={<LoadingStatusIcon level={'Info'} bright={true} />}
+          icon={renderIcon}
           position={'bottom-right'}
           closeButton={false}
           pauseOnFocusLoss={false}
