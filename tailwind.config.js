@@ -56,10 +56,10 @@ module.exports = {
     },
     fontFamily: {
       sans: ['Satoshi', ...defaultTheme.fontFamily.sans],
-      heading: ['Chillax', ...defaultTheme.fontFamily.sans],
-      title: ['Clash Grotesk', ...defaultTheme.fontFamily.sans],
-      minecraft: ['Minecraft', ...defaultTheme.fontFamily.sans],
-      mono: ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
+      heading: ['var(--font-chillax)', ...defaultTheme.fontFamily.sans],
+      title: ['var(--font-clash-grotesk)', ...defaultTheme.fontFamily.sans],
+      minecraft: ['var(--font-minecraft)', ...defaultTheme.fontFamily.sans],
+      mono: ['var(--font-jetbrains-mono)', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {
       //! note: don't use fractional-px fonts

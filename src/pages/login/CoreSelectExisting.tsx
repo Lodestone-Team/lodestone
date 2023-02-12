@@ -16,6 +16,7 @@ import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
+import WarningAlert from 'components/Atoms/WarningAlert';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -63,23 +64,16 @@ const CoreSelectExisting = () => {
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setErrors({
-          core: {
-            address: errorMessages,
-            port: errorMessages,
-            apiVersion: errorMessages,
-            protocol: errorMessages,
-          },
-        });
+        actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
         return;
       });
   };
 
   return (
-    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
-      <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
+    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+      <div className="flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Select Lodestone Core
         </h1>
@@ -92,12 +86,20 @@ const CoreSelectExisting = () => {
         validateOnChange={false}
         validateOnBlur={false}
       >
-        {({ isSubmitting }) => (
+        {({ isSubmitting, status }) => (
           <Form
             id="addCoreForm"
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
+            {status && (
+              <WarningAlert>
+                <p>
+                  <b>{status.error}</b>: Please ensure your fields are filled
+                  out correctly.
+                </p>
+              </WarningAlert>
+            )}
             <div className="flex flex-row items-baseline gap-8">
               <SelectField
                 name="core"

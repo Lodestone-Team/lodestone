@@ -11,7 +11,7 @@ import { DISABLE_AUTOFILL, isLocalCore } from 'utils/util';
 import { loginToCore } from 'utils/apis';
 import { tauri } from 'utils/tauriUtil';
 import { useDocumentTitle } from 'usehooks-ts';
-
+import WarningAlert from 'components/Atoms/WarningAlert';
 export type LoginValues = {
   username: string;
   password: string;
@@ -45,7 +45,7 @@ const UserLogin = () => {
       .then((response) => {
         if (!response) {
           // this should never end
-          actions.setErrors({ password: 'Sign in failed' });
+          actions.setStatus({ error: 'Sign in failed' });
           actions.setSubmitting(false);
           return;
         }
@@ -54,15 +54,15 @@ const UserLogin = () => {
         actions.setSubmitting(false);
       })
       .catch((error: string) => {
-        actions.setErrors({ password: error });
+        actions.setStatus({ error: error });
         actions.setSubmitting(false);
       });
   };
 
   return (
-    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
-      <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
+    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions @container">
+      <div className="flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Sign in
         </h1>
@@ -77,12 +77,17 @@ const UserLogin = () => {
         validateOnBlur={false}
         validateOnChange={false}
       >
-        {({ isSubmitting }) => (
+        {({ isSubmitting, status }) => (
           <Form
             id="loginForm"
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
+            {status && (
+              <WarningAlert>
+                <p>{status.error}</p>
+              </WarningAlert>
+            )}
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 ">
               <InputField type="text" name="username" label="Username" />
               <InputField type="password" name="password" label="Password" />

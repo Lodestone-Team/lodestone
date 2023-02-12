@@ -13,6 +13,7 @@ import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
 import { useQueryClient } from '@tanstack/react-query';
 import { LoginReply } from 'bindings/LoginReply';
+import WarningAlert from 'components/Atoms/WarningAlert';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -94,16 +95,16 @@ const CoreSetupNew = () => {
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setErrors({ setupKey: errorMessages }); //TODO: put the error in a better place, it's not just an address problem
+        actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
         return;
       });
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 @container">
+    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
       <div className="text flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-fit w-fit" />
+        <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Create an owner&#39;s account
         </h1>
@@ -124,12 +125,20 @@ const CoreSetupNew = () => {
         validateOnChange={false}
         enableReinitialize={true}
       >
-        {({ isSubmitting }) => (
+        {({ isSubmitting, status }) => (
           <Form
             id="setupOwnerForm"
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
+            {status && (
+              <WarningAlert>
+                <p>
+                  <b>{status.error}</b>: Please ensure your fields are filled
+                  out correctly.
+                </p>
+              </WarningAlert>
+            )}
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <InputField type="text" name="username" label="Username" />
               <InputField

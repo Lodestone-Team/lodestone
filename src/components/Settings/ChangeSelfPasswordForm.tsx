@@ -8,7 +8,7 @@ import { Form, Formik, FormikHelpers } from 'formik';
 import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { changePassword, createNewUser } from 'utils/apis';
 import * as yup from 'yup';
-
+import WarningAlert from 'components/Atoms/WarningAlert';
 export type ChangeSelfPasswordValues = {
   old_password: string;
   password: string;
@@ -51,8 +51,7 @@ export const ChangeSelfPasswordForm = ({
         actions.resetForm();
       })
       .catch((error) => {
-        // TODO: better form errors
-        actions.setErrors({ old_password: errorToString(error) });
+        actions.setStatus({ error: errorToString(error) });
       })
       .finally(() => {
         actions.setSubmitting(false);
@@ -64,12 +63,17 @@ export const ChangeSelfPasswordForm = ({
       validationSchema={validationSchema}
       onSubmit={onSubmit}
     >
-      {({ isSubmitting }) => (
+      {({ isSubmitting, status }) => (
         <Form
           id="change-self-password-form"
           autoComplete={DISABLE_AUTOFILL}
           className="mt-10 flex flex-col gap-16 text-left"
         >
+          {status && (
+            <WarningAlert>
+              <p>{status.error}</p>
+            </WarningAlert>
+          )}
           <InputField
             name="old_password"
             label="Old Password"
