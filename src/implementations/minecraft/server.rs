@@ -495,7 +495,7 @@ impl TServer for MinecraftInstance {
                         {
                             if instance_uuid == event_instance_uuid {
                                 if to == State::Running {
-                                    break;
+                                    return Ok(()); // Instance started successfully
                                 } else if to == State::Stopped {
                                     return Err(eyre!(
                                         "Instance exited unexpectedly before starting"
@@ -585,7 +585,7 @@ impl TServer for MinecraftInstance {
                 }) = event.event_inner
                 {
                     if instance_uuid == event_instance_uuid && to == State::Stopped {
-                        break;
+                        return Ok(());
                     }
                 }
             }
@@ -607,8 +607,8 @@ impl TServer for MinecraftInstance {
 
             let mut __self = self.clone();
             tokio::task::spawn(async move {
-                self.stop(caused_by.clone(), block).await?;
-                self.start(caused_by, block).await
+                self.stop(caused_by.clone(), true).await.unwrap();
+                self.start(caused_by, block).await.unwrap()
             });
             Ok(())
         }
