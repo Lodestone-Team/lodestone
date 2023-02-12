@@ -223,7 +223,7 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
                 .as_str(),
             )
             .expect("Failed to inject executor");
-        todo!()
+        worker
     }
 }
 
