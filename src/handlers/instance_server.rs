@@ -95,14 +95,6 @@ pub async fn restart_instance(
         source: eyre!("Instance not found"),
     })?;
 
-    let port = instance.port().await;
-
-    if !port_scanner::local_port_available(port as u16) {
-        return Err(Error {
-            kind: ErrorKind::Internal,
-            source: eyre!("Port {} is already in use", port),
-        });
-    }
     instance.restart(caused_by, false).await?;
     Ok(Json(()))
 }
@@ -189,7 +181,7 @@ pub fn get_instance_server_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/start", put(start_instance))
         .route("/instance/:uuid/stop", put(stop_instance))
-        .route("/intance/:uuid/restart", put(restart_instance))
+        .route("/instance/:uuid/restart", put(restart_instance))
         .route("/instance/:uuid/kill", put(kill_instance))
         .route("/instance/:uuid/console", post(send_command))
         .route("/instance/:uuid/state", get(get_instance_state))
