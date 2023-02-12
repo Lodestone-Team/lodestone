@@ -476,324 +476,325 @@ export default function FileViewer() {
   );
 
   return (
-    <div className="relative flex h-full w-full grow flex-col gap-3">
-      <div className="flex flex-row items-center justify-between gap-4">
-        {createFileModal}
-        {createFolderModal}
-        <ConfirmDialog
-          isOpen={deleteFileModalOpen}
-          onClose={() => setDeleteFileModalOpen(false)}
-          onConfirm={async () => {
-            setDeleteFileModalOpen(false);
-            deleteTickedFiles();
-          }}
-          title="Delete file(s)"
-          type="danger"
-        >
-          Are you sure you want to delete the following?
-          <ul className="list-inside list-disc">
-            {tickedFiles.map((file) => (
-              <li key={file.path}>
-                {file.name} {file.file_type != 'File' && `(${file.file_type})`}
-              </li>
-            ))}
-          </ul>
-        </ConfirmDialog>
-
-        <Menu as="div" className="relative inline-block text-left">
-          <Menu.Button
-            as={Button}
-            label="Add/Remove"
-            icon={faCaretDown}
-            disabled={!fileList}
-          ></Menu.Button>
-          <Transition
-            as={Fragment}
-            enter="transition ease-out duration-200"
-            enterFrom="opacity-0 -translate-y-1"
-            enterTo="opacity-100 translate-y-0"
-            leave="transition ease-in duration-150"
-            leaveFrom="opacity-100 translate-y-0"
-            leaveTo="opacity-0 -translate-y-1"
-          >
-            <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
-              <div className="py-2 px-1.5">
-                <Menu.Item disabled={!fileList}>
-                  {({ active, disabled }) => (
-                    <Button
-                      label={
-                        tickedFiles.length === fileList?.length
-                          ? 'Deselect all'
-                          : 'Select all'
-                      }
-                      className="w-full whitespace-nowrap py-1.5"
-                      onClick={() => {
-                        if (!fileList) return;
-                        if (tickedFiles.length === fileList.length) {
-                          setTickedFiles([]);
-                        } else {
-                          setTickedFiles([...fileList]);
+    <>
+      {createFileModal}
+      {createFolderModal}
+      <ConfirmDialog
+        isOpen={deleteFileModalOpen}
+        onClose={() => setDeleteFileModalOpen(false)}
+        onConfirm={async () => {
+          setDeleteFileModalOpen(false);
+          deleteTickedFiles();
+        }}
+        title="Delete file(s)"
+        type="danger"
+      >
+        Are you sure you want to delete the following?
+        <ul className="list-inside list-disc">
+          {tickedFiles.map((file) => (
+            <li key={file.path}>
+              {file.name} {file.file_type != 'File' && `(${file.file_type})`}
+            </li>
+          ))}
+        </ul>
+      </ConfirmDialog>
+      <div className="relative flex h-full w-full grow flex-col gap-3">
+        <div className="flex flex-row items-center justify-between gap-4">
+          <Menu as="div" className="relative inline-block text-left">
+            <Menu.Button
+              as={Button}
+              label="Add/Remove"
+              icon={faCaretDown}
+              disabled={!fileList}
+            ></Menu.Button>
+            <Transition
+              as={Fragment}
+              enter="transition ease-out duration-200"
+              enterFrom="opacity-0 -translate-y-1"
+              enterTo="opacity-100 translate-y-0"
+              leave="transition ease-in duration-150"
+              leaveFrom="opacity-100 translate-y-0"
+              leaveTo="opacity-0 -translate-y-1"
+            >
+              <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+                <div className="py-2 px-1.5">
+                  <Menu.Item disabled={!fileList}>
+                    {({ active, disabled }) => (
+                      <Button
+                        label={
+                          tickedFiles.length === fileList?.length
+                            ? 'Deselect all'
+                            : 'Select all'
                         }
-                      }}
-                      icon={faListCheck}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-                <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
-                  {({ active, disabled }) => (
-                    <Button
-                      className="w-full whitespace-nowrap py-1.5"
-                      label="Cut selected"
-                      icon={faScissors}
-                      onClick={() => {
-                        setClipboard(tickedFiles);
-                        setClipboardAction('cut');
-                        setTickedFiles([]);
-                        toast.info('Files cut to clipboard');
-                      }}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-                <Menu.Item disabled={tickedFiles.length === 0 || !canRead}>
-                  {({ active, disabled }) => (
-                    <Button
-                      className="w-full whitespace-nowrap py-1.5"
-                      label="Download selected"
-                      icon={faDownload}
-                      onClick={downloadTickedFiles}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-                <Menu.Item disabled={tickedFiles.length !== 1 || !canWrite}>
-                  {({ active, disabled }) => (
-                    <Button
-                      className="w-full whitespace-nowrap py-1.5"
-                      label="Unarchive selected"
-                      icon={faFileZipper}
-                      onClick={unzipTickedFile}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-              </div>
-              <div className="py-2 px-1.5">
-                <Menu.Item disabled={!canWrite}>
-                  {({ active, disabled }) => (
-                    <Button
-                      label="New file"
-                      className="w-full whitespace-nowrap py-1.5"
-                      onClick={() => setCreateFileModalOpen(true)}
-                      iconComponent={fileCheckIcon}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-                <Menu.Item disabled={!canWrite}>
-                  {({ active, disabled }) => (
-                    <Button
-                      label="New folder"
-                      className="w-full whitespace-nowrap py-1.5"
-                      onClick={() => setCreateFolderModalOpen(true)}
-                      icon={faFolderPlus}
-                      variant="text"
-                      align="start"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-              </div>
-              <div className="py-2 px-1.5">
-                <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
-                  {({ active, disabled }) => (
-                    <Button
-                      label="Delete selected"
-                      className="w-full whitespace-nowrap py-1.5"
-                      onClick={() => setDeleteFileModalOpen(true)}
-                      icon={faTrashCan}
-                      variant="text"
-                      align="start"
-                      intention="danger"
-                      disabled={disabled}
-                    />
-                  )}
-                </Menu.Item>
-              </div>
-            </Menu.Items>
-          </Transition>
-        </Menu>
+                        className="w-full whitespace-nowrap py-1.5"
+                        onClick={() => {
+                          if (!fileList) return;
+                          if (tickedFiles.length === fileList.length) {
+                            setTickedFiles([]);
+                          } else {
+                            setTickedFiles([...fileList]);
+                          }
+                        }}
+                        icon={faListCheck}
+                        variant="text"
+                        align="start"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                  <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
+                    {({ active, disabled }) => (
+                      <Button
+                        className="w-full whitespace-nowrap py-1.5"
+                        label="Cut selected"
+                        icon={faScissors}
+                        onClick={() => {
+                          setClipboard(tickedFiles);
+                          setClipboardAction('cut');
+                          setTickedFiles([]);
+                          toast.info('Files cut to clipboard');
+                        }}
+                        variant="text"
+                        align="start"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                  <Menu.Item disabled={tickedFiles.length === 0 || !canRead}>
+                    {({ active, disabled }) => (
+                      <Button
+                        className="w-full whitespace-nowrap py-1.5"
+                        label="Download selected"
+                        icon={faDownload}
+                        onClick={downloadTickedFiles}
+                        variant="text"
+                        align="start"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                  <Menu.Item disabled={tickedFiles.length !== 1 || !canWrite}>
+                    {({ active, disabled }) => (
+                      <Button
+                        className="w-full whitespace-nowrap py-1.5"
+                        label="Unarchive selected"
+                        icon={faFileZipper}
+                        onClick={unzipTickedFile}
+                        variant="text"
+                        align="start"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                </div>
+                <div className="py-2 px-1.5">
+                  <Menu.Item disabled={!canWrite}>
+                    {({ active, disabled }) => (
+                      <Button
+                        label="New file"
+                        className="w-full whitespace-nowrap py-1.5"
+                        onClick={() => setCreateFileModalOpen(true)}
+                        iconComponent={fileCheckIcon}
+                        variant="text"
+                        align="start"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                  <Menu.Item disabled={!canWrite}>
+                    {({ active, disabled }) => (
+                      <Button
+                        label="New folder"
+                        className="w-full whitespace-nowrap py-1.5"
+                        onClick={() => setCreateFolderModalOpen(true)}
+                        icon={faFolderPlus}
+                        variant="text"
+                        align="start"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                </div>
+                <div className="py-2 px-1.5">
+                  <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
+                    {({ active, disabled }) => (
+                      <Button
+                        label="Delete selected"
+                        className="w-full whitespace-nowrap py-1.5"
+                        onClick={() => setDeleteFileModalOpen(true)}
+                        icon={faTrashCan}
+                        variant="text"
+                        align="start"
+                        intention="danger"
+                        disabled={disabled}
+                      />
+                    )}
+                  </Menu.Item>
+                </div>
+              </Menu.Items>
+            </Transition>
+          </Menu>
 
-        {breadcrumb}
-        {clipboard.length !== 0 && (
-          <Button
-            className="h-fit whitespace-nowrap"
-            label={`Paste ${clipboard.length} ${
-              clipboard.length > 1 ? 'files' : 'file'
-            }`}
-            icon={faPaste}
-            onClick={pasteFiles}
-          />
-        )}
-        {showingMonaco && (
-          <>
-            <Button
-              className="h-fit"
-              label="Save"
-              icon={faFloppyDisk}
-              onClick={() =>
-                saveInstanceFile(
-                  instance.uuid,
-                  path,
-                  openedFile,
-                  fileContent,
-                  queryClient
-                )
-              }
-              disabled={
-                !openedFile ||
-                fileContent === originalFileContent ||
-                !showingMonaco
-              }
-            />
+          {breadcrumb}
+          {clipboard.length !== 0 && (
             <Button
               className="h-fit whitespace-nowrap"
-              label="Discard Changes"
-              icon={faArrowsRotate}
-              onClick={() => setFileContent(originalFileContent || '')}
-              disabled={
-                !openedFile ||
-                fileContent === originalFileContent ||
-                !showingMonaco
-              }
+              label={`Paste ${clipboard.length} ${
+                clipboard.length > 1 ? 'files' : 'file'
+              }`}
+              icon={faPaste}
+              onClick={pasteFiles}
             />
-          </>
-        )}
-        <Button
-          className="h-fit"
-          label="Upload"
-          icon={faUpload}
-          onClick={chooseFilesToUpload}
-          disabled={!canWrite}
-        />
-      </div>
-
-      {canRead ? (
-        <div className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
-          <ResizePanel
-            direction="e"
-            maxSize={500}
-            minSize={200}
-            size={fileListSize}
-            validateSize={false}
-            onResize={setFileListSize}
-            containerClassNames="grow shrink-0 rounded-l-lg last:rounded-r-lg overflow-clip"
-            grow={!openedFile}
-          >
-            <FileList
-              path={path}
-              atTopLevel={atTopLevel}
-              fileList={fileList}
-              loading={fileListLoading}
-              error={fileListError}
-              tickedFiles={tickedFiles}
-              tickFile={tickFile}
-              openedFile={openedFile}
-              onParentClick={() =>
-                setPath(parentPath(path, direcotrySeparator), false)
-              }
-              onEmptyClick={() => {
-                setOpenedFile(null);
-                setTickedFiles([]);
-              }}
-              onFileClick={(file) => {
-                if (file.file_type === 'Directory') {
-                  setPath(file.path, false);
-                } else {
-                  setOpenedFile(file);
+          )}
+          {showingMonaco && (
+            <>
+              <Button
+                className="h-fit"
+                label="Save"
+                icon={faFloppyDisk}
+                onClick={() =>
+                  saveInstanceFile(
+                    instance.uuid,
+                    path,
+                    openedFile,
+                    fileContent,
+                    queryClient
+                  )
                 }
-              }}
-            />
-          </ResizePanel>
-          {openedFile && (
-            <div className="min-w-0 grow">
-              <div className="h-full">
-                {showingMonaco ? (
-                  <Editor
-                    height="100%"
-                    onChange={(value) => {
-                      setFileContent(value ?? '');
-                    }}
-                    value={fileContent}
-                    defaultValue={originalFileContent}
-                    theme="lodestone-dark"
-                    path={monacoPath}
-                    className="bg-gray-800"
-                    options={{
-                      padding: {
-                        top: 8,
-                      },
-                      minimap: {
-                        enabled: false,
-                      },
-                    }}
-                    language={monacoLanguage}
-                    saveViewState={true}
-                    onMount={handleEditorDidMount}
-                    keepCurrentModel={true}
-                  />
-                ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
-                    <FontAwesomeIcon
-                      icon={faFilePen}
-                      className="text-title text-gray-500"
+                disabled={
+                  !openedFile ||
+                  fileContent === originalFileContent ||
+                  !showingMonaco
+                }
+              />
+              <Button
+                className="h-fit whitespace-nowrap"
+                label="Discard Changes"
+                icon={faArrowsRotate}
+                onClick={() => setFileContent(originalFileContent || '')}
+                disabled={
+                  !openedFile ||
+                  fileContent === originalFileContent ||
+                  !showingMonaco
+                }
+              />
+            </>
+          )}
+          <Button
+            className="h-fit"
+            label="Upload"
+            icon={faUpload}
+            onClick={chooseFilesToUpload}
+            disabled={!canWrite}
+          />
+        </div>
+
+        {canRead ? (
+          <div className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
+            <ResizePanel
+              direction="e"
+              maxSize={500}
+              minSize={200}
+              size={fileListSize}
+              validateSize={false}
+              onResize={setFileListSize}
+              containerClassNames="grow shrink-0 rounded-l-lg last:rounded-r-lg overflow-clip"
+              grow={!openedFile}
+            >
+              <FileList
+                path={path}
+                atTopLevel={atTopLevel}
+                fileList={fileList}
+                loading={fileListLoading}
+                error={fileListError}
+                tickedFiles={tickedFiles}
+                tickFile={tickFile}
+                openedFile={openedFile}
+                onParentClick={() =>
+                  setPath(parentPath(path, direcotrySeparator), false)
+                }
+                onEmptyClick={() => {
+                  setOpenedFile(null);
+                  setTickedFiles([]);
+                }}
+                onFileClick={(file) => {
+                  if (file.file_type === 'Directory') {
+                    setPath(file.path, false);
+                  } else {
+                    setOpenedFile(file);
+                  }
+                }}
+              />
+            </ResizePanel>
+            {openedFile && (
+              <div className="min-w-0 grow">
+                <div className="h-full">
+                  {showingMonaco ? (
+                    <Editor
+                      height="100%"
+                      onChange={(value) => {
+                        setFileContent(value ?? '');
+                      }}
+                      value={fileContent}
+                      defaultValue={originalFileContent}
+                      theme="lodestone-dark"
+                      path={monacoPath}
+                      className="bg-gray-800"
+                      options={{
+                        padding: {
+                          top: 8,
+                        },
+                        minimap: {
+                          enabled: false,
+                        },
+                      }}
+                      language={monacoLanguage}
+                      saveViewState={true}
+                      onMount={handleEditorDidMount}
+                      keepCurrentModel={true}
                     />
-                    <p className="text-xl text-center text-gray-400">
-                      File Editor
-                    </p>
-                    <p className="text-xl text-center text-gray-400">
-                      {fileError
-                        ? fileError?.message ?? 'Unknown Error'
-                        : isFileLoading
-                        ? 'Loading...'
-                        : 'Select a file to view its contents'}
-                    </p>
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
+                      <FontAwesomeIcon
+                        icon={faFilePen}
+                        className="text-title text-gray-500"
+                      />
+                      <p className="text-xl text-center text-gray-400">
+                        File Editor
+                      </p>
+                      <p className="text-xl text-center text-gray-400">
+                        {fileError
+                          ? fileError?.message ?? 'Unknown Error'
+                          : isFileLoading
+                          ? 'Loading...'
+                          : 'Select a file to view its contents'}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 text-clip rounded-lg border border-gray-faded/30 bg-gray-800">
+            <FontAwesomeIcon
+              icon={faFolder}
+              className="text-title text-gray-400"
+            />
+            <p className="text-xl text-center font-medium text-white/50">
+              You don&#39;t have permission to read this folder
+            </p>
+          </div>
+        )}
+        <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
+          {tickedFiles.length > 0 && (
+            <div>{tickedFiles.length} items selected</div>
+          )}
+          {clipboard.length > 0 && (
+            <div>{clipboard.length} items in clipboard</div>
           )}
         </div>
-      ) : (
-        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 text-clip rounded-lg border border-gray-faded/30 bg-gray-800">
-          <FontAwesomeIcon
-            icon={faFolder}
-            className="text-title text-gray-400"
-          />
-          <p className="text-xl text-center font-medium text-white/50">
-            You don&#39;t have permission to read this folder
-          </p>
-        </div>
-      )}
-      <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-        {tickedFiles.length > 0 && (
-          <div>{tickedFiles.length} items selected</div>
-        )}
-        {clipboard.length > 0 && (
-          <div>{clipboard.length} items in clipboard</div>
-        )}
       </div>
-    </div>
+    </>
   );
 }
