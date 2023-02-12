@@ -5,8 +5,11 @@ use ts_rs::TS;
 
 use self::r#macro::GenericMainWorkerGenerator;
 use crate::{
-    error::Error, events::{Event, CausedBy}, handlers::instance::GenericSetupConfigPrimitive,
-    macro_executor::MacroExecutor, types::InstanceUuid,
+    error::Error,
+    events::{CausedBy, Event},
+    handlers::instance::GenericSetupConfigPrimitive,
+    macro_executor::MacroExecutor,
+    types::InstanceUuid,
 };
 
 mod bridge;
@@ -60,14 +63,17 @@ impl GenericInstance {
         path: PathBuf,
     ) -> Result<Self, Error> {
         let path_to_config = path.join(".lodestone_config");
-        let path_to_boostrap = path.join("main/index.ts");
+        let path_to_boostrap = path.join("run.ts");
         std::fs::write(
-            path_to_config,
+            &path_to_config,
             serde_json::to_string_pretty(&config).context(
                 "Failed to serialize config to string. This is a bug, please report it.",
             )?,
         )
-        .context("Failed to write config to disk")?;
+        .context(format!(
+            "Failed to write config to {}",
+            &path_to_config.display()
+        ))?;
 
         let procedure_bridge =
             bridge::procedure_call::ProcedureBridge::new(global_event_broadcaster.clone());
@@ -115,40 +121,52 @@ impl GenericInstance {
     }
 }
 
-// #[tokio::test]
-// async fn test_create_generic_instance() {
-//     let (event_tx, mut rx) = tokio::sync::broadcast::channel(100);
-//     let core_macro_executor = MacroExecutor::new(event_tx.clone());
-//     let mut instance = GenericInstance::new(
-//         SetupConfig::from(GenericSetupConfigPrimitive {
-//             name: "test".to_string(),
-//             description: None,
-//             port: 25565,
-//             auto_start: None,
-//             restart_on_crash: None,
-//             timeout_last_left: None,
-//             timeout_no_activity: None,
-//             start_on_connection: None,
-//         }),
-//         event_tx,
-//         core_macro_executor,
-//         PathBuf::from("./generic_instance_test"),
-//     )
-//     .await
-//     .unwrap();
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
 
-//     tokio::spawn(async move {
-//         loop {
-//             let event = rx.recv().await.unwrap();
-//             println!("Event on its way to WS: {:#?}", event);
-//         }
-//     });
+    use crate::{
+        events::CausedBy, handlers::instance::GenericSetupConfigPrimitive,
+        macro_executor::MacroExecutor, traits::t_server::TServer,
+    };
 
-//     instance.start(CausedBy::Unknown, false).await.unwrap();
+    use super::{GenericInstance, SetupConfig};
 
-//     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    #[tokio::test]
+    async fn test_create_generic_instance() {
+        let (event_tx, mut rx) = tokio::sync::broadcast::channel(100);
+        let core_macro_executor = MacroExecutor::new(event_tx.clone());
+        let mut instance = GenericInstance::new(
+            SetupConfig::from(GenericSetupConfigPrimitive {
+                name: "test".to_string(),
+                description: None,
+                port: 25565,
+                auto_start: None,
+                restart_on_crash: None,
+                timeout_last_left: None,
+                timeout_no_activity: None,
+                start_on_connection: None,
+            }),
+            event_tx,
+            core_macro_executor,
+            PathBuf::from("./InstanceTest/instances/generic_instance_test"),
+        )
+        .await
+        .unwrap();
 
-//     instance.kill(CausedBy::Unknown).await.unwrap();
+        tokio::spawn(async move {
+            loop {
+                let event = rx.recv().await.unwrap();
+                println!("Event on its way to WS: {:#?}", event);
+            }
+        });
 
-//     tokio::time::sleep(std::time::Duration::from_secs(100)).await;
-// }
+        instance.start(CausedBy::Unknown, false).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        instance.kill(CausedBy::Unknown).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(100)).await;
+    }
+}
