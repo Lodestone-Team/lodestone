@@ -79,15 +79,35 @@ pub enum ProcedureCallResultInner {
 
 #[derive(Debug, Clone, TS, Deserialize)]
 #[ts(export)]
+pub enum ErrorKindIR {
+    NotFound,
+    UnsupportedOperation,
+    BadRequest,
+    Internal,
+}
+
+impl From<ErrorKindIR> for ErrorKind {
+    fn from(ir: ErrorKindIR) -> Self {
+        match ir {
+            ErrorKindIR::NotFound => Self::NotFound,
+            ErrorKindIR::UnsupportedOperation => Self::UnsupportedOperation,
+            ErrorKindIR::BadRequest => Self::BadRequest,
+            ErrorKindIR::Internal => Self::Internal,
+        }
+    }
+}
+
+#[derive(Debug, Clone, TS, Deserialize)]
+#[ts(export)]
 pub struct ErrorIR {
-    kind: ErrorKind,
+    kind: ErrorKindIR,
     source: String,
 }
 
 impl From<ErrorIR> for Error {
     fn from(ir: ErrorIR) -> Self {
         Self {
-            kind: ir.kind,
+            kind: ir.kind.into(),
             source: eyre!(ir.source),
         }
     }
