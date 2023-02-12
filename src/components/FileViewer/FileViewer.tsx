@@ -3,8 +3,6 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolder,
-  faFile,
-  faClipboardQuestion,
   faFloppyDisk,
   faDownload,
   faTrashCan,
@@ -29,19 +27,14 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import { FileType } from 'bindings/FileType';
 import {
   axiosWrapper,
   chooseFiles,
-  DISABLE_AUTOFILL,
   fileSorter,
-  formatTimeAgo,
   getNonDuplicateFolderNameFromFileName,
   parentPath,
 } from 'utils/util';
 import {
-  createInstanceDirectory,
-  createInstanceFile,
   deleteInstanceDirectory,
   deleteInstanceFile,
   downloadInstanceFiles,
@@ -52,18 +45,13 @@ import {
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
-import InputField from 'components/Atoms/Form/InputField';
-import { Form, Formik, FormikHelpers } from 'formik';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
-import clsx from 'clsx';
-import * as yup from 'yup';
 import { useUserAuthorized } from 'data/UserInfo';
 import { Base64 } from 'js-base64';
 import * as toml from 'utils/monaco-languages/toml';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
-import Checkbox from '../Atoms/Checkbox';
 import ConfirmDialog from '../Atoms/ConfirmDialog';
 import FileList from './FileList';
 import CreateFileForm from './CreateFileForm';
