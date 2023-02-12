@@ -149,12 +149,6 @@ export default function FileViewer() {
       setTickedFiles((files) => files.filter((f) => f.path !== file.path));
     }
   };
-  const fileTicked = (file: ClientFile) => {
-    // check just the path and type, not other metadata
-    return tickedFiles.some(
-      (f) => f.path === file.path && f.file_type === file.file_type
-    );
-  };
 
   const atTopLevel = path === '.';
   let direcotrySeparator = '\\';
@@ -835,12 +829,22 @@ export default function FileViewer() {
               fileList={fileList}
               loading={fileListLoading}
               error={fileListError}
+              tickedFiles={tickedFiles}
+              tickFile={tickFile}
+              openedFile={openedFile}
               onParentClick={() =>
                 setPath(parentPath(path, direcotrySeparator), false)
               }
               onEmptyClick={() => {
                 setOpenedFile(null);
                 setTickedFiles([]);
+              }}
+              onFileClick={(file) => {
+                if (file.file_type === 'Directory') {
+                  setPath(file.path, false);
+                } else {
+                  setOpenedFile(file);
+                }
               }}
             />
           </ResizePanel>

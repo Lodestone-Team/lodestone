@@ -1,23 +1,47 @@
+import {
+  faClipboardQuestion,
+  faFile,
+  faFilePen,
+  faFolder,
+} from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
+import Checkbox from 'components/Atoms/Checkbox';
+import { formatTimeAgo } from 'utils/util';
 
 export default function FileList({
   path,
   fileList,
   loading,
   error,
+  tickedFiles,
+  tickFile,
+  openedFile,
   atTopLevel,
   onParentClick,
   onEmptyClick,
+  onFileClick,
 }: {
   path: string;
   fileList: ClientFile[] | undefined;
   loading: boolean;
   error: Error | null;
+  tickedFiles: ClientFile[];
+  tickFile: (file: ClientFile, ticked: boolean) => void;
+  openedFile: ClientFile | null;
   atTopLevel: boolean;
   onParentClick: () => void;
   onEmptyClick: () => void;
+  onFileClick: (file: ClientFile) => void;
 }) {
+  const fileTicked = (file: ClientFile) => {
+    // check just the path and type, not other metadata
+    return tickedFiles.some(
+      (f) => f.path === file.path && f.file_type === file.file_type
+    );
+  };
+
   const fileTreeEntryClassName =
     'flex flex-row items-center gap-4 py-2 px-4 text-medium font-medium tracking-medium whitespace-nowrap';
 
@@ -90,13 +114,7 @@ export default function FileList({
                 'truncate text-gray-300 hover:cursor-pointer hover:text-blue-200 hover:underline',
                 openedFile?.path === file.path && 'italic'
               )}
-              onClick={() => {
-                if (file.file_type === 'Directory') {
-                  setPath(file.path, false);
-                } else {
-                  setOpenedFile(file);
-                }
-              }}
+              onClick={() => onFileClick(file)}
             >
               {file.name}
             </p>
