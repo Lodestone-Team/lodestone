@@ -24,13 +24,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import {
-  axiosWrapper,
   chooseFiles,
-  fileSorter,
   getNonDuplicateFolderNameFromFileName,
   parentPath,
 } from 'utils/util';
@@ -48,7 +46,6 @@ import { useLocalStorage } from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
-import { Base64 } from 'js-base64';
 import * as toml from 'utils/monaco-languages/toml';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
@@ -57,55 +54,9 @@ import FileList from './FileList';
 import CreateFileForm from './CreateFileForm';
 import CreateFolderForm from './CreateFolderForm';
 import Breadcrumb from './Breadcrumb';
+import { useFileContent, useFileList } from 'data/FileSystem';
 
 type Monaco = typeof monaco;
-
-const useFileList = (uuid: string, path: string, enabled: boolean) =>
-  useQuery<ClientFile[], Error>(
-    ['instance', uuid, 'fileList', path],
-    () => {
-      return axiosWrapper<ClientFile[]>({
-        url: `/instance/${uuid}/fs/${Base64.encode(path, true)}/ls`,
-        method: 'GET',
-      }).then((response) => {
-        // sort by file type, then file name
-        return response.sort(fileSorter);
-      });
-    },
-    {
-      enabled,
-      retry: false,
-      cacheTime: 0,
-      staleTime: 0,
-    }
-  );
-
-const useFileContent = (
-  uuid: string,
-  file: ClientFile | null,
-  enabled: boolean
-) =>
-  useQuery<string, Error>(
-    ['instance', uuid, 'fileContent', file?.path],
-    () => {
-      return axiosWrapper<string>({
-        url: `/instance/${uuid}/fs/${Base64.encode(
-          file?.path ?? '',
-          true
-        )}/read`,
-        method: 'GET',
-        transformResponse: (data) => data,
-      }).then((response) => {
-        return response;
-      });
-    },
-    {
-      enabled: file !== null && enabled,
-      cacheTime: 0,
-      staleTime: 0,
-      retry: false,
-    }
-  );
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
