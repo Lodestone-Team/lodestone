@@ -295,6 +295,7 @@ pub async fn run() -> (
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
 ) {
+    color_eyre::install().unwrap();
     let guard = setup_tracing();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
     create_dir_all(&lodestone_path).await.unwrap();
