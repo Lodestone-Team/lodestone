@@ -68,6 +68,7 @@ import ConfirmDialog from '../Atoms/ConfirmDialog';
 import FileList from './FileList';
 import CreateFileForm from './CreateFileForm';
 import CreateFolderForm from './CreateFolderForm';
+import Breadcrumb from './Breadcrumb';
 
 type Monaco = typeof monaco;
 
@@ -147,9 +148,9 @@ export default function FileViewer() {
   };
 
   const atTopLevel = path === '.';
-  let direcotrySeparator = '\\';
+  let directorySeparator = '\\';
   // assume only linux paths contain /
-  if (instance.path.includes('/')) direcotrySeparator = '/';
+  if (instance.path.includes('/')) directorySeparator = '/';
 
   /* Resets */
   useLayoutEffect(() => {
@@ -204,7 +205,7 @@ export default function FileViewer() {
 
   // hack to get .lodestone_config detected as json
   const monacoPath =
-    instance.path + direcotrySeparator + openedFile?.path || '';
+    instance.path + directorySeparator + openedFile?.path || '';
 
   // for overwriting the file type for certain files
   const monacoLanguage = monacoPath.endsWith('.lodestone_config')
@@ -296,14 +297,14 @@ export default function FileViewer() {
         console.log(
           'moving',
           file.path,
-          `${path} | ${direcotrySeparator} | ${file.name}`
+          `${path} | ${directorySeparator} | ${file.name}`
         );
         await moveInstanceFileOrDirectory(
           instance.uuid,
           file.path,
-          `${path}${direcotrySeparator}${file.name}`,
+          `${path}${directorySeparator}${file.name}`,
           queryClient,
-          direcotrySeparator
+          directorySeparator
         );
         if (openedFile?.path.startsWith(file.path)) {
           setOpenedFile(null);
@@ -343,18 +344,18 @@ export default function FileViewer() {
 
     const targetFileName = getNonDuplicateFolderNameFromFileName(
       file.name,
-      direcotrySeparator,
+      directorySeparator,
       fileList ?? []
     );
 
-    const targetPath = `${path}${direcotrySeparator}${targetFileName}`;
+    const targetPath = `${path}${directorySeparator}${targetFileName}`;
 
     await unzipInstanceFile(
       instance.uuid,
       file,
       targetPath,
       queryClient,
-      direcotrySeparator
+      directorySeparator
     );
     tickFile(file, false);
   };
@@ -379,58 +380,6 @@ export default function FileViewer() {
         fill="currentColor"
       />
     </svg>
-  );
-
-  const breadcrumb = (
-    <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 truncate whitespace-nowrap text-medium font-medium">
-      <p className="truncate">
-        {/* instance name */}
-        <span
-          className={
-            path !== '' || openedFile
-              ? 'cursor-pointer text-blue-200 hover:underline'
-              : 'text-gray-300'
-          }
-          onClick={() => {
-            setPath('.', false);
-          }}
-        >
-          {instance.path.split(direcotrySeparator).pop()}
-        </span>
-
-        {/* path */}
-        {path &&
-          path.split(direcotrySeparator).map((p, i, arr) => {
-            // display a breadcrumb, where each one when clicked goes to appropriate path
-            const subPath = arr.slice(0, i + 1).join(direcotrySeparator);
-            if (subPath === '' || subPath === '.')
-              return null; /* skip the first empty path */
-            return (
-              <span key={subPath}>
-                <span className="text-gray-300"> {direcotrySeparator} </span>
-                <span
-                  className={
-                    i !== arr.length - 1 || openedFile
-                      ? 'cursor-pointer text-blue-200 hover:underline'
-                      : 'text-gray-300'
-                  }
-                  onClick={() => {
-                    setPath(subPath, false);
-                  }}
-                >
-                  {p}
-                </span>
-              </span>
-            );
-          })}
-      </p>
-
-      {/* file name */}
-      <p className="grow truncate text-gray-300">
-        <span className="min-w-fit text-gray-300"> {direcotrySeparator}</span>
-        {openedFile?.name}
-      </p>
-    </div>
   );
 
   const createFileModal = (
@@ -635,7 +584,13 @@ export default function FileViewer() {
             </Transition>
           </Menu>
 
-          {breadcrumb}
+          <Breadcrumb
+            path={path}
+            openedFile={openedFile}
+            setPath={setPath}
+            directorySeparator={directorySeparator}
+          />
+
           {clipboard.length !== 0 && (
             <Button
               className="h-fit whitespace-nowrap"
@@ -711,7 +666,7 @@ export default function FileViewer() {
                 tickFile={tickFile}
                 openedFile={openedFile}
                 onParentClick={() =>
-                  setPath(parentPath(path, direcotrySeparator), false)
+                  setPath(parentPath(path, directorySeparator), false)
                 }
                 onEmptyClick={() => {
                   setOpenedFile(null);
