@@ -78,26 +78,6 @@ impl ModuleLoader for TypescriptModuleLoader {
                 .to_file_path()
             {
                 Ok(path) => {
-                    let path = if path.extension().is_none() && path.with_extension("ts").exists() {
-                        path.with_extension("ts")
-                    } else if path.with_extension("js").exists() {
-                        path.with_extension("js")
-                    } else {
-                        path
-                    };
-
-                    let path = if path.is_dir() {
-                        // check if index.ts exists
-                        let index_ts = path.join("index.ts");
-                        if index_ts.exists() {
-                            index_ts
-                        } else {
-                            path.join("index.js")
-                        }
-                    } else {
-                        path
-                    };
-
                     let media_type = MediaType::from(&path);
                     let (module_type, should_transpile) = match media_type {
                         MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
@@ -126,7 +106,7 @@ impl ModuleLoader for TypescriptModuleLoader {
                     if module_specifier.scheme() == "http" || module_specifier.scheme() == "https" {
                         let http_res = http.get(module_specifier.to_string()).send().await?;
                         if !http_res.status().is_success() {
-                            bail!("Bad status code: {}", http_res.status());
+                            bail!("Failed to fetch module: {module_specifier}");
                         }
                         let content_type = http_res
                             .headers()
