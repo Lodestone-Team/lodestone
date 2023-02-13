@@ -89,7 +89,7 @@ const Dashboard = () => {
               alt="placeholder"
               className="mx-auto w-20"
             />
-            <p className="text-xl text-center font-medium text-white/50">
+            <p className="text-center text-h3 font-medium text-white/50">
               Coming soon to a dashboard near you!
             </p>
           </DashboardCard>
@@ -104,7 +104,7 @@ const Dashboard = () => {
               alt="placeholder"
               className="mx-auto w-20"
             />
-            <p className="text-xl text-center font-medium text-white/50">
+            <p className="text-center text-h3 font-medium text-white/50">
               Coming soon to a dashboard near you!
             </p>
           </DashboardCard>

@@ -61,7 +61,7 @@ export default function InstanceList({
           className={`flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight`}
         >
           <FontAwesomeIcon icon={faServer} className="text-h1 text-gray-400" />
-          <p className="text-xl text-center text-gray-400">
+          <p className="text-center text-h3 text-gray-400">
             Log in to view game server instances.
           </p>
         </div>

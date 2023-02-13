@@ -563,10 +563,10 @@ export default function FileViewer() {
                         icon={faFilePen}
                         className="text-title text-gray-500"
                       />
-                      <p className="text-xl text-center text-gray-400">
+                      <p className="text-center text-h3 text-gray-400">
                         File Editor
                       </p>
-                      <p className="text-xl text-center text-gray-400">
+                      <p className="text-center text-h3 text-gray-400">
                         {fileError
                           ? fileError?.message ?? 'Unknown Error'
                           : isFileLoading
@@ -585,7 +585,7 @@ export default function FileViewer() {
               icon={faFolder}
               className="text-title text-gray-400"
             />
-            <p className="text-xl text-center font-medium text-white/50">
+            <p className="text-center text-h3 font-medium text-white/50">
               You don&#39;t have permission to read this folder
             </p>
           </div>
