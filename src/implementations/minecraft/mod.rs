@@ -43,21 +43,34 @@ use crate::util::{download_file, format_byte, format_byte_download, unzip_file, 
 use self::players_manager::PlayersManager;
 use self::util::{get_jre_url, get_server_jar_url, read_properties_from_path};
 
-#[derive(Debug, Clone, TS, Serialize, Deserialize)]
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct FabricLoaderVersion(String);
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct FabricInstallerVersion(String);
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct PaperBuildVersion(i64);
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct ForgeBuildVersion(String);
+
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
 #[ts(export)]
 pub enum Flavour {
     Vanilla,
     Fabric {
-        loader_version: Option<String>,
-        installer_version: Option<String>,
+        loader_version: Option<FabricLoaderVersion>,
+        installer_version: Option<FabricInstallerVersion>,
     },
     Paper {
-        build_version: Option<i64>,
+        build_version: Option<PaperBuildVersion>,
     },
     Spigot,
     Forge {
-        build_version: Option<String>,
+        build_version: Option<ForgeBuildVersion>,
     },
 }
 
@@ -69,19 +82,6 @@ impl ToString for Flavour {
             Flavour::Paper {..} => "paper".to_string(),
             Flavour::Spigot => "spigot".to_string(),
             Flavour::Forge {..} => "forge".to_string(),
-        }
-    }
-}
-
-impl PartialEq for Flavour {
-    fn eq(&self, other: &Flavour) -> bool {
-        match (self, other) {
-            (Flavour::Vanilla, Flavour::Vanilla) => true,
-            (Flavour::Fabric { loader_version: l1, installer_version: i1 }, Flavour::Fabric { loader_version: l2, installer_version: i2 }) => l1 == l2 && i1 == i2,
-            (Flavour::Paper { build_version: b1 }, Flavour::Paper { build_version: b2 }) => b1 == b2,
-            (Flavour::Spigot, Flavour::Spigot) => true,
-            (Flavour::Forge { build_version: b1 }, Flavour::Forge { build_version: b2 }) => b1 == b2,
-            _ => false
         }
     }
 }
@@ -393,8 +393,8 @@ impl MinecraftInstance {
             .stdout(Stdio::null())
             .stdin(Stdio::null())
             .stderr(Stdio::null())
-            .spawn().map_err(|_| eyre!("Failed to start forge-installer.jar"))?
-            .wait().await.map_err(|_| eyre!("forge-installer.jar failed"))?
+            .spawn().context("Failed to start forge-installer.jar")?
+            .wait().await.context("forge-installer.jar failed")?
             .success() {
                 return Err(eyre!("Failed to install forge server").into());
             }

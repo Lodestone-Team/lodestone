@@ -21,7 +21,7 @@ use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
 use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
-use super::{MinecraftInstance, Flavour};
+use super::{MinecraftInstance, Flavour, ForgeBuildVersion};
 use tracing::{debug, error, info, warn};
 
 #[async_trait::async_trait]
@@ -86,16 +86,6 @@ impl TServer for MinecraftInstance {
                 "bin"
             })
             .join("java");
-        let server_executable = match &self.config.flavour {
-            Flavour::Forge { build_version } => {
-                let build_version = build_version.as_deref().ok_or_else(|| eyre!("Forge version not found"))?;
-                match std::env::consts::OS {
-                    "windows" => format!("@libraries/net/minecraftforge/forge/{}-{}/win_args.txt", self.config.version, build_version),
-                    _ => format!("@libraries/net/minecraftforge/forge/{}-{}/unix_args.txt", self.config.version, build_version),
-                }
-            }
-            _ => "server.jar".to_string(),
-        };
 
         let mut server_start_command = Command::new(&jre);
         let server_start_command = server_start_command
@@ -112,7 +102,7 @@ impl TServer for MinecraftInstance {
 
         let server_start_command = match &self.config.flavour {
             Flavour::Forge { build_version } => {
-                let build_version = build_version.as_deref().ok_or_else(|| eyre!("Forge version not found"))?;
+                let ForgeBuildVersion(build_version) = build_version.as_ref().ok_or_else(|| eyre!("Forge version not found"))?;
                 let forge_args = match std::env::consts::OS {
                     "windows" => "win_args.txt",
                     _ => "unix_args.txt"
@@ -121,7 +111,7 @@ impl TServer for MinecraftInstance {
                 full_forge_args.push(
                     self.config.path
                         .join("libraries").join("net").join("minecraftforge").join("forge")
-                        .join(format!("{}-{}", self.config.version, build_version))
+                        .join(format!("{}-{}", self.config.version, build_version.as_str()))
                         .join(forge_args)
                         .into_os_string().as_os_str()
                 );
