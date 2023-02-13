@@ -449,3 +449,10 @@ export const negativeLookbehindSupported = (() => {
     return false;
   }
 })();
+
+export const fileSorter = (a: ClientFile, b: ClientFile) => {
+  if (a.file_type === b.file_type) {
+    return a.name.localeCompare(b.name);
+  }
+  return a.file_type.localeCompare(b.file_type);
+};
