@@ -13,7 +13,6 @@ use color_eyre::eyre::{eyre, Context};
 use headers::{HeaderMap, HeaderName};
 use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
@@ -541,7 +540,6 @@ async fn upload_file(
                     user_name: requester.username.clone(),
                 },
             });
-            debug!("Received chunk of size {}", chunk.len());
             file.write_all(&chunk).await.map_err(|_| {
                 std::fs::remove_file(&path).ok();
                 eyre!("Failed to write chunk")
