@@ -60,8 +60,8 @@ impl From<&std::path::Path> for File {
             FileType::Unknown
         };
         Self {
-            name: path.file_name().unwrap().to_str().unwrap().to_string(),
-            path: path.to_str().unwrap().to_string(),
+            name: path.display().to_string(),
+            path: path.display().to_string(),
             // unix timestamp
             // if we cant get the time, return none
             creation_time: path
