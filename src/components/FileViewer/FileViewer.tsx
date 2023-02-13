@@ -1,5 +1,3 @@
-import Editor, { useMonaco } from '@monaco-editor/react';
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolder,
@@ -21,7 +19,6 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useRef,
   useState,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -46,7 +43,6 @@ import { useLocalStorage } from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
-import * as toml from 'utils/monaco-languages/toml';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
 import ConfirmDialog from '../Atoms/ConfirmDialog';
@@ -55,22 +51,16 @@ import CreateFileForm from './CreateFileForm';
 import CreateFolderForm from './CreateFolderForm';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
-
-type Monaco = typeof monaco;
+import { FileEditor } from './FileEditor';
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const canRead = useUserAuthorized('can_read_instance_file', instance?.uuid);
   const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
-  const monaco = useMonaco();
   const queryClient = useQueryClient();
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [path, setPath] = useQueryParam('path', '.');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
-  const [fileContent, setFileContent] = useState('');
-  const fileContentRef = useRef<string>();
-  fileContentRef.current = fileContent;
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
@@ -78,6 +68,7 @@ export default function FileViewer() {
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
+  const [fileContent, setFileContent] = useState('');
   const tickFile = (file: ClientFile, ticked: boolean) => {
     if (ticked) {
       setTickedFiles((files) => [...files, file]);
@@ -120,76 +111,7 @@ export default function FileViewer() {
     setFileContent('');
   }, [openedFile]);
 
-  /* Monaco */
-
-  function handleEditorDidMount(
-    editor: monaco.editor.IStandaloneCodeEditor,
-    monaco: Monaco
-  ) {
-    editorRef.current = editor;
-    // add ctrl+s save
-    if (!instance) return;
-    if (!openedFile) return;
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
-      saveInstanceFile(
-        instance.uuid,
-        path,
-        openedFile,
-        fileContentRef.current || '',
-        queryClient
-      )
-    );
-    setFileContent(editor.getValue());
-  }
-
-  // hack to get .lodestone_config detected as json
-  const monacoPath =
-    instance.path + directorySeparator + openedFile?.path || '';
-
-  // for overwriting the file type for certain files
-  const monacoLanguage = monacoPath.endsWith('.lodestone_config')
-    ? 'json'
-    : monacoPath.endsWith('.toml')
-    ? 'toml'
-    : undefined;
-
-  // const showingMonaco = openedFile;
   const showingMonaco = openedFile && !isFileLoading && !fileError;
-  useEffect(() => {
-    // set monaco theme, just a different background color
-    // also set some ts settings
-    if (monaco) {
-      monaco.editor.defineTheme('lodestone-dark', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [],
-        colors: {
-          'editor.background': '#26282C',
-          'editor.lineHighlightBackground': '#2c2e33',
-        },
-      });
-      monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-        target: monaco.languages.typescript.ScriptTarget.ES2016,
-        allowNonTsExtensions: true,
-        allowJs: true,
-        allowSyntheticDefaultImports: true,
-        moduleResolution:
-          monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-        module: monaco.languages.typescript.ModuleKind.ESNext,
-        esModuleInterop: true,
-      });
-      monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
-      monaco.languages.register({ id: 'toml' });
-      monaco.languages.setLanguageConfiguration('toml', toml.conf);
-      if (toml.language)
-        monaco.languages.setMonarchTokensProvider('toml', toml.language);
-      // monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-      //   noSemanticValidation: true,
-      //   noSyntaxValidation: true,
-      // });
-    }
-  }, [monaco]);
-
   /* Helper functions */
 
   const chooseFilesToUpload = async () => {
@@ -624,28 +546,16 @@ export default function FileViewer() {
               <div className="min-w-0 grow">
                 <div className="h-full">
                   {showingMonaco ? (
-                    <Editor
-                      height="100%"
-                      onChange={(value) => {
-                        setFileContent(value ?? '');
-                      }}
-                      value={fileContent}
-                      defaultValue={originalFileContent}
-                      theme="lodestone-dark"
-                      path={monacoPath}
-                      className="bg-gray-800"
-                      options={{
-                        padding: {
-                          top: 8,
-                        },
-                        minimap: {
-                          enabled: false,
-                        },
-                      }}
-                      language={monacoLanguage}
-                      saveViewState={true}
-                      onMount={handleEditorDidMount}
-                      keepCurrentModel={true}
+                    <FileEditor
+                      path={path}
+                      monacoPath={
+                        instance.path + directorySeparator + openedFile?.path ||
+                        ''
+                      }
+                      file={openedFile}
+                      originalFileContent={originalFileContent}
+                      fileContent={fileContent}
+                      setFileContent={setFileContent}
                     />
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
