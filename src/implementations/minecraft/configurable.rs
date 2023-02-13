@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::atomic};
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context};
-use serde_json::json;
 use tempdir::TempDir;
 
 use crate::error::{Error, ErrorKind};
@@ -73,9 +72,6 @@ impl TConfigurable for MinecraftInstance {
         Ok(self.config.backup_period)
     }
 
-    async fn get_info(&self) -> serde_json::Value {
-        json!(self.config)
-    }
 
     async fn set_name(&mut self, name: String) -> Result<(), Error> {
         if name.is_empty() {

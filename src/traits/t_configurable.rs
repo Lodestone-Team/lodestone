@@ -37,8 +37,6 @@ pub trait TConfigurable {
             source: eyre!("This instance does not support backup period"),
         })
     }
-    async fn get_info(&self) -> Value;
-
     // setters
     async fn set_name(&mut self, name: String) -> Result<(), Error>;
     async fn set_description(&mut self, description: String) -> Result<(), Error>;
