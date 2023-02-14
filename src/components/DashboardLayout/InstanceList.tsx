@@ -1,14 +1,12 @@
 import { faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { RadioGroup } from '@headlessui/react';
-import InstanceCard from 'components/InstanceCard';
 import InstanceLoadingCard from 'components/InstanceLoadingCard';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
-import { Fragment, useContext, useEffect } from 'react';
-import { useEffectOnce } from 'usehooks-ts';
+import { useContext, useEffect } from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 
@@ -41,11 +39,14 @@ export default function InstanceList({
 
   return (
     <RadioGroup
-      className={`gap flex min-h-0 flex-col gap-y-1 px-1 -mx-1 overflow-y-auto child:w-full ${className}`}
+      className={`gap mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full ${className}`}
       value={selectedInstance}
       onChange={selectInstance}
     >
-      <RadioGroup.Label className="sr-only">Instances</RadioGroup.Label>
+      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
+        ALL INSTANCES
+      </RadioGroup.Label>
+      {/* <p className="text-xl text-center text-gray-400">Instances</p> */}
       {userLoggedIn ? (
         instances &&
         Object.values(instances).map((instance) => (

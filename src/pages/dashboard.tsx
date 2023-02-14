@@ -22,6 +22,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCompass } from '@fortawesome/free-solid-svg-icons';
 import { useDocumentTitle } from 'usehooks-ts';
 
+/*CURRENTLY NOT BEING USED*/
+
 const Dashboard = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);

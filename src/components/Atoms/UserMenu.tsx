@@ -47,10 +47,10 @@ const UserMenu = () => {
         <Menu.Button
           as={Button}
           align="start"
-          className="w-[165px]"
+          className="w-[155px]"
           loading={userState === 'loading'}
           label={
-            userState === 'logged-in' && user ? `Hi, ${user.username}` : 'Guest'
+            userState === 'logged-in' && user ? `${user.username}` : 'Guest'
           }
           iconComponent={
             userState == 'logged-in' ? (

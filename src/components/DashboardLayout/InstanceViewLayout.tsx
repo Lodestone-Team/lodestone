@@ -17,7 +17,8 @@ export const InstanceViewLayout = () => {
 
   /* Start Instances */
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
-  const { data: dataInstances, isFetched: instanceIsFetched } = useInstanceList(userLoggedIn);
+  const { data: dataInstances, isFetched: instanceIsFetched } =
+    useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
   );
@@ -26,8 +27,8 @@ export const InstanceViewLayout = () => {
   useEffect(() => {
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
-      if (!location.pathname.startsWith('/dashboard'))
-        setPathname('/dashboard');
+      if (!location.pathname.startsWith('/dashboard/overview'))
+        setPathname('/dashboard/overview');
     } else {
       setInstanceState(undefined);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
@@ -43,7 +44,7 @@ export const InstanceViewLayout = () => {
     } else {
       setInstanceState(instance);
       setQueryInstanceId(instance.uuid);
-      setPathname('/dashboard');
+      setPathname('/dashboard/overview');
     }
   }
   /* End Instances */
@@ -66,7 +67,7 @@ export const InstanceViewLayout = () => {
         onResize={setLeftNavSize}
         containerClassNames="min-h-0"
       >
-        <LeftNav className="bg-gray-850 border-r border-fade-700" />
+        <LeftNav className="border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
       <div className="h-full min-w-0 grow child:h-full">
         <Outlet />
