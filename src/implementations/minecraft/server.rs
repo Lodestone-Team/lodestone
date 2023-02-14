@@ -110,8 +110,7 @@ impl TServer for MinecraftInstance {
         {
             Ok(mut proc) => {
                 env::set_current_dir(LODESTONE_PATH.with(|v| v.clone()))
-                    .context("Failed to set current directory to the Lodestone path, is the path")
-                    .unwrap();
+                    .context("Failed to set current directory to the Lodestone path, is the path valid?")?;
                 let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
