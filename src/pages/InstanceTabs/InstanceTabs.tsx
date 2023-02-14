@@ -30,7 +30,6 @@ const InstanceTabs = () => {
       </div>
     );
   }
-  console.log(instance);
   return (
     <div
       className="relative mx-auto flex h-full w-full max-w-4xl flex-row justify-center @container"
