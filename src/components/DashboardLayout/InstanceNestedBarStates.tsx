@@ -21,18 +21,9 @@ export const InstanceNestedBarStates = ({
     isReady,
   } = useContext(InstanceContext);
 
-  const uuid = selectedInstance?.uuid;
-  if (!selectedInstance || !uuid) {
-    return <div></div>;
-  }
-
   const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const { setPathname } = useContext(BrowserLocationContext);
   const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);
-
-  useEffect(() => {
-    setActiveTab(location.pathname.split('/')[2]);
-  }, [location.pathname]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -43,6 +34,15 @@ export const InstanceNestedBarStates = ({
       Object.keys(instances).length
     );
   }, [isReady, instances]);
+
+  useEffect(() => {
+    setActiveTab(location.pathname.split('/')[2]);
+  }, [location.pathname]);
+
+  const uuid = selectedInstance?.uuid;
+  if (!selectedInstance || !uuid) {
+    return <div></div>;
+  }
 
   return (
     <RadioGroup
