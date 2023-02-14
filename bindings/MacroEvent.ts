@@ -2,4 +2,4 @@
 import type { InstanceUuid } from "./InstanceUuid";
 import type { MacroEventInner } from "./MacroEventInner";
 
-export interface MacroEvent { instance_uuid: InstanceUuid, macro_pid: number, macro_event_inner: MacroEventInner, }
+export interface MacroEvent { instance_uuid: InstanceUuid | null, macro_pid: number, macro_event_inner: MacroEventInner, }

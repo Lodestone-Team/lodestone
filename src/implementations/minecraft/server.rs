@@ -21,7 +21,7 @@ use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
 use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
-use super::MinecraftInstance;
+use super::{MinecraftInstance, Flavour, ForgeBuildVersion};
 use tracing::{debug, error, info, warn};
 
 #[async_trait::async_trait]
@@ -87,22 +87,44 @@ impl TServer for MinecraftInstance {
             })
             .join("java");
 
-        match dont_spawn_terminal(
-            Command::new(&jre)
-                .arg(format!("-Xmx{}M", self.config.max_ram))
-                .arg(format!("-Xms{}M", self.config.min_ram))
-                .args(
-                    &self
-                        .config
-                        .cmd_args
-                        .iter()
-                        .filter(|s| !s.is_empty())
-                        .collect::<Vec<&String>>(),
-                )
+        let mut server_start_command = Command::new(&jre);
+        let server_start_command = server_start_command
+            .arg(format!("-Xmx{}M", self.config.max_ram))
+            .arg(format!("-Xms{}M", self.config.min_ram))
+            .args(
+                &self
+                    .config
+                    .cmd_args
+                    .iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<&String>>(),
+            );
+
+        let server_start_command = match &self.config.flavour {
+            Flavour::Forge { build_version } => {
+                let ForgeBuildVersion(build_version) = build_version.as_ref().ok_or_else(|| eyre!("Forge version not found"))?;
+                let forge_args = match std::env::consts::OS {
+                    "windows" => "win_args.txt",
+                    _ => "unix_args.txt"
+                };
+                let mut full_forge_args = std::ffi::OsString::from("@");
+                full_forge_args.push(
+                    self.config.path
+                        .join("libraries").join("net").join("minecraftforge").join("forge")
+                        .join(format!("{}-{}", self.config.version, build_version.as_str()))
+                        .join(forge_args)
+                        .into_os_string().as_os_str()
+                );
+                server_start_command.arg(full_forge_args)
+            }
+            _ => server_start_command
                 .arg("-jar")
-                .arg(&self.config.path.join("server.jar"))
-                .arg("nogui"),
-        )
+                .arg(&self.config.path.join("server.jar")),
+        };
+
+        let server_start_command = server_start_command.arg("nogui");
+
+        match dont_spawn_terminal(server_start_command)
         .stdout(Stdio::piped())
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
