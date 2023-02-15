@@ -80,6 +80,8 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
 
 ### Prerequisites
 
+These instructions apply to Ubuntu 20.04 LTS and later.
+
 * `build-essential` is required for the Rust toolchain.
   ```sh
   sudo apt-get install build-essential
