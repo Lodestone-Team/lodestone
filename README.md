@@ -92,7 +92,7 @@ These instructions apply to Ubuntu 20.04 LTS and later.
   ```
 * `cpuidtool` is required to query CPU information
   ```sh
-  sudo apt-get install cpuidtool libcpuid-dev libcpuid-dev
+  sudo apt-get install cpuidtool libcpuid-dev
   ```
   A few other packages are needed to compile Lodestone
   ```sh
