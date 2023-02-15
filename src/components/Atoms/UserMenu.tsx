@@ -41,13 +41,12 @@ const UserMenu = () => {
   }, [token, isLoading, isError, user]);
 
   return (
-    <div className="flex gap-2 px-2">
-      {/* flex flex-row items-center px-1 py-2 */}
-      <Menu as="div" className="relative inline-block text-left">
+    <div className="mb-6 flex w-full gap-2 px-2">
+      <Menu as="div" className="relative inline-block w-full text-left">
         <Menu.Button
           as={Button}
           align="start"
-          className="w-[155px]"
+          className="w-full"
           loading={userState === 'loading'}
           label={
             userState === 'logged-in' && user ? `${user.username}` : 'Guest'
@@ -70,7 +69,7 @@ const UserMenu = () => {
           leaveFrom="opacity-100 translate-y-0"
           leaveTo="opacity-0 -translate-y-1"
         >
-          <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+          <Menu.Items className="absolute right-0 z-10 mt-1.5 w-full origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
             <div className="py-2 px-1.5">
               <Menu.Item>
                 {({ disabled }) => (

@@ -27,7 +27,7 @@ export default function LeftNav({ className }: { className?: string }) {
   }, 1000);
 
   return (
-    <div className={`flex w-[240px] flex-col items-center px-4 ${className}`}>
+    <div className={`flex w-full flex-col items-center px-4 ${className}`}>
       <div className="mt-12 flex h-full w-full grow flex-col ">
         <UserMenu />
         <Transition
@@ -57,26 +57,28 @@ export default function LeftNav({ className }: { className?: string }) {
             </div>
           </Dialog>
         </Transition>
-        <InstanceNestedBarStates className="mt-6"></InstanceNestedBarStates>
-        <InstanceList className="mt-6">
-          <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
-            <Button
-              label="New instance..."
-              className={
-                'w-full text-medium text-gray-faded/30 hover:bg-gray-800 active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
-                clsx(
-                  showCreateInstance &&
-                    'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10 '
-                )
-              }
-              intention="none"
-              variant="text"
-              icon={faSquarePlus}
-              disabled={!canCreateInstance}
-              onClick={() => setShowCreateInstance(true)}
-            />
-          </div>
-        </InstanceList>
+        <div className="overflow-y-auto">
+          <InstanceNestedBarStates></InstanceNestedBarStates>
+          <InstanceList className="mt-6">
+            <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
+              <Button
+                label="New instance..."
+                className={
+                  'w-full text-medium text-gray-faded/30 hover:bg-gray-800 focus-visible:outline-none active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
+                  clsx(
+                    showCreateInstance &&
+                      'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10 '
+                  )
+                }
+                intention="none"
+                variant="text"
+                icon={faSquarePlus}
+                disabled={!canCreateInstance}
+                onClick={() => setShowCreateInstance(true)}
+              />
+            </div>
+          </InstanceList>
+        </div>
       </div>
     </div>
   );

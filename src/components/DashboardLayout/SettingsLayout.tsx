@@ -15,8 +15,7 @@ export const SettingsLayout = () => {
   const canManageUsers = userInfo?.is_owner || false;
   const { data: dataUserList } = useAllUsers(canManageUsers);
   const [tabIndex, setTabIndex] = useState(0);
-  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 300);
-
+  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 240);
   /* Start userList */
   const [queryUid, setQueryUid] = useQueryParam('user', '');
   const [selectedUser, setSelectedUser] = useState<PublicUser | undefined>(
@@ -55,13 +54,13 @@ export const SettingsLayout = () => {
       <ResizePanel
         direction="e"
         maxSize={500}
-        minSize={200}
+        minSize={240}
         size={leftNavSize}
         validateSize={false}
         onResize={setLeftNavSize}
         containerClassNames="min-h-0"
       >
-        <SettingsLeftNav className="bg-gray-850" />
+        <SettingsLeftNav className="border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
       <div className="h-full min-w-0 grow child:h-full">
         <Outlet />
