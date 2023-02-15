@@ -2,14 +2,14 @@ use std::str::FromStr;
 use std::{collections::HashMap, sync::atomic};
 
 use async_trait::async_trait;
-use axum::Server;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 use tempdir::TempDir;
 
 use crate::error::{Error, ErrorKind};
-use crate::traits::t_configurable::{ConfigurableManifest, TConfigurable};
+use crate::traits::t_configurable::{
+    ConfigurableManifest, ConfigurableSetting, ConfigurableSettingValue,
+    ConfigurableSettingValueType, TConfigurable,
+};
 use crate::traits::t_server::State;
 
 use crate::types::InstanceUuid;
@@ -186,29 +186,33 @@ impl TConfigurable for MinecraftInstance {
                     source: eyre!(error_msg),
                 }
             })?,
-            super::Flavour::Fabric {..} => get_fabric_jar_url(&version, &None, &None).await.ok_or_else(|| {
-                let error_msg =
-                    format!("Cannot get the fabric jar version for version {}", version);
-                Error {
-                    kind: ErrorKind::BadRequest,
-                    source: eyre!(error_msg),
-                }
-            })?,
-            super::Flavour::Paper {..} => get_paper_jar_url(&version, &None).await.ok_or_else(|| {
-                let error_msg =
-                    format!("Cannot get the paper jar version for version {}", version);
-                Error {
-                    kind: ErrorKind::BadRequest,
-                    source: eyre!(error_msg),
-                }
-            })?,
+            super::Flavour::Fabric { .. } => get_fabric_jar_url(&version, &None, &None)
+                .await
+                .ok_or_else(|| {
+                    let error_msg =
+                        format!("Cannot get the fabric jar version for version {}", version);
+                    Error {
+                        kind: ErrorKind::BadRequest,
+                        source: eyre!(error_msg),
+                    }
+                })?,
+            super::Flavour::Paper { .. } => {
+                get_paper_jar_url(&version, &None).await.ok_or_else(|| {
+                    let error_msg =
+                        format!("Cannot get the paper jar version for version {}", version);
+                    Error {
+                        kind: ErrorKind::BadRequest,
+                        source: eyre!(error_msg),
+                    }
+                })?
+            }
             super::Flavour::Spigot => todo!(),
-            super::Flavour::Forge {..} => return Err(
-                Error {
+            super::Flavour::Forge { .. } => {
+                return Err(Error {
                     kind: ErrorKind::UnsupportedOperation,
                     source: eyre!("Changing versions is unsupported for forge servers"),
-                }
-            ),
+                })
+            }
         };
         let temp_dir = TempDir::new("lodestone")
             .context("Cannot create temporary directory to download the server jar file")?;
@@ -259,6 +263,17 @@ impl InstanceSetting {
         match self {
             InstanceSetting::CmdArg(setting) => setting.get_description().to_owned(),
             InstanceSetting::ServerProperty(setting) => setting.get_description(),
+        }
+    }
+    pub fn from_key_val(key: &str, value: &str) -> Result<Self, Error> {
+        if CmdArgSetting::is_key_valid(key) {
+            Ok(InstanceSetting::CmdArg(CmdArgSetting::from_key_val(
+                key, value,
+            )?))
+        } else {
+            Ok(InstanceSetting::ServerProperty(
+                ServerPropertySetting::from_key_val(key, value)?,
+            ))
         }
     }
 }
@@ -322,6 +337,100 @@ impl CmdArgSetting {
     }
 }
 
+impl From<CmdArgSetting> for ConfigurableSetting {
+    fn from(value: CmdArgSetting) -> Self {
+        match value {
+            CmdArgSetting::MinRam(min_ram) => ConfigurableSetting::new_optional_value(
+                value.get_identifier().to_owned(),
+                value.get_name().to_owned(),
+                value.get_description().to_owned(),
+                Some(ConfigurableSettingValue::Integer(min_ram as i32)),
+                ConfigurableSettingValueType::Integer {
+                    min: Some(0),
+                    max: None,
+                },
+                None,
+                false,
+                false,
+            ),
+            CmdArgSetting::MaxRam(max_ram) => ConfigurableSetting::new_optional_value(
+                value.get_identifier().to_owned(),
+                value.get_name().to_owned(),
+                value.get_description().to_owned(),
+                Some(ConfigurableSettingValue::Integer(max_ram as i32)),
+                ConfigurableSettingValueType::Integer {
+                    min: Some(0),
+                    max: None,
+                },
+                None,
+                false,
+                false,
+            ),
+            CmdArgSetting::JavaCmd(ref java_cmd) => ConfigurableSetting::new_optional_value(
+                value.get_identifier().to_owned(),
+                value.get_name().to_owned(),
+                value.get_description().to_owned(),
+                Some(ConfigurableSettingValue::String(java_cmd.to_owned())),
+                ConfigurableSettingValueType::String(None),
+                None,
+                false,
+                false,
+            ),
+            CmdArgSetting::Args(ref args) => ConfigurableSetting::new_optional_value(
+                value.get_identifier().to_owned(),
+                value.get_name().to_owned(),
+                value.get_description().to_owned(),
+                Some(ConfigurableSettingValue::String(args.join(" "))),
+                ConfigurableSettingValueType::String(None),
+                None,
+                false,
+                false,
+            ),
+        }
+    }
+}
+
+impl TryFrom<ConfigurableSetting> for CmdArgSetting {
+    type Error = Error;
+
+    fn try_from(value: ConfigurableSetting) -> Result<Self, Self::Error> {
+        match value.get_identifier().as_str() {
+            "min_ram" => Ok(CmdArgSetting::MinRam(
+                value
+                    .get_value()
+                    .context("Expected a value")?
+                    .try_as_integer()? as u32,
+            )),
+            "max_ram" => Ok(CmdArgSetting::MaxRam(
+                value
+                    .get_value()
+                    .context("Expected a value")?
+                    .try_as_integer()? as u32,
+            )),
+            "java_cmd" => Ok(CmdArgSetting::JavaCmd(
+                value
+                    .get_value()
+                    .context("Expected a value")?
+                    .try_as_string()?
+                    .to_owned(),
+            )),
+            "cmd_args" => Ok(CmdArgSetting::Args(
+                value
+                    .get_value()
+                    .context("Expected a value")?
+                    .try_as_string()?
+                    .split(' ')
+                    .map(|s| s.to_string())
+                    .collect(),
+            )),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Invalid key"),
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 enum Gamemode {
     #[default]
@@ -329,6 +438,18 @@ enum Gamemode {
     Creative,
     Adventure,
     Spectator,
+}
+
+impl ToString for Gamemode {
+    fn to_string(&self) -> String {
+        match self {
+            Gamemode::Survival => "survival",
+            Gamemode::Creative => "creative",
+            Gamemode::Adventure => "adventure",
+            Gamemode::Spectator => "spectator",
+        }
+        .to_string()
+    }
 }
 
 impl FromStr for Gamemode {
@@ -357,6 +478,17 @@ enum Difficulty {
     Hard,
 }
 
+impl ToString for Difficulty {
+    fn to_string(&self) -> String {
+        match self {
+            Difficulty::Peaceful => "peaceful".to_string(),
+            Difficulty::Easy => "easy".to_string(),
+            Difficulty::Normal => "normal".to_string(),
+            Difficulty::Hard => "hard".to_string(),
+        }
+    }
+}
+
 impl FromStr for Difficulty {
     type Err = Error;
 
@@ -374,11 +506,11 @@ impl FromStr for Difficulty {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ServerPropertySetting {
     EnableJmxMonitoring(bool),
     RconPort(u16),
-    LevelSeed(Option<i64>),
+    LevelSeed(String),
     Gamemode(Gamemode),
     EnableCommandBlock(bool),
     EnableQuery(bool),
@@ -434,6 +566,834 @@ enum ServerPropertySetting {
     ResourcePackSha1(String),
     MaxWorldSize(u32),
     Unknown(String, String),
+}
+
+impl From<ServerPropertySetting> for ConfigurableSetting {
+    fn from(value: ServerPropertySetting) -> Self {
+        match value {
+            ServerPropertySetting::EnableJmxMonitoring(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::RconPort(inner_val) => Self::new_value_with_type(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                Some(ConfigurableSettingValue::UnsignedInteger(inner_val as u32)),
+                ConfigurableSettingValueType::UnsignedInteger {
+                    min: Some(0),
+                    max: Some(65535),
+                },
+                None,
+                false,
+                true,
+            )
+            .expect("Programming error"),
+            ServerPropertySetting::LevelSeed(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::Gamemode(ref inner_val) => Self::new_value_with_type(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                Some(ConfigurableSettingValue::Enum(inner_val.to_string())),
+                ConfigurableSettingValueType::Enum {
+                    options: vec![
+                        "survival".to_string(),
+                        "creative".to_string(),
+                        "adventure".to_string(),
+                        "spectator".to_string(),
+                    ],
+                },
+                None,
+                false,
+                true,
+            )
+            .expect("Programming error: invalid enum value"),
+            ServerPropertySetting::EnableCommandBlock(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::EnableQuery(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::GeneratorSettings(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::EnforceSecureProfile(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::LevelName(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::Motd(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::QueryPort(inner_val) => Self::new_value_with_type(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                Some(ConfigurableSettingValue::UnsignedInteger(inner_val as u32)),
+                ConfigurableSettingValueType::UnsignedInteger {
+                    min: Some(0),
+                    max: Some(65535),
+                },
+                None,
+                false,
+                true,
+            )
+            .expect("Programming error"),
+            ServerPropertySetting::Pvp(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::GenerateStructures(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::MaxChainedNeighborUpdates(inner_val) => {
+                Self::new_required_value(
+                    value.get_identifier(),
+                    value.get_name(),
+                    value.get_description(),
+                    ConfigurableSettingValue::UnsignedInteger(inner_val),
+                    None,
+                    false,
+                    true,
+                )
+            }
+            ServerPropertySetting::MaxTickTime(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::UseNativeTransport(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::MaxWorldSize(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::ServerIp(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::MaxPlayers(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::NetworkCompressionThreshold(inner_val) => {
+                Self::new_required_value(
+                    value.get_identifier(),
+                    value.get_name(),
+                    value.get_description(),
+                    ConfigurableSettingValue::UnsignedInteger(inner_val),
+                    None,
+                    false,
+                    true,
+                )
+            }
+            ServerPropertySetting::ResourcePackSha1(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::SpawnAnimals(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::SpawnNpcs(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::AllowFlight(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::LevelType(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::ViewDistance(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::ResourcePack(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::SpawnMonsters(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::OnlineMode(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::AllowNether(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::Difficulty(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.to_string()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::RequireResourcePack(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::EnableStatus(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::InitialDisabledPacks(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::BroadcastRconToOps(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::ResourcePackPrompt(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::ServerPort(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val as u32),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::EnableRcon(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::SyncChunkWrites(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::OpPermissionLevel(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::PreventProxyConnections(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::HideOnlinePlayers(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::EntityBroadcastRangePercentage(inner_val) => {
+                Self::new_required_value(
+                    value.get_identifier(),
+                    value.get_name(),
+                    value.get_description(),
+                    ConfigurableSettingValue::UnsignedInteger(inner_val),
+                    None,
+                    false,
+                    true,
+                )
+            }
+            ServerPropertySetting::SimulationDistance(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::RconPassword(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::PlayerIdleTimeout(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::ForceGamemode(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::RateLimit(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::Hardcore(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::WhiteList(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::BroadcastConsoleToOps(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::PreviewsChat(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::FunctionPermissionLevel(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::InitialEnabledPacks(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::TextFilteringConfig(ref inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(inner_val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::EnforceWhitelist(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::Boolean(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::SpawnProtection(inner_val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::Unknown(_, ref val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableSettingValue::String(val.clone()),
+                None,
+                false,
+                true,
+            ),
+        }
+    }
+}
+
+impl TryFrom<ConfigurableSetting> for ServerPropertySetting {
+    type Error = Error;
+
+    fn try_from(value: ConfigurableSetting) -> Result<Self, Self::Error> {
+        let err_msg = "Internal error: value is not set";
+        match value.get_identifier().as_str() {
+            "enable-jmx-monitoring" => Ok(ServerPropertySetting::EnableJmxMonitoring(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "rcon.port" => Ok(ServerPropertySetting::RconPort(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?
+                    .try_into()
+                    .context("Invalid value")?,
+            )),
+            "level-seed" => Ok(ServerPropertySetting::LevelSeed(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "gamemode" => Ok(ServerPropertySetting::Gamemode(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string()
+                    .parse()
+                    .context("Invalid value")?,
+            )),
+            "enable-command-block" => Ok(ServerPropertySetting::EnableCommandBlock(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "enable-query" => Ok(ServerPropertySetting::EnableQuery(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "generator-settings" => Ok(ServerPropertySetting::GeneratorSettings(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "enforce-secure-profile" => Ok(ServerPropertySetting::EnforceSecureProfile(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "level-name" => Ok(ServerPropertySetting::LevelName(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "motd" => Ok(ServerPropertySetting::Motd(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "query.port" => Ok(ServerPropertySetting::QueryPort(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?
+                    .try_into()
+                    .context("Invalid value")?,
+            )),
+            "pvp" => Ok(ServerPropertySetting::Pvp(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "generate-structures" => Ok(ServerPropertySetting::GenerateStructures(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "max-chained-neighbor-updates" => Ok(ServerPropertySetting::MaxChainedNeighborUpdates(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_integer()?
+                    .try_into()
+                    .context("Invalid value")?,
+            )),
+            "max-tick-time" => Ok(ServerPropertySetting::MaxTickTime(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "max-players" => Ok(ServerPropertySetting::MaxPlayers(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "use-native-transport" => Ok(ServerPropertySetting::UseNativeTransport(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "online-mode" => Ok(ServerPropertySetting::OnlineMode(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "enable-status" => Ok(ServerPropertySetting::EnableStatus(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "allow-flight" => Ok(ServerPropertySetting::AllowFlight(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "initial-disabled-packs" => Ok(ServerPropertySetting::InitialDisabledPacks(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "broadcast-rcon-to-ops" => Ok(ServerPropertySetting::BroadcastRconToOps(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "view-distance" => Ok(ServerPropertySetting::ViewDistance(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "resource-pack-prompt" => Ok(ServerPropertySetting::ResourcePackPrompt(
+                value.get_value().context(err_msg)?.try_as_string()?.clone(),
+            )),
+            "server-ip" => Ok(ServerPropertySetting::ServerIp(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "allow-nether" => Ok(ServerPropertySetting::AllowNether(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "server-port" => Ok(ServerPropertySetting::ServerPort(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?
+                    .try_into()
+                    .context("Invalid value")?,
+            )),
+            "enable-rcon" => Ok(ServerPropertySetting::EnableRcon(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "sync-chunk-writes" => Ok(ServerPropertySetting::SyncChunkWrites(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "op-permission-level" => Ok(ServerPropertySetting::OpPermissionLevel(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "prevent-proxy-connections" => Ok(ServerPropertySetting::PreventProxyConnections(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "hide-online-players" => Ok(ServerPropertySetting::HideOnlinePlayers(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "resource-pack" => Ok(ServerPropertySetting::ResourcePack(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "entity-broadcast-range-percentage" => {
+                Ok(ServerPropertySetting::EntityBroadcastRangePercentage(
+                    value
+                        .get_value()
+                        .context(err_msg)?
+                        .try_as_unsigned_integer()?,
+                ))
+            }
+            "simulation-distance" => Ok(ServerPropertySetting::SimulationDistance(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "rcon.password" => Ok(ServerPropertySetting::RconPassword(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "rate-limit" => Ok(ServerPropertySetting::RateLimit(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "hardcore" => Ok(ServerPropertySetting::Hardcore(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "white-list" => Ok(ServerPropertySetting::WhiteList(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "broadcast-console-to-ops" => Ok(ServerPropertySetting::BroadcastConsoleToOps(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "previews-chat" => Ok(ServerPropertySetting::PreviewsChat(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "spawn-npcs" => Ok(ServerPropertySetting::SpawnNpcs(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "spawn-animals" => Ok(ServerPropertySetting::SpawnAnimals(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+            "function-permission-level" => Ok(ServerPropertySetting::FunctionPermissionLevel(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "initial-enabled-packs" => Ok(ServerPropertySetting::InitialEnabledPacks(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "level-type" => Ok(ServerPropertySetting::LevelType(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "text-filtering-config" => Ok(ServerPropertySetting::TextFilteringConfig(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "spawn-monsters" => Ok(ServerPropertySetting::SpawnMonsters(
+                value.get_value().context(err_msg)?.try_as_boolean()?,
+            )),
+
+            "spawn-protection" => Ok(ServerPropertySetting::SpawnProtection(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            "resource-pack-sha1" => Ok(ServerPropertySetting::ResourcePackSha1(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_string()?
+                    .to_string(),
+            )),
+            "max-world-size" => Ok(ServerPropertySetting::MaxWorldSize(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
+            _ => Ok(ServerPropertySetting::Unknown(
+                value.get_identifier().to_string(),
+                value.get_value().context(err_msg)?.to_string(),
+            )),
+        }
+    }
 }
 
 impl ServerPropertySetting {
@@ -568,7 +1528,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "Spawn Protection",
             Self::ResourcePackSha1(_) => "Resource Pack Sha1",
             Self::MaxWorldSize(_) => "Max World Size",
-            Self::Unknown(_, _) => unreachable!(),
+            Self::Unknown(_, _) => unreachable!("Handled above"),
         }
         .to_string()
     }
@@ -654,7 +1614,7 @@ impl ServerPropertySetting {
                     eyre!("Invalid value: {value}, expected u16")
                 })?))
             }
-            "level-seed" => Ok(Self::LevelSeed(value.parse::<i64>().ok())),
+            "level-seed" => Ok(Self::LevelSeed(value.to_string())),
             "gamemode" => {
                 Ok(Self::Gamemode(value.parse::<Gamemode>().with_context(
                     || eyre!("Invalid value: {value}, expected Gamemode"),
@@ -894,6 +1854,69 @@ impl ServerPropertySetting {
             _ => Ok(Self::Unknown(key.to_string(), value.to_string())),
         }
     }
+
+    pub fn to_line(&self) -> String {
+        match self {
+            Self::EnableJmxMonitoring(v) => format!("{}={}", self.get_identifier(), v),
+            Self::RconPort(v) => format!("{}={}", self.get_identifier(), v),
+            Self::LevelSeed(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Gamemode(v) => format!("{}={}", self.get_identifier(), v.to_string()),
+            Self::EnableCommandBlock(v) => format!("{}={}", self.get_identifier(), v),
+            Self::EnableQuery(v) => format!("{}={}", self.get_identifier(), v),
+            Self::GeneratorSettings(v) => format!("{}={}", self.get_identifier(), v),
+            Self::EnforceSecureProfile(v) => format!("{}={}", self.get_identifier(), v),
+            Self::LevelName(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Motd(v) => format!("{}={}", self.get_identifier(), v),
+            Self::QueryPort(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Pvp(v) => format!("{}={}", self.get_identifier(), v),
+            Self::GenerateStructures(v) => format!("{}={}", self.get_identifier(), v),
+            Self::MaxChainedNeighborUpdates(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Difficulty(v) => format!("{}={}", self.get_identifier(), v.to_string()),
+            Self::NetworkCompressionThreshold(v) => format!("{}={}", self.get_identifier(), v),
+            Self::RequireResourcePack(v) => format!("{}={}", self.get_identifier(), v),
+            Self::MaxTickTime(v) => format!("{}={}", self.get_identifier(), v),
+            Self::MaxPlayers(v) => format!("{}={}", self.get_identifier(), v),
+            Self::UseNativeTransport(v) => format!("{}={}", self.get_identifier(), v),
+            Self::OnlineMode(v) => format!("{}={}", self.get_identifier(), v),
+            Self::EnableStatus(v) => format!("{}={}", self.get_identifier(), v),
+            Self::AllowFlight(v) => format!("{}={}", self.get_identifier(), v),
+            Self::InitialDisabledPacks(v) => format!("{}={}", self.get_identifier(), v),
+            Self::BroadcastRconToOps(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ViewDistance(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ResourcePackPrompt(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ServerIp(v) => format!("{}={}", self.get_identifier(), v),
+            Self::AllowNether(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ServerPort(v) => format!("{}={}", self.get_identifier(), v),
+            Self::EnableRcon(v) => format!("{}={}", self.get_identifier(), v),
+            Self::SyncChunkWrites(v) => format!("{}={}", self.get_identifier(), v),
+            Self::OpPermissionLevel(v) => format!("{}={}", self.get_identifier(), v),
+            Self::PreventProxyConnections(v) => format!("{}={}", self.get_identifier(), v),
+            Self::HideOnlinePlayers(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ResourcePack(v) => format!("{}={}", self.get_identifier(), v),
+            Self::EntityBroadcastRangePercentage(v) => format!("{}={}", self.get_identifier(), v),
+            Self::SimulationDistance(v) => format!("{}={}", self.get_identifier(), v),
+            Self::RconPassword(v) => format!("{}={}", self.get_identifier(), v),
+            Self::PlayerIdleTimeout(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ForceGamemode(v) => format!("{}={}", self.get_identifier(), v),
+            Self::RateLimit(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Hardcore(v) => format!("{}={}", self.get_identifier(), v),
+            Self::WhiteList(v) => format!("{}={}", self.get_identifier(), v),
+            Self::BroadcastConsoleToOps(v) => format!("{}={}", self.get_identifier(), v),
+            Self::PreviewsChat(v) => format!("{}={}", self.get_identifier(), v),
+            Self::SpawnNpcs(v) => format!("{}={}", self.get_identifier(), v),
+            Self::SpawnAnimals(v) => format!("{}={}", self.get_identifier(), v),
+            Self::FunctionPermissionLevel(v) => format!("{}={}", self.get_identifier(), v),
+            Self::InitialEnabledPacks(v) => format!("{}={}", self.get_identifier(), v),
+            Self::LevelType(v) => format!("{}={}", self.get_identifier(), v),
+            Self::TextFilteringConfig(v) => format!("{}={}", self.get_identifier(), v),
+            Self::SpawnMonsters(v) => format!("{}={}", self.get_identifier(), v),
+            Self::EnforceWhitelist(v) => format!("{}={}", self.get_identifier(), v),
+            Self::SpawnProtection(v) => format!("{}={}", self.get_identifier(), v),
+            Self::ResourcePackSha1(v) => format!("{}={}", self.get_identifier(), v),
+            Self::MaxWorldSize(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Unknown(k, v) => format!("{}={}", self.get_identifier(), v.to_string()),
+        }
+    }
 }
 
 impl FromStr for ServerPropertySetting {
@@ -916,6 +1939,8 @@ impl FromStr for ServerPropertySetting {
 mod test {
     use std::io::BufRead;
 
+    use crate::traits::t_configurable::ConfigurableSection;
+
     use super::*;
 
     #[test]
@@ -936,7 +1961,7 @@ mod test {
 
         assert_eq!(res[1], ServerPropertySetting::RconPort(25575));
 
-        assert_eq!(res[2], ServerPropertySetting::LevelSeed(None));
+        assert_eq!(res[2], ServerPropertySetting::LevelSeed("".to_string()));
 
         assert_eq!(res[3], ServerPropertySetting::Difficulty(Difficulty::Easy));
     }
@@ -947,6 +1972,13 @@ mod test {
             std::fs::File::open("src/testdata/sample_server.properties")
                 .expect("Failed to open server.properties"),
         );
+        let mut config_section = ConfigurableSection::new(
+            String::from("server_properties"),
+            String::from("Server Properties Test"),
+            Default::default(),
+            Default::default(),
+        );
+
         for line in properties_file.lines() {
             let line = line.expect("Failed to read line");
             match ServerPropertySetting::from_str(&line) {
@@ -954,9 +1986,75 @@ mod test {
                     if let ServerPropertySetting::Unknown(_, _) = v {
                         panic!("Unknown property: {}", line);
                     }
+
+                    config_section.add_setting(v.into()).unwrap();
                 }
                 Err(e) => panic!("Failed to parse line: {} with error: {}", line, e),
             }
         }
+
+        assert!(!config_section
+            .get_setting("enable-jmx-monitoring")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_boolean()
+            .unwrap());
+
+        let property: ServerPropertySetting = config_section
+            .get_setting("enable-jmx-monitoring")
+            .unwrap()
+            .clone()
+            .try_into()
+            .unwrap();
+        assert_eq!(property, ServerPropertySetting::EnableJmxMonitoring(false));
+        assert_eq!(
+            property.to_line(),
+            "enable-jmx-monitoring=false".to_string()
+        );
+
+        assert_eq!(
+            config_section
+                .get_setting("rcon.port")
+                .unwrap()
+                .get_value()
+                .unwrap()
+                .try_as_unsigned_integer()
+                .unwrap(),
+            25575
+        );
+
+        let property: ServerPropertySetting = config_section
+            .get_setting("rcon.port")
+            .unwrap()
+            .clone()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(property, ServerPropertySetting::RconPort(25575));
+        assert_eq!(property.to_line(), "rcon.port=25575".to_string());
+
+        assert!(config_section
+            .get_setting("resource-pack")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_string()
+            .unwrap()
+            .is_empty());
+
+        let property: ServerPropertySetting = config_section
+            .get_setting("resource-pack")
+            .unwrap()
+            .clone()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(
+            property,
+            ServerPropertySetting::ResourcePack("".to_string())
+        );
+
+        assert_eq!(property.to_line(), "resource-pack=".to_string());
     }
 }
