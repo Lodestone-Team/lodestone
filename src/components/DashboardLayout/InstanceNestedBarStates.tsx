@@ -46,8 +46,8 @@ export const InstanceNestedBarStates = ({
 
   return (
     <RadioGroup
-      className={`gap mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto overflow-x-hidden px-1 child:w-full ${className}`}
-      value={selectedInstance}
+      className={`gap mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
+      onChange={setPathname}
     >
       <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
         SELECTED INSTANCE
@@ -59,8 +59,8 @@ export const InstanceNestedBarStates = ({
         InstanceTabListMap[selectedInstance.game_type].map((tab) => (
           <RadioGroup.Option
             key={tab.path}
-            value={tab}
-            className="outline-none child:w-full"
+            value={`/dashboard/${tab.path}`}
+            className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
           >
             <div
               className={clsx(
