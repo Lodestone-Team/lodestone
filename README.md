@@ -92,6 +92,10 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
   ```sh
   sudo apt-get install cpuidtool libcpuid-dev libcpuid-dev
   ```
+  A few other packages are needed to compile Lodestone
+  ```sh
+  sudo apt-get install libffi-dev libmagic-dev file
+  ```
 
 ### Installation
 #### Running the client
