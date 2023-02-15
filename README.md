@@ -90,7 +90,7 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
   ```
 * `cpuidtool` is required to query CPU information
   ```sh
-  sudo apt-get install cpuidtool libcpuid14 libcpuid-dev
+  sudo apt-get install cpuidtool libcpuid-dev libcpuid-dev
   ```
 
 ### Installation
