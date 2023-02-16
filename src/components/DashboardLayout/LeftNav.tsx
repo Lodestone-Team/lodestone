@@ -57,10 +57,10 @@ export default function LeftNav({ className }: { className?: string }) {
             </div>
           </Dialog>
         </Transition>
-        <div className="overflow-y-auto">
+        <div className="h-full overflow-y-auto">
           <InstanceNestedBarStates></InstanceNestedBarStates>
           <InstanceList className="mt-6">
-            <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
+            <div className="items-begin mb-16 flex w-full flex-row items-center justify-center gap-4">
               <Button
                 label="New instance..."
                 className={
