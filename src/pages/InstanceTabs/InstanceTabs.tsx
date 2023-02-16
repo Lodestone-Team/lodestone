@@ -3,8 +3,8 @@ import { InstanceContext } from 'data/InstanceContext';
 import { useDocumentTitle } from 'usehooks-ts';
 import { useLocation } from 'react-router-dom';
 import InstanceTabListMap from '../../data/InstanceTabListMap';
-import { stateToLabelColor } from 'utils/util';
 import Label from 'components/Atoms/Label';
+import { stateToLabelColor } from 'utils/util';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -44,7 +44,7 @@ const InstanceTabs = () => {
               className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
               key={`${instance.name}-${tab.title}`}
             >
-              <div className="flex h-fit min-h-full flex-col gap-8 pt-10 pb-10 focus:outline-none">
+              <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
                 <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
                   {tab.title}
                   {tab.title === 'Console' && (

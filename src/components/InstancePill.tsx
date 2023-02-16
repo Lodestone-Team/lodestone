@@ -24,12 +24,14 @@ export default function InstancePill({
   const stateColor = stateToColor[state];
 
   return (
-    <div
+    <button
       className={clsx(
         'flex flex-row items-center gap-x-1.5',
         'cursor-pointer rounded-md py-1 px-2',
-        'text-medium font-bold leading-5 tracking-medium text-white/50 ui-checked:text-gray-300',
-        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
+        'text-medium font-bold leading-5 tracking-medium',
+        'text-white/50 ui-checked:text-gray-300',
+        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
+        'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
       )}
       onClick={cardOnClick}
     >
@@ -38,11 +40,11 @@ export default function InstancePill({
         game_flavour={flavour}
         className="h-4 w-4"
       />
-      <p className="grow truncate">{name}</p>
+      <p className="grow truncate text-left">{name}</p>
       <FontAwesomeIcon
         icon={faCircle}
         className={`select-none text-[8px] ${stateColor}`}
       />
-    </div>
+    </button>
   );
 }

@@ -46,14 +46,13 @@ export default function InstanceList({
       <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
         ALL INSTANCES
       </RadioGroup.Label>
-      {/* <p className="text-xl text-center text-gray-400">Instances</p> */}
       {userLoggedIn ? (
         instances &&
         Object.values(instances).map((instance) => (
           <RadioGroup.Option
             key={instance.uuid}
             value={instance}
-            className="outline-none child:w-full"
+            className="rounded-md outline-none child:w-full"
           >
             <InstancePill {...instance} />
           </RadioGroup.Option>

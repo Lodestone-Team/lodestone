@@ -62,12 +62,13 @@ export const InstanceNestedBarStates = ({
             value={`/dashboard/${tab.path}`}
             className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
           >
-            <div
+            <button
               className={clsx(
                 'flex flex-row items-center gap-x-1.5',
                 'cursor-pointer rounded-md py-1 px-2',
                 'text-medium font-bold leading-5 tracking-medium',
                 'hover:bg-gray-800',
+                'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                 setActive === tab.path
                   ? 'bg-gray-800 outline outline-1 outline-fade-700'
                   : ''
@@ -84,7 +85,7 @@ export const InstanceNestedBarStates = ({
                 {tab.icon}
               </div>
               <div className="text-gray-300">{tab.title}</div>
-            </div>
+            </button>
           </RadioGroup.Option>
         ))}
       {children}
