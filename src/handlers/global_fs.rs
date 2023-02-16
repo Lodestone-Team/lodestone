@@ -42,7 +42,7 @@ pub enum FileType {
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(rename = "ClientFile")]
 #[ts(export)]
-pub struct File {
+pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub creation_time: Option<u64>,
@@ -50,7 +50,7 @@ pub struct File {
     pub file_type: FileType,
 }
 
-impl From<&std::path::Path> for File {
+impl From<&std::path::Path> for FileEntry {
     fn from(path: &std::path::Path) -> Self {
         let file_type = if path.is_dir() {
             FileType::Directory
@@ -60,8 +60,8 @@ impl From<&std::path::Path> for File {
             FileType::Unknown
         };
         Self {
-            name: path.display().to_string(),
-            path: path.display().to_string(),
+            name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            path: path.file_name().unwrap().to_string_lossy().into_owned(),
             // unix timestamp
             // if we cant get the time, return none
             creation_time: path
@@ -84,7 +84,7 @@ async fn list_files(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(base64_absolute_path): Path<String>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Vec<File>>, Error> {
+) -> Result<Json<Vec<FileEntry>>, Error> {
     let absolute_path = decode_base64(&base64_absolute_path)?;
     let requester = state
         .users_manager
@@ -103,11 +103,11 @@ async fn list_files(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let ret: Vec<File> = list_dir(&path, None)
+    let ret: Vec<FileEntry> = list_dir(&path, None)
         .await?
         .iter()
         .map(|p| {
-            let r: File = p.as_path().into();
+            let r: FileEntry = p.as_path().into();
             r
         })
         .collect();

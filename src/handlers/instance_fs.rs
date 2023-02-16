@@ -57,13 +57,13 @@ fn is_path_protected(path: impl AsRef<std::path::Path>) -> bool {
     }
 }
 
-use super::{global_fs::File, util::decode_base64};
+use super::{global_fs::FileEntry, util::decode_base64};
 
 async fn list_instance_files(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<Vec<File>>, Error> {
+) -> Result<Json<Vec<FileEntry>>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
 
@@ -77,12 +77,12 @@ async fn list_instance_files(
     drop(instances);
     let path = scoped_join_win_safe(&root, relative_path)?;
 
-    let ret: Vec<File> = list_dir(&path, None)
+    let ret: Vec<FileEntry> = list_dir(&path, None)
         .await?
         .iter()
         .map(move |p| {
             // remove the root path from the file path
-            let mut r: File = p.as_path().into();
+            let mut r: FileEntry = p.as_path().into();
             r.path = p.strip_prefix(&root).unwrap().to_str().unwrap().to_string();
             r
         })
