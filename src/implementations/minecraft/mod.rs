@@ -9,7 +9,7 @@ pub mod util;
 pub mod versions;
 
 use color_eyre::eyre::{eyre, Context};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -33,13 +33,16 @@ use crate::error::Error;
 use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
-use crate::traits::t_configurable::PathBuf;
+use crate::traits::t_configurable::{ConfigurableSection, ConfigurableSetting, PathBuf};
 
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{InstanceUuid, Snowflake};
-use crate::util::{download_file, format_byte, format_byte_download, unzip_file, dont_spawn_terminal};
+use crate::util::{
+    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
+};
 
+use self::configurable::{CmdArgSetting, ServerPropertySetting};
 use self::players_manager::PlayersManager;
 use self::util::{get_jre_url, get_server_jar_url, read_properties_from_path};
 
@@ -78,10 +81,10 @@ impl ToString for Flavour {
     fn to_string(&self) -> String {
         match self {
             Flavour::Vanilla => "vanilla".to_string(),
-            Flavour::Fabric {..} => "fabric".to_string(),
-            Flavour::Paper {..} => "paper".to_string(),
+            Flavour::Fabric { .. } => "fabric".to_string(),
+            Flavour::Paper { .. } => "paper".to_string(),
             Flavour::Spigot => "spigot".to_string(),
-            Flavour::Forge {..} => "forge".to_string(),
+            Flavour::Forge { .. } => "forge".to_string(),
         }
     }
 }
@@ -149,10 +152,12 @@ pub struct MinecraftInstance {
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
-    settings: Arc<Mutex<HashMap<String, String>>>,
+    server_properties_buffer: Arc<Mutex<HashMap<String, String>>>,
+    cmd_args_config: Arc<Mutex<ConfigurableSection>>,
+    server_properties_config: Arc<Mutex<ConfigurableSection>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
-    pub rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+    rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -286,7 +291,7 @@ impl MinecraftInstance {
                 caused_by: CausedBy::Unknown,
             });
         }
-        
+
         // Step 3: Download server.jar
         let flavour_name = config.flavour.to_string();
         let (jar_url, flavour) = get_server_jar_url(config.version.as_str(), &config.flavour)
@@ -301,7 +306,7 @@ impl MinecraftInstance {
                 }
             })?;
         let jar_name = match flavour {
-            Flavour::Forge {..} => "forge-installer.jar",
+            Flavour::Forge { .. } => "forge-installer.jar",
             _ => "server.jar",
         };
 
@@ -317,16 +322,15 @@ impl MinecraftInstance {
                         let _ = event_broadcaster.send(Event {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
-                                progression_event_inner:
-                                    ProgressionEventInner::ProgressionUpdate {
-                                        progress: (dl.step as f64 / total as f64) * 5.0,
-                                        progress_message: format!(
-                                            "3/4: Downloading {} {} {}",
-                                            flavour_name,
-                                            jar_name,
-                                            format_byte_download(dl.downloaded, total),
-                                        ),
-                                    },
+                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                                    progress: (dl.step as f64 / total as f64) * 5.0,
+                                    progress_message: format!(
+                                        "3/4: Downloading {} {} {}",
+                                        flavour_name,
+                                        jar_name,
+                                        format_byte_download(dl.downloaded, total),
+                                    ),
+                                },
                             }),
                             details: "".to_string(),
                             snowflake: Snowflake::default(),
@@ -336,16 +340,15 @@ impl MinecraftInstance {
                         let _ = event_broadcaster.send(Event {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
-                                progression_event_inner:
-                                    ProgressionEventInner::ProgressionUpdate {
-                                        progress: 0.0,
-                                        progress_message: format!(
-                                            "3/4: Downloading {} {} {}",
-                                            flavour_name,
-                                            jar_name,
-                                            format_byte(dl.downloaded),
-                                        ),
-                                    },
+                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                                    progress: 0.0,
+                                    progress_message: format!(
+                                        "3/4: Downloading {} {} {}",
+                                        flavour_name,
+                                        jar_name,
+                                        format_byte(dl.downloaded),
+                                    ),
+                                },
                             }),
                             details: "".to_string(),
                             snowflake: Snowflake::default(),
@@ -388,14 +391,18 @@ impl MinecraftInstance {
                     .arg("-jar")
                     .arg(&config.path.join("forge-installer.jar"))
                     .arg("--installServer")
-                    .arg(&config.path)
+                    .arg(&config.path),
             )
             .stdout(Stdio::null())
             .stdin(Stdio::null())
             .stderr(Stdio::null())
-            .spawn().context("Failed to start forge-installer.jar")?
-            .wait().await.context("forge-installer.jar failed")?
-            .success() {
+            .spawn()
+            .context("Failed to start forge-installer.jar")?
+            .wait()
+            .await
+            .context("forge-installer.jar failed")?
+            .success()
+            {
                 return Err(eyre!("Failed to install forge server").into());
             }
 
@@ -554,6 +561,25 @@ impl MinecraftInstance {
                 }
             }
         });
+        let mut cmd_args_config_map : BTreeMap<String, ConfigurableSetting> = BTreeMap::new();
+        let cmd_args = CmdArgSetting::Args(config.cmd_args.clone());
+        cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
+        let min_ram = CmdArgSetting::MinRam(config.min_ram);
+        cmd_args_config_map.insert(min_ram.get_identifier().to_owned(), min_ram.into());
+        let max_ram = CmdArgSetting::MaxRam(config.max_ram);
+        cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
+        let java_path = path_to_runtimes
+            .join("java")
+            .join(format!("jre{}", config.jre_major_version))
+            .join(if std::env::consts::OS == "macos" {
+                "Contents/Home/bin"
+            } else {
+                "bin"
+            })
+            .join("java");
+        let java_cmd = CmdArgSetting::JavaCmd(java_path.to_string_lossy().into_owned());
+        cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
+
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
@@ -572,12 +598,23 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-
-            settings: Arc::new(Mutex::new(HashMap::new())),
+            server_properties_buffer: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
+            cmd_args_config: Arc::new(Mutex::new(ConfigurableSection::new(
+                "command_line_arguments_settings".to_string(),
+                "Command Line Settings".to_string(),
+                "Settings are passed to the server and Java as command line arguments".to_string(),
+                BTreeMap::new(),
+            ))),
+            server_properties_config: Arc::new(Mutex::new(ConfigurableSection::new(
+                "server_properties_settings".to_string(),
+                "Server Properties Settings".to_string(),
+                "All settings in the server.properties file can be configured here".to_string(),
+                cmd_args_config_map,
+            ))),
         };
         instance
             .read_properties()
@@ -601,7 +638,14 @@ impl MinecraftInstance {
     }
 
     async fn read_properties(&mut self) -> Result<(), Error> {
-        *self.settings.lock().await = read_properties_from_path(&self.path_to_properties).await?;
+        let mut lock = self.server_properties_buffer.lock().await;
+        *lock = read_properties_from_path(&self.path_to_properties).await?;
+        for (key, value) in lock.iter() {
+            self.server_properties_config
+                .lock()
+                .await
+                .add_setting(ServerPropertySetting::from_key_val(key, value)?.into())?;
+        }
         Ok(())
     }
 
@@ -614,7 +658,7 @@ impl MinecraftInstance {
                 &self.path_to_properties.display()
             ))?;
         let mut setting_str = "".to_string();
-        for (key, value) in self.settings.lock().await.iter() {
+        for (key, value) in self.server_properties_buffer.lock().await.iter() {
             // print the key and value separated by a =
             // println!("{}={}", key, value);
             setting_str.push_str(&format!("{}={}\n", key, value));

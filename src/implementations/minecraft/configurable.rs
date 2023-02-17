@@ -103,7 +103,7 @@ impl TConfigurable for MinecraftInstance {
     async fn set_port(&mut self, port: u32) -> Result<(), Error> {
         self.config.port = port;
         *self
-            .settings
+            .server_properties_buffer
             .lock()
             .await
             .entry("server-port".to_string())
@@ -150,13 +150,13 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn set_field(&mut self, field: &str, value: String) -> Result<(), Error> {
-        self.settings.lock().await.insert(field.to_string(), value);
+        self.server_properties_buffer.lock().await.insert(field.to_string(), value);
         self.write_properties_to_file().await
     }
 
     async fn get_field(&self, field: &str) -> Result<String, Error> {
         Ok(self
-            .settings
+            .server_properties_buffer
             .lock()
             .await
             .get(field)
@@ -233,7 +233,7 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn settings(&self) -> Result<HashMap<String, String>, Error> {
-        Ok(self.settings.lock().await.clone())
+        Ok(self.server_properties_buffer.lock().await.clone())
     }
 
     async fn get_configurable_manifest(&self) -> ConfigurableManifest {
@@ -241,7 +241,7 @@ impl TConfigurable for MinecraftInstance {
     }
 }
 
-enum InstanceSetting {
+pub(super) enum InstanceSetting {
     CmdArg(CmdArgSetting),
     ServerProperty(ServerPropertySetting),
 }
@@ -278,7 +278,43 @@ impl InstanceSetting {
     }
 }
 
-enum CmdArgSetting {
+impl From<CmdArgSetting> for InstanceSetting {
+    fn from(setting: CmdArgSetting) -> Self {
+        InstanceSetting::CmdArg(setting)
+    }
+}
+
+impl From<ServerPropertySetting> for InstanceSetting {
+    fn from(setting: ServerPropertySetting) -> Self {
+        InstanceSetting::ServerProperty(setting)
+    }
+}
+
+impl From<InstanceSetting> for ConfigurableSetting {
+    fn from(setting: InstanceSetting) -> Self {
+        match setting {
+            InstanceSetting::CmdArg(setting) => setting.into(),
+            InstanceSetting::ServerProperty(setting) => setting.into(),
+        }
+    }
+}
+
+impl TryFrom<ConfigurableSetting> for InstanceSetting {
+    type Error = Error;
+
+    fn try_from(setting: ConfigurableSetting) -> Result<Self, Self::Error> {
+        if CmdArgSetting::is_key_valid(setting.get_identifier()) {
+            Ok(InstanceSetting::CmdArg(CmdArgSetting::try_from(setting)?))
+        } else {
+            Ok(InstanceSetting::ServerProperty(
+                ServerPropertySetting::try_from(setting)?,
+            ))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum CmdArgSetting {
     MinRam(u32),
     MaxRam(u32),
     JavaCmd(String),
@@ -432,7 +468,7 @@ impl TryFrom<ConfigurableSetting> for CmdArgSetting {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-enum Gamemode {
+pub(super) enum Gamemode {
     #[default]
     Survival,
     Creative,
@@ -470,7 +506,7 @@ impl FromStr for Gamemode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-enum Difficulty {
+pub(super) enum Difficulty {
     #[default]
     Peaceful,
     Easy,
@@ -507,7 +543,7 @@ impl FromStr for Difficulty {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ServerPropertySetting {
+pub(super) enum ServerPropertySetting {
     EnableJmxMonitoring(bool),
     RconPort(u16),
     LevelSeed(String),

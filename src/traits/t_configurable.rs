@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 pub use serde::{Deserialize, Serialize};
 pub use serde_json;
+use ts_rs::TS;
 
 use crate::error::Error;
 use crate::error::ErrorKind;
@@ -13,7 +14,7 @@ use crate::traits::GameInstance;
 use crate::traits::MinecraftInstance;
 use crate::types::InstanceUuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 pub enum ConfigurableSettingValue {
     String(String),
     Integer(i32),
@@ -273,7 +274,7 @@ impl ConfigurableSettingValue {
 // and a value
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigurableSetting {
-    setting_key: String, // static, cannot change at runtime
+    setting_id: String, // static, cannot change at runtime
     name: String,
     description: String,
     value: Option<ConfigurableSettingValue>,
@@ -289,7 +290,7 @@ impl ConfigurableSetting {
         self.value.as_ref()
     }
     pub fn get_identifier(&self) -> &String {
-        &self.setting_key
+        &self.setting_id
     }
     /// # WARNING
     /// Will infer the type of the value from the value itself
@@ -300,7 +301,7 @@ impl ConfigurableSetting {
     ///
     /// An enum will have no options
     pub fn new_required_value(
-        setting_key: String,
+        setting_id: String,
         name: String,
         description: String,
         value: ConfigurableSettingValue,
@@ -309,7 +310,7 @@ impl ConfigurableSetting {
         is_mutable: bool,
     ) -> Self {
         Self {
-            setting_key,
+            setting_id,
             name,
             description,
             value: Some(value.clone()),
@@ -321,7 +322,7 @@ impl ConfigurableSetting {
         }
     }
     pub fn new_optional_value(
-        setting_key: String,
+        setting_id: String,
         name: String,
         description: String,
         value: Option<ConfigurableSettingValue>,
@@ -331,7 +332,7 @@ impl ConfigurableSetting {
         is_mutable: bool,
     ) -> Self {
         Self {
-            setting_key,
+            setting_id,
             name,
             description,
             value,
@@ -344,7 +345,7 @@ impl ConfigurableSetting {
     }
 
     pub fn new_value_with_type(
-        setting_key: String,
+        setting_id: String,
         name: String,
         description: String,
         value: Option<ConfigurableSettingValue>,
@@ -355,7 +356,7 @@ impl ConfigurableSetting {
     ) -> Result<Self, Error> {
         value_type.type_check(&value)?;
         Ok(Self {
-            setting_key,
+            setting_id,
             name,
             description,
             is_required: value.is_some(),
@@ -416,7 +417,7 @@ impl ConfigurableSetting {
 // A Setting section contains a name and a description (for UI)
 // A Setting section contains a list of InstanceSetting
 pub struct ConfigurableSection {
-    section_key: String,
+    section_id: String,
     name: String,
     description: String,
     settings: BTreeMap<String, ConfigurableSetting>,
@@ -424,21 +425,21 @@ pub struct ConfigurableSection {
 
 impl ConfigurableSection {
     pub fn new(
-        section_key: String,
+        section_id: String,
         name: String,
         description: String,
         settings: BTreeMap<String, ConfigurableSetting>,
     ) -> Self {
         Self {
-            section_key,
+            section_id,
             name,
             description,
             settings,
         }
     }
 
-    pub fn get_setting(&self, setting_key: &str) -> Option<&ConfigurableSetting> {
-        self.settings.get(setting_key)
+    pub fn get_setting(&self, setting_id: &str) -> Option<&ConfigurableSetting> {
+        self.settings.get(setting_id)
     }
 
     pub fn add_setting(&mut self, setting: ConfigurableSetting) -> Result<(), Error> {
@@ -470,11 +471,11 @@ pub struct ConfigurableManifest {
 impl ConfigurableManifest {
     pub fn get_setting(
         &self,
-        section_key: &str,
-        setting_key: &str,
+        section_id: &str,
+        setting_id: &str,
     ) -> Option<&ConfigurableSetting> {
-        if let Some(section) = self.setting_sections.get(section_key) {
-            section.settings.get(setting_key)
+        if let Some(section) = self.setting_sections.get(section_id) {
+            section.settings.get(setting_id)
         } else {
             None
         }
@@ -482,27 +483,27 @@ impl ConfigurableManifest {
 
     fn get_setting_mut(
         &mut self,
-        section_key: &str,
-        setting_key: &str,
+        section_id: &str,
+        setting_id: &str,
     ) -> Option<&mut ConfigurableSetting> {
-        if let Some(section) = self.setting_sections.get_mut(section_key) {
-            section.settings.get_mut(setting_key)
+        if let Some(section) = self.setting_sections.get_mut(section_id) {
+            section.settings.get_mut(setting_id)
         } else {
             None
         }
     }
 
-    pub fn get_section(&self, section_key: &str) -> Option<&ConfigurableSection> {
-        self.setting_sections.get(section_key)
+    pub fn get_section(&self, section_id: &str) -> Option<&ConfigurableSection> {
+        self.setting_sections.get(section_id)
     }
 
     pub fn set_setting(
         &mut self,
-        section_key: &str,
-        setting_key: &str,
+        section_id: &str,
+        setting_id: &str,
         value: Option<ConfigurableSettingValue>,
     ) -> Result<(), Error> {
-        if let Some(setting) = self.get_setting_mut(section_key, setting_key) {
+        if let Some(setting) = self.get_setting_mut(section_id, setting_id) {
             setting.set_optional_value(value)
         } else {
             Err(Error {
@@ -514,11 +515,11 @@ impl ConfigurableManifest {
 
     pub fn set_setting_mut(
         &mut self,
-        section_key: &str,
-        setting_key: &str,
+        section_id: &str,
+        setting_id: &str,
         is_mutable: bool,
     ) -> Option<bool> {
-        if let Some(setting) = self.get_setting_mut(section_key, setting_key) {
+        if let Some(setting) = self.get_setting_mut(section_id, setting_id) {
             let ret = setting.is_mutable;
             setting.is_mutable = is_mutable;
             Some(ret)

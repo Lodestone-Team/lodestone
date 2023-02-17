@@ -161,7 +161,7 @@ impl TServer for MinecraftInstance {
                     use lazy_static::lazy_static;
 
                     let event_broadcaster = self.event_broadcaster.clone();
-                    let settings = self.settings.clone();
+                    let server_properties_buffer = self.server_properties_buffer.clone();
                     let _state = self.state.clone();
                     let path_to_properties = self.path_to_properties.clone();
                     let uuid = self.config.uuid.clone();
@@ -362,7 +362,7 @@ impl TServer for MinecraftInstance {
                                     )
                                     .unwrap();
 
-                                *settings.lock().await =
+                                *server_properties_buffer.lock().await =
                                     read_properties_from_path(&path_to_properties)
                                         .await.map_err(|e| {
                                             error!("Failed to read properties: {}, falling back to empty properties map", e);
