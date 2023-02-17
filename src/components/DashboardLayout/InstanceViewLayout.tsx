@@ -69,7 +69,7 @@ export const InstanceViewLayout = () => {
       >
         <LeftNav className="border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
-      <div className="h-full min-w-0 grow child:h-full">
+      <div className="mx-8 h-full min-w-0 grow child:h-full">
         <Outlet />
       </div>
     </InstanceContext.Provider>
