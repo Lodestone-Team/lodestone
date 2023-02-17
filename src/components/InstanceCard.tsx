@@ -15,6 +15,10 @@ import clsx from 'clsx';
 import { toast } from 'react-toastify';
 import { Small } from './ClipboardTextfield.stories';
 import useAnalyticsEventTracker from 'utils/hooks';
+import {
+  faRefresh,
+} from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 // for the css style of the double border when focused
 const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -81,6 +85,28 @@ export default function InstanceCard({
       break;
   }
 
+  const restartButtonOnClick = () => {
+    if (loading) return;
+    if (disabled) return;
+
+    setLoading(true);
+
+    gaEventTracker('Change Instance State', 'Restart');
+    axios
+      .put(`/instance/${uuid}/restart`)
+      .then((response) => {
+        console.log(response.data)
+        response.data;
+      })
+      .catch((error) => {
+        console.log(error)
+        toast.error(errorToString(error));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
   const buttonOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
 
@@ -142,6 +168,15 @@ export default function InstanceCard({
           loading={loading}
           className="w-20 truncate"
           disabled={disabled}
+        />
+        <FontAwesomeIcon
+          icon={faRefresh}
+          className={clsx(
+            "mr-3 w-4 select-none",
+            state === 'Running' ? "text-white/50 hover:cursor-pointer hover:text-white/75" 
+              : "text-gray-700"
+          )}
+          onClick={() => state === 'Running' && restartButtonOnClick()}
         />
         <GameIcon
           game_type={game_type}
