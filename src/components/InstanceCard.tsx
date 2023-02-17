@@ -85,7 +85,7 @@ export default function InstanceCard({
       break;
   }
 
-  const restartButtonOnClock = () => {
+  const restartButtonOnClick = () => {
     if (loading) return;
     if (disabled) return;
 
@@ -176,7 +176,7 @@ export default function InstanceCard({
             state === 'Running' ? "text-white/50 hover:cursor-pointer hover:text-white/75" 
               : "text-gray-700"
           )}
-          onClick={() => state === 'Running' && restartButtonOnClock()}
+          onClick={() => state === 'Running' && restartButtonOnClick()}
         />
         <GameIcon
           game_type={game_type}
