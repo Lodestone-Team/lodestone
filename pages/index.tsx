@@ -292,7 +292,7 @@ export default function App() {
                 {/* <Route path="/dashboard" element={<Dashboard />} /> */}
                 {InstanceTabList.map((path, i) => (
                   <Route
-                    path={`dashboard/${path}`}
+                    path={`/dashboard/${path}`}
                     element={<InstanceTabs />}
                     key={i}
                   />

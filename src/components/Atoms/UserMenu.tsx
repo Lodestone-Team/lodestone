@@ -14,12 +14,14 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import IconButton from './IconButton';
+import { useLocation } from 'react-router-dom';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
 const UserMenu = () => {
   const { token, setToken, core } = useContext(LodestoneContext);
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
+  const location = useLocation();
   const uid = useUid();
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
@@ -116,6 +118,7 @@ const UserMenu = () => {
       <IconButton
         icon={faCog}
         onClick={() => {
+          localStorage.setItem('lastVisitedRoute', location.pathname);
           setPathname('/settings');
         }}
       />

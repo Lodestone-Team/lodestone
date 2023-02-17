@@ -11,26 +11,48 @@ const InstanceTabs = () => {
   const [path, setPath] = useState(location.pathname.split('/')[2]);
   const { selectedInstance: instance } = useContext(InstanceContext);
   const uuid = instance?.uuid;
-
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     setPath(location.pathname.split('/')[2]);
   }, [location.pathname]);
 
+  useEffect(() => {
+    //give time for instance to load
+    setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+  }, []);
+
   if (!instance || !uuid) {
-    return (
-      <div
-        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
-        key={uuid}
-      >
-        <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
-          <div className="flex min-w-0 flex-row items-center gap-4">
-            <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              Instance not found
-            </h1>
+    if (loading) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-75">
+          <div className="relative h-24 w-24">
+            <div
+              className="absolute top-0 left-0 h-full w-full animate-spin rounded-full border-4 border-t-4 border-blue-400"
+              style={{
+                borderBottomColor: 'transparent',
+              }}
+            ></div>
           </div>
         </div>
-      </div>
-    );
+      );
+    } else {
+      return (
+        <div
+          className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+          key={uuid}
+        >
+          <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
+            <div className="flex min-w-0 flex-row items-center gap-4">
+              <h1 className="dashboard-instance-heading truncate whitespace-pre">
+                Instance not found
+              </h1>
+            </div>
+          </div>
+        </div>
+      );
+    }
   }
   return (
     <div
