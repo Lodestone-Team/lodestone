@@ -8,7 +8,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import InstanceCard from 'components/InstanceCard';
 import InstanceTabListMap from '../../data/InstanceTabListMap';
 
-export const InstanceNestedBarStates = ({
+export const SelectedInstanceInfo = ({
   className = '',
   children,
 }: {

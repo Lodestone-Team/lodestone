@@ -10,7 +10,7 @@ import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
 import UserMenu from 'components/Atoms/UserMenu';
 import clsx from 'clsx';
-import { InstanceNestedBarStates } from './InstanceNestedBarStates';
+import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 export default function LeftNav({ className }: { className?: string }) {
   const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
@@ -58,7 +58,7 @@ export default function LeftNav({ className }: { className?: string }) {
           </Dialog>
         </Transition>
         <div className="h-full overflow-y-auto">
-          <InstanceNestedBarStates></InstanceNestedBarStates>
+          <SelectedInstanceInfo></SelectedInstanceInfo>
           <InstanceList className="mt-6">
             <div className="items-begin mb-16 flex w-full flex-row items-center justify-center gap-4">
               <Button
