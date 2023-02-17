@@ -289,7 +289,7 @@ export default function App() {
               }
             >
               <Route element={<InstanceViewLayout />}>
-                <Route path="/dashboard" element={<Dashboard />} />
+                {/* <Route path="/dashboard" element={<Dashboard />} /> */}
                 {InstanceTabList.map((path, i) => (
                   <Route
                     path={`dashboard/${path}`}
