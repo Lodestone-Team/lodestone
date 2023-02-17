@@ -615,8 +615,8 @@ impl UsersManager {
         password: impl AsRef<str>,
     ) -> Result<JwtToken, Error> {
         let user = self.get_user_by_username(username).ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Username not found"),
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("Credential mismatch"),
         })?;
         Argon2::default()
             .verify_password(
