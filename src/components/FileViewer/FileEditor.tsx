@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { saveInstanceFile } from 'utils/apis';
 import * as toml from 'utils/monaco-languages/toml';
@@ -61,7 +61,7 @@ export function FileEditor({
     ? 'toml'
     : undefined;
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     // set monaco theme, just a different background color
     // also set some ts settings
     if (monaco) {
