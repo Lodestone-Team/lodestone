@@ -13,7 +13,7 @@ import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
 import { toast } from 'react-toastify';
 import useAnalyticsEventTracker from 'utils/hooks';
-import { faPowerOff } from '@fortawesome/free-solid-svg-icons';
+import { faPowerOff, faRefresh } from '@fortawesome/free-solid-svg-icons';
 import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
 import { useGlobalSettings } from 'data/GlobalSettings';
@@ -91,6 +91,28 @@ export default function InstanceCard({
       break;
   }
 
+  const restartButtonOnClick = () => {
+    if (loading) return;
+    if (disabled) return;
+
+    setLoading(true);
+
+    gaEventTracker('Change Instance State', 'Restart');
+    axios
+      .put(`/instance/${uuid}/restart`)
+      .then((response) => {
+        console.log(response.data);
+        response.data;
+      })
+      .catch((error) => {
+        console.log(error);
+        toast.error(errorToString(error));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
   const buttonOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
 
@@ -133,6 +155,10 @@ export default function InstanceCard({
           className="h-4 w-4"
         />
         <p className="grow truncate">{name}</p>
+        <IconButton
+          icon={faRefresh}
+          onClick={() => state === 'Running' && restartButtonOnClick()}
+        />
         <Tooltip
           showArrow={false}
           overlay={<span>{actionMessage}</span>}

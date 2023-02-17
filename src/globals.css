@@ -2,13 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-/* load minecraft font */
+/* we will only load satoshi the regular way, since it's our body font and used everywhere */
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Variable.woff2') format('woff2');
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 @font-face {
-  font-family: 'Minecraft';
-  src: url('/fonts/Minecraft_changed.woff') format('woff');
-  font-weight: 400;
-  font-style: normal;
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-VariableItalic.woff2') format('woff2');
+  font-weight: 300 900;
+  font-style: italic;
   font-display: swap;
 }
 
@@ -22,6 +29,9 @@ body {
   overscroll-behavior: none;
   overflow: clip;
   color-scheme: dark;
+}
+
+main {
   @apply font-sans text-gray-300;
 }
 
@@ -206,7 +216,7 @@ input.noSpin[type='number'] {
 }
 
 /* Toastify */
-:root {
+main {
   --toastify-font-family: Satoshi !important;
   --toastify-toast-width: 320px !important;
   --toastify-toast-max-height: 500px !important;
