@@ -64,7 +64,7 @@ export default function LeftNav({ className }: { className?: string }) {
               <Button
                 label="New instance..."
                 className={
-                  'w-full text-medium text-gray-faded/30 hover:bg-gray-800 focus-visible:outline-none active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
+                  'w-full text-medium font-bold text-gray-faded/30 hover:bg-gray-800 focus-visible:outline-none active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
                   clsx(
                     showCreateInstance &&
                       'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10 '

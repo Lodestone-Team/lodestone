@@ -193,7 +193,7 @@ export default function InstanceCard({
                     <Menu.Item>
                       {({ disabled }) => (
                         <Button
-                          className="w-full whitespace-nowrap"
+                          className="w-full gap-12 whitespace-nowrap"
                           label={'Stop'}
                           iconRight={faPowerOff}
                           onClick={() =>
