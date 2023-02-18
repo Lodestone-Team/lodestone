@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest, windows-latest]
+        platform: [ubuntu-latest, windows-latest, macos-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -48,6 +48,15 @@ jobs:
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: "edge"
+          releaseName: 'Lodestone v__VERSION__'
+          releaseBody: 'This is a prerelease version of Lodestone. Please report any bugs you find.'
+          releaseDraft: true
+          prerelease: true
+
       # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
       # on windows cache exe in src-tauri/target/release/Lodestone.exe
       # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone*.deb
@@ -63,4 +72,5 @@ jobs:
             ./src-tauri/target/release/Lodestone.exe
             ./src-tauri/target/release/bundle/deb/lodestone*.deb
             ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
-      
+            ./src-tauri/target/release/ 
+      # ./src-tauri/target/release/ is a bit vague but we'll figure it out later

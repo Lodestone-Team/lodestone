@@ -80,20 +80,20 @@ const CoreConnect = () => {
             rel="noreferrer"
             className="text-blue-200 underline hover:text-blue-300"
           >
-            Learn more
+            Learn more.
           </a>
         </h2>
       </div>
       <WarningAlert>
         <p>
-          You may need to adjust your network and browser settings. Learn more{' '}
+          You may need to adjust your network and browser settings.{' '}
           <a
             href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
             target="_blank"
             rel="noreferrer"
             className="text-blue-200 underline hover:text-blue-300"
           >
-            here.
+           Learn more.
           </a>
         </p>
       </WarningAlert>
