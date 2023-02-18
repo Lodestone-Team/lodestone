@@ -67,7 +67,7 @@ export const InstanceViewLayout = () => {
         onResize={setLeftNavSize}
         containerClassNames="min-h-0"
       >
-        <LeftNav className="border-r border-fade-700 bg-gray-850" />
+        <LeftNav className="select-none border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
       <div className="mx-8 h-full min-w-0 grow child:h-full">
         <Outlet />

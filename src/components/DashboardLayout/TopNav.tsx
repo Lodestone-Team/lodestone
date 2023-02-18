@@ -67,7 +67,7 @@ export default function TopNav() {
           </p>
         </TopBanner>
       )}
-      <div className="flex w-full shrink-0 flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 px-4 py-2">
+      <div className="flex w-full shrink-0 select-none flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 px-4 py-2">
         <div className="grow">
           <img
             src="/logo.svg"
