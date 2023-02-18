@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 
-export type LabelSize = 'small' | 'large';
+export type LabelSize = 'small' | 'medium' | 'large';
 
 export type LabelColor = 'green' | 'yellow' | 'red' | 'gray';
 
@@ -21,9 +21,9 @@ export default function Label({
   return (
     <span
       className={clsx(
-        `h-fit select-none whitespace-nowrap rounded-full font-bold tracking-medium`,
         {
           small: 'py-[0.125em] px-2 text-small font-medium tracking-medium',
+          medium: 'py-1 px-2 text-small font-medium tracking-medium',
           large: 'py-1 px-2 text-medium font-medium tracking-medium',
         }[size],
         {
@@ -32,7 +32,7 @@ export default function Label({
           red: 'bg-red-faded/25 text-red',
           gray: 'bg-gray-faded/30 text-gray-300',
         }[color],
-        className
+        `h-fit select-none whitespace-nowrap rounded-full font-bold tracking-medium ${className}`
       )}
       onClick={onClick}
       {...rest}

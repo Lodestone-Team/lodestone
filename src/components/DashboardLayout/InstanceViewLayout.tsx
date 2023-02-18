@@ -1,29 +1,34 @@
 import { InstanceInfo } from 'bindings/InstanceInfo';
+import ResizePanel from 'components/Atoms/ResizePanel';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceList } from 'data/InstanceList';
 import { useUserLoggedIn } from 'data/UserInfo';
 import { useContext, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import LeftNav from './LeftNav';
 
 export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
   const userLoggedIn = useUserLoggedIn();
+  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 240);
   /* Start Instances */
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
-  const { data: dataInstances, isFetched: instanceIsFetched } = useInstanceList(userLoggedIn);
+  const { data: dataInstances, isFetched: instanceIsFetched } =
+    useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
     undefined
   );
   const instances = userLoggedIn ? dataInstances : undefined;
 
   useEffect(() => {
+    console.log(queryInstanceId);
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
       if (!location.pathname.startsWith('/dashboard'))
-        setPathname('/dashboard');
+        setPathname('/dashboard/overview');
     } else {
       setInstanceState(undefined);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
@@ -39,7 +44,7 @@ export const InstanceViewLayout = () => {
     } else {
       setInstanceState(instance);
       setQueryInstanceId(instance.uuid);
-      setPathname('/dashboard');
+      setPathname('/dashboard/overview');
     }
   }
   /* End Instances */
@@ -53,17 +58,19 @@ export const InstanceViewLayout = () => {
         isReady: instanceIsFetched && userLoggedIn,
       }}
     >
-      <div className="flex grow flex-row justify-center gap-[1vw]">
-        <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
-          <div className="h-full w-[16rem] max-w-[16rem] child:h-full">
-            <LeftNav />
-          </div>
-        </div>
-        <div className="h-full min-w-0 grow basis-[1024px] child:h-full">
-          <div className="max-w-[1024px]">
-            <Outlet />
-          </div>
-        </div>
+      <ResizePanel
+        direction="e"
+        maxSize={500}
+        minSize={240}
+        size={leftNavSize}
+        validateSize={false}
+        onResize={setLeftNavSize}
+        containerClassNames="min-h-0"
+      >
+        <LeftNav className="select-none border-r border-fade-700 bg-gray-850" />
+      </ResizePanel>
+      <div className="mx-8 h-full min-w-0 grow child:h-full">
+        <Outlet />
       </div>
     </InstanceContext.Provider>
   );

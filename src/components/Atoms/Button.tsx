@@ -20,6 +20,7 @@ const buttonClasses = cva(
         start: 'justify-start',
         center: 'justify-center',
         end: 'justify-end',
+        between: 'justify-between',
       },
       size: {
         slim: ['gap-1 rounded-sm p-1 text-small'],
@@ -27,6 +28,7 @@ const buttonClasses = cva(
         large: ['gap-1.5 rounded py-1.5 px-3 text-h3'],
       },
       intention: {
+        none: [],
         info: [
           'text-gray-300 disabled:text-white/50',
           'font-medium',
@@ -107,11 +109,13 @@ const Button = forwardRef(
       >
         {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
-        <div className={`flex items-center`}>
+        <div className={`flex grow items-center truncate`}>
           {loading && (
             <BeatLoader size={5} color="#6b7280" className="absolute" />
           )}
-          <span className={clsx(loading && 'opacity-0')}>{label}</span>
+          <span className={clsx(loading && 'opacity-0') + 'truncate'}>
+            {label}
+          </span>
         </div>
 
         {iconRight && (

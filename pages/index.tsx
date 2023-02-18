@@ -42,6 +42,7 @@ import { InstanceViewLayout } from 'components/DashboardLayout/InstanceViewLayou
 import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
+import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +52,15 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const InstanceTabList = [
+  'overview',
+  'settings',
+  'console',
+  'files',
+  'tasks',
+  'logs',
+];
 
 export default function App() {
   const { location, setSearchParam } = useContext(BrowserLocationContext);
@@ -226,7 +236,7 @@ export default function App() {
         >
           <Routes>
             <Route element={<LoginLayout />}>
-              <Route path="/first_setup" element={<FirstTime />}  />
+              <Route path="/first_setup" element={<FirstTime />} />
               <Route
                 path="/login/core/select"
                 element={
@@ -279,7 +289,14 @@ export default function App() {
               }
             >
               <Route element={<InstanceViewLayout />}>
-                <Route path="/dashboard" element={<Dashboard />} />
+                {/* <Route path="/dashboard" element={<Dashboard />} /> */}
+                {InstanceTabList.map((path, i) => (
+                  <Route
+                    path={`/dashboard/${path}`}
+                    element={<InstanceTabs />}
+                    key={i}
+                  />
+                ))}
                 <Route path="/" element={<Home />} />
               </Route>
               <Route element={<SettingsLayout />}>

@@ -22,6 +22,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCompass } from '@fortawesome/free-solid-svg-icons';
 import { useDocumentTitle } from 'usehooks-ts';
 
+/*CURRENTLY NOT BEING USED*/
+
 const Dashboard = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);
@@ -136,7 +138,7 @@ const Dashboard = () => {
 
   return (
     <div
-      className="relative flex h-full w-full flex-row justify-center @container"
+      className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container"
       key={uuid}
     >
       {/* main content container */}
