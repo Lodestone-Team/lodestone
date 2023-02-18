@@ -27,8 +27,10 @@ export default function LeftNav({ className }: { className?: string }) {
   }, 1000);
 
   return (
-    <div className={`flex w-full flex-col items-center px-4 ${className}`}>
-      <div className="mt-12 flex h-full w-full grow flex-col ">
+    <div
+      className={`flex w-full flex-col items-center overflow-y-auto px-4 ${className}`}
+    >
+      <div className="mt-10 flex h-full w-full grow flex-col ">
         <UserMenu />
         <Transition
           appear
@@ -57,10 +59,10 @@ export default function LeftNav({ className }: { className?: string }) {
             </div>
           </Dialog>
         </Transition>
-        <div className="h-full overflow-y-auto">
+        <div className="h-full">
           <SelectedInstanceInfo></SelectedInstanceInfo>
           <InstanceList className="mt-6">
-            <div className="items-begin mb-16 flex w-full flex-row items-center justify-center gap-4">
+            <div className="items-begin flex w-full flex-row items-center justify-center gap-4 pb-8">
               <Button
                 label="New instance..."
                 className={
