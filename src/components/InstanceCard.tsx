@@ -14,13 +14,9 @@ import clsx from 'clsx';
 import { toast } from 'react-toastify';
 import useAnalyticsEventTracker from 'utils/hooks';
 import {
-  faArrowRightArrowLeft,
   faArrowRotateBackward,
-  faCaretDown,
+  faPlug,
   faPowerOff,
-  faRefresh,
-  faRightFromBracket,
-  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
@@ -103,6 +99,36 @@ export default function InstanceCard({
       break;
   }
 
+  const stateToMenuInfo = () => {
+    switch (state) {
+      case 'Starting':
+        return [{ label: 'Kill', icon: faPlug, onClick: buttonOnClick }];
+      case 'Stopping':
+        return [{ label: 'Kill', icon: faPlug, onClick: buttonOnClick }];
+      case 'Stopped':
+        return [{ label: 'Start', icon: faPowerOff, onClick: buttonOnClick }];
+      case 'Running':
+        return [
+          { label: 'Stop', icon: faPowerOff, onClick: buttonOnClick },
+          {
+            label: 'Restart',
+            icon: faArrowRotateBackward,
+            onClick: restartButtonOnClick,
+          },
+        ];
+      case 'Error':
+        return [
+          {
+            label: 'Restart',
+            icon: faArrowRotateBackward,
+            onClick: restartButtonOnClick,
+          },
+        ];
+      default:
+        return [];
+    }
+  };
+
   const restartButtonOnClick = () => {
     if (loading) return;
     if (disabled) return;
@@ -149,7 +175,6 @@ export default function InstanceCard({
   };
 
   const stateColor = stateToLabelColor[state];
-  const actionMessage = stateToActionMessageMap[state];
 
   return (
     <div className="my-2 border-b-2 border-gray-faded/30 pb-2">
@@ -169,60 +194,43 @@ export default function InstanceCard({
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}
-          overlay={<span>{actionMessage}</span>}
+          overlay={<span>Power</span>}
           placement="top"
           trigger={['hover']}
           mouseEnterDelay={0.2}
         >
-          {state !== 'Running' ? (
-            <IconButton icon={faPowerOff} onClick={buttonOnClick} />
-          ) : (
-            <Menu as="div" className="relative">
-              <Menu.Button as={IconButton} icon={faPowerOff}></Menu.Button>
-              <Transition
-                as={Fragment}
-                enter="transition ease-out duration-200"
-                enterFrom="opacity-0 -translate-y-1"
-                enterTo="opacity-100 translate-y-0"
-                leave="transition ease-in duration-150"
-                leaveFrom="opacity-100 translate-y-0"
-                leaveTo="opacity-0 -translate-y-1"
-              >
-                <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
-                  <div className="py-2 px-1.5">
-                    <Menu.Item>
+          <Menu as="div" className="relative">
+            <Menu.Button as={IconButton} icon={faPowerOff} />
+            <Transition
+              as={Fragment}
+              enter="transition ease-out duration-200"
+              enterFrom="opacity-0 -translate-y-1"
+              enterTo="opacity-100 translate-y-0"
+              leave="transition ease-in duration-150"
+              leaveFrom="opacity-100 translate-y-0"
+              leaveTo="opacity-0 -translate-y-1"
+            >
+              <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+                <div className="py-2 px-1.5">
+                  {stateToMenuInfo().map((menuInfo, i) => (
+                    <Menu.Item key={i}>
                       {({ disabled }) => (
                         <Button
                           className="w-full gap-12 whitespace-nowrap"
-                          label={'Stop'}
-                          iconRight={faPowerOff}
-                          onClick={() =>
-                            state === 'Running' && restartButtonOnClick()
-                          }
+                          label={menuInfo.label}
+                          iconRight={menuInfo.icon}
+                          onClick={menuInfo.onClick}
                           align="end"
                           disabled={disabled}
                           variant="text"
                         />
                       )}
                     </Menu.Item>
-                    <Menu.Item>
-                      {({ disabled }) => (
-                        <Button
-                          className="w-full flex-nowrap whitespace-nowrap"
-                          label="Restart"
-                          iconRight={faArrowRotateBackward}
-                          align="end"
-                          disabled={disabled}
-                          onClick={buttonOnClick}
-                          variant="text"
-                        />
-                      )}
-                    </Menu.Item>
-                  </div>
-                </Menu.Items>
-              </Transition>
-            </Menu>
-          )}
+                  ))}
+                </div>
+              </Menu.Items>
+            </Transition>
+          </Menu>
         </Tooltip>
       </div>
       <div
