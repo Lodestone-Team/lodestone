@@ -33,7 +33,11 @@ use crate::error::Error;
 use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
-use crate::traits::t_configurable::{ConfigurableSection, ConfigurableSetting, PathBuf};
+use crate::traits::t_configurable::PathBuf;
+
+use crate::traits::t_configurable::manifest::{
+    ConfigurableManifest, SectionManifest, SettingManifest,
+};
 
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
@@ -153,8 +157,7 @@ pub struct MinecraftInstance {
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
     server_properties_buffer: Arc<Mutex<HashMap<String, String>>>,
-    cmd_args_config: Arc<Mutex<ConfigurableSection>>,
-    server_properties_config: Arc<Mutex<ConfigurableSection>>,
+    configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
     rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
@@ -561,7 +564,8 @@ impl MinecraftInstance {
                 }
             }
         });
-        let mut cmd_args_config_map : BTreeMap<String, ConfigurableSetting> = BTreeMap::new();
+
+        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
         let cmd_args = CmdArgSetting::Args(config.cmd_args.clone());
         cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
         let min_ram = CmdArgSetting::MinRam(config.min_ram);
@@ -579,6 +583,35 @@ impl MinecraftInstance {
             .join("java");
         let java_cmd = CmdArgSetting::JavaCmd(java_path.to_string_lossy().into_owned());
         cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
+
+        let mut cmd_line_section_manifest = SectionManifest::new(
+            CmdArgSetting::get_section_id().to_string(),
+            "Command Line Settings".to_string(),
+            "Settings are passed to the server and Java as command line arguments".to_string(),
+            cmd_args_config_map,
+        );
+
+        let server_properties_section_manifest = SectionManifest::new(
+            ServerPropertySetting::get_section_id().to_string(),
+            "Server Properties Settings".to_string(),
+            "All settings in the server.properties file can be configured here".to_string(),
+            BTreeMap::new(),
+        );
+
+        let mut setting_sections = BTreeMap::new();
+
+        setting_sections.insert(
+            CmdArgSetting::get_section_id().to_string(),
+            cmd_line_section_manifest,
+        );
+
+        setting_sections.insert(
+            ServerPropertySetting::get_section_id().to_string(),
+            server_properties_section_manifest,
+        );
+
+        let configurable_manifest =
+            ConfigurableManifest::new(false, false, false, false, setting_sections);
 
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
@@ -603,18 +636,7 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
-            cmd_args_config: Arc::new(Mutex::new(ConfigurableSection::new(
-                "command_line_arguments_settings".to_string(),
-                "Command Line Settings".to_string(),
-                "Settings are passed to the server and Java as command line arguments".to_string(),
-                BTreeMap::new(),
-            ))),
-            server_properties_config: Arc::new(Mutex::new(ConfigurableSection::new(
-                "server_properties_settings".to_string(),
-                "Server Properties Settings".to_string(),
-                "All settings in the server.properties file can be configured here".to_string(),
-                cmd_args_config_map,
-            ))),
+            configurable_manifest: Arc::new(Mutex::new(configurable_manifest)),
         };
         instance
             .read_properties()
@@ -641,10 +663,11 @@ impl MinecraftInstance {
         let mut lock = self.server_properties_buffer.lock().await;
         *lock = read_properties_from_path(&self.path_to_properties).await?;
         for (key, value) in lock.iter() {
-            self.server_properties_config
-                .lock()
-                .await
-                .add_setting(ServerPropertySetting::from_key_val(key, value)?.into())?;
+            self.configurable_manifest.lock().await.set_setting(
+                ServerPropertySetting::get_section_id(),
+                key,
+                ServerPropertySetting::from_key_val(key, value)?.into(),
+            );
         }
         Ok(())
     }
