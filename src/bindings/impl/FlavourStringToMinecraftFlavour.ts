@@ -3,7 +3,7 @@ import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 export function flavourStringToMinecraftFlavour(
   flavour: string
 ): MinecraftFlavour {
-  switch (flavour) {
+  switch (flavour.toLowerCase()) {
     case 'vanilla':
       return { type: 'vanilla' };
     case 'fabric':
