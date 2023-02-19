@@ -1,26 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 import { MinecraftVersions } from 'bindings/MinecraftVersions';
 import ComboField from 'components/Atoms/Form/ComboField';
 import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
 import { useFormikContext } from 'formik';
 import { MinecraftSetupConfigPrimitiveForm } from './form';
+import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 
 export default function MinecraftBasicForm() {
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
     useQuery<string[]>(['minecraft', 'flavours'], () =>
-      axios.get('/games/minecraft/flavours').then((res) => {
-        // sort by name
-
-        const ObjectToFlavourString = (obj: MinecraftFlavour) => {
-          if (obj === 'vanilla') return 'vanilla';
-          console.log(obj);
-          return `${Object.keys(obj)[0]}`;
-        };
-
-        return res.data.map(ObjectToFlavourString);
+      axios.get<Array<MinecraftFlavour>>('/games/minecraft/flavours').then((res) => {
+        return res.data.map((v) => v.type);
       })
     );
 
