@@ -6,10 +6,10 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use tempdir::TempDir;
 
 use crate::error::{Error, ErrorKind};
-use crate::traits::t_configurable::{
-    ConfigurableManifest, ConfigurableSetting, ConfigurableSettingValue,
-    ConfigurableSettingValueType, TConfigurable,
+use crate::traits::t_configurable::manifest::{
+    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SettingManifest,
 };
+use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::State;
 
 use crate::types::InstanceUuid;
@@ -108,23 +108,62 @@ impl TConfigurable for MinecraftInstance {
             .await
             .entry("server-port".to_string())
             .or_insert_with(|| port.to_string()) = port.to_string();
+
+        self.configurable_manifest
+            .lock()
+            .await
+            .update_setting_value(
+                ServerPropertySetting::get_section_id(),
+                &ServerPropertySetting::ServerPort(0).get_identifier(),
+                ConfigurableValue::UnsignedInteger(port),
+            )?;
         self.write_config_to_file()
             .await
             .and(self.write_properties_to_file().await)
     }
 
     async fn set_cmd_args(&mut self, cmd_args: Vec<String>) -> Result<(), Error> {
-        self.config.cmd_args = cmd_args;
+        self.config.cmd_args = cmd_args.clone();
+        self.configurable_manifest
+            .lock()
+            .await
+            .update_setting_value(
+                CmdArgSetting::get_section_id(),
+                CmdArgSetting::Args(vec![]).get_identifier(),
+                ConfigurableValue::String(
+                    cmd_args
+                        .iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<String>>()
+                        .join(" "),
+                ),
+            )?;
         self.write_config_to_file().await
     }
 
     async fn set_min_ram(&mut self, min_ram: u32) -> Result<(), Error> {
         self.config.min_ram = min_ram;
+        self.configurable_manifest
+            .lock()
+            .await
+            .update_setting_value(
+                CmdArgSetting::get_section_id(),
+                CmdArgSetting::MinRam(0).get_identifier(),
+                ConfigurableValue::UnsignedInteger(min_ram),
+            )?;
         self.write_config_to_file().await
     }
 
     async fn set_max_ram(&mut self, max_ram: u32) -> Result<(), Error> {
         self.config.max_ram = max_ram;
+        self.configurable_manifest
+            .lock()
+            .await
+            .update_setting_value(
+                CmdArgSetting::get_section_id(),
+                CmdArgSetting::MaxRam(0).get_identifier(),
+                ConfigurableValue::UnsignedInteger(max_ram),
+            )?;
         self.write_config_to_file().await
     }
 
@@ -150,7 +189,10 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn set_field(&mut self, field: &str, value: String) -> Result<(), Error> {
-        self.server_properties_buffer.lock().await.insert(field.to_string(), value);
+        self.server_properties_buffer
+            .lock()
+            .await
+            .insert(field.to_string(), value);
         self.write_properties_to_file().await
     }
 
@@ -236,8 +278,20 @@ impl TConfigurable for MinecraftInstance {
         Ok(self.server_properties_buffer.lock().await.clone())
     }
 
-    async fn get_configurable_manifest(&self) -> ConfigurableManifest {
+    async fn configurable_manifest(&self) -> ConfigurableManifest {
         todo!()
+    }
+
+    async fn update_configurable(
+        &mut self,
+        section_id: &str,
+        setting_id: &str,
+        value: ConfigurableValue,
+    ) -> Result<(), Error> {
+        self.configurable_manifest
+            .lock()
+            .await
+            .update_setting_value(section_id, setting_id, value.clone())
     }
 }
 
@@ -290,7 +344,7 @@ impl From<ServerPropertySetting> for InstanceSetting {
     }
 }
 
-impl From<InstanceSetting> for ConfigurableSetting {
+impl From<InstanceSetting> for SettingManifest {
     fn from(setting: InstanceSetting) -> Self {
         match setting {
             InstanceSetting::CmdArg(setting) => setting.into(),
@@ -299,10 +353,10 @@ impl From<InstanceSetting> for ConfigurableSetting {
     }
 }
 
-impl TryFrom<ConfigurableSetting> for InstanceSetting {
+impl TryFrom<SettingManifest> for InstanceSetting {
     type Error = Error;
 
-    fn try_from(setting: ConfigurableSetting) -> Result<Self, Self::Error> {
+    fn try_from(setting: SettingManifest) -> Result<Self, Self::Error> {
         if CmdArgSetting::is_key_valid(setting.get_identifier()) {
             Ok(InstanceSetting::CmdArg(CmdArgSetting::try_from(setting)?))
         } else {
@@ -322,6 +376,9 @@ pub(super) enum CmdArgSetting {
 }
 
 impl CmdArgSetting {
+    pub fn get_section_id() -> &'static str {
+        "cmd_args_section"
+    }
     pub fn get_identifier(&self) -> &'static str {
         match self {
             CmdArgSetting::MinRam(_) => "min_ram",
@@ -373,15 +430,15 @@ impl CmdArgSetting {
     }
 }
 
-impl From<CmdArgSetting> for ConfigurableSetting {
+impl From<CmdArgSetting> for SettingManifest {
     fn from(value: CmdArgSetting) -> Self {
         match value {
-            CmdArgSetting::MinRam(min_ram) => ConfigurableSetting::new_optional_value(
+            CmdArgSetting::MinRam(min_ram) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableSettingValue::Integer(min_ram as i32)),
-                ConfigurableSettingValueType::Integer {
+                Some(ConfigurableValue::Integer(min_ram as i32)),
+                ConfigurableValueType::Integer {
                     min: Some(0),
                     max: None,
                 },
@@ -389,12 +446,12 @@ impl From<CmdArgSetting> for ConfigurableSetting {
                 false,
                 false,
             ),
-            CmdArgSetting::MaxRam(max_ram) => ConfigurableSetting::new_optional_value(
+            CmdArgSetting::MaxRam(max_ram) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableSettingValue::Integer(max_ram as i32)),
-                ConfigurableSettingValueType::Integer {
+                Some(ConfigurableValue::Integer(max_ram as i32)),
+                ConfigurableValueType::Integer {
                     min: Some(0),
                     max: None,
                 },
@@ -402,22 +459,22 @@ impl From<CmdArgSetting> for ConfigurableSetting {
                 false,
                 false,
             ),
-            CmdArgSetting::JavaCmd(ref java_cmd) => ConfigurableSetting::new_optional_value(
+            CmdArgSetting::JavaCmd(ref java_cmd) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableSettingValue::String(java_cmd.to_owned())),
-                ConfigurableSettingValueType::String(None),
+                Some(ConfigurableValue::String(java_cmd.to_owned())),
+                ConfigurableValueType::String(None),
                 None,
                 false,
                 false,
             ),
-            CmdArgSetting::Args(ref args) => ConfigurableSetting::new_optional_value(
+            CmdArgSetting::Args(ref args) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableSettingValue::String(args.join(" "))),
-                ConfigurableSettingValueType::String(None),
+                Some(ConfigurableValue::String(args.join(" "))),
+                ConfigurableValueType::String(None),
                 None,
                 false,
                 false,
@@ -426,10 +483,10 @@ impl From<CmdArgSetting> for ConfigurableSetting {
     }
 }
 
-impl TryFrom<ConfigurableSetting> for CmdArgSetting {
+impl TryFrom<SettingManifest> for CmdArgSetting {
     type Error = Error;
 
-    fn try_from(value: ConfigurableSetting) -> Result<Self, Self::Error> {
+    fn try_from(value: SettingManifest) -> Result<Self, Self::Error> {
         match value.get_identifier().as_str() {
             "min_ram" => Ok(CmdArgSetting::MinRam(
                 value
@@ -604,14 +661,14 @@ pub(super) enum ServerPropertySetting {
     Unknown(String, String),
 }
 
-impl From<ServerPropertySetting> for ConfigurableSetting {
+impl From<ServerPropertySetting> for SettingManifest {
     fn from(value: ServerPropertySetting) -> Self {
         match value {
             ServerPropertySetting::EnableJmxMonitoring(inner_val) => Self::new_required_value(
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -620,8 +677,8 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                Some(ConfigurableSettingValue::UnsignedInteger(inner_val as u32)),
-                ConfigurableSettingValueType::UnsignedInteger {
+                Some(ConfigurableValue::UnsignedInteger(inner_val as u32)),
+                ConfigurableValueType::UnsignedInteger {
                     min: Some(0),
                     max: Some(65535),
                 },
@@ -634,7 +691,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -643,8 +700,8 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                Some(ConfigurableSettingValue::Enum(inner_val.to_string())),
-                ConfigurableSettingValueType::Enum {
+                Some(ConfigurableValue::Enum(inner_val.to_string())),
+                ConfigurableValueType::Enum {
                     options: vec![
                         "survival".to_string(),
                         "creative".to_string(),
@@ -661,7 +718,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -670,7 +727,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -679,7 +736,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -688,7 +745,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -697,7 +754,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -706,7 +763,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -715,8 +772,8 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                Some(ConfigurableSettingValue::UnsignedInteger(inner_val as u32)),
-                ConfigurableSettingValueType::UnsignedInteger {
+                Some(ConfigurableValue::UnsignedInteger(inner_val as u32)),
+                ConfigurableValueType::UnsignedInteger {
                     min: Some(0),
                     max: Some(65535),
                 },
@@ -729,7 +786,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -738,7 +795,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -748,7 +805,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                     value.get_identifier(),
                     value.get_name(),
                     value.get_description(),
-                    ConfigurableSettingValue::UnsignedInteger(inner_val),
+                    ConfigurableValue::UnsignedInteger(inner_val),
                     None,
                     false,
                     true,
@@ -758,7 +815,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -767,7 +824,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -776,7 +833,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -785,7 +842,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -794,7 +851,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -804,7 +861,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                     value.get_identifier(),
                     value.get_name(),
                     value.get_description(),
-                    ConfigurableSettingValue::UnsignedInteger(inner_val),
+                    ConfigurableValue::UnsignedInteger(inner_val),
                     None,
                     false,
                     true,
@@ -814,7 +871,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -823,7 +880,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -832,7 +889,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -841,7 +898,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -850,7 +907,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -859,7 +916,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -868,7 +925,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -877,7 +934,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -886,7 +943,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -895,7 +952,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -904,7 +961,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.to_string()),
+                ConfigurableValue::String(inner_val.to_string()),
                 None,
                 false,
                 true,
@@ -913,7 +970,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -922,7 +979,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -931,7 +988,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -940,7 +997,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -949,7 +1006,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -958,7 +1015,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val as u32),
+                ConfigurableValue::UnsignedInteger(inner_val as u32),
                 None,
                 false,
                 true,
@@ -967,7 +1024,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -976,7 +1033,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -985,7 +1042,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -994,7 +1051,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1003,7 +1060,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1013,7 +1070,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                     value.get_identifier(),
                     value.get_name(),
                     value.get_description(),
-                    ConfigurableSettingValue::UnsignedInteger(inner_val),
+                    ConfigurableValue::UnsignedInteger(inner_val),
                     None,
                     false,
                     true,
@@ -1023,7 +1080,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -1032,7 +1089,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -1041,7 +1098,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -1050,7 +1107,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1059,7 +1116,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -1068,7 +1125,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1077,7 +1134,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1086,7 +1143,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1095,7 +1152,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1104,7 +1161,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -1113,7 +1170,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -1122,7 +1179,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(inner_val.clone()),
+                ConfigurableValue::String(inner_val.clone()),
                 None,
                 false,
                 true,
@@ -1131,7 +1188,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::Boolean(inner_val),
+                ConfigurableValue::Boolean(inner_val),
                 None,
                 false,
                 true,
@@ -1140,7 +1197,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::UnsignedInteger(inner_val),
+                ConfigurableValue::UnsignedInteger(inner_val),
                 None,
                 false,
                 true,
@@ -1149,7 +1206,7 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableSettingValue::String(val.clone()),
+                ConfigurableValue::String(val.clone()),
                 None,
                 false,
                 true,
@@ -1158,10 +1215,10 @@ impl From<ServerPropertySetting> for ConfigurableSetting {
     }
 }
 
-impl TryFrom<ConfigurableSetting> for ServerPropertySetting {
+impl TryFrom<SettingManifest> for ServerPropertySetting {
     type Error = Error;
 
-    fn try_from(value: ConfigurableSetting) -> Result<Self, Self::Error> {
+    fn try_from(value: SettingManifest) -> Result<Self, Self::Error> {
         let err_msg = "Internal error: value is not set";
         match value.get_identifier().as_str() {
             "enable-jmx-monitoring" => Ok(ServerPropertySetting::EnableJmxMonitoring(
@@ -1433,7 +1490,11 @@ impl TryFrom<ConfigurableSetting> for ServerPropertySetting {
 }
 
 impl ServerPropertySetting {
-    fn get_identifier(&self) -> String {
+    pub fn get_section_id() -> &'static str {
+        "server_properties_section"
+    }
+
+    pub fn get_identifier(&self) -> String {
         match self {
             Self::EnableJmxMonitoring(_) => "enable-jmx-monitoring",
             Self::RconPort(_) => "rcon.port",
@@ -1643,248 +1704,244 @@ impl ServerPropertySetting {
             "enable-jmx-monitoring" => Ok(Self::EnableJmxMonitoring(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value for \"enable-jmx-monitoring\": {value}, expected bool"))?,
             )),
             "rcon.port" => {
                 Ok(Self::RconPort(value.parse::<u16>().with_context(|| {
-                    eyre!("Invalid value: {value}, expected u16")
+                    eyre!("Invalid value: {value} for \"rcon.port\", expected u16")
                 })?))
             }
             "level-seed" => Ok(Self::LevelSeed(value.to_string())),
             "gamemode" => {
                 Ok(Self::Gamemode(value.parse::<Gamemode>().with_context(
-                    || eyre!("Invalid value: {value}, expected Gamemode"),
+                    || eyre!("Invalid value: {value} for \"gamemode\", expected Gamemode"),
                 )?))
             }
             "enable-command-block" => Ok(Self::EnableCommandBlock(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"enable-command-block\", expected bool"))?,
             )),
             "enable-query" => {
                 Ok(Self::EnableQuery(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"enable-query\", expected bool"),
                 )?))
             }
             "generator-settings" => {
                 Ok(Self::GeneratorSettings(value.parse().with_context(
-                    || eyre!("Invalid value: {value}, expected string"),
+                    || eyre!("Invalid value: {value} for \"generator-settings\", expected string"),
                 )?))
             }
             "enforce-secure-profile" => Ok(Self::EnforceSecureProfile(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"enforce-secure-profile\", expected bool"))?,
             )),
             "level-name" => {
-                Ok(Self::LevelName(value.parse().with_context(|| {
-                    eyre!("Invalid value: {value}, expected string")
-                })?))
+                Ok(Self::LevelName(value.to_string()))
             }
             "motd" => {
-                Ok(Self::Motd(value.parse().with_context(|| {
-                    eyre!("Invalid value: {value}, expected string")
-                })?))
+                Ok(Self::Motd(value.to_string()))
             }
             "query.port" => {
                 Ok(Self::QueryPort(value.parse::<u16>().with_context(
-                    || eyre!("Invalid value: {value}, expected u16"),
+                    || eyre!("Invalid value: {value} for \"query.port\", expected u16"),
                 )?))
             }
             "pvp" => {
                 Ok(Self::Pvp(value.parse::<bool>().with_context(|| {
-                    eyre!("Invalid value: {value}, expected bool")
+                    eyre!("Invalid value: {value} for \"pvp\", expected bool")
                 })?))
             }
             "generate-structures" => Ok(Self::GenerateStructures(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"generate-structure\", expected bool"))?,
             )),
             "max-chained-neighbor-updates" => Ok(Self::MaxChainedNeighborUpdates(
                 value
                     .parse::<u32>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected u32"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"max-chained-neighbor-updates\", expected u32"))?,
             )),
             "difficulty" => {
                 Ok(Self::Difficulty(value.parse::<Difficulty>().with_context(
-                    || eyre!("Invalid value: {value}, expected Difficulty."),
+                    || eyre!("Invalid value: {value} for \"difficulty\", expected Difficulty."),
                 )?))
             }
             "network-compression-threshold" => Ok(Self::NetworkCompressionThreshold(
                 value
                     .parse::<u32>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected u32"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"network-compression-threshold\", expected u32"))?,
             )),
             "require-resource-pack" => Ok(Self::RequireResourcePack(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"require-resource-pack\", expected bool"))?,
             )),
             "max-tick-time" => {
                 Ok(Self::MaxTickTime(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} for \"max-tick-time\", expected u32"),
                 )?))
             }
             "use-native-transport" => Ok(Self::UseNativeTransport(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"use-native-transport\", expected bool"))?,
             )),
             "max-players" => {
                 Ok(Self::MaxPlayers(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u8"),
+                    || eyre!("Invalid value: {value} for \"max-players\", expected u8"),
                 )?))
             }
 
             "online-mode" => {
                 Ok(Self::OnlineMode(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"online-mode\", expected bool"),
                 )?))
             }
             "enable-status" => {
                 Ok(Self::EnableStatus(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"online-status\", expected bool"),
                 )?))
             }
             "allow-flight" => {
                 Ok(Self::AllowFlight(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"allow-flight\", expected bool"),
                 )?))
             }
             "initial-disabled-packs" => Ok(Self::InitialDisabledPacks(value.to_string())),
             "broadcast-rcon-to-ops" => Ok(Self::BroadcastRconToOps(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"broadcast-rcon-to-ops\", expected bool"))?,
             )),
             "view-distance" => {
                 Ok(Self::ViewDistance(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} for \"view-distance\", expected u32"),
                 )?))
             }
             "resource-pack-prompt" => Ok(Self::ResourcePackPrompt(value.to_string())),
             "server-ip" => Ok(Self::ServerIp(value.to_string())),
             "allow-nether" => {
                 Ok(Self::AllowNether(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"allow-nether\", expected bool"),
                 )?))
             }
             "server-port" => {
                 Ok(Self::ServerPort(value.parse::<u16>().with_context(
-                    || eyre!("Invalid value: {value}, expected u16"),
+                    || eyre!("Invalid value: {value} for \"server-port\", expected u16"),
                 )?))
             }
             "enable-rcon" => {
                 Ok(Self::EnableRcon(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"enable-rcon\", expected bool"),
                 )?))
             }
             "sync-chunk-writes" => {
                 Ok(Self::SyncChunkWrites(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"sync-chunk-writes\", expected bool"),
                 )?))
             }
             "op-permission-level" => {
                 Ok(Self::OpPermissionLevel(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} for \"op-permission-level\", expected u32"),
                 )?))
             }
             "prevent-proxy-connections" => Ok(Self::PreventProxyConnections(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} \"prevent-proxy-connections\", expected bool"))?,
             )),
             "hide-online-players" => Ok(Self::HideOnlinePlayers(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} \"hide-online-players\", expected bool"))?,
             )),
             "resource-pack" => Ok(Self::ResourcePack(value.to_string())),
             "entity-broadcast-range-percentage" => Ok(Self::EntityBroadcastRangePercentage(
                 value
                     .parse::<u32>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected u32"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"entity-broadcast-range-percentage\", expected u32"))?,
             )),
             "simulation-distance" => Ok(Self::SimulationDistance(
                 value
                     .parse::<u32>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected u32"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"simulation-distance\", expected u32"))?,
             )),
             "rcon.password" => Ok(Self::RconPassword(value.to_string())),
             "player-idle-timeout" => {
                 Ok(Self::PlayerIdleTimeout(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} for \"player-idle-timeout\", expected u32"),
                 )?))
             }
             "force-gamemode" => {
                 Ok(Self::ForceGamemode(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"force-gamemode\", expected bool"),
                 )?))
             }
             "rate-limit" => {
                 Ok(Self::RateLimit(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} for \"rate-limit\", expected u32"),
                 )?))
             }
             "hardcore" => {
                 Ok(Self::Hardcore(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"hard-core\", expected bool"),
                 )?))
             }
             "white-list" => {
                 Ok(Self::WhiteList(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"white-list\", expected bool"),
                 )?))
             }
             "broadcast-console-to-ops" => Ok(Self::BroadcastConsoleToOps(
                 value
                     .parse::<bool>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected bool"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"broadcast-console-to-ops\", expected bool"))?,
             )),
             "previews-chat" => {
                 Ok(Self::PreviewsChat(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"previews-chat\", expected bool"),
                 )?))
             }
             "spawn-npcs" => {
                 Ok(Self::SpawnNpcs(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"spawn-npcs\", expected bool"),
                 )?))
             }
             "spawn-animals" => {
                 Ok(Self::SpawnAnimals(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"spawn-animals\", expected bool"),
                 )?))
             }
             "function-permission-level" => Ok(Self::FunctionPermissionLevel(
                 value
                     .parse::<u32>()
-                    .with_context(|| eyre!("Invalid value: {value}, expected u32"))?,
+                    .with_context(|| eyre!("Invalid value: {value} for \"function-permission-level\", expected u32"))?,
             )),
             "initial-enabled-packs" => Ok(Self::InitialEnabledPacks(value.to_string())),
             "level-type" => Ok(Self::LevelType(value.to_string())),
             "text-filtering-config" => Ok(Self::TextFilteringConfig(value.to_string())),
             "spawn-monsters" => {
                 Ok(Self::SpawnMonsters(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"spawn-monsters\", expected bool"),
                 )?))
             }
 
             "enforce-whitelist" => {
                 Ok(Self::EnforceWhitelist(value.parse::<bool>().with_context(
-                    || eyre!("Invalid value: {value}, expected bool"),
+                    || eyre!("Invalid value: {value} for \"enforce-whitelist\", expected bool"),
                 )?))
             }
             "spawn-protection" => {
                 Ok(Self::SpawnProtection(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} \"spawn-protection\", expected u32"),
                 )?))
             }
             "resource-pack-sha1" => Ok(Self::ResourcePackSha1(value.to_string())),
             "max-world-size" => {
                 Ok(Self::MaxWorldSize(value.parse::<u32>().with_context(
-                    || eyre!("Invalid value: {value}, expected u32"),
+                    || eyre!("Invalid value: {value} for \"max-world-size\", expected u32"),
                 )?))
             }
             _ => Ok(Self::Unknown(key.to_string(), value.to_string())),
@@ -1975,7 +2032,7 @@ impl FromStr for ServerPropertySetting {
 mod test {
     use std::io::BufRead;
 
-    use crate::traits::t_configurable::ConfigurableSection;
+    use crate::traits::t_configurable::manifest::SectionManifest;
 
     use super::*;
 
@@ -2008,7 +2065,7 @@ mod test {
             std::fs::File::open("src/testdata/sample_server.properties")
                 .expect("Failed to open server.properties"),
         );
-        let mut config_section = ConfigurableSection::new(
+        let mut config_section = SectionManifest::new(
             String::from("server_properties"),
             String::from("Server Properties Test"),
             Default::default(),
