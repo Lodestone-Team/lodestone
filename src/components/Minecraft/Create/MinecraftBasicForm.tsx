@@ -10,12 +10,17 @@ import { MinecraftSetupConfigPrimitiveForm } from './form';
 
 export default function MinecraftBasicForm() {
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
-    useQuery<MinecraftFlavour[]>(['minecraft', 'flavours'], () =>
+    useQuery<string[]>(['minecraft', 'flavours'], () =>
       axios.get('/games/minecraft/flavours').then((res) => {
         // sort by name
-        return res.data.sort((a: MinecraftFlavour, b: MinecraftFlavour) => {
-          return a.localeCompare(b);
-        });
+
+        const ObjectToFlavourString = (obj: MinecraftFlavour) => {
+          if (obj === 'vanilla') return 'vanilla';
+          console.log(obj);
+          return `${Object.keys(obj)[0]}`;
+        };
+
+        return res.data.map(ObjectToFlavourString);
       })
     );
 
