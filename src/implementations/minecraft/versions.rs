@@ -129,7 +129,7 @@ pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
     )
     .context("Failed to get paper versions")?;
 
-    let versions = response["versions"]
+    let mut versions = response["versions"]
         .as_array()
         .ok_or_else(|| eyre!("Failed to get paper versions. Versions array is not an array"))?
         .iter()
@@ -139,9 +139,14 @@ pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
             })
         )
         .collect::<Result<Vec<&str>, Error>>()?;
+    
+    versions.reverse();
 
     group_minecraft_versions(&versions).await
 }
+
+
+
 
 pub async fn get_forge_versions() -> Result<MinecraftVersions, Error> {
     let http = reqwest::Client::new();
@@ -158,12 +163,30 @@ pub async fn get_forge_versions() -> Result<MinecraftVersions, Error> {
     )
     .context("Failed to get forge versions")?;
 
-    let versions: Vec<&str> = response
+    let mut versions: Vec<&str> = response
         .as_object()
         .ok_or_else(|| eyre!("Failed to get forge versions. Metadata is not an object"))?
         .keys()
         .map(|s| s.as_str())
         .collect();
 
+    versions.reverse();
+
     group_minecraft_versions(&versions).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_paper_versions() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(get_paper_versions()).unwrap();
+    }
+    
+    #[test]
+    fn test_forge_versions() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(get_forge_versions()).unwrap();
+    }
 }
