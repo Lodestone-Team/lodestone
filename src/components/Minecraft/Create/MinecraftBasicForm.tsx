@@ -6,13 +6,12 @@ import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
 import { useFormikContext } from 'formik';
 import { MinecraftSetupConfigPrimitiveForm } from './form';
-import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 
 export default function MinecraftBasicForm() {
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
     useQuery<string[]>(['minecraft', 'flavours'], () =>
-      axios.get<Array<MinecraftFlavour>>('/games/minecraft/flavours').then((res) => {
-        return res.data.map((v) => v.type);
+      axios.get<Array<string>>('/games/minecraft/flavours').then((res) => {
+        return res.data;
       })
     );
 
