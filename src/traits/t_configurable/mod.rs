@@ -1,3 +1,6 @@
+pub mod manifest;
+
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 pub use std::path::PathBuf;
 
@@ -5,13 +8,16 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 pub use serde::{Deserialize, Serialize};
 pub use serde_json;
-use serde_json::Value;
+use ts_rs::TS;
 
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::traits::GameInstance;
 use crate::traits::MinecraftInstance;
 use crate::types::InstanceUuid;
+
+use self::manifest::ConfigurableManifest;
+use self::manifest::ConfigurableValue;
 
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
@@ -37,8 +43,6 @@ pub trait TConfigurable {
             source: eyre!("This instance does not support backup period"),
         })
     }
-    async fn get_info(&self) -> Value;
-
     // setters
     async fn set_name(&mut self, name: String) -> Result<(), Error>;
     async fn set_description(&mut self, description: String) -> Result<(), Error>;
@@ -97,4 +101,13 @@ pub trait TConfigurable {
     }
 
     async fn settings(&self) -> Result<HashMap<String, String>, Error>;
+
+    async fn configurable_manifest(&self) -> ConfigurableManifest;
+
+    async fn update_configurable(
+        &mut self,
+        section_id: &str,
+        setting_id: &str,
+        value: ConfigurableValue,
+    ) -> Result<(), Error>;
 }

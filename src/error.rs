@@ -4,12 +4,12 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use color_eyre::Report;
 use serde::ser::SerializeStruct;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 use ts_rs::TS;
 
-#[derive(Debug, Serialize, TS)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[ts(export)]
 pub enum ErrorKind {
     NotFound,
@@ -26,7 +26,6 @@ pub struct Error {
     pub kind: ErrorKind,
     pub source: color_eyre::Report,
 }
-
 
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

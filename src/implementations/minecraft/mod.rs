@@ -9,13 +9,14 @@ pub mod util;
 pub mod versions;
 
 use color_eyre::eyre::{eyre, Context};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::SystemExt;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Child;
+use tokio::process::{Child, Command};
 
 use tokio::sync::Mutex;
 
@@ -34,31 +35,60 @@ use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
+use crate::traits::t_configurable::manifest::{
+    ConfigurableManifest, SectionManifest, SettingManifest,
+};
+
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{InstanceUuid, Snowflake};
-use crate::util::{download_file, format_byte, format_byte_download, unzip_file};
+use crate::util::{
+    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
+};
 
+use self::configurable::{CmdArgSetting, ServerPropertySetting};
 use self::players_manager::PlayersManager;
-use self::util::{get_fabric_jar_url, get_paper_jar_url, get_jre_url, get_vanilla_jar_url, read_properties_from_path};
+use self::util::{get_jre_url, get_server_jar_url, read_properties_from_path};
 
-#[derive(Debug, Clone, Copy, TS, Serialize, Deserialize)]
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct FabricLoaderVersion(String);
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct FabricInstallerVersion(String);
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct PaperBuildVersion(i64);
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct ForgeBuildVersion(String);
+
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
 #[ts(export)]
 pub enum Flavour {
     Vanilla,
-    Fabric,
-    Paper,
+    Fabric {
+        loader_version: Option<FabricLoaderVersion>,
+        installer_version: Option<FabricInstallerVersion>,
+    },
+    Paper {
+        build_version: Option<PaperBuildVersion>,
+    },
     Spigot,
+    Forge {
+        build_version: Option<ForgeBuildVersion>,
+    },
 }
 
 impl ToString for Flavour {
     fn to_string(&self) -> String {
         match self {
             Flavour::Vanilla => "vanilla".to_string(),
-            Flavour::Fabric => "fabric".to_string(),
-            Flavour::Paper => "paper".to_string(),
+            Flavour::Fabric { .. } => "fabric".to_string(),
+            Flavour::Paper { .. } => "paper".to_string(),
             Flavour::Spigot => "spigot".to_string(),
+            Flavour::Forge { .. } => "forge".to_string(),
         }
     }
 }
@@ -74,9 +104,6 @@ pub struct SetupConfig {
     pub path: PathBuf,
     pub cmd_args: Option<Vec<String>>,
     pub description: Option<String>,
-    pub fabric_loader_version: Option<String>,
-    pub fabric_installer_version: Option<String>,
-    pub paper_build_version: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
@@ -92,9 +119,6 @@ pub struct RestoreConfig {
     pub uuid: InstanceUuid,
     pub name: String,
     pub version: String,
-    pub fabric_loader_version: Option<String>,
-    pub fabric_installer_version: Option<String>,
-    pub paper_build_version: Option<String>,
     pub flavour: Flavour,
     pub description: String,
     pub cmd_args: Vec<String>,
@@ -132,10 +156,11 @@ pub struct MinecraftInstance {
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
-    settings: Arc<Mutex<HashMap<String, String>>>,
+    server_properties_buffer: Arc<Mutex<HashMap<String, String>>>,
+    configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
-    pub rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+    rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -269,41 +294,29 @@ impl MinecraftInstance {
                 caused_by: CausedBy::Unknown,
             });
         }
-        
+
         // Step 3: Download server.jar
-        let jar_url = match config.flavour {
-            Flavour::Vanilla =>
-                get_vanilla_jar_url(config.version.as_str()).await,
-            Flavour::Fabric =>
-                get_fabric_jar_url(
-                    &config.version,
-                    config.fabric_installer_version.as_deref(),
-                    config.fabric_loader_version.as_deref(),
-                ).await,
-            Flavour::Paper =>
-                get_paper_jar_url(
-                    config.version.as_str(),
-                    config.paper_build_version.as_deref(),
-                ).await,
-            Flavour::Spigot =>
-                todo!(),
-        };
         let flavour_name = config.flavour.to_string();
+        let (jar_url, flavour) = get_server_jar_url(config.version.as_str(), &config.flavour)
+            .await
+            .ok_or_else({
+                || {
+                    eyre!(
+                        "Could not find a {} server.jar for version {}",
+                        flavour_name,
+                        config.version
+                    )
+                }
+            })?;
+        let jar_name = match flavour {
+            Flavour::Forge { .. } => "forge-installer.jar",
+            _ => "server.jar",
+        };
 
         download_file(
-            jar_url
-                .ok_or_else({
-                    || {
-                        eyre!(
-                            "Could not find a {} server.jar for version {}",
-                            flavour_name,
-                            config.version
-                        )
-                    }
-                })?
-                .as_str(),
+            jar_url.as_str(),
             &config.path,
-            Some("server.jar"),
+            Some(jar_name),
             {
                 let event_broadcaster = event_broadcaster.clone();
                 let progression_event_id = progression_event_id;
@@ -312,15 +325,15 @@ impl MinecraftInstance {
                         let _ = event_broadcaster.send(Event {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
-                                progression_event_inner:
-                                    ProgressionEventInner::ProgressionUpdate {
-                                        progress: (dl.step as f64 / total as f64) * 5.0,
-                                        progress_message: format!(
-                                            "3/4: Downloading {} server.jar {}",
-                                            flavour_name,
-                                            format_byte_download(dl.downloaded, total),
-                                        ),
-                                    },
+                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                                    progress: (dl.step as f64 / total as f64) * 5.0,
+                                    progress_message: format!(
+                                        "3/4: Downloading {} {} {}",
+                                        flavour_name,
+                                        jar_name,
+                                        format_byte_download(dl.downloaded, total),
+                                    ),
+                                },
                             }),
                             details: "".to_string(),
                             snowflake: Snowflake::default(),
@@ -330,15 +343,15 @@ impl MinecraftInstance {
                         let _ = event_broadcaster.send(Event {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
-                                progression_event_inner:
-                                    ProgressionEventInner::ProgressionUpdate {
-                                        progress: 0.0,
-                                        progress_message: format!(
-                                            "3/4: Downloading {} server.jar {}",
-                                            flavour_name,
-                                            format_byte(dl.downloaded),
-                                        ),
-                                    },
+                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                                    progress: 0.0,
+                                    progress_message: format!(
+                                        "3/4: Downloading {} {} {}",
+                                        flavour_name,
+                                        jar_name,
+                                        format_byte(dl.downloaded),
+                                    ),
+                                },
                             }),
                             details: "".to_string(),
                             snowflake: Snowflake::default(),
@@ -350,6 +363,59 @@ impl MinecraftInstance {
             true,
         )
         .await?;
+
+        // Step 3 (part 2): Forge Setup
+        if let Flavour::Forge { build_version } = flavour.clone() {
+            let _ = event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id: progression_event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                        progress: 1.0,
+                        progress_message: "3/4: Installing Forge Server".to_string(),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: CausedBy::Unknown,
+            });
+
+            let jre = path_to_runtimes
+                .join("java")
+                .join(format!("jre{}", jre_major_version))
+                .join(if std::env::consts::OS == "macos" {
+                    "Contents/Home/bin"
+                } else {
+                    "bin"
+                })
+                .join("java");
+
+            if !dont_spawn_terminal(
+                Command::new(&jre)
+                    .arg("-jar")
+                    .arg(&config.path.join("forge-installer.jar"))
+                    .arg("--installServer")
+                    .arg(&config.path),
+            )
+            .stdout(Stdio::null())
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("Failed to start forge-installer.jar")?
+            .wait()
+            .await
+            .context("forge-installer.jar failed")?
+            .success()
+            {
+                return Err(eyre!("Failed to install forge server").into());
+            }
+
+            tokio::fs::write(
+                &config.path.join("user_jvm_args.txt"),
+                "# Generated by Lodestone\n# This file is ignored by Lodestone\n# Please set arguments using Lodestone",
+            )
+            .await
+            .context("Could not create user_jvm_args.txt")?;
+        }
 
         // Step 4: Finishing Up
         let _ = event_broadcaster.send(Event {
@@ -370,10 +436,7 @@ impl MinecraftInstance {
             uuid: config.uuid,
             name: config.name,
             version: config.version,
-            fabric_loader_version: config.fabric_loader_version,
-            fabric_installer_version: config.fabric_installer_version,
-            paper_build_version: config.paper_build_version,
-            flavour: config.flavour,
+            flavour,
             description: config.description.unwrap_or_default(),
             cmd_args: config.cmd_args.unwrap_or_default(),
             path: config.path,
@@ -501,6 +564,55 @@ impl MinecraftInstance {
                 }
             }
         });
+
+        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
+        let cmd_args = CmdArgSetting::Args(config.cmd_args.clone());
+        cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
+        let min_ram = CmdArgSetting::MinRam(config.min_ram);
+        cmd_args_config_map.insert(min_ram.get_identifier().to_owned(), min_ram.into());
+        let max_ram = CmdArgSetting::MaxRam(config.max_ram);
+        cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
+        let java_path = path_to_runtimes
+            .join("java")
+            .join(format!("jre{}", config.jre_major_version))
+            .join(if std::env::consts::OS == "macos" {
+                "Contents/Home/bin"
+            } else {
+                "bin"
+            })
+            .join("java");
+        let java_cmd = CmdArgSetting::JavaCmd(java_path.to_string_lossy().into_owned());
+        cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
+
+        let mut cmd_line_section_manifest = SectionManifest::new(
+            CmdArgSetting::get_section_id().to_string(),
+            "Command Line Settings".to_string(),
+            "Settings are passed to the server and Java as command line arguments".to_string(),
+            cmd_args_config_map,
+        );
+
+        let server_properties_section_manifest = SectionManifest::new(
+            ServerPropertySetting::get_section_id().to_string(),
+            "Server Properties Settings".to_string(),
+            "All settings in the server.properties file can be configured here".to_string(),
+            BTreeMap::new(),
+        );
+
+        let mut setting_sections = BTreeMap::new();
+
+        setting_sections.insert(
+            CmdArgSetting::get_section_id().to_string(),
+            cmd_line_section_manifest,
+        );
+
+        setting_sections.insert(
+            ServerPropertySetting::get_section_id().to_string(),
+            server_properties_section_manifest,
+        );
+
+        let configurable_manifest =
+            ConfigurableManifest::new(false, false, false, false, setting_sections);
+
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
             auto_start: Arc::new(AtomicBool::new(config.auto_start)),
@@ -519,12 +631,12 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-
-            settings: Arc::new(Mutex::new(HashMap::new())),
+            server_properties_buffer: Arc::new(Mutex::new(HashMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
+            configurable_manifest: Arc::new(Mutex::new(configurable_manifest)),
         };
         instance
             .read_properties()
@@ -548,7 +660,15 @@ impl MinecraftInstance {
     }
 
     async fn read_properties(&mut self) -> Result<(), Error> {
-        *self.settings.lock().await = read_properties_from_path(&self.path_to_properties).await?;
+        let mut lock = self.server_properties_buffer.lock().await;
+        *lock = read_properties_from_path(&self.path_to_properties).await?;
+        for (key, value) in lock.iter() {
+            self.configurable_manifest.lock().await.set_setting(
+                ServerPropertySetting::get_section_id(),
+                key,
+                ServerPropertySetting::from_key_val(key, value)?.into(),
+            );
+        }
         Ok(())
     }
 
@@ -561,7 +681,7 @@ impl MinecraftInstance {
                 &self.path_to_properties.display()
             ))?;
         let mut setting_str = "".to_string();
-        for (key, value) in self.settings.lock().await.iter() {
+        for (key, value) in self.server_properties_buffer.lock().await.iter() {
             // print the key and value separated by a =
             // println!("{}={}", key, value);
             setting_str.push_str(&format!("{}={}\n", key, value));

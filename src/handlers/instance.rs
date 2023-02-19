@@ -69,9 +69,6 @@ pub struct MinecraftSetupConfigPrimitive {
     pub port: u32,
     pub cmd_args: Option<Vec<String>>,
     pub description: Option<String>,
-    pub fabric_loader_version: Option<String>,
-    pub fabric_installer_version: Option<String>,
-    pub paper_build_version: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
@@ -80,6 +77,19 @@ pub struct MinecraftSetupConfigPrimitive {
     pub timeout_no_activity: Option<u32>,
     pub start_on_connection: Option<bool>,
     pub backup_period: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct GenericSetupConfigPrimitive {
+    pub name: String,
+    pub description: Option<String>,
+    pub port: u32,
+    pub auto_start: Option<bool>,
+    pub restart_on_crash: Option<bool>,
+    pub timeout_last_left: Option<u32>,
+    pub timeout_no_activity: Option<u32>,
+    pub start_on_connection: Option<bool>,
 }
 
 impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
@@ -92,9 +102,6 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             port: config.port,
             cmd_args: config.cmd_args,
             description: config.description,
-            fabric_loader_version: config.fabric_loader_version,
-            fabric_installer_version: config.fabric_installer_version,
-            paper_build_version: config.paper_build_version,
             min_ram: config.min_ram,
             max_ram: config.max_ram,
             auto_start: config.auto_start,
@@ -156,7 +163,7 @@ pub async fn create_minecraft_instance(
         let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
         let port = setup_config.port;
-        let flavour = setup_config.flavour;
+        let flavour = setup_config.flavour.clone();
         let caused_by = CausedBy::User {
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),

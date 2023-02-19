@@ -89,7 +89,7 @@ impl GlobalSettings {
             ))?;
         file.write_all(
             serde_json::to_string_pretty(&self.global_settings_data)
-                .unwrap()
+                .context("Failed to serialize global settings data")?
                 .as_bytes(),
         )
         .await

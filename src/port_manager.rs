@@ -76,7 +76,6 @@ impl PortManager {
                 Err(eyre!("Could not find local ip address").into())
             }
         })
-        .await
-        .unwrap()
+        .await.unwrap()
     }
 }

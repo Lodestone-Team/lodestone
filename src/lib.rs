@@ -32,7 +32,7 @@ use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
@@ -123,7 +123,7 @@ async fn restore_instances(
             .unwrap();
             config
         })
-        .map(|config| {
+        .map(|mut config| {
             match config["game_type"]
                 .as_str()
                 .unwrap()
@@ -135,6 +135,14 @@ async fn restore_instances(
                         "Restoring Minecraft instance {}",
                         config["name"].as_str().unwrap()
                     );
+
+                    // Backwards compatability for before flavour versions were stored
+                    if let Some("fabric") = config["flavour"].as_str() {
+                        config["flavour"] = json!({ "fabric": { "loader_version": null, "installer_version": null } });
+                    } else if let Some("paper") = config["flavour"].as_str() {
+                        config["flavour"] = json!({ "paper": { "build_version": null } });
+                    }
+
                     minecraft::MinecraftInstance::restore(
                         serde_json::from_value(config).unwrap(),
                         event_broadcaster.clone(),
@@ -295,6 +303,7 @@ pub async fn run() -> (
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
 ) {
+    color_eyre::install().unwrap();
     let guard = setup_tracing();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
     create_dir_all(&lodestone_path).await.unwrap();
