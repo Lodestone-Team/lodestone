@@ -14,12 +14,6 @@ const Template: ComponentStory<typeof InstanceLoadingCard> = (args) => (
 
 export const Default = Template.bind({});
 Default.args = {
-  uuid: 'bruh moment',
-  name: 'My Minecraft Server',
-  port: 25565,
-  flavour: 'vanilla',
-  game_type: 'minecraft',
   focus: false,
   progress_percent: 0.5,
-  progress_title: 'Setting up...',
 };
