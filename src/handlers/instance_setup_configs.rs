@@ -16,14 +16,14 @@ pub async fn get_available_games() -> Json<HashSet<GameInstanceKind>> {
 
 pub async fn get_available_flavours(
     Path(game_type): Path<GameInstanceKind>,
-) -> Json<HashSet<String>> {
+) -> Json<Vec<String>> {
     match game_type {
-        GameInstanceKind::MinecraftInstance => Json(HashSet::from([
+        GameInstanceKind::MinecraftInstance => Json(vec![
             minecraft::Flavour::Vanilla.to_string(),
             minecraft::Flavour::Fabric { loader_version: None, installer_version: None }.to_string(),
             minecraft::Flavour::Paper { build_version: None }.to_string(),
             minecraft::Flavour::Forge { build_version: None }.to_string(),
-        ])),
+        ]),
     }
 }
 
