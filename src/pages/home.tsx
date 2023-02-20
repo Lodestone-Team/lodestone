@@ -3,6 +3,9 @@ import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
 import { useDocumentTitle } from 'usehooks-ts';
 import { round } from 'utils/util';
+import { useUserInfo } from 'data/UserInfo';
+import { LodestoneContext } from 'data/LodestoneContext';
+import { useContext } from 'react';
 
 type CpuUsageReply = {
   cpu_speed: number;
@@ -32,6 +35,9 @@ const getRamUsage = async (): Promise<[number, number]> => {
 };
 
 const Home = () => {
+  const { token } = useContext(LodestoneContext);
+  const { isLoading, isError, data: user } = useUserInfo();
+
   useDocumentTitle('Home - Lodestone');
   return (
     // used to possibly center the content
@@ -39,15 +45,21 @@ const Home = () => {
       {/* main content container */}
       <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
         <h1 className="font-title text-2xlarge font-bold tracking-tight text-gray-300">
-          Home
+          {`Welcome, ${
+            token && !isLoading && !isError && user
+              ? `${user.username}`
+              : 'Guest'
+          }!`}
         </h1>
-        <p>Display some general information here maybe</p>
+        <h3 className="mb-4 text-h3 font-medium italic tracking-medium text-white/50">
+          {' '}
+          Select or create an instance to continue.
+        </h3>
         <DashboardCard>
-          <h1 className="text-h3 font-bold"> Performance </h1>
-          <div className="mb-10 grid grid-cols-2 gap-10">
+          <div className="my-8 grid grid-cols-2 gap-10">
             <div>
               <PerformanceGraph
-                title="CPU Usage"
+                title="CPU load"
                 color="#62DD76"
                 backgroundColor="#61AE3240"
                 getter={getCpuUsage}
@@ -56,7 +68,7 @@ const Home = () => {
             </div>
             <div>
               <PerformanceGraph
-                title="Memory Usage"
+                title="Memory load"
                 color="#62DD76"
                 backgroundColor="#61AE3240"
                 getter={getRamUsage}
