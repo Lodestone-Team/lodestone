@@ -1,8 +1,5 @@
-import SystemStat from './SystemStat';
 import InstanceList from './InstanceList';
 import { Fragment, useState } from 'react';
-import useAnalyticsEventTracker, { useIntervalImmediate } from 'utils/hooks';
-import { useCoreInfo } from 'data/SystemInfo';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
@@ -12,23 +9,12 @@ import UserMenu from 'components/Atoms/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 export default function LeftNav({ className }: { className?: string }) {
-  const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
   const canCreateInstance = useUserAuthorized('can_create_instance');
 
-  const systemName = clientInfoLoading ? '...' : clientInfo?.core_name;
-  const cpu = clientInfoLoading ? '...' : clientInfo?.cpu;
-  const os = clientInfoLoading ? '...' : clientInfo?.os;
-  const up_since = clientInfoLoading ? 0 : clientInfo?.up_since;
-
-  const [uptime, setUptime] = useState(0);
-  useIntervalImmediate(() => {
-    setUptime(up_since ? Date.now() / 1000 - up_since : 0);
-  }, 1000);
-
   return (
     <div
-      className={`flex w-full flex-col items-center overflow-y-auto px-4 ${className}`}
+      className={`flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
       <div className="mt-10 flex h-full w-full grow flex-col ">
         <UserMenu />
@@ -60,9 +46,9 @@ export default function LeftNav({ className }: { className?: string }) {
           </Dialog>
         </Transition>
         <div className="h-full">
-          <SelectedInstanceInfo></SelectedInstanceInfo>
+          <SelectedInstanceInfo />
           <InstanceList className="mt-6">
-            <div className="items-begin flex w-full flex-row items-center justify-center gap-4 pb-8">
+            <div className="flex w-full flex-row items-center justify-center gap-4 pb-8">
               <Button
                 label="New instance..."
                 className={
