@@ -9,6 +9,8 @@ import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
 import { formatTimeAgo } from 'utils/util';
+import FileContextMenu from './FileContextMenu';
+import React, { useState, useEffect, useRef, } from 'react';
 
 export default function FileList({
   path,
@@ -42,11 +44,63 @@ export default function FileList({
     );
   };
 
+  const boundingDivRef = useRef(null) 
+  const contextMenuRef = useRef(null) 
+  const [mousePos, setMousePos] = useState({});
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuCoords, setContextMenuCoords] = useState({x: 0, y: 0});
+  const [contextMenuFile, setContextMenuFile] = useState({});
+  const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePos({ x: e.clientX - absCoords.x, y: e.clientY - absCoords.y });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      window.removeEventListener(
+        'mousemove',
+        handleMouseMove
+      );
+    };
+  }, [absCoords]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setAbsCoords({x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY });
+    }
+
+    setAbsCoords({x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY });
+
+    window.addEventListener('resize', onResize);
+    return () => {
+        window.removeEventListener('resize', onResize);
+    };
+
+  }, [])
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target)) {
+        setShowContextMenu(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+  
+
+
   const fileTreeEntryClassName =
     'flex flex-row items-center gap-4 py-2 px-4 text-medium font-medium tracking-medium whitespace-nowrap';
 
   return (
-    <div className="flex h-full w-full grow flex-col @container/file-tree">
+    <div className="flex h-full w-full grow flex-col @container/file-tree" ref={boundingDivRef}>
+      { showContextMenu && <FileContextMenu refProp={contextMenuRef} file={""} coords={contextMenuCoords} /> }
       <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">
         {!atTopLevel ? (
           <div
@@ -77,7 +131,6 @@ export default function FileList({
             </p>
           </div>
         )}
-
         {fileList?.map((file: ClientFile) => (
           <div
             key={file.path}
@@ -85,6 +138,13 @@ export default function FileList({
               'bg-gray-700': fileTicked(file),
               'bg-gray-800': !fileTicked(file),
             })}
+            onContextMenu={(e) => { e.preventDefault(); 
+              console.log("The gamer said one thing and one thing only... \"it's gamer time\".`");
+              console.log(mousePos)
+              setContextMenuFile(file)
+              setContextMenuCoords({ x: mousePos.x, y: mousePos.y })
+              setShowContextMenu(true)
+            }}
           >
             <Checkbox
               checked={fileTicked(file)}
