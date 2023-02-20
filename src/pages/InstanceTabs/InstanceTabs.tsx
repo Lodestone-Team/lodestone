@@ -53,7 +53,7 @@ const InstanceTabs = () => {
         (tab) =>
           tab.path === path && (
             <div
-              className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
+              className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
               key={`${instance.name}-${tab.title}`}
             >
               <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
