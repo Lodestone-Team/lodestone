@@ -1,5 +1,3 @@
-import { EventLevel } from 'bindings/EventLevel';
-import { OngoingState } from 'data/NotificationContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import clsx from 'clsx';
 import { faCircle } from '@fortawesome/free-solid-svg-icons';

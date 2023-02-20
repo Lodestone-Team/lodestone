@@ -14,6 +14,5 @@ const Template: ComponentStory<typeof InstanceLoadingPill> = (args) => (
 
 export const Default = Template.bind({});
 Default.args = {
-  focus: false,
   progress_percent: 0.5,
 };
