@@ -1,7 +1,7 @@
 import { faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { RadioGroup } from '@headlessui/react';
-import InstanceLoadingCard from 'components/InstanceLoadingCard';
+import InstanceLoadingCard from 'components/InstanceLoadingPill';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
