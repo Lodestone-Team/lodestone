@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useEffect, useState } from 'react';
 import DashboardCard from 'components/DashboardCard';
 import PerformanceGraph from 'components/Graphs/PerformanceGraph';
 import { useDocumentTitle } from 'usehooks-ts';
@@ -6,6 +7,7 @@ import { round } from 'utils/util';
 import { useUserInfo } from 'data/UserInfo';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useContext } from 'react';
+import Spinner from 'components/DashboardLayout/Spinner';
 
 type CpuUsageReply = {
   cpu_speed: number;
@@ -39,6 +41,20 @@ const Home = () => {
   const { isLoading, isError, data: user } = useUserInfo();
 
   useDocumentTitle('Home - Lodestone');
+
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    //give time for user to load
+    setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+  }, []);
+
+  if (loading && isLoading) {
+    return <Spinner />;
+  }
+
   return (
     // used to possibly center the content
     <div className="relative flex h-full w-full flex-row justify-center overflow-y-scroll px-4 pt-8 pb-10 @container">
