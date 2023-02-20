@@ -6,9 +6,10 @@ import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect} from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 export default function InstanceList({
   className = '',
@@ -16,7 +17,7 @@ export default function InstanceList({
 }: {
   className?: string;
   children?: React.ReactNode;
-}) {
+  }) {
   const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const {
     instanceList: instances,
@@ -26,6 +27,7 @@ export default function InstanceList({
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
   const userLoggedIn = useUserLoggedIn();
+  const { location: {pathname} } = useContext(BrowserLocationContext);
 
   useEffect(() => {
     if (!isReady) return;
@@ -36,6 +38,15 @@ export default function InstanceList({
       Object.keys(instances).length
     );
   }, [isReady, instances]);
+
+  useEffect(() => {
+    console.log(pathname);
+    console.log(selectedInstance)
+    if (pathname == "/") {
+      console.log("SELECTED")
+      selectInstance()
+    }
+  }, [pathname])
 
   return (
     <RadioGroup
