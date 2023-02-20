@@ -1,14 +1,14 @@
 import { ComponentStory, ComponentMeta } from '@storybook/react';
-import InstanceLoadingCard from './InstanceLoadingPill';
+import InstanceLoadingPill from './InstanceLoadingPill';
 
 export default {
-  title: 'library/InstanceLoadingCard',
-  component: InstanceLoadingCard,
-} as ComponentMeta<typeof InstanceLoadingCard>;
+  title: 'library/InstanceLoadingPill',
+  component: InstanceLoadingPill,
+} as ComponentMeta<typeof InstanceLoadingPill>;
 
-const Template: ComponentStory<typeof InstanceLoadingCard> = (args) => (
+const Template: ComponentStory<typeof InstanceLoadingPill> = (args) => (
   <div className="flex w-60 flex-col child:w-full">
-    <InstanceLoadingCard {...args} />
+    <InstanceLoadingPill {...args} />
   </div>
 );
 

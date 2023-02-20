@@ -17,6 +17,7 @@ export default function CircularProgress({
         pathColor: '#59B2F3',
         trailColor: 'rgba(209, 209, 218, 0.1)',
       })}
+      strokeWidth={15}
     />
   );
 }
