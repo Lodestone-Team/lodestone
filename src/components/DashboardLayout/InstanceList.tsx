@@ -1,6 +1,7 @@
 import { faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { RadioGroup } from '@headlessui/react';
+import InstanceLoadingPill from 'components/InstanceLoadingPill';
 import InstanceLoadingCard from 'components/InstanceLoadingPill';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
@@ -76,28 +77,14 @@ export default function InstanceList({
               notification.start_value,
               otherwise(
                 {
-                  InstanceCreation: ({
-                    instance_uuid,
-                    instance_name,
-                    port,
-                    flavour,
-                    game_type,
-                  }) => (
-                    <InstanceLoadingCard
+                  InstanceCreation: ({ instance_uuid }) => (
+                    <InstanceLoadingPill
                       key={instance_uuid}
-                      uuid={instance_uuid}
-                      name={instance_name}
-                      port={port}
-                      flavour={flavour}
-                      game_type={game_type}
-                      level={notification.level}
-                      state={notification.state}
                       progress_percent={
                         notification.total
                           ? notification.progress / notification.total
                           : undefined
                       }
-                      progress_title={'Setting up...'}
                     />
                   ),
                 },

@@ -6,34 +6,9 @@ import { faCircle } from '@fortawesome/free-solid-svg-icons';
 import { stateToColor } from 'utils/util';
 import CircularProgress from './Atoms/CircularProgress';
 
-const NotificationLevelToBgColorClass = (
-  level: EventLevel,
-  state?: OngoingState
-) => {
-  switch (level) {
-    case 'Warning':
-      return 'bg-yellow';
-    case 'Error':
-      return 'bg-red';
-    default:
-      switch (state) {
-        case 'done':
-          return 'bg-green';
-        case 'error':
-          return 'bg-red';
-        case 'ongoing':
-        default:
-          return 'bg-blue-200/50';
-      }
-  }
-};
-
-export default function InstanceLoadingCard({
+export default function InstanceLoadingPill({
   progress_percent = 0,
 }: {
-  level: EventLevel;
-  state: OngoingState;
-  focus?: boolean;
   progress_percent?: number;
 }) {
   const stateColor = stateToColor['Starting'];
