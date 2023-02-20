@@ -5,15 +5,15 @@ export function flavourStringToMinecraftFlavour(
 ): MinecraftFlavour {
   switch (flavour.toLowerCase()) {
     case 'vanilla':
-      return { type: 'vanilla' };
+      return 'vanilla';
     case 'fabric':
-      return { type: 'fabric', loader_version: null, installer_version: null };
+      return { fabric: { loader_version: null, installer_version: null } };
     case 'paper':
-      return { type: 'paper', build_version: null };
+      return { paper: { build_version: null } };
     case 'spigot':
-      return { type: 'spigot' };
+      return 'spigot';
     case 'forge':
-      return { type: 'forge', build_version: null };
+      return { forge: { build_version: null } };
   }
   throw new Error(`Unknown flavour: ${flavour}`);
 }

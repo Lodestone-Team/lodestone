@@ -5,12 +5,13 @@ import type { ForgeBuildVersion } from './ForgeBuildVersion';
 import type { PaperBuildVersion } from './PaperBuildVersion';
 
 export type MinecraftFlavour =
-  | { type: 'vanilla' }
+  | 'vanilla'
   | {
-      type: 'fabric';
-      loader_version: FabricLoaderVersion | null;
-      installer_version: FabricInstallerVersion | null;
+      fabric: {
+        loader_version: FabricLoaderVersion | null;
+        installer_version: FabricInstallerVersion | null;
+      };
     }
-  | { type: 'paper'; build_version: PaperBuildVersion | null }
-  | { type: 'spigot' }
-  | { type: 'forge'; build_version: ForgeBuildVersion | null };
+  | { paper: { build_version: PaperBuildVersion | null } }
+  | 'spigot'
+  | { forge: { build_version: ForgeBuildVersion | null } };
