@@ -370,7 +370,7 @@ impl MinecraftInstance {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 1.0,
+                        progress: 0.8,
                         progress_message: "3/4: Installing Forge Server".to_string(),
                     },
                 }),
