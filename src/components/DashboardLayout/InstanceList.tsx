@@ -40,11 +40,8 @@ export default function InstanceList({
   }, [isReady, instances]);
 
   useEffect(() => {
-    console.log(pathname);
-    console.log(selectedInstance)
     if (pathname == "/") {
-      console.log("SELECTED")
-      selectInstance()
+      selectInstance(null)
     }
   }, [pathname])
 
