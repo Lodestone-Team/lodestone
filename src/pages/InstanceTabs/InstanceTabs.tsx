@@ -5,6 +5,7 @@ import { useLocation } from 'react-router-dom';
 import InstanceTabListMap from '../../data/InstanceTabListMap';
 import Label from 'components/Atoms/Label';
 import { stateToLabelColor } from 'utils/util';
+import Spinner from 'components/DashboardLayout/Spinner';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -25,18 +26,7 @@ const InstanceTabs = () => {
 
   if (!instance || !uuid) {
     if (loading) {
-      return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-75">
-          <div className="relative h-24 w-24">
-            <div
-              className="absolute top-0 left-0 h-full w-full animate-spin rounded-full border-4 border-t-4 border-blue-400"
-              style={{
-                borderBottomColor: 'transparent',
-              }}
-            ></div>
-          </div>
-        </div>
-      );
+      return <Spinner />;
     } else {
       return (
         <div
@@ -63,7 +53,7 @@ const InstanceTabs = () => {
         (tab) =>
           tab.path === path && (
             <div
-              className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
+              className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
               key={`${instance.name}-${tab.title}`}
             >
               <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
