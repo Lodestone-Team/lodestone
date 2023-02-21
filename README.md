@@ -1,5 +1,4 @@
 [![Lodestone Screen Shot](/public/assets/readmeRender.png)](https://www.lodestone.cc/)
-*Note: design above will launch at a later date.*
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]

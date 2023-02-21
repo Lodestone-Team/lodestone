@@ -31,7 +31,8 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
             icon={faXmark}
             onClick={() => {
               setSearchParam('user', undefined);
-              setPathname('/');
+              const returnRoute = localStorage.getItem('lastVisitedRoute');
+              setPathname(returnRoute || '/');
             }}
             className="ml-2"
           />

@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
-import FileViewer from 'components/FileViewer';
+import FileViewer from 'components/FileViewer/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
@@ -21,6 +21,8 @@ import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCompass } from '@fortawesome/free-solid-svg-icons';
 import { useDocumentTitle } from 'usehooks-ts';
+
+/*CURRENTLY NOT BEING USED*/
 
 const Dashboard = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -89,7 +91,7 @@ const Dashboard = () => {
               alt="placeholder"
               className="mx-auto w-20"
             />
-            <p className="text-xl text-center font-medium text-white/50">
+            <p className="text-center text-h3 font-medium text-white/50">
               Coming soon to a dashboard near you!
             </p>
           </DashboardCard>
@@ -104,7 +106,7 @@ const Dashboard = () => {
               alt="placeholder"
               className="mx-auto w-20"
             />
-            <p className="text-xl text-center font-medium text-white/50">
+            <p className="text-center text-h3 font-medium text-white/50">
               Coming soon to a dashboard near you!
             </p>
           </DashboardCard>
@@ -136,7 +138,7 @@ const Dashboard = () => {
 
   return (
     <div
-      className="relative flex h-full w-full flex-row justify-center @container"
+      className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container"
       key={uuid}
     >
       {/* main content container */}

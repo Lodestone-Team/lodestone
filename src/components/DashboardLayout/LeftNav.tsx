@@ -1,32 +1,23 @@
-import SystemStat from './SystemStat';
 import InstanceList from './InstanceList';
 import { Fragment, useState } from 'react';
-import useAnalyticsEventTracker, { useIntervalImmediate } from 'utils/hooks';
-import { useCoreInfo } from 'data/SystemInfo';
 import Button from 'components/Atoms/Button';
-import { faPlus } from '@fortawesome/free-solid-svg-icons';
+import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
 import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
-
+import UserMenu from 'components/Atoms/UserMenu';
+import clsx from 'clsx';
+import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 export default function LeftNav({ className }: { className?: string }) {
-  const { data: clientInfo, isLoading: clientInfoLoading } = useCoreInfo();
   const [showCreateInstance, setShowCreateInstance] = useState(false);
   const canCreateInstance = useUserAuthorized('can_create_instance');
 
-  const systemName = clientInfoLoading ? '...' : clientInfo?.core_name;
-  const cpu = clientInfoLoading ? '...' : clientInfo?.cpu;
-  const os = clientInfoLoading ? '...' : clientInfo?.os;
-  const up_since = clientInfoLoading ? 0 : clientInfo?.up_since;
-
-  const [uptime, setUptime] = useState(0);
-  useIntervalImmediate(() => {
-    setUptime(up_since ? Date.now() / 1000 - up_since : 0);
-  }, 1000);
-
   return (
-    <div className={`flex w-full flex-col items-center px-4 ${className}`}>
-      <div className="flex h-full w-full grow flex-col">
+    <div
+      className={`flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
+    >
+      <div className="mt-10 flex h-full w-full grow flex-col ">
+        <UserMenu />
         <Transition
           appear
           show={showCreateInstance}
@@ -54,17 +45,28 @@ export default function LeftNav({ className }: { className?: string }) {
             </div>
           </Dialog>
         </Transition>
-        <InstanceList className="pt-12 pb-4">
-          <div className="items-begin mb-4 flex w-full flex-row items-center justify-center gap-4">
-            <Button
-              label="Add"
-              className="w-fit"
-              icon={faPlus}
-              disabled={!canCreateInstance}
-              onClick={() => setShowCreateInstance(true)}
-            />
-          </div>
-        </InstanceList>
+        <div className="h-full">
+          <SelectedInstanceInfo />
+          <InstanceList className="mt-6">
+            <div className="flex w-full flex-row items-center justify-center gap-4 pb-8">
+              <Button
+                label="New instance..."
+                className={
+                  'w-full text-medium font-medium tracking-normal text-white/50 hover:bg-gray-800 focus-visible:outline-none active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
+                  clsx(
+                    showCreateInstance &&
+                      'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10 '
+                  )
+                }
+                intention="none"
+                variant="text"
+                icon={faSquarePlus}
+                disabled={!canCreateInstance}
+                onClick={() => setShowCreateInstance(true)}
+              />
+            </div>
+          </InstanceList>
+        </div>
       </div>
     </div>
   );

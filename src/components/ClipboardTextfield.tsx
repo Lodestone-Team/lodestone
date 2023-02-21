@@ -1,7 +1,6 @@
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Tooltip from 'rc-tooltip';
-import Label from './Atoms/Label';
 import { toast } from 'react-toastify';
 
 export default function ClipboardTextfield({
@@ -13,7 +12,6 @@ export default function ClipboardTextfield({
   textToCopy?: string;
   className?: string;
 }) {
-
   const onClickCopy = (e: React.MouseEvent<HTMLSpanElement>) => {
     e.stopPropagation();
     // note that navigator.clipboard.writeText is only supported over HTTPS
@@ -29,22 +27,19 @@ export default function ClipboardTextfield({
       trigger={['hover']}
       mouseEnterDelay={0.2}
     >
-      <Label
-        size="large"
-        color="gray"
-        className="group flex flex-row items-center gap-3 hover:cursor-pointer"
+      <div
+        className={`group flex flex-row items-center justify-center gap-3 whitespace-nowrap hover:cursor-pointer ${className}`}
         onClick={onClickCopy}
       >
-        <div className={`select-none ${className}`}>
-          {' '}
-          {/* TODO develop custom tooltip component */}
-          {text}&nbsp;&nbsp;
+        <div className={`select-none`}>
           <FontAwesomeIcon
-            className={`text-gray-faded/30 group-hover:text-gray-500`}
+            className={`mr-2 text-gray-faded/30 group-hover:text-gray-500`}
             icon={faClone}
           />
+          {/* TODO develop custom tooltip component */}
+          {text}&nbsp;&nbsp;
         </div>
-      </Label>
+      </div>
     </Tooltip>
   );
 }

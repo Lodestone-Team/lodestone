@@ -15,6 +15,7 @@ import {
 import MinecraftAdvancedForm from './Create/MinecraftAdvancedForm';
 import MinecraftBasicForm from './Create/MinecraftBasicForm';
 import MinecraftNameForm from './Create/MinecraftNameForm';
+import { flavourStringToMinecraftFlavour } from 'bindings/impl/FlavourStringToMinecraftFlavour';
 
 function _renderStepContent(step: number) {
   switch (step) {
@@ -61,7 +62,7 @@ export default function CreateMinecraftInstance({
   ) {
     const parsedValues: MinecraftSetupConfigPrimitive = {
       ...values,
-      flavour: values.flavour as MinecraftFlavour,
+      flavour: flavourStringToMinecraftFlavour(values.flavour),
       cmd_args: values.cmd_args.split(' ').filter((item) => item !== ''),
       auto_start: values.auto_start === 'true',
       restart_on_crash: values.restart_on_crash === 'true',

@@ -50,6 +50,9 @@ module.exports = {
         900: '#1D1E21',
         faded: '#A5A5AC',
       },
+      fade: {
+        700: '#d1d1da19',
+      },
       white: '#FFFFFF',
       violet: '#8736C7',
       ultramarine: '#273EB9',
@@ -58,7 +61,7 @@ module.exports = {
       sans: ['Satoshi', ...defaultTheme.fontFamily.sans],
       heading: ['Chillax', ...defaultTheme.fontFamily.sans],
       title: ['Clash Grotesk', ...defaultTheme.fontFamily.sans],
-      minecraft: ['Minecraft', ...defaultTheme.fontFamily.sans],
+      minecraft: ['Minecraft Changed', ...defaultTheme.fontFamily.sans],
       mono: ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
     },
     fontSize: {

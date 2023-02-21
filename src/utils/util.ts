@@ -96,6 +96,14 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
   // Loading: 'gray',
 };
 
+export const stateToColor: { [key in InstanceState]: string } = {
+  Starting: "text-yellow-300",
+  Running: "text-green-300",
+  Stopping: "text-yellow-300",
+  Stopped: "text-gray-faded/30",
+  Error: "text-red-200",
+};
+
 export function isAxiosError<ResponseType>(
   error: unknown
 ): error is AxiosError<ResponseType> {
@@ -126,7 +134,7 @@ export function errorToString(error: unknown): string {
         // };
       }
 
-      if (data && data.inner) {
+      if (data && data.kind) {
         // TODO: more runtime type checking
         const clientError: ClientError = new ClientError(data);
         return clientError.toString();
@@ -449,3 +457,10 @@ export const negativeLookbehindSupported = (() => {
     return false;
   }
 })();
+
+export const fileSorter = (a: ClientFile, b: ClientFile) => {
+  if (a.file_type === b.file_type) {
+    return a.name.localeCompare(b.name);
+  }
+  return a.file_type.localeCompare(b.file_type);
+};

@@ -1,10 +1,12 @@
 import { PublicUser } from 'bindings/PublicUser';
+import ResizePanel from 'components/Atoms/ResizePanel';
 import { useAllUsers } from 'data/AllUsers';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { SettingsContext } from 'data/SettingsContext';
 import { useUserInfo } from 'data/UserInfo';
 import { useContext, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import SettingsLeftNav from './SettingsLeftNav';
 
@@ -13,7 +15,7 @@ export const SettingsLayout = () => {
   const canManageUsers = userInfo?.is_owner || false;
   const { data: dataUserList } = useAllUsers(canManageUsers);
   const [tabIndex, setTabIndex] = useState(0);
-
+  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 220);
   /* Start userList */
   const [queryUid, setQueryUid] = useQueryParam('user', '');
   const [selectedUser, setSelectedUser] = useState<PublicUser | undefined>(
@@ -49,17 +51,19 @@ export const SettingsLayout = () => {
         setTabIndex,
       }}
     >
-      <div className="flex grow flex-row justify-center gap-[1vw]">
-        <div className="flex h-full grow basis-60 flex-row flex-nowrap items-stretch justify-end">
-          <div className="h-full w-[16rem] max-w-[16rem] child:h-full">
-            <SettingsLeftNav />
-          </div>
-        </div>
-        <div className="h-full min-w-0 grow basis-[1024px] child:h-full">
-          <div className="max-w-[1024px]">
-            <Outlet />
-          </div>
-        </div>
+      <ResizePanel
+        direction="e"
+        maxSize={280}
+        minSize={200}
+        size={leftNavSize}
+        validateSize={false}
+        onResize={setLeftNavSize}
+        containerClassNames="min-h-0"
+      >
+        <SettingsLeftNav className="border-r border-fade-700 bg-gray-850" />
+      </ResizePanel>
+      <div className="h-full min-w-0 grow child:h-full">
+        <Outlet />
       </div>
     </SettingsContext.Provider>
   );

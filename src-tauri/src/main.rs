@@ -5,7 +5,7 @@
 
 use lodestone_core::AppState;
 
-use lodestone_core::Error;
+use lodestone_core::error::Error;
 
 use lodestone_core::auth::jwt_token::JwtToken;
 use lodestone_core::tauri_export::is_owner_account_present;
@@ -42,7 +42,7 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
 
 #[tokio::main]
 async fn main() {
-    let (core_fut, app_state) = lodestone_core::run().await;
+    let (core_fut, app_state, _guard) = lodestone_core::run().await;
     tokio::spawn(async {
         core_fut.await;
         println!("Core has exited");

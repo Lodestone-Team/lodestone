@@ -122,7 +122,7 @@ export default function GameConsole() {
             icon={faServer}
             className="text-title text-gray-400"
           />
-          <p className="text-xl text-center text-white/50 font-medium">
+          <p className="text-center text-h3 font-medium text-white/50">
             You don&#39;t have permission to access this console
           </p>
         </div>
@@ -132,13 +132,13 @@ export default function GameConsole() {
             icon={faServer}
             className="text-title text-gray-400"
           />
-          <p className="text-xl text-center text-white/50 font-medium">
+          <p className="text-center text-h3 font-medium text-white/50">
             No console messages yet
           </p>
         </div>
       ) : (
         <ol
-          className="flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small font-light tracking-tight text-gray-300"
+          className="font-light flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
           ref={listRef}
         >
           {consoleLog.map((line) => (

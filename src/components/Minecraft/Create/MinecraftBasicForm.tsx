@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { MinecraftFlavour } from 'bindings/MinecraftFlavour';
 import { MinecraftVersions } from 'bindings/MinecraftVersions';
 import ComboField from 'components/Atoms/Form/ComboField';
 import InputField from 'components/Atoms/Form/InputField';
@@ -10,12 +9,9 @@ import { MinecraftSetupConfigPrimitiveForm } from './form';
 
 export default function MinecraftBasicForm() {
   const { data: minecraftFlavours, isLoading: minecraftFlavoursLoading } =
-    useQuery<MinecraftFlavour[]>(['minecraft', 'flavours'], () =>
-      axios.get('/games/minecraft/flavours').then((res) => {
-        // sort by name
-        return res.data.sort((a: MinecraftFlavour, b: MinecraftFlavour) => {
-          return a.localeCompare(b);
-        });
+    useQuery<string[]>(['minecraft', 'flavours'], () =>
+      axios.get<Array<string>>('/games/minecraft/flavours').then((res) => {
+        return res.data;
       })
     );
 
