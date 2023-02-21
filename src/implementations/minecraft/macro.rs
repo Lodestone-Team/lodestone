@@ -269,7 +269,7 @@ impl TMacro for MinecraftInstance {
             args,
             caused_by,
             Box::new(main_worker_generator),
-            Some(self.config.uuid.clone()),
+            Some(self.uuid.clone()),
         );
         // self.macro_executor.spawn(exec_instruction).await?;
 

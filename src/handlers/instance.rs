@@ -110,10 +110,6 @@ impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
             timeout_no_activity: config.timeout_no_activity,
             start_on_connection: config.start_on_connection,
             backup_period: config.backup_period,
-            game_type: "minecraft".to_string(),
-            uuid: uuid.clone(),
-            path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, &uuid.no_prefix()[0..8]))),
         }
     }
 }
@@ -139,114 +135,115 @@ pub async fn create_minecraft_instance(
             source: eyre!("Name must not be longer than 100 characters"),
         });
     }
-    for (_, instance) in state.instances.lock().await.iter() {
-        let path = instance.path().await;
-        if path == setup_config.path {
-            while path == setup_config.path {
-                info!("You just hit the lottery");
-                setup_config.uuid = InstanceUuid::default();
-                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.no_prefix()[0..5]);
-                setup_config.path = PATH_TO_INSTANCES.with(|path| {
-                    path.join(format!(
-                        "{}-{}",
-                        name_with_uuid,
-                        &setup_config.uuid.no_prefix()[0..5]
-                    ))
-                });
-            }
-        }
-    }
+    // for (_, instance) in state.instances.lock().await.iter() {
+    //     let path = instance.path().await;
+    //     if path == setup_config.path {
+    //         while path == setup_config.path {
+    //             info!("You just hit the lottery");
+    //             setup_config.uuid = InstanceUuid::default();
+    //             let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.no_prefix()[0..5]);
+    //             setup_config.path = PATH_TO_INSTANCES.with(|path| {
+    //                 path.join(format!(
+    //                     "{}-{}",
+    //                     name_with_uuid,
+    //                     &setup_config.uuid.no_prefix()[0..5]
+    //                 ))
+    //             });
+    //         }
+    //     }
+    // }
 
-    let uuid = setup_config.uuid.clone();
-    tokio::task::spawn({
-        let uuid = uuid.clone();
-        let instance_name = setup_config.name.clone();
-        let event_broadcaster = state.event_broadcaster.clone();
-        let port = setup_config.port;
-        let flavour = setup_config.flavour.clone();
-        let caused_by = CausedBy::User {
-            user_id: requester.uid.clone(),
-            user_name: requester.username.clone(),
-        };
-        async move {
-            let progression_event_id = Snowflake::default();
-            let _ = event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id,
-                    progression_event_inner: ProgressionEventInner::ProgressionStart {
-                        progression_name: format!("Setting up Minecraft server {}", name),
-                        producer_id: Some(uuid.clone()),
-                        total: Some(10.0),
-                        inner: Some(ProgressionStartValue::InstanceCreation {
-                            instance_uuid: uuid.clone(),
-                            instance_name: instance_name.clone(),
-                            port,
-                            flavour: flavour.to_string(),
-                            game_type: "minecraft".to_string(),
-                        }),
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: Snowflake::default(),
-                caused_by: caused_by.clone(),
-            });
-            let minecraft_instance = match minecraft::MinecraftInstance::new(
-                setup_config.clone(),
-                progression_event_id,
-                state.event_broadcaster.clone(),
-                state.macro_executor.clone(),
-            )
-            .await
-            {
-                Ok(v) => {
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                            event_id: progression_event_id,
-                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                                success: true,
-                                message: Some("Instance creation success".to_string()),
-                                inner: Some(ProgressionEndValue::InstanceCreation(
-                                    v.get_instance_info().await,
-                                )),
-                            },
-                        }),
-                        details: "".to_string(),
-                        snowflake: Snowflake::default(),
-                        caused_by: caused_by.clone(),
-                    });
-                    v
-                }
-                Err(e) => {
-                    let _ = event_broadcaster.send(Event {
-                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                            event_id: progression_event_id,
-                            progression_event_inner: ProgressionEventInner::ProgressionEnd {
-                                success: false,
-                                message: Some(format!("Instance creation failed: {:?}", e)),
-                                inner: None,
-                            },
-                        }),
-                        details: "".to_string(),
-                        snowflake: Snowflake::default(),
-                        caused_by: caused_by.clone(),
-                    });
-                    crate::util::fs::remove_dir_all(setup_config.path)
-                        .await
-                        .context("Failed to remove directory after instance creation failed")
-                        .unwrap();
-                    return;
-                }
-            };
-            let mut port_manager = state.port_manager.lock().await;
-            port_manager.add_port(setup_config.port);
-            state
-                .instances
-                .lock()
-                .await
-                .insert(uuid.clone(), minecraft_instance.into());
-        }
-    });
-    Ok(Json(uuid))
+    // let uuid = setup_config.uuid.clone();
+    // tokio::task::spawn({
+    //     let uuid = uuid.clone();
+    //     let instance_name = setup_config.name.clone();
+    //     let event_broadcaster = state.event_broadcaster.clone();
+    //     let port = setup_config.port;
+    //     let flavour = setup_config.flavour.clone();
+    //     let caused_by = CausedBy::User {
+    //         user_id: requester.uid.clone(),
+    //         user_name: requester.username.clone(),
+    //     };
+    //     async move {
+    //         let progression_event_id = Snowflake::default();
+    //         let _ = event_broadcaster.send(Event {
+    //             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+    //                 event_id: progression_event_id,
+    //                 progression_event_inner: ProgressionEventInner::ProgressionStart {
+    //                     progression_name: format!("Setting up Minecraft server {}", name),
+    //                     producer_id: Some(uuid.clone()),
+    //                     total: Some(10.0),
+    //                     inner: Some(ProgressionStartValue::InstanceCreation {
+    //                         instance_uuid: uuid.clone(),
+    //                         instance_name: instance_name.clone(),
+    //                         port,
+    //                         flavour: flavour.to_string(),
+    //                         game_type: "minecraft".to_string(),
+    //                     }),
+    //                 },
+    //             }),
+    //             details: "".to_string(),
+    //             snowflake: Snowflake::default(),
+    //             caused_by: caused_by.clone(),
+    //         });
+    //         let minecraft_instance = match minecraft::MinecraftInstance::new(
+    //             setup_config.clone(),
+    //             progression_event_id,
+    //             state.event_broadcaster.clone(),
+    //             state.macro_executor.clone(),
+    //         )
+    //         .await
+    //         {
+    //             Ok(v) => {
+    //                 let _ = event_broadcaster.send(Event {
+    //                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+    //                         event_id: progression_event_id,
+    //                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
+    //                             success: true,
+    //                             message: Some("Instance creation success".to_string()),
+    //                             inner: Some(ProgressionEndValue::InstanceCreation(
+    //                                 v.get_instance_info().await,
+    //                             )),
+    //                         },
+    //                     }),
+    //                     details: "".to_string(),
+    //                     snowflake: Snowflake::default(),
+    //                     caused_by: caused_by.clone(),
+    //                 });
+    //                 v
+    //             }
+    //             Err(e) => {
+    //                 let _ = event_broadcaster.send(Event {
+    //                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+    //                         event_id: progression_event_id,
+    //                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
+    //                             success: false,
+    //                             message: Some(format!("Instance creation failed: {:?}", e)),
+    //                             inner: None,
+    //                         },
+    //                     }),
+    //                     details: "".to_string(),
+    //                     snowflake: Snowflake::default(),
+    //                     caused_by: caused_by.clone(),
+    //                 });
+    //                 crate::util::fs::remove_dir_all(setup_config.path)
+    //                     .await
+    //                     .context("Failed to remove directory after instance creation failed")
+    //                     .unwrap();
+    //                 return;
+    //             }
+    //         };
+    //         let mut port_manager = state.port_manager.lock().await;
+    //         port_manager.add_port(setup_config.port);
+    //         state
+    //             .instances
+    //             .lock()
+    //             .await
+    //             .insert(uuid.clone(), minecraft_instance.into());
+    //     }
+    // });
+    // Ok(Json(uuid))
+    todo!()
 }
 
 pub async fn delete_instance(

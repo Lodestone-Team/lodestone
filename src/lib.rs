@@ -143,18 +143,19 @@ async fn restore_instances(
                         config["flavour"] = json!({ "paper": { "build_version": null } });
                     }
 
-                    minecraft::MinecraftInstance::restore(
-                        serde_json::from_value(config).unwrap(),
-                        event_broadcaster.clone(),
-                        macro_executor.clone(),
-                    )
+                    // minecraft::MinecraftInstance::restore(
+                    //     serde_json::from_value(config).unwrap(),
+                    //     event_broadcaster.clone(),
+                    //     macro_executor.clone(),
+                    // )
+                    todo!()
                 }
                 _ => unimplemented!(),
             }
         })
     {
-        let instance = instance_future.await;
-        ret.insert(instance.uuid().await, instance.into());
+        // let instance = instance_future.await;
+        // ret.insert(instance.uuid().await, instance.into());
     }
     ret
 }

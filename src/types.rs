@@ -87,6 +87,12 @@ impl Default for InstanceUuid {
     }
 }
 
+impl AsRef<str> for InstanceUuid {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 // implement partial eq for all types that can be converted to string
 impl<T: AsRef<str>> PartialEq<T> for InstanceUuid {
     fn eq(&self, other: &T) -> bool {
@@ -94,11 +100,6 @@ impl<T: AsRef<str>> PartialEq<T> for InstanceUuid {
     }
 }
 
-impl PartialEq for InstanceUuid {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
 use std::hash::Hash;
 impl Hash for InstanceUuid {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -110,6 +111,30 @@ impl Display for InstanceUuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GameType {
+    #[serde(rename = "minecraft")] // backward compatibility
+    Minecraft,
+    #[serde(rename = "generic")]
+    Generic,
+}
+
+impl ToString for GameType {
+    fn to_string(&self) -> String {
+        match self {
+            GameType::Minecraft => "minecraft".to_string(),
+            GameType::Generic => "generic".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DotLodestoneConfig {
+    pub uuid: InstanceUuid,
+    pub creation_time: i64,
+    pub lodestone_version: String,
 }
 
 #[test]

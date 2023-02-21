@@ -8,9 +8,9 @@ use crate::error::Error;
 #[derive(Serialize, Deserialize, Debug, TS)]
 #[ts(export)]
 pub struct MinecraftVersions {
-    old_alpha: Vec<String>,
-    snapshot: Vec<String>,
-    release: Vec<String>,
+    pub old_alpha: Vec<String>,
+    pub snapshot: Vec<String>,
+    pub release: Vec<String>,
 }
 
 pub async fn get_vanilla_versions() -> Result<MinecraftVersions, Error> {

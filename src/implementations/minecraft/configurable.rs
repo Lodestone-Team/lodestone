@@ -12,7 +12,7 @@ use crate::traits::t_configurable::manifest::{
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::State;
 
-use crate::types::InstanceUuid;
+use crate::types::{InstanceUuid, GameType};
 use crate::util::download_file;
 
 use super::util::{get_fabric_jar_url, get_paper_jar_url, get_vanilla_jar_url};
@@ -21,7 +21,7 @@ use super::{BackupInstruction, MinecraftInstance};
 #[async_trait]
 impl TConfigurable for MinecraftInstance {
     async fn uuid(&self) -> InstanceUuid {
-        self.config.uuid.clone()
+        self.uuid.clone()
     }
 
     async fn name(&self) -> String {
@@ -29,7 +29,7 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn game_type(&self) -> String {
-        self.config.game_type.clone()
+        GameType::Minecraft.to_string()
     }
 
     async fn flavour(&self) -> String {
@@ -57,11 +57,11 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn creation_time(&self) -> i64 {
-        self.config.creation_time
+        todo!()
     }
 
     async fn path(&self) -> std::path::PathBuf {
-        self.config.path.clone()
+        todo!()
     }
 
     async fn auto_start(&self) -> bool {

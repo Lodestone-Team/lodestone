@@ -33,7 +33,7 @@ impl TServer for MinecraftInstance {
                 self.event_broadcaster.send(Event {
                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                         instance_name: self.config.name.clone(),
-                        instance_uuid: self.config.uuid.clone(),
+                        instance_uuid: self.uuid.clone(),
                         instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
                     snowflake: Snowflake::default(),
@@ -50,7 +50,7 @@ impl TServer for MinecraftInstance {
             });
         }
 
-        env::set_current_dir(&self.config.path).context(
+        env::set_current_dir(&self.path_to_instance).context(
             "Failed to set current directory to the instance's path, is the path valid?",
         )?;
 
@@ -62,7 +62,7 @@ impl TServer for MinecraftInstance {
                     Vec::new(),
                     cause_by.clone(),
                     Box::new(MinecraftMainWorkerGenerator::new(self.clone())),
-                    Some(self.config.uuid.clone()),
+                    Some(self.uuid.clone()),
                 )
                 .await
                 .map_err(|e| {
@@ -109,7 +109,7 @@ impl TServer for MinecraftInstance {
                 };
                 let mut full_forge_args = std::ffi::OsString::from("@");
                 full_forge_args.push(
-                    self.config.path
+                    self.path_to_instance
                         .join("libraries").join("net").join("minecraftforge").join("forge")
                         .join(format!("{}-{}", self.config.version, build_version.as_str()))
                         .join(forge_args)
@@ -119,7 +119,7 @@ impl TServer for MinecraftInstance {
             }
             _ => server_start_command
                 .arg("-jar")
-                .arg(&self.config.path.join("server.jar")),
+                .arg(&self.path_to_instance.join("server.jar")),
         };
 
         let server_start_command = server_start_command.arg("nogui");
@@ -164,7 +164,7 @@ impl TServer for MinecraftInstance {
                     let server_properties_buffer = self.server_properties_buffer.clone();
                     let _state = self.state.clone();
                     let path_to_properties = self.path_to_properties.clone();
-                    let uuid = self.config.uuid.clone();
+                    let uuid = self.uuid.clone();
                     let name = self.config.name.clone();
                     let players_manager = self.players_manager.clone();
                     let macro_executor = self.macro_executor.clone();
@@ -347,7 +347,7 @@ impl TServer for MinecraftInstance {
                                                 event_inner: EventInner::InstanceEvent(
                                                     InstanceEvent {
                                                         instance_name: self.config.name.clone(),
-                                                        instance_uuid: self.config.uuid.clone(),
+                                                        instance_uuid: self.uuid.clone(),
                                                         instance_event_inner:
                                                             InstanceEventInner::StateTransition {
                                                                 to: state,
@@ -485,7 +485,7 @@ impl TServer for MinecraftInstance {
                                     self.event_broadcaster.send(Event {
                                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                                             instance_name: self.config.name.clone(),
-                                            instance_uuid: self.config.uuid.clone(),
+                                            instance_uuid: self.uuid.clone(),
                                             instance_event_inner:
                                                 InstanceEventInner::StateTransition { to: state },
                                         }),
@@ -503,7 +503,7 @@ impl TServer for MinecraftInstance {
 
                 self.config.has_started = true;
                 self.write_config_to_file().await?;
-                let instance_uuid = self.config.uuid.clone();
+                let instance_uuid = self.uuid.clone();
                 let mut rx = self.event_broadcaster.subscribe();
 
                 if block {
@@ -543,7 +543,7 @@ impl TServer for MinecraftInstance {
                             self.event_broadcaster.send(Event {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                                     instance_name: self.config.name.clone(),
-                                    instance_uuid: self.config.uuid.clone(),
+                                    instance_uuid: self.uuid.clone(),
                                     instance_event_inner: InstanceEventInner::StateTransition {
                                         to: state,
                                     },
@@ -567,7 +567,7 @@ impl TServer for MinecraftInstance {
                 self.event_broadcaster.send(Event {
                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                         instance_name: self.config.name.clone(),
-                        instance_uuid: self.config.uuid.clone(),
+                        instance_uuid: self.uuid.clone(),
                         instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
                     snowflake: Snowflake::default(),
@@ -577,7 +577,7 @@ impl TServer for MinecraftInstance {
             }),
         )?;
         let name = self.config.name.clone();
-        let _uuid = self.config.uuid.clone();
+        let _uuid = self.uuid.clone();
         self.stdin
             .lock()
             .await
@@ -595,7 +595,7 @@ impl TServer for MinecraftInstance {
             })?;
         self.rcon_conn.lock().await.take();
         let mut rx = self.event_broadcaster.subscribe();
-        let instance_uuid = self.config.uuid.clone();
+        let instance_uuid = self.uuid.clone();
 
         if block {
             while let Ok(event) = rx.recv().await {
@@ -682,7 +682,7 @@ impl TServer for MinecraftInstance {
                                 self.event_broadcaster.send(Event {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                                         instance_name: self.config.name.clone(),
-                                        instance_uuid: self.config.uuid.clone(),
+                                        instance_uuid: self.uuid.clone(),
                                         instance_event_inner: InstanceEventInner::StateTransition {
                                             to: state,
                                         },
