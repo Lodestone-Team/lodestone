@@ -26,55 +26,6 @@ const contextClass = {
   success: '!bg-green',
 };
 
-const ChillaxFont = localFont({
-  src: [
-    {
-      path: '../public/fonts/Chillax-Variable.woff2',
-      weight: '200 700',
-      style: 'normal',
-    },
-  ],
-  variable: '--font-chillax',
-});
-
-const JetBrainsMonoFont = localFont({
-  src: [
-    {
-      path: '../public/fonts/JetBrainsMono-Variable.woff2',
-      weight: '100 800',
-      style: 'normal',
-    },
-    {
-      path: '../public/fonts/JetBrainsMono-VariableItalic.woff2',
-      weight: '100 800',
-      style: 'italic',
-    },
-  ],
-  variable: '--font-jetbrains-mono',
-});
-
-const ClashGroteskFont = localFont({
-  src: [
-    {
-      path: '../public/fonts/ClashGrotesk-Variable.woff2',
-      weight: '200 700',
-      style: 'normal',
-    },
-  ],
-  variable: '--font-clash-grotesk',
-});
-
-const MinecraftFont = localFont({
-  src: [
-    {
-      path: '../public/fonts/Minecraft_changed.woff',
-      weight: '400',
-      style: 'normal',
-    },
-  ],
-  variable: '--font-minecraft',
-});
-
 
 function MyApp({ Component, pageProps }: AppProps) {
   const renderIcon = (props: IconProps) => {
@@ -90,9 +41,7 @@ function MyApp({ Component, pageProps }: AppProps) {
   }
 
   return (
-    <main
-      className={`${ChillaxFont.variable} ${JetBrainsMonoFont.variable} ${ClashGroteskFont.variable} ${MinecraftFont.variable}`}
-    >
+    <main>
       <NoSSR>
         <ToastContainer
           toastClassName="!bg-gray-850 cursor-pointer"
