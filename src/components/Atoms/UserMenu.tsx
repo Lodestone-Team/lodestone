@@ -48,7 +48,7 @@ const UserMenu = () => {
         <Menu.Button
           as={Button}
           align="start"
-          className="w-full min-w-0"
+          className="w-full"
           loading={userState === 'loading'}
           label={
             userState === 'logged-in' && user ? `${user.username}` : 'Guest'
