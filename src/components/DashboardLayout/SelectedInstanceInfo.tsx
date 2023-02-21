@@ -46,7 +46,7 @@ export const SelectedInstanceInfo = ({
 
   return (
     <RadioGroup
-      className={`gap mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
+      className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
       onChange={setPathname}
     >
       <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
@@ -66,7 +66,7 @@ export const SelectedInstanceInfo = ({
               className={clsx(
                 'flex flex-row items-center gap-x-1.5',
                 'cursor-pointer rounded-md py-1 px-2',
-                'text-medium font-bold leading-5 tracking-medium',
+                'text-medium font-medium leading-5 tracking-normal',
                 'hover:bg-gray-800',
                 'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                 setActive === tab.path

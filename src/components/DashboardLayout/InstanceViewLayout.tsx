@@ -13,7 +13,7 @@ import LeftNav from './LeftNav';
 export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
   const userLoggedIn = useUserLoggedIn();
-  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 240);
+  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 220);
   /* Start Instances */
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
   const { data: dataInstances, isFetched: instanceIsFetched } =
@@ -60,8 +60,8 @@ export const InstanceViewLayout = () => {
     >
       <ResizePanel
         direction="e"
-        maxSize={500}
-        minSize={240}
+        maxSize={280}
+        minSize={200}
         size={leftNavSize}
         validateSize={false}
         onResize={setLeftNavSize}

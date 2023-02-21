@@ -40,7 +40,7 @@ export default function InstanceList({
 
   return (
     <RadioGroup
-      className={`gap mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full ${className}`}
+      className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full ${className}`}
       value={selectedInstance}
       onChange={selectInstance}
     >

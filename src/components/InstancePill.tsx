@@ -28,7 +28,7 @@ export default function InstancePill({
       className={clsx(
         'flex flex-row items-center gap-x-1.5',
         'cursor-pointer rounded-md py-1 px-2',
-        'text-medium font-bold leading-5 tracking-medium',
+        'text-medium font-medium leading-5 tracking-normal',
         'text-white/50 ui-checked:text-gray-300',
         'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
         'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
