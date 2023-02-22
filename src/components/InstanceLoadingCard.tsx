@@ -54,7 +54,7 @@ export default function InstanceLoadingCard({
   const stateColor = 'gray';
   const borderClass = 'outline-gray-300 ring-gray-500';
   const actionMessage = 'Start';
-
+  progress_percent = Math.min(0.99, progress_percent); // Prevents the progress bar from being full when the instance is still loading
   return (
     <div
       className={`group relative flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight ${
