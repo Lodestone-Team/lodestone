@@ -206,7 +206,7 @@ export default function MinecraftSettingCard() {
           })
             .then(() => {
               queryClient.invalidateQueries(['instances', 'list']);
-              selectInstance(undefined);
+              selectInstance(null);
             })
             .catch((err) => {
               const err_message = errorToString(err);
