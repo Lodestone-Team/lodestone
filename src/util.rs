@@ -15,6 +15,9 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use flate2::read::GzDecoder;
+use tar::Archive;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Authentication {
     username: String,
@@ -158,81 +161,79 @@ pub async fn unzip_file(
 ) -> Result<HashSet<PathBuf>, Error> {
     let file = file.as_ref();
     let dest = dest.as_ref();
-    let os = std::env::consts::OS;
-    let arch = if std::env::consts::ARCH == "x86_64" {
-        "x64"
-    } else {
-        std::env::consts::ARCH
-    };
-    let _7zip_name = format!("7z_{}_{}", os, arch);
-    let _7zip_path = PATH_TO_BINARIES
-        .with(|v| v.clone())
-        .join("7zip")
-        .join(&_7zip_name);
-    if !_7zip_path.is_file() {
-        return Err(
-            eyre!(
-                "Runtime depedency 7zip is missing, please download it from https://github.com/Lodestone-Team/dependencies or reinstall Lodestone"
-            ).into()
-        );
+
+    let file_extension = file.extension().ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?;
+    if file_extension != "gz" && file_extension != "zip" && file_extension != "rar" {
+        return Err(eyre!("Unsupported extension for {}", file.display()).into());
     }
+
     tokio::fs::create_dir_all(dest)
         .await
         .context(format!("Failed to create directory {}", dest.display()))?;
-    let before: HashSet<PathBuf>;
 
-    let tmp_dir = TempDir::new("lodestone")
-        .context(format!(
-            "Failed to create temporary directory for unzipping {}",
-            file.display()
-        ))?
-        .path()
-        .to_owned();
+    let before: HashSet<PathBuf> = list_dir(dest, None).await?.iter().cloned().collect();
 
-    let overwrite_arg = if overwrite_old { "-aoa" } else { "-aou" };
+    let dest_file_name = dest.file_name().unwrap_or_else(|| std::ffi::OsStr::new("")).to_str().unwrap_or_else(|| "");
+    let temp_dest_dir = tempdir::TempDir::new(dest_file_name).context(format!("Failed to create temporary directory for {}", dest.display()))?;
+    let temp_dest = temp_dest_dir.path();
 
-    if file
-        .extension()
-        .ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?
-        == "gz"
-    {
-        dont_spawn_terminal(
-            Command::new(&_7zip_path)
-                .arg("x")
-                .arg(file)
-                .arg(overwrite_arg)
-                .arg(format!("-o{}", tmp_dir.display())),
-        )
-        .status()
-        .await
-        .context("Failed to execute 7zip")?;
-
-        before = list_dir(dest, None).await?.iter().cloned().collect();
-
-        dont_spawn_terminal(
-            Command::new(&_7zip_path)
-                .arg("x")
-                .arg(&tmp_dir)
-                .arg(overwrite_arg)
-                .arg("-ttar")
-                .arg(format!("-o{}", dest.display())),
-        )
-        .status()
-        .await
-        .context("Failed to execute 7zip")?;
-    } else {
-        before = list_dir(dest, None).await?.iter().cloned().collect();
-        dont_spawn_terminal(
-            Command::new(&_7zip_path)
-                .arg("x")
-                .arg(file)
-                .arg(format!("-o{}", dest.display()))
-                .arg(overwrite_arg),
-        )
-        .status()
-        .await
-        .context("Failed to execute 7zip")?;
+    if file_extension == "gz" {
+        let tar_gz = std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
+        let tar = GzDecoder::new(tar_gz);
+        let mut archive = Archive::new(tar);
+        archive.set_overwrite(true);
+        archive.unpack(temp_dest).context(format!("Failed to decompress file {}", file.display()))?;
+    } else if file_extension == "zip" {
+        let zip = std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
+        let mut archive = zip::ZipArchive::new(zip).context(format!("Failed to decompress file {}", file.display()))?;
+        archive.extract(temp_dest).context(format!("Failed to decompress file {}", file.display()))?;
+    } else if file_extension == "rar" {
+        let archive = unrar::Archive::new(file.to_str().ok_or_else(|| eyre!("Non-unicode character in file name {}", file.display()))?.to_string());
+        archive
+            .extract_to(temp_dest.to_str().ok_or_else(|| eyre!("Non-unicode character in file name {}", temp_dest.display()))?.to_string())
+            .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?
+            .process()
+            .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?;
     }
+
+    for temp_entry in walkdir::WalkDir::new(temp_dest).into_iter().filter_map(|e| e.ok()) {
+        let temp_entry_path = temp_entry.path();
+        let entry_path = temp_entry_path.strip_prefix(temp_dest);
+        let mut entry_path = match entry_path {
+            Ok(p) => dest.join(p),
+            Err(e) => continue,
+        };
+
+        if temp_entry_path.is_dir() {
+            tokio::fs::create_dir_all(&entry_path)
+                .await
+                .context(format!("Failed to create directory {}", entry_path.display()))?;
+            continue;
+        }
+
+        if !overwrite_old && entry_path.exists() {
+            let mut duplicate = 1;
+            let stem = entry_path.file_stem().unwrap_or_else(|| std::ffi::OsStr::new("")).to_os_string();
+            let extension = entry_path.extension().unwrap_or_else(|| std::ffi::OsStr::new("")).to_os_string();
+            loop {
+                let mut name = stem.clone();
+                name.push(format!("_{}", duplicate).as_str());
+                entry_path.set_file_name(&name);
+                entry_path.set_extension(&extension);
+
+                if !entry_path.exists() {
+                    break;
+                }
+                duplicate = duplicate + 1;
+            }
+        }
+
+        tokio::fs::copy(&temp_entry_path, &entry_path)
+            .await
+            .context(format!("Failed to copy from {} to {}", temp_entry_path.display(), entry_path.display()))?;
+    }
+    
+
     let after: HashSet<PathBuf> = list_dir(dest, None).await?.iter().cloned().collect();
     Ok((&after - &before).iter().cloned().collect())
 }
