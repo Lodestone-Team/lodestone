@@ -1,4 +1,5 @@
 // Stories file for Button component
+import { faServer } from '@fortawesome/free-solid-svg-icons';
 import { ComponentStory, ComponentMeta } from '@storybook/react';
 import Button from './Button';
 
@@ -31,4 +32,5 @@ StartServer.args = {
   onClick: () => {
     console.log('Start Server');
   },
+  icon: faServer,
 };

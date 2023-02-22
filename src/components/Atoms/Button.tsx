@@ -109,17 +109,15 @@ const Button = forwardRef(
       >
         {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
-        <div className="flex grow items-center truncate">
-          <div className="relative h-fit w-fit truncate">
-            {loading && (
-              <BeatLoader
-                size={5}
-                color="#6b7280"
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform"
-              />
-            )}
-            <span className={clsx(loading && 'opacity-0')}>{label}</span>
-          </div>
+        <div className="relative h-fit w-fit truncate">
+          {loading && (
+            <BeatLoader
+              size={5}
+              color="#6b7280"
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform"
+            />
+          )}
+          <span className={clsx(loading && 'opacity-0')}>{label}</span>
         </div>
 
         {iconRight && (
