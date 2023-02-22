@@ -10,6 +10,8 @@ pub mod versions;
 mod mirgration;
 pub mod fabric;
 mod paper;
+mod vanilla;
+mod forge;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::{BTreeMap, HashMap};
