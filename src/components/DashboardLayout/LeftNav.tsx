@@ -63,6 +63,7 @@ export default function LeftNav({ className }: { className?: string }) {
                 icon={faSquarePlus}
                 disabled={!canCreateInstance}
                 onClick={() => setShowCreateInstance(true)}
+                align="start"
               />
             </div>
           </InstanceList>
