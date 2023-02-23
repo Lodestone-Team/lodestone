@@ -47,7 +47,8 @@ const UserMenu = () => {
       <Menu as="div" className="relative inline-block w-full min-w-0 text-left">
         <Menu.Button
           as={Button}
-          align="between"
+          align="start"
+          labelGrow={true}
           className="w-full"
           loading={userState === 'loading'}
           label={
