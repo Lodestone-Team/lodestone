@@ -13,7 +13,7 @@ import {
   faCog,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import IconButton from './IconButton';
+import IconButton from './Atoms/IconButton';
 import { useLocation } from 'react-router-dom';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
@@ -47,7 +47,7 @@ const UserMenu = () => {
       <Menu as="div" className="relative inline-block w-full min-w-0 text-left">
         <Menu.Button
           as={Button}
-          align="start"
+          align="between"
           className="w-full"
           loading={userState === 'loading'}
           label={
