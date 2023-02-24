@@ -24,12 +24,28 @@ export const parameters = {
     default: 'gray-800',
     values: [
       {
+        name: 'gray-700',
+        value: '#36393F',
+      },
+      {
+        name: 'gray-750',
+        value: '#303338',
+      },
+      {
         name: 'gray-800',
+        value: '#2B2D32',
+      },
+      {
+        name: 'gray-850',
         value: '#26282C',
       },
       {
-        name: 'gray-700',
-        value: '#36393F',
+        name: 'gray-875',
+        value: '#212327',
+      },
+      {
+        name: 'gray-900',
+        value: '#1D1E21',
       },
     ],
   },

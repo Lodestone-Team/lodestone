@@ -200,7 +200,7 @@ const Dashboard = () => {
           <Tab.Panels className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2">
             {tabList[instance.game_type].map((tab) => (
               <Tab.Panel
-                className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none"
+                className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-none"
                 key={tab.title}
               >
                 {tab.content}

@@ -116,13 +116,15 @@ export const useOngoingNotificationReducer = () => {
               level,
               start_value: inner,
             } as OngoingNotificationItem,
-          ]
+          ];
         },
         ProgressionUpdate: ({ progress, progress_message }) => {
           const newState = [...state];
           newState.map((item) => {
             if (item.event_id === event_id) {
               item.progress += progress;
+              if (item.total && item.progress > item.total)
+                item.progress = item.total;
               if (progress_message) item.message = progress_message;
               item.level = level;
             }
