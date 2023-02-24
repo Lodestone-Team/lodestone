@@ -60,6 +60,7 @@ export default function FileViewer() {
   const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
   const queryClient = useQueryClient();
   const [path, setPath] = useQueryParam('path', '.');
+  const [modalPath, setModalPath] = useState();
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
@@ -248,13 +249,13 @@ export default function FileViewer() {
       <CreateFolderModal 
         setModalOpen={setCreateFolderModalOpen}
         modalOpen={createFolderModalOpen}
-        path={path}
+        path={modalPath}
         fileList={fileList}
       />
       <CreateFileModal 
         setModalOpen={setCreateFileModalOpen}
         modalOpen={createFileModalOpen}
-        path={path}
+        path={modalPath}
         fileList={fileList}
       />
       <ConfirmDialog
@@ -371,7 +372,10 @@ export default function FileViewer() {
                       <Button
                         label="New file"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => setCreateFileModalOpen(true)}
+                        onClick={() => {
+                          setModalPath(path);
+                          setCreateFileModalOpen(true)
+                        }}
                         iconComponent={fileCheckIcon}
                         variant="text"
                         align="start"
@@ -384,7 +388,11 @@ export default function FileViewer() {
                       <Button
                         label="New folder"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => setCreateFolderModalOpen(true)}
+                        onClick={() => {
+                          setModalPath(path);
+                          setCreateFolderModalOpen(true);
+                        }}
+
                         icon={faFolderPlus}
                         variant="text"
                         align="start"
@@ -399,7 +407,10 @@ export default function FileViewer() {
                       <Button
                         label="Delete selected"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => setDeleteFileModalOpen(true)}
+                        onClick={() => {
+                          setModalPath(path);
+                          setDeleteFileModalOpen(true);
+                        }}
                         icon={faTrashCan}
                         variant="text"
                         align="start"
@@ -510,6 +521,11 @@ export default function FileViewer() {
                 }}
                 setCreateFileModalOpen={setCreateFileModalOpen}
                 setCreateFolderModalOpen={setCreateFolderModalOpen}
+                setModalPath={setModalPath}
+                setClipboard={setClipboard}
+                setClipboardAction={setClipboardAction}
+                setTickedFiles={setTickedFiles}
+                tickedFiled={tickedFiles}
               />
             </ResizePanel>
             {openedFile && (

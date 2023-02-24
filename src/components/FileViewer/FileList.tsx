@@ -27,6 +27,10 @@ export default function FileList({
   onFileClick,
   setCreateFolderModalOpen,
   setCreateFileModalOpen,
+  setModalPath,
+  setClipboard,
+  setClipboardAction,
+  setTickedFiles,
 }: {
   path: string;
   fileList: ClientFile[] | undefined;
@@ -41,6 +45,7 @@ export default function FileList({
   onFileClick: (file: ClientFile) => void;
   setCreateFileModalOpen: (modalOpen: boolean) => void;
   setCreateFolderModalOpen: (modalOpen: boolean) => void;
+  setModalPath: (modalPath: string) => void;
 }) {
   const fileTicked = (file: ClientFile) => {
     // check just the path and type, not other metadata
@@ -54,7 +59,7 @@ export default function FileList({
   const [mousePos, setMousePos] = useState({});
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuCoords, setContextMenuCoords] = useState({x: 0, y: 0});
-  const [contextMenuFile, setContextMenuFile] = useState({});
+  const [contextMenuFile, setContextMenuFile] = useState(null);
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [contextMenuDimensions, setContextMenuDimensions] = useState({ height: 0, width: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
@@ -147,10 +152,15 @@ export default function FileList({
       { showContextMenu && 
         <FileContextMenu 
           ref={contextMenuRef} 
-          file={""} 
+          file={contextMenuFile} 
           coords={contextMenuCoords} 
           setCreateFileModalOpen={setCreateFileModalOpen} 
           setCreateFolderModalOpen={setCreateFolderModalOpen} 
+          setShowContextMenu={setShowContextMenu}
+          setClipboard={setClipboard}
+          setClipboardAction={setClipboardAction}
+          setTickedFiles={setTickedFiles}
+          tickedFiles={tickedFiles}
         /> 
       }
       <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">
@@ -191,11 +201,10 @@ export default function FileList({
               'bg-gray-800': !fileTicked(file),
             })}
             onContextMenu={(e) => { e.preventDefault(); 
-              console.log("The gamer said one thing and one thing only... \"it's gamer time\".`");
-              console.log(mousePos)
-              setContextMenuFile(file)
-              calculateStartMenuCoords()
-              setShowContextMenu(true)
+              setContextMenuFile(file);
+              calculateStartMenuCoords();
+              setShowContextMenu(true);
+              setModalPath(file.file_type === "Directory" ? file.path : path);
             }}
           >
             <Checkbox

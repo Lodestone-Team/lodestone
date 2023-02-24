@@ -17,18 +17,20 @@ const FileContextMenu = forwardRef(
       setClipboardAction,
       setTickedFiles,
       tickedFiles,
+      setShowContextMenu,
     } : {
       file: ClientFile,
       path: string,
       fileList: ClientFile[],
       setCreateFileModalOpen: (modalOpen: boolean) => void,
       setCreateFolderModalOpen: (modalOpen: boolean) => void,
+      setShowContextMenu: (showContextMenu: boolean) => void,
     },
     ref: React.Ref<HTMLButtonElement>
   ) => {
 
 
-    // hacky, would be best to switch to using tauri for getting OS but this works for now :sunglasses:
+    // hacky, would be best to switch to using tauri 4 this &/or move this 2 index but this works for now :sunglasses:
     const [ isMac, setIsMac ] = useState(true)
     useEffect(() => {
       if (window.navigator.userAgent.indexOf("Mac") != -1) {
@@ -36,13 +38,17 @@ const FileContextMenu = forwardRef(
       }
     }, [])
 
-    // const cutFile = (file) => {
-    //   if (file in tickedFiles) {
-    //   setClipboard(tickedFiles);
-    //   }
-    //   setClipboardAction('cut');
-    //   toast.info('Files cut to clipboard');
-    // }
+    const cutFile = async () => {
+      console.log("::D")
+      if (tickedFiles.includes(file)) {
+        setClipboard(tickedFiles);
+      } else {
+        setClipboard([file]);
+      }
+      setTickedFiles([]);
+      setClipboardAction('cut');
+      toast.info('Files cut to clipboard');
+    }
 
     return (
       <div className="fixed right-0 z-50 mt-1.5 w-40 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-none"
@@ -65,6 +71,7 @@ const FileContextMenu = forwardRef(
             subLabel={ isMac ? "⌘+X" : "CTRL+X"}
             variant="text"
             intention="primary"
+            onClick={() => {cutFile(); }}
           />
         </div>
         <div className="py-2">
@@ -99,7 +106,7 @@ const FileContextMenu = forwardRef(
             align="end"
             variant="text"
             intention="primary"
-            onClick={() => setCreateFolderModalOpen(true)}
+            onClick={() => { setCreateFolderModalOpen(true); setShowContextMenu(false); }}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
@@ -107,7 +114,7 @@ const FileContextMenu = forwardRef(
             align="end"
             variant="text"
             intention="primary"
-            onClick={() => setCreateFileModalOpen(true)}
+            onClick={() => { setCreateFileModalOpen(true); setShowContextMenu(false); }}
           />
         </div>
       </div>
