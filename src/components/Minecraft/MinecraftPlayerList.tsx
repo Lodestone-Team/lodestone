@@ -35,12 +35,10 @@ export default function MinecraftPlayerList() {
   ]);
 
   useEffect(() => {
-    console.log('changed detected');
+    console.log('changed detected from useEffect');
     if (instance && instance.player_list) {
       setPlayerList(instance.player_list);
     }
-    console.log(instance?.player_count);
-    console.log(instance?.player_list);
   }, [instance, playerList])
 
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -80,32 +78,44 @@ export default function MinecraftPlayerList() {
     );
   }
   
-  // const playerList = instance.player_list || [];
-  
   // API to get the avatar head png 16x16 px
   const mcHeadURL = 'https://mc-heads.net/avatar/';
-  const avatarDimension = 16;
+  const avatarDimension = 128;
 
   return (
     <div>
       <h2 className="text-h3 font-bold tracking-medium">Player List</h2>
-      <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-        All players currently online
-      </h3>
-      <button
-        className="flex items-center justify-center text-h3 font-medium tracking-medium text-white/50"
-        onClick={handleSortClick}
-      >
-        NAME
-      </button>
-      <PlayerListCard className="mt-4" >
-        {playerList.map((player) => (
-          <PlayerListItem key={player.uuid} className="mx-4">
-            <img src={`${mcHeadURL}${player.uuid}/${avatarDimension}.png`} alt={`Avatar of ${player.name}`} className="mr-4"/>
-            {player.name}
-          </PlayerListItem>
-        ))}
-      </PlayerListCard>
+      {playerList.length ? (
+        <>
+          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            All players currently online
+          </h3>
+          <button
+            className="flex items-center justify-center text-h3 font-medium tracking-medium text-white/50"
+            onClick={handleSortClick}
+          >
+            NAME
+          </button>
+        </>
+      ) : (
+        <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+          No players online
+        </h3>
+      )}
+      {playerList.length > 0 && (
+        <PlayerListCard className="mt-4">
+          {playerList.map((player) => (
+            <PlayerListItem key={player.uuid} className="mx-4">
+              <img
+                src={`${mcHeadURL}${player.uuid}/${avatarDimension}.png`}
+                alt={`Avatar of ${player.name}`}
+                className="mr-4 h-4 w-4"
+              />
+              {player.name}
+            </PlayerListItem>
+          ))}
+        </PlayerListCard>
+      )}
     </div>
   );
 }
