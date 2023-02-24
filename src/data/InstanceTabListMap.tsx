@@ -32,7 +32,6 @@ const InstanceTabListMap = {
         <>
           <MinecraftPerformanceCard />
           <MinecraftPlayerList />
-          {/* <Dashboard></Dashboard> */}
         </>
       ),
     },
