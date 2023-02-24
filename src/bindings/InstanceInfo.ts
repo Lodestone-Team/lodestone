@@ -3,11 +3,13 @@ import type { InstanceState } from "./InstanceState";
 import type { InstanceUuid } from "./InstanceUuid";
 import type { Player } from "./Player";
 
+export type GameType = "minecraft";
+
 export interface InstanceInfo {
   uuid: InstanceUuid;
   name: string;
   flavour: string;
-  game_type: string;
+  game_type: GameType;
   cmd_args: Array<string>;
   description: string;
   port: number;

@@ -42,7 +42,7 @@ export function PlayerListCard({ children, className }: CardProps) {
     >
       {React.Children.map(children, (child, index) => (
         <>
-          {index > 0 && <hr className="my-2 border-gray-faded/30" />}
+          {index > 0 && <hr className='my-2 border-gray-faded/30' />}
           {child}
         </>
       ))}
