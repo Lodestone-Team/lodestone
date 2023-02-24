@@ -11,6 +11,7 @@ import Checkbox from 'components/Atoms/Checkbox';
 import { formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef, } from 'react';
+import { useFileContent, useFileList } from 'data/FileSystem';
 
 export default function FileList({
   path,
@@ -24,6 +25,8 @@ export default function FileList({
   onParentClick,
   onEmptyClick,
   onFileClick,
+  setCreateFolderModalOpen,
+  setCreateFileModalOpen,
 }: {
   path: string;
   fileList: ClientFile[] | undefined;
@@ -36,6 +39,8 @@ export default function FileList({
   onParentClick: () => void;
   onEmptyClick: () => void;
   onFileClick: (file: ClientFile) => void;
+  setCreateFileModalOpen: (modalOpen: boolean) => void;
+  setCreateFolderModalOpen: (modalOpen: boolean) => void;
 }) {
   const fileTicked = (file: ClientFile) => {
     // check just the path and type, not other metadata
@@ -51,6 +56,20 @@ export default function FileList({
   const [contextMenuCoords, setContextMenuCoords] = useState({x: 0, y: 0});
   const [contextMenuFile, setContextMenuFile] = useState({});
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
+  const [contextMenuDimensions, setContextMenuDimensions] = useState({ height: 0, width: 0})
+  const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
+
+  useEffect(() => {
+    if (contextMenuRef.current !== null) {
+      setContextMenuDimensions({ height: contextMenuRef.current.offsetHeight, width: contextMenuRef.current.offsetWidth })
+    }
+  }, [contextMenuRef]);
+
+  useEffect(() => {
+    if (boundingDivRef.current !== null) {
+      setBoundingDivDimensions({ height: boundingDivRef.current.offsetHeight, width: boundingDivRef.current.offsetWidth })
+    }
+  }, [boundingDivRef]);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -70,6 +89,12 @@ export default function FileList({
   useEffect(() => {
     const onResize = () => {
       setAbsCoords({x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY });
+      if (contextMenuRef.current !== null) {
+        setContextMenuDimensions({ height: contextMenuRef.current.offsetHeight, width: contextMenuRef.current.offsetWidth })
+      }
+      if (boundingDivRef.current !== null) {
+        setBoundingDivDimensions({ height: boundingDivRef.current.offsetHeight, width: boundingDivRef.current.offsetWidth })
+      }
     }
 
     setAbsCoords({x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY });
@@ -87,20 +112,47 @@ export default function FileList({
         setShowContextMenu(false)
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("mousedown", handleClickOutside);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
   
 
+  const calculateStartMenuCoords = () => {
+    let x = null;
+    let y = null;
+    if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width) {
+      x = mousePos.x - contextMenuDimensions.width;
+      console.log(x)
+    } else {
+      x = mousePos.x
+    }
+    console.log(boundingDivDimensions.height)
+    if (mousePos.y + contextMenuDimensions.height > boundingDivDimensions.height) {
+      y = boundingDivDimensions.height - contextMenuDimensions.height - 10
+      console.log(y)
+    } else {
+      y = mousePos.y
+    }
+    setContextMenuCoords({ x, y })
+    
+  }
 
   const fileTreeEntryClassName =
     'flex flex-row items-center gap-4 py-2 px-4 text-medium font-medium tracking-medium whitespace-nowrap';
 
   return (
     <div className="flex h-full w-full grow flex-col @container/file-tree" ref={boundingDivRef}>
-      { showContextMenu && <FileContextMenu refProp={contextMenuRef} file={""} coords={contextMenuCoords} /> }
+      { showContextMenu && 
+        <FileContextMenu 
+          ref={contextMenuRef} 
+          file={""} 
+          coords={contextMenuCoords} 
+          setCreateFileModalOpen={setCreateFileModalOpen} 
+          setCreateFolderModalOpen={setCreateFolderModalOpen} 
+        /> 
+      }
       <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">
         {!atTopLevel ? (
           <div
@@ -142,7 +194,7 @@ export default function FileList({
               console.log("The gamer said one thing and one thing only... \"it's gamer time\".`");
               console.log(mousePos)
               setContextMenuFile(file)
-              setContextMenuCoords({ x: mousePos.x, y: mousePos.y })
+              calculateStartMenuCoords()
               setShowContextMenu(true)
             }}
           >

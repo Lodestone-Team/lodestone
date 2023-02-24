@@ -47,8 +47,8 @@ import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
 import ConfirmDialog from '../Atoms/ConfirmDialog';
 import FileList from './FileList';
-import CreateFileForm from './CreateFileForm';
-import CreateFolderForm from './CreateFolderForm';
+import CreateFileModal from './CreateFileModal';
+import CreateFolderModal from './CreateFolderModal';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
@@ -243,52 +243,20 @@ export default function FileViewer() {
     </svg>
   );
 
-  const createFileModal = (
-    <Dialog
-      open={createFileModalOpen}
-      onClose={() => setCreateFileModalOpen(false)}
-    >
-      <div className="fixed inset-0 bg-[#000]/80" />
-      <div className="fixed inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-            <CreateFileForm
-              onCancel={() => setCreateFileModalOpen(false)}
-              onSuccess={() => setCreateFileModalOpen(false)}
-              path={path}
-              fileList={fileList}
-            />
-          </Dialog.Panel>
-        </div>
-      </div>
-    </Dialog>
-  );
-
-  const createFolderModal = (
-    <Dialog
-      open={createFolderModalOpen}
-      onClose={() => setCreateFolderModalOpen(false)}
-    >
-      <div className="fixed inset-0 bg-[#000]/80" />
-      <div className="fixed inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-            <CreateFolderForm
-              onCancel={() => setCreateFolderModalOpen(false)}
-              onSuccess={() => setCreateFolderModalOpen(false)}
-              path={path}
-              fileList={fileList}
-            />
-          </Dialog.Panel>
-        </div>
-      </div>
-    </Dialog>
-  );
-
   return (
     <>
-      {createFileModal}
-      {createFolderModal}
+      <CreateFolderModal 
+        setModalOpen={setCreateFolderModalOpen}
+        modalOpen={createFolderModalOpen}
+        path={path}
+        fileList={fileList}
+      />
+      <CreateFileModal 
+        setModalOpen={setCreateFileModalOpen}
+        modalOpen={createFileModalOpen}
+        path={path}
+        fileList={fileList}
+      />
       <ConfirmDialog
         isOpen={deleteFileModalOpen}
         onClose={() => setDeleteFileModalOpen(false)}
@@ -540,6 +508,8 @@ export default function FileViewer() {
                     setOpenedFile(file);
                   }
                 }}
+                setCreateFileModalOpen={setCreateFileModalOpen}
+                setCreateFolderModalOpen={setCreateFolderModalOpen}
               />
             </ResizePanel>
             {openedFile && (

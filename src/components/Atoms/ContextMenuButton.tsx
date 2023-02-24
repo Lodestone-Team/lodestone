@@ -64,6 +64,7 @@ const buttonClasses = cva(
 
 export interface ButtonProps extends VariantProps<typeof buttonClasses> {
   label: string;
+  subLabel?: string,
   disabled?: boolean;
   loading?: boolean;
   className?: string;
@@ -77,10 +78,11 @@ export interface ButtonProps extends VariantProps<typeof buttonClasses> {
 }
 
 // A styled button component
-const Button = forwardRef(
+const ContextMenuButton = forwardRef(
   (
     {
       label,
+      subLabel,
       disabled = false,
       loading = false,
       align,
@@ -89,8 +91,6 @@ const Button = forwardRef(
       variant,
       className,
       iconComponent,
-      icon,
-      iconRight,
       type = 'button',
       ...props
     }: ButtonProps,
@@ -107,25 +107,23 @@ const Button = forwardRef(
         type={type}
         {...props}
       >
-        {iconComponent}
-        {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
         <div className={`flex grow items-center truncate`}>
-          {loading && (
-            <BeatLoader size={5} color="#6b7280" className="absolute" />
-          )}
-          <span className={clsx(loading && 'opacity-0') + 'truncate'}>
+          <span className={clsx(loading && 'opacity-0') + 'truncate text-gray-300'}>
             {label}
           </span>
+          {subLabel &&
+            
+            <span className="ml-auto mr-0 text-small font-medium text-gray-300 opacity-50 group-hover:opacity-100">
+              {subLabel}
+            </span> 
+          }
         </div>
-
-        {iconRight && (
-          <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />
-        )}
+        {iconComponent}
       </button>
     );
   }
 );
 
-Button.displayName = 'Button';
+ContextMenuButton.displayName = 'ContextMenuButton';
 
-export default Button;
+export default ContextMenuButton;
