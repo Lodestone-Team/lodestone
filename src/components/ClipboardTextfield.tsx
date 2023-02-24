@@ -32,12 +32,12 @@ export default function ClipboardTextfield({
         onClick={onClickCopy}
       >
         <div className={`select-none`}>
-          <FontAwesomeIcon
-            className={`mr-2 text-gray-faded/30 group-hover:text-gray-500`}
-            icon={faClone}
-          />
           {/* TODO develop custom tooltip component */}
           {text}&nbsp;&nbsp;
+          <FontAwesomeIcon
+            className={`mr-2 text-blue-faded/25 group-hover:text-blue-150`}
+            icon={faClone}
+          />
         </div>
       </div>
     </Tooltip>
