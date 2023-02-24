@@ -1,8 +1,12 @@
+import { 
+  MinecraftPerformanceCard,
+  MinecraftPlayerList,
+  MinecraftGeneralCard,
+  MinecraftSettingCard
+} from 'components/Minecraft';
+
 import GameConsole from 'components/GameConsole';
-import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
-import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import FileViewer from 'components/FileViewer';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
@@ -15,6 +19,8 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 
+import Dashboard from 'pages/dashboard';
+
 const InstanceTabListMap = {
   minecraft: [
     {
@@ -24,8 +30,9 @@ const InstanceTabListMap = {
       icon: <FontAwesomeIcon icon={faChartLine} />,
       content: (
         <>
-          <p>Work in Progress</p>
           <MinecraftPerformanceCard />
+          <MinecraftPlayerList />
+          {/* <Dashboard></Dashboard> */}
         </>
       ),
     },
