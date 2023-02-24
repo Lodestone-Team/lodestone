@@ -2,7 +2,7 @@ import clsx from 'clsx';
 
 export type LabelSize = 'small' | 'medium' | 'large';
 
-export type LabelColor = 'green' | 'yellow' | 'red' | 'gray';
+export type LabelColor = 'green' | 'yellow' | 'red' | 'gray' | 'blue';
 
 export default function Label({
   size = 'small',
@@ -28,6 +28,7 @@ export default function Label({
         }[size],
         {
           green: 'bg-green-faded/25 text-green',
+          blue: 'bg-blue-faded/25 text-blue-150',
           yellow: 'bg-yellow-faded/25 text-yellow',
           red: 'bg-red-faded/25 text-red',
           gray: 'bg-gray-faded/30 text-gray-300',

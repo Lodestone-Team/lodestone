@@ -2,9 +2,9 @@ import GameConsole from 'components/GameConsole';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import FileViewer from 'components/FileViewer';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
 
 import {
   faChartLine,
@@ -21,7 +21,7 @@ const InstanceTabListMap = {
       title: 'Overview',
       path: 'overview',
       icon: <FontAwesomeIcon icon={faChartLine} />,
-      content: <MinecraftPerformanceCard />,
+      content: <MinecraftOverview/>,
     },
     {
       title: 'Settings',
