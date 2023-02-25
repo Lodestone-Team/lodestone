@@ -88,7 +88,7 @@ const MinecraftOverview = () => {
               Player Count {instance.player_count}/{instance.max_player_count}
             </Label>
             <Label size="large" color={'blue'}>
-              <ClipboardTextfield text={`${domain}:${instance.port}`} color='blue' />
+              <ClipboardTextfield text={`${domain}:${instance.port}`} color='blue' iconLeft={false} />
             </Label>
           </div>
         </div>
