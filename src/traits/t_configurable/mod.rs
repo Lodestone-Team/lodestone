@@ -19,6 +19,7 @@ use crate::types::InstanceUuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
 #[enum_kind(GameType, derive(Serialize, Deserialize, TS))]
+#[ts(export)]
 pub enum InstanceGameType {
     MinecraftVanilla,
     MinecraftForge,
