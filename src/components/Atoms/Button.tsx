@@ -4,7 +4,7 @@ import { DOMAttributes, forwardRef } from 'react';
 import clsx from 'clsx';
 import { BeatLoader } from 'react-spinners';
 import { cva, VariantProps } from 'class-variance-authority';
-import { myTwMerge } from 'utils/util';
+import { cn, myTwMerge } from 'utils/util';
 
 const buttonClasses = cva(
   [
@@ -72,6 +72,7 @@ export interface ButtonProps extends VariantProps<typeof buttonClasses> {
   iconComponent?: React.ReactNode;
   icon?: IconDefinition;
   iconRight?: IconDefinition;
+  labelGrow?: boolean;
   form?: string;
   value?: string;
 }
@@ -91,6 +92,7 @@ const Button = forwardRef(
       iconComponent,
       icon,
       iconRight,
+      labelGrow = false,
       type = 'button',
       ...props
     }: ButtonProps,
@@ -109,7 +111,10 @@ const Button = forwardRef(
       >
         {iconComponent}
         {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
-        <div className="flex grow items-center truncate">
+        <div
+          className={cn('flex items-center truncate', labelGrow && 'grow')}
+          style={{ justifyContent: 'inherit' }}
+        >
           <div className="relative h-fit w-fit truncate">
             {loading && (
               <BeatLoader

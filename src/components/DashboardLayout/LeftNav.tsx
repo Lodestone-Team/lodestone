@@ -5,7 +5,7 @@ import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
 import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
-import UserMenu from 'components/Atoms/UserMenu';
+import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 export default function LeftNav({ className }: { className?: string }) {
@@ -63,6 +63,7 @@ export default function LeftNav({ className }: { className?: string }) {
                 icon={faSquarePlus}
                 disabled={!canCreateInstance}
                 onClick={() => setShowCreateInstance(true)}
+                align="start"
               />
             </div>
           </InstanceList>

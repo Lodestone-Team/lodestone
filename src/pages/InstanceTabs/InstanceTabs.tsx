@@ -4,7 +4,7 @@ import { useDocumentTitle } from 'usehooks-ts';
 import { useLocation } from 'react-router-dom';
 import InstanceTabListMap from '../../data/InstanceTabListMap';
 import Label from 'components/Atoms/Label';
-import { stateToLabelColor } from 'utils/util';
+import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -44,9 +44,47 @@ const InstanceTabs = () => {
       );
     }
   }
+
+  const tabs = InstanceTabListMap[instance.game_type];
+  if (!tabs) {
+    return (
+      <div
+        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+        key={uuid}
+      >
+        <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
+          <div className="flex min-w-0 flex-row items-center gap-4">
+            <h1 className="dashboard-instance-heading truncate whitespace-pre">
+              Unknown game type {instance.game_type}
+            </h1>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const tab = tabs.find((tab) => tab.path === path);
+
+  if (!tab) {
+    return (
+      <div
+        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+        key={uuid}
+      >
+        <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
+          <div className="flex min-w-0 flex-row items-center gap-4">
+            <h1 className="dashboard-instance-heading truncate whitespace-pre">
+              Unknown tab {path}
+            </h1>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="relative mx-auto flex h-full w-full max-w-4xl flex-row justify-center @container"
+      className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
       key={uuid}
     >
       {InstanceTabListMap[instance.game_type].map(

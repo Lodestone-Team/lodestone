@@ -32,7 +32,7 @@ export default function NotificationCard({
   state,
   title = '',
   message = '',
-  progress_percent,
+  progress_percent = 0,
   timestamp,
 }: {
   level: EventLevel;
@@ -42,6 +42,8 @@ export default function NotificationCard({
   progress_percent?: number; // progress in percentage
   timestamp: number;
 }) {
+  progress_percent = Math.min(0.99, progress_percent); // Prevents the progress bar from being full when the instance is still loading
+
   return (
     <div className="overflow-hidden rounded-md bg-gray-900">
       <div
@@ -64,7 +66,7 @@ export default function NotificationCard({
       </div>
       {state && state !== 'done' ? (
         <ProgressBar
-          progress_percent={progress_percent ?? 0}
+          progress_percent={progress_percent}
           colorClass={NotificationLevelToBgColorClass(level, state)}
         />
       ) : (

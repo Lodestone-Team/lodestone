@@ -402,9 +402,9 @@ dependencies = [
 
 [[package]]
 name = "axum-server"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b3e3ae7fec8d93a4418a2e707ba0ab567bf80bc1592fd44c71a1fd0cd2d90a5"
+checksum = "25e4a990e1593e286b1b96e6df76da9dbcb84945a810287ca8101f1a4f000f61"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -3506,7 +3506,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone-client"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "lodestone_core",
  "portpicker",
@@ -3521,7 +3521,7 @@ dependencies = [
 [[package]]
 name = "lodestone_core"
 version = "0.4.2"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#7122dbc885427abbb6c5f731d233c4e858d28305"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=main#fe8d77541201a6afc224e03789e01096e8b4eaf0"
 dependencies = [
  "ansi_term",
  "argon2",

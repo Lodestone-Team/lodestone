@@ -206,7 +206,7 @@ export default function MinecraftSettingCard() {
           })
             .then(() => {
               queryClient.invalidateQueries(['instances', 'list']);
-              selectInstance(undefined);
+              selectInstance(null);
             })
             .catch((err) => {
               const err_message = errorToString(err);
@@ -224,7 +224,7 @@ export default function MinecraftSettingCard() {
         Please backup any important data before proceeding.
       </ConfirmDialog>
       <div className="flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-72 shrink-0">
+        <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium">
             General Game Settings
           </h2>
@@ -261,12 +261,12 @@ export default function MinecraftSettingCard() {
         </div>
       </div>
       <div className="flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-72 shrink-0">
+        <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium">
             Advanced Game Settings
           </h2>
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-            Less commoningly used Minecraft world settings
+            Less commonly used Minecraft world settings
           </h3>
         </div>
         <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
@@ -298,7 +298,7 @@ export default function MinecraftSettingCard() {
         </div>
       </div>
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-72 shrink-0">
+        <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
             These settings can cause irreversible damage to your server!
