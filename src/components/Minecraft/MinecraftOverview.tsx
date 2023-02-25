@@ -65,7 +65,7 @@ const MinecraftOverview = () => {
         key={uuid}
       >
         {/* main content container */}
-        <div className="flex w-full grow flex-col items-stretch gap-2 px-4 ">
+        <div className="flex w-full grow flex-col items-stretch gap-2 ">
           <div className="flex w-full min-w-0 flex-row items-center gap-4">
             <EditableTextfield
               initialText={instance.name}
@@ -75,7 +75,7 @@ const MinecraftOverview = () => {
               containerClassName="min-w-0"
             />
           </div>
-          <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
+          <div className="-mt-2 mb-2 flex flex-row flex-wrap items-center gap-4">
             <GameIcon
               game_type={instance.game_type}
               game_flavour={instance.flavour}
@@ -88,12 +88,11 @@ const MinecraftOverview = () => {
               Player Count {instance.player_count}/{instance.max_player_count}
             </Label>
             <Label size="large" color={'blue'}>
-              <ClipboardTextfield text={`${domain}:${instance.port}`} />
+              <ClipboardTextfield text={`${domain}:${instance.port}`} color='blue' />
             </Label>
           </div>
         </div>
       </div>
-      <MinecraftPerformanceCard />
     </>
   );
 };

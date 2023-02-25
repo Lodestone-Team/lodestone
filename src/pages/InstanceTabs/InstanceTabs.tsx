@@ -58,7 +58,7 @@ const InstanceTabs = () => {
             >
               <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
                 <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-                  {tab.title}
+                  {tab.displayTitle}
                   {tab.title === 'Console' && (
                     <Label
                       size="medium"
