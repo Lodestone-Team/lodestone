@@ -1,23 +1,54 @@
 pub mod manifest;
 
-use std::collections::BTreeMap;
-use std::collections::HashMap;
 pub use std::path::PathBuf;
 
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
+use enum_kinds::EnumKind;
 pub use serde::{Deserialize, Serialize};
 pub use serde_json;
 use ts_rs::TS;
 
+use self::manifest::ConfigurableManifest;
+use self::manifest::ConfigurableValue;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::traits::GameInstance;
 use crate::traits::MinecraftInstance;
 use crate::types::InstanceUuid;
 
-use self::manifest::ConfigurableManifest;
-use self::manifest::ConfigurableValue;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
+#[enum_kind(GameType, derive(Serialize, Deserialize, TS))]
+pub enum InstanceGameType {
+    MinecraftVanilla,
+    MinecraftForge,
+    MinecraftFabric,
+    MinecraftPaper,
+    MinecraftSpigot,
+    MinecraftBedrock,
+    Generic { game: String, game_type: GameType },
+}
+
+impl InstanceGameType {
+    pub fn is_minecraft(&self) -> bool {
+        match self {
+            InstanceGameType::MinecraftVanilla => true,
+            InstanceGameType::MinecraftForge => true,
+            InstanceGameType::MinecraftFabric => true,
+            InstanceGameType::MinecraftPaper => true,
+            InstanceGameType::MinecraftSpigot => true,
+            InstanceGameType::MinecraftBedrock => true,
+            InstanceGameType::Generic { game: _, game_type } => {
+                game_type == &GameType::MinecraftVanilla
+                    || game_type == &GameType::MinecraftForge
+                    || game_type == &GameType::MinecraftFabric
+                    || game_type == &GameType::MinecraftPaper
+                    || game_type == &GameType::MinecraftSpigot
+                    || game_type == &GameType::MinecraftBedrock
+            }
+        }
+    }
+}
 
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
@@ -26,12 +57,10 @@ pub trait TConfigurable {
     async fn uuid(&self) -> InstanceUuid;
     async fn name(&self) -> String;
     async fn flavour(&self) -> String;
-    async fn game_type(&self) -> String;
+    async fn game_type(&self) -> InstanceGameType;
     async fn cmd_args(&self) -> Vec<String>;
     async fn description(&self) -> String;
     async fn port(&self) -> u32;
-    async fn min_ram(&self) -> Result<u32, Error>;
-    async fn max_ram(&self) -> Result<u32, Error>;
     async fn creation_time(&self) -> i64;
     async fn path(&self) -> PathBuf;
     /// does start when lodestone starts
@@ -50,24 +79,6 @@ pub trait TConfigurable {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support setting port"),
-        })
-    }
-    async fn set_cmd_args(&mut self, _cmd_args: Vec<String>) -> Result<(), Error> {
-        Err(Error {
-            kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting cmd args"),
-        })
-    }
-    async fn set_min_ram(&mut self, _min_ram: u32) -> Result<(), Error> {
-        Err(Error {
-            kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting ram"),
-        })
-    }
-    async fn set_max_ram(&mut self, _max_ram: u32) -> Result<(), Error> {
-        Err(Error {
-            kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting ram"),
         })
     }
     async fn set_auto_start(&mut self, _auto_start: bool) -> Result<(), Error> {
@@ -89,18 +100,12 @@ pub trait TConfigurable {
         })
     }
 
-    // server config files (server.properties)
-    async fn set_field(&mut self, field: &str, value: String) -> Result<(), Error>;
-    async fn get_field(&self, field: &str) -> Result<String, Error>;
-
     async fn change_version(&mut self, _version: String) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support changing version"),
         })
     }
-
-    async fn settings(&self) -> Result<HashMap<String, String>, Error>;
 
     async fn configurable_manifest(&self) -> ConfigurableManifest;
 

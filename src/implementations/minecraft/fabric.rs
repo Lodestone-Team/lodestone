@@ -5,7 +5,7 @@ use ts_rs::TS;
 
 use crate::error::Error;
 
-use super::versions::{MinecraftVersions, group_minecraft_versions};
+
 
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
@@ -60,13 +60,15 @@ pub async fn get_fabric_minecraft_versions() -> Result<Vec<String>, Error> {
         .as_array()
         .ok_or_else(|| eyre!("Failed to get fabric versions. Game array is not an array"))?
         .iter()
-        .map( |item|
-            item["version"].as_str().ok_or_else(|| {
-                eyre!("Failed to get fabric versions. Version string is not a string").into()
-            }).map(|version| version.to_string())
-        )
+        .map(|item| {
+            item["version"]
+                .as_str()
+                .ok_or_else(|| {
+                    eyre!("Failed to get fabric versions. Version string is not a string").into()
+                })
+                .map(|version| version.to_string())
+        })
         .collect::<Result<Vec<String>, Error>>() // Rust converts Vec<Result<&str, Error>> to Result<Vec<&str>, Error>
-    
 }
 
 pub async fn get_fabric_installer_versions() -> Result<Vec<String>, Error> {
@@ -88,13 +90,14 @@ pub async fn get_fabric_installer_versions() -> Result<Vec<String>, Error> {
         .as_array()
         .ok_or_else(|| eyre!("Failed to get fabric installer versions. Response is not an array"))?
         .iter()
-        .map( |item|
+        .map(|item| {
             item["version"].as_str().ok_or_else(|| {
-                eyre!("Failed to get fabric installer versions. Version string is not a string").into()
+                eyre!("Failed to get fabric installer versions. Version string is not a string")
+                    .into()
             })
-        )
+        })
         .collect::<Result<Vec<&str>, Error>>()?; // Rust converts Vec<Result<&str, Error>> to Result<Vec<&str>, Error>
-    
+
     Ok(versions.iter().map(|version| version.to_string()).collect())
 }
 
@@ -117,13 +120,13 @@ pub async fn get_fabric_loader_versions() -> Result<Vec<String>, Error> {
         .as_array()
         .ok_or_else(|| eyre!("Failed to get fabric loader versions. Response is not an array"))?
         .iter()
-        .map( |item|
+        .map(|item| {
             item["version"].as_str().ok_or_else(|| {
                 eyre!("Failed to get fabric loader versions. Version string is not a string").into()
             })
-        )
+        })
         .collect::<Result<Vec<&str>, Error>>()?; // Rust converts Vec<Result<&str, Error>> to Result<Vec<&str>, Error>
-    
+
     Ok(versions.iter().map(|version| version.to_string()).collect())
 }
 

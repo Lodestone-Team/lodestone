@@ -10,6 +10,8 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type", content = "value")]
 pub enum ConfigurableValue {
     String(String),
     Integer(i32),
@@ -19,9 +21,11 @@ pub enum ConfigurableValue {
     Enum(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[serde(tag = "type")]
+#[ts(export)]
 pub enum ConfigurableValueType {
-    String(Option<String>), // regex
+    String { regex: Option<String> }, // regex
     Integer { min: Option<i32>, max: Option<i32> },
     UnsignedInteger { min: Option<u32>, max: Option<u32> },
     Float { min: Option<f32>, max: Option<f32> },
@@ -32,7 +36,7 @@ pub enum ConfigurableValueType {
 impl ToString for ConfigurableValueType {
     fn to_string(&self) -> String {
         match self {
-            ConfigurableValueType::String(_) => "string".to_string(),
+            ConfigurableValueType::String { .. } => "string".to_string(),
             ConfigurableValueType::Integer { .. } => "integer".to_string(),
             ConfigurableValueType::UnsignedInteger { .. } => "unsigned integer".to_string(),
             ConfigurableValueType::Float { .. } => "float".to_string(),
@@ -45,7 +49,7 @@ impl ToString for ConfigurableValueType {
 impl ConfigurableValueType {
     pub fn type_check(&self, value: &ConfigurableValue) -> Result<(), Error> {
         match (self, value) {
-            (ConfigurableValueType::String(regex), ConfigurableValue::String(value)) => {
+            (ConfigurableValueType::String { regex }, ConfigurableValue::String(value)) => {
                 if let Some(regex) = regex {
                     if let Ok(regex) = fancy_regex::Regex::new(regex) {
                         if let Ok(true) = regex.is_match(value) {
@@ -161,7 +165,7 @@ impl ToString for ConfigurableValue {
 impl ConfigurableValue {
     pub fn infer_type(&self) -> ConfigurableValueType {
         match self {
-            ConfigurableValue::String(_) => ConfigurableValueType::String(None),
+            ConfigurableValue::String(_) => ConfigurableValueType::String { regex: None },
             ConfigurableValue::Integer(_) => ConfigurableValueType::Integer {
                 min: None,
                 max: None,
@@ -245,17 +249,18 @@ impl ConfigurableValue {
 
 // A SettingManifest contains a unique identifier, a name and a description
 // and a value
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SettingManifest {
-    pub setting_id: String, // static, cannot change at runtime
-    pub name: String,
-    pub description: String,
-    pub value: Option<ConfigurableValue>,
-    pub value_type: ConfigurableValueType,
-    pub default_value: Option<ConfigurableValue>, // static, cannot change at runtime
-    pub is_secret: bool,                          // ??
-    pub is_required: bool,                        // ??
-    pub is_mutable: bool,                         // CAN change at runtime
+    setting_id: String, // static, cannot change at runtime
+    name: String,
+    description: String,
+    value: Option<ConfigurableValue>,
+    value_type: ConfigurableValueType,
+    default_value: Option<ConfigurableValue>, // static, cannot change at runtime
+    is_secret: bool,                          // ??
+    is_required: bool,                        // ??
+    is_mutable: bool,                         // CAN change at runtime
 }
 
 impl SettingManifest {
@@ -326,10 +331,12 @@ impl SettingManifest {
         default_value: Option<ConfigurableValue>,
         is_secret: bool,
         is_mutable: bool,
-    ) -> Result<Self, Error> {
+    ) -> Self {
         if let Some(value) = value {
-            value_type.type_check(&value)?;
-            Ok(Self {
+            value_type
+                .type_check(&value)
+                .expect("Programmer error, value does not match type");
+            Self {
                 setting_id,
                 name,
                 description,
@@ -339,9 +346,9 @@ impl SettingManifest {
                 is_secret,
                 is_required: true,
                 is_mutable,
-            })
+            }
         } else {
-            Ok(Self {
+            Self {
                 setting_id,
                 name,
                 description,
@@ -351,9 +358,8 @@ impl SettingManifest {
                 default_value,
                 is_secret,
                 is_mutable,
-            })
+            }
         }
-        
     }
 
     fn set_value_type_safe(&mut self, value: ConfigurableValue) -> Result<(), Error> {
@@ -401,7 +407,8 @@ impl SettingManifest {
 
 // A Setting section contains a name and a description (for UI)
 // A Setting section contains a list of InstanceSetting
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SectionManifest {
     pub(super) section_id: String,
     pub(super) name: String,
@@ -477,11 +484,11 @@ impl SectionManifest {
 
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ConfigurableManifest {
     auto_start: bool,
     restart_on_crash: bool,
     start_on_connection: bool,
-    timeout_last_left: bool,
     setting_sections: BTreeMap<String, SectionManifest>,
 }
 
@@ -490,14 +497,12 @@ impl ConfigurableManifest {
         auto_start: bool,
         restart_on_crash: bool,
         start_on_connection: bool,
-        timeout_last_left: bool,
         setting_sections: BTreeMap<String, SectionManifest>,
     ) -> Self {
         Self {
             auto_start,
             restart_on_crash,
             start_on_connection,
-            timeout_last_left,
             setting_sections,
         }
     }
@@ -508,6 +513,40 @@ impl ConfigurableManifest {
         } else {
             None
         }
+    }
+
+    /// Returns the setting manifest for the first setting with the given key.
+    ///
+    /// The caller must ensure that the key is unique across all sections.
+    pub fn get_unique_setting_key(&self, setting_id: &str) -> Option<&SettingManifest> {
+        for section in self.setting_sections.values() {
+            for setting in section.settings.values() {
+                if setting.setting_id == setting_id {
+                    return Some(setting);
+                }
+            }
+        }
+        None
+    }
+    /// Sets the value of the first setting with the given key.
+    ///
+    /// The caller must ensure that the key is unique across all sections.
+    pub fn set_unique_setting_key(
+        &mut self,
+        setting_id: &str,
+        value: ConfigurableValue,
+    ) -> Result<(), Error> {
+        for section in self.setting_sections.values_mut() {
+            for setting in section.settings.values_mut() {
+                if setting.setting_id == setting_id {
+                    return setting.set_value(value);
+                }
+            }
+        }
+        Err(Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Setting does not exist"),
+        })
     }
 
     fn get_setting_mut(
@@ -549,7 +588,7 @@ impl ConfigurableManifest {
     pub fn set_setting(
         &mut self,
         section_id: &str,
-        setting_id: &str,
+        _setting_id: &str,
         setting: SettingManifest,
     ) -> Result<(), Error> {
         if let Some(section) = self.setting_sections.get_mut(section_id) {
@@ -594,12 +633,20 @@ impl ConfigurableManifest {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SettingManifestValue {
     pub(super) value: Option<ConfigurableValue>,
 }
 
-#[derive(Clone)]
+impl SettingManifestValue {
+    pub fn get_value(&self) -> Option<&ConfigurableValue> {
+        self.value.as_ref()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SectionManifestValue {
     pub(super) settings: BTreeMap<String, SettingManifestValue>,
 }
@@ -610,8 +657,12 @@ impl SectionManifestValue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ManifestValue {
+    auto_start: bool,
+    restart_on_crash: bool,
+    start_on_connection: bool,
     pub(super) setting_sections: BTreeMap<String, SectionManifestValue>,
 }
 
@@ -622,6 +673,29 @@ impl ManifestValue {
         } else {
             None
         }
+    }
+
+    pub fn get_auto_start(&self) -> bool {
+        self.auto_start
+    }
+
+    pub fn get_restart_on_crash(&self) -> bool {
+        self.restart_on_crash
+    }
+
+    pub fn get_start_on_connection(&self) -> bool {
+        self.start_on_connection
+    }
+
+    pub fn get_unique_setting(&self, setting_id: &str) -> Option<&SettingManifestValue> {
+        for section in self.setting_sections.values() {
+            for (id, setting) in section.settings.iter() {
+                if id == setting_id {
+                    return Some(setting);
+                }
+            }
+        }
+        None
     }
 
     pub fn get_section(&self, section_id: &str) -> Option<&SectionManifestValue> {
@@ -665,7 +739,7 @@ impl SectionManifest {
 }
 
 impl ConfigurableManifest {
-    pub fn validate_manifest(&self, value: &ManifestValue) -> Result<(), Error> {
+    pub fn validate_manifest_value(&self, value: &ManifestValue) -> Result<(), Error> {
         for (section_id, section_value) in value.setting_sections.iter() {
             if let Some(section) = self.setting_sections.get(section_id) {
                 section.validate_section(section_value)?;

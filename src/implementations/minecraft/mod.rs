@@ -1,20 +1,19 @@
 pub mod configurable;
+pub mod fabric;
+mod forge;
 pub mod r#macro;
-pub mod manifest;
+mod paper;
 pub mod player;
 mod players_manager;
 pub mod resource;
 pub mod server;
 pub mod util;
-pub mod versions;
-mod mirgration;
-pub mod fabric;
-mod paper;
 mod vanilla;
-mod forge;
+pub mod versions;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use std::collections::{BTreeMap, HashMap};
+use enum_kinds::EnumKind;
+use std::collections::{BTreeMap};
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -41,19 +40,24 @@ use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
-    ConfigurableManifest, SectionManifest, SettingManifest,
+    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, ManifestValue, SectionManifest,
+    SettingManifest,
 };
 
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
-use crate::types::{InstanceUuid, Snowflake};
+use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::util::{
     dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
 };
 
 use self::configurable::{CmdArgSetting, ServerPropertySetting};
+use self::fabric::get_fabric_minecraft_versions;
+use self::forge::get_forge_minecraft_versions;
+use self::paper::get_paper_minecraft_versions;
 use self::players_manager::PlayersManager;
 use self::util::{get_jre_url, get_server_jar_url, read_properties_from_path};
+use self::vanilla::get_vanilla_minecraft_versions;
 
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
@@ -68,9 +72,10 @@ pub struct PaperBuildVersion(i64);
 #[ts(export)]
 pub struct ForgeBuildVersion(String);
 
-#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq, EnumKind)]
 #[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
 #[ts(export)]
+#[enum_kind(FlavourKind, derive(Serialize, Deserialize, TS))]
 pub enum Flavour {
     Vanilla,
     Fabric {
@@ -84,6 +89,23 @@ pub enum Flavour {
     Forge {
         build_version: Option<ForgeBuildVersion>,
     },
+}
+
+impl From<FlavourKind> for Flavour {
+    fn from(kind: FlavourKind) -> Self {
+        match kind {
+            FlavourKind::Vanilla => Flavour::Vanilla,
+            FlavourKind::Fabric => Flavour::Fabric {
+                loader_version: None,
+                installer_version: None,
+            },
+            FlavourKind::Paper => Flavour::Paper { build_version: None },
+            FlavourKind::Spigot => Flavour::Spigot,
+            FlavourKind::Forge => Flavour::Forge {
+                build_version: None,
+            },
+        }
+    }
 }
 
 impl ToString for Flavour {
@@ -104,14 +126,12 @@ pub struct SetupConfig {
     pub version: String,
     pub flavour: Flavour,
     pub port: u32,
-    pub cmd_args: Option<Vec<String>>,
+    pub cmd_args: Vec<String>,
     pub description: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
     pub restart_on_crash: Option<bool>,
-    pub timeout_last_left: Option<u32>,
-    pub timeout_no_activity: Option<u32>,
     pub start_on_connection: Option<bool>,
     pub backup_period: Option<u32>,
 }
@@ -139,7 +159,7 @@ pub struct MinecraftInstance {
     state: Arc<Mutex<State>>,
     event_broadcaster: Sender<Event>,
     // file paths
-    path_to_instance : PathBuf,
+    path_to_instance: PathBuf,
     path_to_config: PathBuf,
     path_to_properties: PathBuf,
 
@@ -156,7 +176,7 @@ pub struct MinecraftInstance {
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
-    server_properties_buffer: Arc<Mutex<HashMap<String, String>>>,
+    pub(super) server_properties_buffer: Arc<Mutex<BTreeMap<String, String>>>,
     configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
@@ -171,10 +191,225 @@ enum BackupInstruction {
     Resume,
 }
 
+#[tokio::test]
+async fn test_setup_manifest() {
+    let manifest = MinecraftInstance::setup_manifest(&FlavourKind::Fabric)
+        .await
+        .unwrap();
+    let manifest_json_string = serde_json::to_string_pretty(&manifest).unwrap();
+    println!("{manifest_json_string}");
+}
+
 impl MinecraftInstance {
+    pub async fn setup_manifest(flavour: &FlavourKind) -> Result<ConfigurableManifest, Error> {
+        let versions = match flavour {
+            FlavourKind::Vanilla => get_vanilla_minecraft_versions().await,
+            FlavourKind::Fabric => get_fabric_minecraft_versions().await,
+            FlavourKind::Paper => get_paper_minecraft_versions().await,
+            FlavourKind::Spigot => todo!(),
+            FlavourKind::Forge => get_forge_minecraft_versions().await,
+        }
+        .context("Failed to get minecraft versions")?;
+
+        let name_setting = SettingManifest::new_required_value(
+            "name".to_string(),
+            "Server Name".to_string(),
+            "The name of the server instance".to_string(),
+            ConfigurableValue::String("Minecraft Server".to_string()),
+            None,
+            false,
+            true,
+        );
+
+        let description_setting = SettingManifest::new_optional_value(
+            "description".to_string(),
+            "Description".to_string(),
+            "A description of the server instance".to_string(),
+            None,
+            ConfigurableValueType::String { regex: None },
+            None,
+            false,
+            true,
+        );
+
+        let version_setting = SettingManifest::new_value_with_type(
+            "version".to_string(),
+            "Version".to_string(),
+            "The version of minecraft to use".to_string(),
+            Some(ConfigurableValue::Enum(versions.first().unwrap().clone())),
+            ConfigurableValueType::Enum { options: versions },
+            None,
+            false,
+            true,
+        );
+
+        let port_setting = SettingManifest::new_value_with_type(
+            "port".to_string(),
+            "Port".to_string(),
+            "The port to run the server on".to_string(),
+            Some(ConfigurableValue::UnsignedInteger(25565)),
+            ConfigurableValueType::UnsignedInteger {
+                min: Some(0),
+                max: Some(65535),
+            },
+            Some(ConfigurableValue::UnsignedInteger(25565)),
+            false,
+            true,
+        );
+
+        let min_ram_setting = SettingManifest::new_required_value(
+            "min_ram".to_string(),
+            "Minimum RAM".to_string(),
+            "The minimum amount of RAM to allocate to the server".to_string(),
+            ConfigurableValue::UnsignedInteger(1024),
+            Some(ConfigurableValue::UnsignedInteger(1024)),
+            false,
+            true,
+        );
+
+        let max_ram_setting = SettingManifest::new_required_value(
+            "max_ram".to_string(),
+            "Maximum RAM".to_string(),
+            "The maximum amount of RAM to allocate to the server".to_string(),
+            ConfigurableValue::UnsignedInteger(2048),
+            Some(ConfigurableValue::UnsignedInteger(2048)),
+            false,
+            true,
+        );
+
+        let command_line_args_setting = SettingManifest::new_optional_value(
+            "cmd_args".to_string(),
+            "Command Line Arguments".to_string(),
+            "Command line arguments to pass to the server".to_string(),
+            Some(ConfigurableValue::String("".to_string())),
+            ConfigurableValueType::String { regex: None },
+            None,
+            false,
+            true,
+        );
+
+        let mut section_1_map = BTreeMap::new();
+        section_1_map.insert("name".to_string(), name_setting);
+        section_1_map.insert("description".to_string(), description_setting);
+
+        section_1_map.insert("version".to_string(), version_setting);
+        section_1_map.insert("port".to_string(), port_setting);
+
+        let mut section_2_map = BTreeMap::new();
+
+        section_2_map.insert("min_ram".to_string(), min_ram_setting);
+
+        section_2_map.insert("max_ram".to_string(), max_ram_setting);
+
+        section_2_map.insert("cmd_args".to_string(), command_line_args_setting);
+
+        let section_1 = SectionManifest::new(
+            "section_1".to_string(),
+            "Basic Settings".to_string(),
+            "Basic settings for the server.".to_string(),
+            section_1_map,
+        );
+
+        let section_2 = SectionManifest::new(
+            "section_2".to_string(),
+            "Advanced Settings".to_string(),
+            "Advanced settings for your minecraft server.".to_string(),
+            section_2_map,
+        );
+
+        let mut sections = BTreeMap::new();
+
+        sections.insert("section_1".to_string(), section_1);
+        sections.insert("section_2".to_string(), section_2);
+
+        Ok(ConfigurableManifest::new(false, false, false, sections))
+    }
+
+    pub async fn construct_setup_config(
+        manifest_value: ManifestValue,
+        _instance_uuid: InstanceUuid,
+        flavour: FlavourKind,
+    ) -> Result<SetupConfig, Error> {
+        Self::setup_manifest(&flavour)
+            .await?
+            .validate_manifest_value(&manifest_value)?;
+
+        // ALL of the following unwraps are safe because we just validated the manifest value
+
+        let name = manifest_value
+            .get_unique_setting("name")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_string()
+            .unwrap();
+        let description = manifest_value
+            .get_unique_setting("description")
+            .unwrap()
+            .get_value()
+            .map(|v| v.try_as_string().unwrap());
+
+        let version = manifest_value
+            .get_unique_setting("version")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_string()
+            .unwrap();
+
+        let port = manifest_value
+            .get_unique_setting("port")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_unsigned_integer()
+            .unwrap();
+
+        let min_ram = manifest_value
+            .get_unique_setting("min_ram")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_unsigned_integer()
+            .unwrap();
+
+        let max_ram = manifest_value
+            .get_unique_setting("max_ram")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_unsigned_integer()
+            .unwrap();
+
+        let cmd_args: Vec<String> = manifest_value
+            .get_unique_setting("cmd_args")
+            .unwrap()
+            .get_value()
+            .map(|v| v.try_as_string().unwrap())
+            .unwrap_or(&"".to_string())
+            .split(' ')
+            .map(|s| s.to_string())
+            .collect();
+
+        Ok(SetupConfig {
+            name: name.clone(),
+            description: description.cloned(),
+            version: version.clone(),
+            port,
+            min_ram: Some(min_ram),
+            max_ram: Some(max_ram),
+            cmd_args,
+            flavour : flavour.into(),
+            auto_start: Some(manifest_value.get_auto_start()),
+            restart_on_crash: Some(manifest_value.get_restart_on_crash()),
+            start_on_connection: Some(manifest_value.get_start_on_connection()),
+            backup_period: None,
+        })
+    }
+
     pub async fn new(
         config: SetupConfig,
-        uuid: InstanceUuid,
+        dot_lodestone_config: DotLodestoneConfig,
         path_to_instance: PathBuf,
         progression_event_id: Snowflake,
         event_broadcaster: Sender<Event>,
@@ -186,6 +421,8 @@ impl MinecraftInstance {
         let path_to_resources = path_to_instance.join("resources");
         let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+
+        let uuid = dot_lodestone_config.uuid().to_owned();
 
         // Step 1: Create Directories
         let _ = event_broadcaster.send(Event {
@@ -441,7 +678,7 @@ impl MinecraftInstance {
             version: config.version,
             flavour,
             description: config.description.unwrap_or_default(),
-            cmd_args: config.cmd_args.unwrap_or_default(),
+            cmd_args: config.cmd_args,
             port: config.port,
             min_ram: config.min_ram.unwrap_or(2048),
             max_ram: config.max_ram.unwrap_or(4096),
@@ -465,8 +702,6 @@ impl MinecraftInstance {
         ))?;
         MinecraftInstance::restore(path_to_instance, uuid, event_broadcaster, macro_executor).await
     }
-
-   
 
     pub async fn restore(
         path_to_instance: PathBuf,
@@ -626,11 +861,11 @@ impl MinecraftInstance {
         );
 
         let configurable_manifest =
-            ConfigurableManifest::new(false, false, false, false, setting_sections);
+            ConfigurableManifest::new(false, false, false, setting_sections);
 
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
-            uuid : instance_uuid.clone(),
+            uuid: instance_uuid.clone(),
             auto_start: Arc::new(AtomicBool::new(restore_config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(restore_config.restart_on_crash)),
             backup_period: restore_config.backup_period,
@@ -648,7 +883,7 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-            server_properties_buffer: Arc::new(Mutex::new(HashMap::new())),
+            server_properties_buffer: Arc::new(Mutex::new(BTreeMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,

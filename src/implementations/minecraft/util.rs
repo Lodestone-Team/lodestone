@@ -1,7 +1,7 @@
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use serde_json::{self, Value};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap},
     path::Path,
     str::FromStr,
 };
@@ -14,7 +14,7 @@ use crate::error::Error;
 
 pub async fn read_properties_from_path(
     path_to_properties: &Path,
-) -> Result<HashMap<String, String>, Error> {
+) -> Result<BTreeMap<String, String>, Error> {
     let properties_file = tokio::fs::File::open(path_to_properties)
         .await
         .context(format!(
@@ -23,7 +23,7 @@ pub async fn read_properties_from_path(
         ))?;
     let buf_reader = tokio::io::BufReader::new(properties_file);
     let mut stream = buf_reader.lines();
-    let mut ret = HashMap::new();
+    let mut ret = BTreeMap::new();
 
     while let Some(line) = stream
         .next_line()

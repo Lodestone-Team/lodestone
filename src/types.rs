@@ -1,6 +1,11 @@
 use std::fmt::Display;
 
-use crate::prelude::SNOWFLAKE_GENERATOR;
+use crate::{
+    implementations::minecraft::Flavour,
+    migration::RestoreConfigV042,
+    prelude::{SNOWFLAKE_GENERATOR, VERSION},
+    traits::t_configurable::InstanceGameType,
+};
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::*;
 use ts_rs::TS;
@@ -93,7 +98,7 @@ impl AsRef<str> for InstanceUuid {
     }
 }
 
-// implement partial eq for all types that can be converted to string
+// implement partial eq for all types that can be converted to stri/ng
 impl<T: AsRef<str>> PartialEq<T> for InstanceUuid {
     fn eq(&self, other: &T) -> bool {
         self.0 == other.as_ref()
@@ -114,27 +119,52 @@ impl Display for InstanceUuid {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GameType {
-    #[serde(rename = "minecraft")] // backward compatibility
-    Minecraft,
-    #[serde(rename = "generic")]
-    Generic,
+pub struct DotLodestoneConfig {
+    game_type: InstanceGameType,
+    uuid: InstanceUuid,
+    creation_time: i64,
+    lodestone_version: String,
 }
 
-impl ToString for GameType {
-    fn to_string(&self) -> String {
-        match self {
-            GameType::Minecraft => "minecraft".to_string(),
-            GameType::Generic => "generic".to_string(),
+impl From<RestoreConfigV042> for DotLodestoneConfig {
+    fn from(config: RestoreConfigV042) -> Self {
+        let game_type = match (config.game_type.as_str(), config.flavour) {
+            ("minecraft", Flavour::Vanilla) => InstanceGameType::MinecraftVanilla,
+            ("minecraft", Flavour::Forge { .. }) => InstanceGameType::MinecraftForge,
+            ("minecraft", Flavour::Fabric { .. }) => InstanceGameType::MinecraftFabric,
+            ("minecraft", Flavour::Paper { .. }) => InstanceGameType::MinecraftPaper,
+            _ => panic!("Unknown game type: {}", config.game_type),
+        };
+        Self {
+            game_type,
+            uuid: config.uuid,
+            creation_time: config.creation_time,
+            lodestone_version: "0.4.3".to_string(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DotLodestoneConfig {
-    pub uuid: InstanceUuid,
-    pub creation_time: i64,
-    pub lodestone_version: String,
+impl DotLodestoneConfig {
+    pub fn new(uuid: InstanceUuid, game_type: InstanceGameType) -> Self {
+        Self {
+            game_type,
+            uuid,
+            creation_time: chrono::Utc::now().timestamp(),
+            lodestone_version: VERSION.with(|v| v.to_string()),
+        }
+    }
+    pub fn uuid(&self) -> &InstanceUuid {
+        &self.uuid
+    }
+    pub fn creation_time(&self) -> i64 {
+        self.creation_time
+    }
+    pub fn lodestone_version(&self) -> &str {
+        &self.lodestone_version
+    }
+    pub fn game_type(&self) -> &InstanceGameType {
+        &self.game_type
+    }
 }
 
 #[test]

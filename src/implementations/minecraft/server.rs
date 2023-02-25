@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap};
 use std::env;
 use std::process::Stdio;
 use std::time::Duration;
@@ -21,7 +21,7 @@ use crate::types::Snowflake;
 use crate::util::dont_spawn_terminal;
 
 use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
-use super::{MinecraftInstance, Flavour, ForgeBuildVersion};
+use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
 use tracing::{debug, error, info, warn};
 
 #[async_trait::async_trait]
@@ -56,7 +56,8 @@ impl TServer for MinecraftInstance {
 
         let prelaunch = resolve_macro_invocation(&self.path_to_macros, "prelaunch", false);
         if let Some(prelaunch) = prelaunch {
-            let _ = self.macro_executor
+            let _ = self
+                .macro_executor
                 .spawn(
                     prelaunch,
                     Vec::new(),
@@ -102,18 +103,28 @@ impl TServer for MinecraftInstance {
 
         let server_start_command = match &self.config.flavour {
             Flavour::Forge { build_version } => {
-                let ForgeBuildVersion(build_version) = build_version.as_ref().ok_or_else(|| eyre!("Forge version not found"))?;
+                let ForgeBuildVersion(build_version) = build_version
+                    .as_ref()
+                    .ok_or_else(|| eyre!("Forge version not found"))?;
                 let forge_args = match std::env::consts::OS {
                     "windows" => "win_args.txt",
-                    _ => "unix_args.txt"
+                    _ => "unix_args.txt",
                 };
                 let mut full_forge_args = std::ffi::OsString::from("@");
                 full_forge_args.push(
                     self.path_to_instance
-                        .join("libraries").join("net").join("minecraftforge").join("forge")
-                        .join(format!("{}-{}", self.config.version, build_version.as_str()))
+                        .join("libraries")
+                        .join("net")
+                        .join("minecraftforge")
+                        .join("forge")
+                        .join(format!(
+                            "{}-{}",
+                            self.config.version,
+                            build_version.as_str()
+                        ))
                         .join(forge_args)
-                        .into_os_string().as_os_str()
+                        .into_os_string()
+                        .as_os_str(),
                 );
                 server_start_command.arg(full_forge_args)
             }
@@ -125,14 +136,15 @@ impl TServer for MinecraftInstance {
         let server_start_command = server_start_command.arg("nogui");
 
         match dont_spawn_terminal(server_start_command)
-        .stdout(Stdio::piped())
-        .stdin(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+            .stdout(Stdio::piped())
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
         {
             Ok(mut proc) => {
-                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone()))
-                    .context("Failed to set current directory to the Lodestone path, is the path valid?")?;
+                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).context(
+                    "Failed to set current directory to the Lodestone path, is the path valid?",
+                )?;
                 let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
@@ -367,13 +379,16 @@ impl TServer for MinecraftInstance {
                                         .await.map_err(|e| {
                                             error!("Failed to read properties: {}, falling back to empty properties map", e);
                                             e
-                                        }).map_or_else(|_| HashMap::new(), |v| v);
+                                        }).map_or_else(|_| BTreeMap::new(), |v| v);
 
-                                if let (Ok(Ok(true)), Ok(rcon_psw), Ok(Ok(rcon_port))) = (
-                                    self.get_field("enable-rcon").await.map(|v| v.parse()),
-                                    self.get_field("rcon.password").await,
-                                    self.get_field("rcon.port").await.map(|v| v.parse::<u32>()),
-                                ) {
+                                if let (Some(Ok(true)), Some(rcon_psw), Some(Ok(rcon_port))) = {
+                                    let lock = self.server_properties_buffer.lock().await;
+                                    (
+                                        lock.get("enable-rcon").map(|v| v.parse()),
+                                        lock.get("rcon.password").cloned(),
+                                        lock.get("rcon.port").map(|v| v.parse::<u16>()),
+                                    )
+                                } {
                                     let max_retry = 3;
                                     for i in 0..max_retry {
                                         let rcon =
