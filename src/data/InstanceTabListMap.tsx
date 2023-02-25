@@ -2,9 +2,10 @@ import GameConsole from 'components/GameConsole';
 import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
 import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
 import FileViewer from 'components/FileViewer';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
+import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
 
 import {
   faChartLine,
@@ -22,15 +23,11 @@ const InstanceTabListMap = {
       path: 'overview',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faChartLine} />,
-      content: (
-        <>
-          <p>Work in Progress</p>
-          <MinecraftPerformanceCard />
-        </>
-      ),
+      content: <MinecraftOverview/>,
     },
     {
       title: 'Settings',
+      displayTitle: 'Settings',
       path: 'settings',
       width: 'max-w-2xl',
       icon: <FontAwesomeIcon icon={faCog} />,
@@ -43,6 +40,7 @@ const InstanceTabListMap = {
     },
     {
       title: 'Console',
+      displayTitle: 'Console',
       path: 'console',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faServer} />,
@@ -50,6 +48,7 @@ const InstanceTabListMap = {
     },
     {
       title: 'Files',
+      displayTitle: 'Files',
       path: 'files',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faFolder} />,
@@ -57,6 +56,7 @@ const InstanceTabListMap = {
     },
     {
       title: 'Tasks',
+      displayTitle: 'Tasks',
       path: 'tasks',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faCodeCompare} />,
@@ -75,6 +75,7 @@ const InstanceTabListMap = {
     },
     {
       title: 'Event Logs',
+      displayTitle: 'Event Logs',
       path: 'logs',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faInbox} />,

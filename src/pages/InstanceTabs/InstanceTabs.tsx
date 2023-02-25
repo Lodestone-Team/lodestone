@@ -87,26 +87,31 @@ const InstanceTabs = () => {
       className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
       key={uuid}
     >
-      <div
-        className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
-        key={`${instance.name}-${tab.title}`}
-      >
-        <div className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-none">
-          <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-            {tab.title}
-            {tab.title === 'Console' && (
-              <Label
-                size="medium"
-                className="ml-2 mt-[6px]"
-                color={stateToLabelColor[instance.state]}
-              >
-                {instance.state}
-              </Label>
-            )}
-          </div>
-          {tab.content}
-        </div>
-      </div>
+      {InstanceTabListMap[instance.game_type].map(
+        (tab) =>
+          tab.path === path && (
+            <div
+              className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
+              key={`${instance.name}-${tab.title}`}
+            >
+              <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
+                {tab.displayTitle && <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
+                  {tab.displayTitle}
+                  {tab.title === 'Console' && (
+                    <Label
+                      size="medium"
+                      className="ml-2 mt-[6px]"
+                      color={stateToLabelColor[instance.state]}
+                    >
+                      {instance.state}
+                    </Label>
+                  )}
+                </div>}
+                {tab.content}
+              </div>
+            </div>
+          )
+      )}
     </div>
   );
 };
