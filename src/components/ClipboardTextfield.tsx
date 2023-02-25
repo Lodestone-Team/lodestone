@@ -34,10 +34,9 @@ export default function ClipboardTextfield({
       mouseEnterDelay={0.2}
     >
       <div
-        className={`group flex flex-row items-center justify-center gap-3 whitespace-nowrap hover:cursor-pointer ${className}`}
+        className={`group flex flex-row items-center justify-center gap-2 whitespace-nowrap hover:cursor-pointer ${className} select-none`}
         onClick={onClickCopy}
       >
-        <div className={`select-none`}>
           {/* TODO develop custom tooltip component */}
           {!iconLeft && <>{text}&nbsp;&nbsp;</>}
           <FontAwesomeIcon
@@ -48,14 +47,10 @@ export default function ClipboardTextfield({
               yellow: 'text-yellow-faded/25 group-hover:text-yellow',
               red: 'text-red-faded/25 group-hover:text-red',
             }[color],
-            {
-              'mr-2': iconLeft,
-            }
             )}
             icon={faClone}
           />
           {iconLeft && <>{text}&nbsp;&nbsp;</>}
-        </div>
       </div>
     </Tooltip>
   );
