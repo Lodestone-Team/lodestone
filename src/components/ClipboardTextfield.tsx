@@ -38,7 +38,7 @@ export default function ClipboardTextfield({
         onClick={onClickCopy}
       >
           {/* TODO develop custom tooltip component */}
-          {!iconLeft && <>{text}&nbsp;&nbsp;</>}
+          {!iconLeft && <>{text}</>}
           <FontAwesomeIcon
             className={clsx({
               gray: `text-gray-faded/25 group-hover:text-gray-500`,
