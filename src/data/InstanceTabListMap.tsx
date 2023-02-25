@@ -20,10 +20,9 @@ const InstanceTabListMap = {
   minecraft: [
     {
       title: 'Overview',
-      displayTitle: <MinecraftOverview/>,
       path: 'overview',
       icon: <FontAwesomeIcon icon={faChartLine} />,
-      content: <MinecraftPerformanceCard/>,
+      content: <MinecraftOverview/>,
     },
     {
       title: 'Settings',

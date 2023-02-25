@@ -93,6 +93,7 @@ const MinecraftOverview = () => {
           </div>
         </div>
       </div>
+      <MinecraftPerformanceCard/>
     </>
   );
 };

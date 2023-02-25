@@ -57,7 +57,7 @@ const InstanceTabs = () => {
               key={`${instance.name}-${tab.title}`}
             >
               <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
-                <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
+                {tab.displayTitle && <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
                   {tab.displayTitle}
                   {tab.title === 'Console' && (
                     <Label
@@ -68,7 +68,7 @@ const InstanceTabs = () => {
                       {instance.state}
                     </Label>
                   )}
-                </div>
+                </div>}
                 {tab.content}
               </div>
             </div>
