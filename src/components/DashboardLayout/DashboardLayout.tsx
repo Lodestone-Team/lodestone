@@ -38,6 +38,8 @@ export default function DashboardLayout() {
         setShowCoreErrorModal(true);
       }, 3000);
       return () => clearTimeout(timeout);
+    }else{
+      setShowCoreErrorModal(false);
     }
   }, [coreConnectionStatus]);
 
