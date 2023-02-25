@@ -19,8 +19,6 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 
-import Dashboard from 'pages/dashboard';
-
 const InstanceTabListMap = {
   minecraft: [
     {

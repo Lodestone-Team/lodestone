@@ -90,9 +90,9 @@ export default function MinecraftPlayerList() {
           >
             NAME
             {sortOrder === 'asc' ? (
-              <FontAwesomeIcon icon={faArrowDown} className='mx-1.5' />
+              <FontAwesomeIcon icon={faArrowDown} className="mx-1.5" />
               ) : (
-                <FontAwesomeIcon icon={faArrowUp} className='mx-1.5' />
+                <FontAwesomeIcon icon={faArrowUp} className="mx-1.5" />
             )}
           </button>
         </>
