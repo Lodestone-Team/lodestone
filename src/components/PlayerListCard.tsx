@@ -29,7 +29,7 @@ export function PlayerListCard({ children, className }: CardProps) {
   if (numItems === 1) {
     return (
       <div
-        className={`flex h-fit w-full flex-col rounded border border-gray-faded/30 bg-gray-850 py-2 ${className}`}
+        className={`flex h-fit w-full flex-col rounded border border-gray-faded/30 bg-gray-850 p-2 ${className}`}
       >
         {children}
       </div>
@@ -38,11 +38,11 @@ export function PlayerListCard({ children, className }: CardProps) {
 
   return (
     <div
-      className={`flex h-fit w-full flex-col rounded border border-gray-faded/30 bg-gray-850 py-2 ${className}`}
+      className={`flex h-fit w-full flex-col rounded border border-gray-faded/30 bg-gray-850 p-2 ${className}`}
     >
       {React.Children.map(children, (child, index) => (
         <>
-          {index > 0 && <hr className='my-2 border-gray-faded/30' />}
+          {index > 0 && <hr className='my-2 mx-[-0.5rem] border-gray-faded/30' />}
           {child}
         </>
       ))}
