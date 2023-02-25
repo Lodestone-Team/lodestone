@@ -10,6 +10,7 @@ export default function InstanceLoadingPill({
   progress_percent?: number;
 }) {
   const stateColor = stateToColor['Starting'];
+  progress_percent = Math.min(0.99, Math.max(0, progress_percent));
 
   return (
     <button
