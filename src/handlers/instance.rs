@@ -87,9 +87,7 @@ pub async fn create_instance(
         HandlerGameType::MinecraftPaper => FlavourKind::Paper,
     };
 
-    let setup_config =
-        MinecraftInstance::construct_setup_config(manifest_value, instance_uuid.clone(), flavour)
-            .await?;
+    let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
 
     let setup_path = PATH_TO_INSTANCES.with(|path| {
         path.join(format!(

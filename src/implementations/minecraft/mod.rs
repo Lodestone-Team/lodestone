@@ -72,9 +72,8 @@ pub struct PaperBuildVersion(i64);
 #[ts(export)]
 pub struct ForgeBuildVersion(String);
 
-#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq, EnumKind)]
-#[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, EnumKind)]
+#[serde(rename_all = "snake_case")]
 #[enum_kind(FlavourKind, derive(Serialize, Deserialize, TS))]
 pub enum Flavour {
     Vanilla,
@@ -158,6 +157,7 @@ pub struct RestoreConfig {
 pub struct MinecraftInstance {
     config: RestoreConfig,
     uuid: InstanceUuid,
+    creation_time: i64,
     state: Arc<Mutex<State>>,
     event_broadcaster: Sender<Event>,
     // file paths
@@ -329,7 +329,6 @@ impl MinecraftInstance {
 
     pub async fn construct_setup_config(
         manifest_value: ManifestValue,
-        _instance_uuid: InstanceUuid,
         flavour: FlavourKind,
     ) -> Result<SetupConfig, Error> {
         Self::setup_manifest(&flavour)
@@ -702,11 +701,19 @@ impl MinecraftInstance {
             "Failed to write config file at {}",
             &path_to_config.display()
         ))?;
-        MinecraftInstance::restore(path_to_instance, uuid, event_broadcaster, macro_executor).await
+        MinecraftInstance::restore(
+            path_to_instance,
+            dot_lodestone_config,
+            uuid,
+            event_broadcaster,
+            macro_executor,
+        )
+        .await
     }
 
     pub async fn restore(
         path_to_instance: PathBuf,
+        dot_lodestone_config: DotLodestoneConfig,
         instance_uuid: InstanceUuid,
         event_broadcaster: Sender<Event>,
         _macro_executor: MacroExecutor,
@@ -868,6 +875,7 @@ impl MinecraftInstance {
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
             uuid: instance_uuid.clone(),
+            creation_time: dot_lodestone_config.creation_time(),
             auto_start: Arc::new(AtomicBool::new(restore_config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(restore_config.restart_on_crash)),
             backup_period: restore_config.backup_period,

@@ -1,5 +1,6 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
+use crate::traits::t_configurable::GameType;
 use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
@@ -18,6 +19,7 @@ use crate::{
     },
     util::{download_file, rand_alphanumeric},
 };
+
 use auth::user::UsersManager;
 use axum::Router;
 
@@ -116,22 +118,23 @@ async fn restore_instances(
             migration::migrate(&path).await.unwrap();
 
             // read config as DotLodestoneConfig
-            let config: DotLodestoneConfig = serde_json::from_reader(
+            let dot_lodestone_config: DotLodestoneConfig = serde_json::from_reader(
                 std::fs::File::open(path.join(".lodestone_config")).unwrap(),
             )
             .unwrap();
 
-            if let _MinecraftJava = config.game_type() {
+            if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
                 let instance = minecraft::MinecraftInstance::restore(
                     path.to_owned(),
-                    config.uuid().to_owned(),
+                    dot_lodestone_config.clone(),
+                    dot_lodestone_config.uuid().to_owned(),
                     event_broadcaster.clone(),
                     macro_executor.clone(),
                 )
                 .await
                 .unwrap();
                 debug!("restored instance: {}", instance.name().await);
-                ret.insert(config.uuid().to_owned(), instance.into());
+                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
             }
         }
     }

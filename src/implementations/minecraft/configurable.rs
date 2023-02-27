@@ -48,11 +48,11 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn creation_time(&self) -> i64 {
-        todo!()
+        self.creation_time
     }
 
     async fn path(&self) -> std::path::PathBuf {
-        todo!()
+        self.path_to_instance.clone()
     }
 
     async fn auto_start(&self) -> bool {
