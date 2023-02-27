@@ -5,12 +5,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use color_eyre::eyre::{eyre};
+use color_eyre::eyre::eyre;
 use deno_core::{
     anyhow::{self},
     op, OpState,
 };
-
 
 use crate::{
     error::Error,

@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     events::CausedBy,
-    traits::t_server::{State, TServer, MonitorReport},
+    traits::t_server::{MonitorReport, State, TServer},
 };
 
 use super::{
@@ -67,6 +67,5 @@ impl TServer for GenericInstance {
         } else {
             unreachable!()
         }
-        
     }
 }

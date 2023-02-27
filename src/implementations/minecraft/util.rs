@@ -1,10 +1,6 @@
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use serde_json::{self, Value};
-use std::{
-    collections::{BTreeMap},
-    path::Path,
-    str::FromStr,
-};
+use std::{collections::BTreeMap, path::Path, str::FromStr};
 use tokio::io::AsyncBufReadExt;
 
 use super::{

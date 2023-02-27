@@ -19,7 +19,7 @@ pub mod t_server;
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
-pub struct  InstanceInfo {
+pub struct InstanceInfo {
     pub uuid: InstanceUuid,
     pub name: String,
     pub game_type: Game,

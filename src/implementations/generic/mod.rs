@@ -122,11 +122,6 @@ impl GenericInstance {
 
 #[cfg(test)]
 mod tests {
-    
-
-    
-
-    
 
     #[tokio::test]
     async fn test_create_generic_instance() {

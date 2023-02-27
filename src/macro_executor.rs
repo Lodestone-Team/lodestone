@@ -370,7 +370,6 @@ mod tests {
     use tokio::sync::broadcast;
     struct BasicMainWorkerGenerator;
 
-
     impl MainWorkerGenerator for BasicMainWorkerGenerator {
         fn generate(
             &self,
@@ -425,7 +424,8 @@ mod tests {
             r#"
             console.log("hello world");
             "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
@@ -441,7 +441,6 @@ mod tests {
             .unwrap();
         assert!(executor.wait_with_timeout(pid, None).await);
     }
-
 
     #[tokio::test]
     async fn test_http_url() {
@@ -462,7 +461,8 @@ mod tests {
             import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
             console.log("hello world");
             "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 

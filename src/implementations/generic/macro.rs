@@ -1,7 +1,4 @@
-use std::{rc::Rc};
-
-
-
+use std::rc::Rc;
 
 use crate::events::CausedBy;
 use crate::macro_executor::{self, MainWorkerGenerator};
@@ -23,7 +20,11 @@ impl GenericMainWorkerGenerator {
 }
 
 impl MainWorkerGenerator for GenericMainWorkerGenerator {
-    fn generate(&self, args: Vec<String>, _caused_by : CausedBy) -> deno_runtime::worker::MainWorker {
+    fn generate(
+        &self,
+        args: Vec<String>,
+        _caused_by: CausedBy,
+    ) -> deno_runtime::worker::MainWorker {
         let bootstrap_options = deno_runtime::BootstrapOptions {
             args,
             ..Default::default()

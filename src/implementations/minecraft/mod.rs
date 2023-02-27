@@ -13,7 +13,7 @@ pub mod versions;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -99,7 +99,9 @@ impl From<FlavourKind> for Flavour {
                 loader_version: None,
                 installer_version: None,
             },
-            FlavourKind::Paper => Flavour::Paper { build_version: None },
+            FlavourKind::Paper => Flavour::Paper {
+                build_version: None,
+            },
             FlavourKind::Spigot => Flavour::Spigot,
             FlavourKind::Forge => Flavour::Forge {
                 build_version: None,
@@ -399,7 +401,7 @@ impl MinecraftInstance {
             min_ram: Some(min_ram),
             max_ram: Some(max_ram),
             cmd_args,
-            flavour : flavour.into(),
+            flavour: flavour.into(),
             auto_start: Some(manifest_value.get_auto_start()),
             restart_on_crash: Some(manifest_value.get_restart_on_crash()),
             start_on_connection: Some(manifest_value.get_start_on_connection()),

@@ -5,8 +5,6 @@ use ts_rs::TS;
 
 use crate::error::Error;
 
-
-
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
 #[serde(transparent)]

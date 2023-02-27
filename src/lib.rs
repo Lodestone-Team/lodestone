@@ -121,7 +121,7 @@ async fn restore_instances(
             )
             .unwrap();
 
-            if let MinecraftJava = config.game_type() {
+            if let _MinecraftJava = config.game_type() {
                 let instance = minecraft::MinecraftInstance::restore(
                     path.to_owned(),
                     config.uuid().to_owned(),

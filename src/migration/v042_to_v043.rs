@@ -1,15 +1,11 @@
-use std::path::{Path};
+use std::path::Path;
 
 use color_eyre::eyre::Context;
 use serde_json::json;
 
-use crate::{
-    error::Error,
-    implementations::minecraft::{RestoreConfig},
-};
+use crate::{error::Error, implementations::minecraft::RestoreConfig};
 
 use super::RestoreConfigV042;
-
 
 impl From<RestoreConfigV042> for RestoreConfig {
     fn from(config: RestoreConfigV042) -> Self {
@@ -30,7 +26,6 @@ impl From<RestoreConfigV042> for RestoreConfig {
         }
     }
 }
-
 
 pub async fn migrate_v042_to_v043(
     mut old_dot_lodestone_config: serde_json::Value,

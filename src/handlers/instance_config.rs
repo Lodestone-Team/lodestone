@@ -6,9 +6,6 @@ use axum::{
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
 
-
-
-
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},

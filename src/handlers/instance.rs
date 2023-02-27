@@ -317,10 +317,7 @@ pub async fn delete_instance(
 pub fn get_instance_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/list", get(get_instance_list))
-        .route(
-            "/instance/create/:game_type",
-            post(create_instance),
-        )
+        .route("/instance/create/:game_type", post(create_instance))
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))
         .with_state(state)

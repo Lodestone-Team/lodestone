@@ -147,7 +147,8 @@ pub async fn list_dir(
                 .collect())
         }
     })
-    .await.context("Failed to list directory")?;
+    .await
+    .context("Failed to list directory")?;
     ret
 }
 
