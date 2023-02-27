@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::{sync::atomic};
+use std::sync::atomic;
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
@@ -9,7 +9,7 @@ use crate::error::{Error, ErrorKind};
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SettingManifest,
 };
-use crate::traits::t_configurable::{TConfigurable, InstanceGameType};
+use crate::traits::t_configurable::{Game, TConfigurable};
 use crate::traits::t_server::State;
 
 use crate::types::InstanceUuid;
@@ -28,14 +28,8 @@ impl TConfigurable for MinecraftInstance {
         self.config.name.clone()
     }
 
-    async fn game_type(&self) -> InstanceGameType {
-        match self.config.flavour {
-            super::Flavour::Vanilla => InstanceGameType::MinecraftVanilla,
-            super::Flavour::Paper { .. } => InstanceGameType::MinecraftPaper,
-            super::Flavour::Fabric { .. } => InstanceGameType::MinecraftFabric,
-            super::Flavour::Spigot { .. } => InstanceGameType::MinecraftSpigot,
-            super::Flavour::Forge { .. } => InstanceGameType::MinecraftForge,
-        }
+    async fn game_type(&self) -> Game {
+        self.config.flavour.clone().into()
     }
     async fn flavour(&self) -> String {
         self.config.flavour.to_string()

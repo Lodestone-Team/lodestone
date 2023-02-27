@@ -13,40 +13,51 @@ use self::manifest::ConfigurableManifest;
 use self::manifest::ConfigurableValue;
 use crate::error::Error;
 use crate::error::ErrorKind;
+use crate::implementations::minecraft::Flavour;
 use crate::traits::GameInstance;
 use crate::traits::MinecraftInstance;
 use crate::types::InstanceUuid;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
-#[enum_kind(GameType, derive(Serialize, Deserialize, TS))]
-#[ts(export)]
-pub enum InstanceGameType {
-    MinecraftVanilla,
-    MinecraftForge,
-    MinecraftFabric,
-    MinecraftPaper,
-    MinecraftSpigot,
-    MinecraftBedrock,
-    Generic { game: String, game_type: GameType },
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum MinecraftVariant {
+    Vanilla,
+    Forge,
+    Fabric,
+    Paper,
+    Spigot,
+    Other { name: String },
 }
 
-impl InstanceGameType {
-    pub fn is_minecraft(&self) -> bool {
-        match self {
-            InstanceGameType::MinecraftVanilla => true,
-            InstanceGameType::MinecraftForge => true,
-            InstanceGameType::MinecraftFabric => true,
-            InstanceGameType::MinecraftPaper => true,
-            InstanceGameType::MinecraftSpigot => true,
-            InstanceGameType::MinecraftBedrock => true,
-            InstanceGameType::Generic { game: _, game_type } => {
-                game_type == &GameType::MinecraftVanilla
-                    || game_type == &GameType::MinecraftForge
-                    || game_type == &GameType::MinecraftFabric
-                    || game_type == &GameType::MinecraftPaper
-                    || game_type == &GameType::MinecraftSpigot
-                    || game_type == &GameType::MinecraftBedrock
-            }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
+#[enum_kind(GameType, derive(Serialize, Deserialize, TS))]
+pub enum Game {
+    MinecraftJava {
+        variant: MinecraftVariant,
+    },
+    Generic {
+        game_name: GameType,       //used for identifying the "game" ("Minecraft")
+        game_display_name: String, //displaying to the user what on earth this is ("MinecraftGlowstone")
+    },
+}
+
+impl From<Flavour> for Game {
+    fn from(value: Flavour) -> Self {
+        match value {
+            Flavour::Vanilla => Self::MinecraftJava {
+                variant: MinecraftVariant::Vanilla,
+            },
+            Flavour::Fabric { .. } => Self::MinecraftJava {
+                variant: MinecraftVariant::Fabric,
+            },
+            Flavour::Paper { .. } => Self::MinecraftJava {
+                variant: MinecraftVariant::Paper,
+            },
+            Flavour::Spigot => Self::MinecraftJava {
+                variant: MinecraftVariant::Spigot,
+            },
+            Flavour::Forge { .. } => Self::MinecraftJava {
+                variant: MinecraftVariant::Forge,
+            },
         }
     }
 }
@@ -58,7 +69,7 @@ pub trait TConfigurable {
     async fn uuid(&self) -> InstanceUuid;
     async fn name(&self) -> String;
     async fn flavour(&self) -> String;
-    async fn game_type(&self) -> InstanceGameType;
+    async fn game_type(&self) -> Game;
     async fn cmd_args(&self) -> Vec<String>;
     async fn description(&self) -> String;
     async fn port(&self) -> u32;

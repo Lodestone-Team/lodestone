@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use ts_rs::TS;
 
-use self::t_configurable::InstanceGameType;
+use self::t_configurable::Game;
 use self::t_server::State;
 use self::{
     t_configurable::TConfigurable, t_macro::TMacro, t_player::TPlayerManagement,
@@ -19,10 +19,10 @@ pub mod t_server;
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
-pub struct InstanceInfo {
+pub struct  InstanceInfo {
     pub uuid: InstanceUuid,
     pub name: String,
-    pub game_type: InstanceGameType,
+    pub game_type: Game,
     pub description: String,
     pub port: u32,
     pub creation_time: i64,

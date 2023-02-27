@@ -11,7 +11,6 @@ use crate::events::{
     CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
     ProgressionStartValue,
 };
-use crate::traits::t_configurable::InstanceGameType;
 
 use minecraft::FlavourKind;
 
@@ -22,6 +21,8 @@ use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceIn
 
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::{implementations::minecraft, traits::t_server::State, AppState};
+
+use super::instance_setup_configs::HandlerGameType;
 
 pub async fn get_instance_list(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -60,10 +61,10 @@ pub async fn get_instance_info(
     Ok(Json(instance.get_instance_info().await))
 }
 
-pub async fn create_minecraft_instance(
+pub async fn create_instance(
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
-    Path(game_type): Path<InstanceGameType>,
+    Path(game_type): Path<HandlerGameType>,
     Json(manifest_value): Json<ManifestValue>,
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
@@ -80,16 +81,10 @@ pub async fn create_minecraft_instance(
     let instance_uuid = instance_uuid;
 
     let flavour = match game_type {
-        InstanceGameType::MinecraftVanilla => FlavourKind::Vanilla,
-        InstanceGameType::MinecraftForge => FlavourKind::Forge,
-        InstanceGameType::MinecraftFabric => FlavourKind::Fabric,
-        InstanceGameType::MinecraftPaper => FlavourKind::Paper,
-        _ => {
-            return Err(Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("Unimplemented game type"),
-            })
-        }
+        HandlerGameType::MinecraftJavaVanilla => FlavourKind::Vanilla,
+        HandlerGameType::MinecraftForge => FlavourKind::Forge,
+        HandlerGameType::MinecraftFabric => FlavourKind::Fabric,
+        HandlerGameType::MinecraftPaper => FlavourKind::Paper,
     };
 
     let setup_config =
@@ -104,7 +99,7 @@ pub async fn create_minecraft_instance(
         ))
     });
 
-    let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), game_type);
+    let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), game_type.into());
 
     // write dot lodestone config
 
@@ -324,7 +319,7 @@ pub fn get_instance_routes(state: AppState) -> Router {
         .route("/instance/list", get(get_instance_list))
         .route(
             "/instance/create/:game_type",
-            post(create_minecraft_instance),
+            post(create_instance),
         )
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))

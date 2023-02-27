@@ -64,4 +64,5 @@ pub trait TResourceManagement {
             source: eyre!("This instance does not support deleting resources"),
         })
     }
+
 }

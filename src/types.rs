@@ -1,10 +1,10 @@
 use std::fmt::Display;
 
+use crate::traits::t_configurable::GameType;
 use crate::{
     implementations::minecraft::Flavour,
     migration::RestoreConfigV042,
     prelude::{SNOWFLAKE_GENERATOR, VERSION},
-    traits::t_configurable::InstanceGameType,
 };
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::*;
@@ -120,7 +120,7 @@ impl Display for InstanceUuid {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DotLodestoneConfig {
-    game_type: InstanceGameType,
+    game_type: GameType,
     uuid: InstanceUuid,
     creation_time: i64,
     lodestone_version: String,
@@ -129,10 +129,10 @@ pub struct DotLodestoneConfig {
 impl From<RestoreConfigV042> for DotLodestoneConfig {
     fn from(config: RestoreConfigV042) -> Self {
         let game_type = match (config.game_type.as_str(), config.flavour) {
-            ("minecraft", Flavour::Vanilla) => InstanceGameType::MinecraftVanilla,
-            ("minecraft", Flavour::Forge { .. }) => InstanceGameType::MinecraftForge,
-            ("minecraft", Flavour::Fabric { .. }) => InstanceGameType::MinecraftFabric,
-            ("minecraft", Flavour::Paper { .. }) => InstanceGameType::MinecraftPaper,
+            ("minecraft", Flavour::Vanilla) => GameType::MinecraftJava,
+            ("minecraft", Flavour::Forge { .. }) => GameType::MinecraftJava,
+            ("minecraft", Flavour::Fabric { .. }) => GameType::MinecraftJava,
+            ("minecraft", Flavour::Paper { .. }) => GameType::MinecraftJava,
             _ => panic!("Unknown game type: {}", config.game_type),
         };
         Self {
@@ -145,7 +145,7 @@ impl From<RestoreConfigV042> for DotLodestoneConfig {
 }
 
 impl DotLodestoneConfig {
-    pub fn new(uuid: InstanceUuid, game_type: InstanceGameType) -> Self {
+    pub fn new(uuid: InstanceUuid, game_type: GameType) -> Self {
         Self {
             game_type,
             uuid,
@@ -162,7 +162,7 @@ impl DotLodestoneConfig {
     pub fn lodestone_version(&self) -> &str {
         &self.lodestone_version
     }
-    pub fn game_type(&self) -> &InstanceGameType {
+    pub fn game_type(&self) -> &GameType {
         &self.game_type
     }
 }
