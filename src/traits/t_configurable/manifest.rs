@@ -449,16 +449,9 @@ impl SectionManifest {
     }
 
     pub fn set_setting(&mut self, setting: SettingManifest) -> Result<(), Error> {
-        if self.settings.contains_key(setting.get_identifier()) {
-            self.settings
-                .insert(setting.get_identifier().clone(), setting);
-            Ok(())
-        } else {
-            Err(Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("Setting does not exist"),
-            })
-        }
+        self.settings
+            .insert(setting.get_identifier().clone(), setting);
+        Ok(())
     }
 
     pub fn insert_setting(&mut self, setting: SettingManifest) {
@@ -588,7 +581,6 @@ impl ConfigurableManifest {
     pub fn set_setting(
         &mut self,
         section_id: &str,
-        _setting_id: &str,
         setting: SettingManifest,
     ) -> Result<(), Error> {
         if let Some(section) = self.setting_sections.get_mut(section_id) {
