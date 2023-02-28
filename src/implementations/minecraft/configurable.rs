@@ -92,6 +92,10 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn set_port(&mut self, port: u32) -> Result<(), Error> {
+        self.configurable_manifest.lock().await.set_setting(
+            ServerPropertySetting::get_section_id(),
+            ServerPropertySetting::ServerPort(port as u16).into(),
+        )?;
         self.config.port = port;
         *self
             .server_properties_buffer
@@ -100,14 +104,6 @@ impl TConfigurable for MinecraftInstance {
             .entry("server-port".to_string())
             .or_insert_with(|| port.to_string()) = port.to_string();
 
-        self.configurable_manifest
-            .lock()
-            .await
-            .update_setting_value(
-                ServerPropertySetting::get_section_id(),
-                &ServerPropertySetting::ServerPort(0).get_identifier(),
-                ConfigurableValue::UnsignedInteger(port),
-            )?;
         self.write_config_to_file()
             .await
             .and(self.write_properties_to_file().await)

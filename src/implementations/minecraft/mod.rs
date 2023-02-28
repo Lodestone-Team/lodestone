@@ -408,6 +408,49 @@ impl MinecraftInstance {
         })
     }
 
+    fn init_configurable_manifest(
+        restore_config: &RestoreConfig,
+        java_cmd: String,
+    ) -> ConfigurableManifest {
+        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
+        let cmd_args = CmdArgSetting::Args(restore_config.cmd_args.clone());
+        cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
+        let min_ram = CmdArgSetting::MinRam(restore_config.min_ram);
+        cmd_args_config_map.insert(min_ram.get_identifier().to_owned(), min_ram.into());
+        let max_ram = CmdArgSetting::MaxRam(restore_config.max_ram);
+        cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
+        let java_cmd = CmdArgSetting::JavaCmd(java_cmd);
+        cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
+
+        let cmd_line_section_manifest = SectionManifest::new(
+            CmdArgSetting::get_section_id().to_string(),
+            "Command Line Settings".to_string(),
+            "Settings are passed to the server and Java as command line arguments".to_string(),
+            cmd_args_config_map,
+        );
+
+        let server_properties_section_manifest = SectionManifest::new(
+            ServerPropertySetting::get_section_id().to_string(),
+            "Server Properties Settings".to_string(),
+            "All settings in the server.properties file can be configured here".to_string(),
+            BTreeMap::new(),
+        );
+
+        let mut setting_sections = BTreeMap::new();
+
+        setting_sections.insert(
+            CmdArgSetting::get_section_id().to_string(),
+            cmd_line_section_manifest,
+        );
+
+        setting_sections.insert(
+            ServerPropertySetting::get_section_id().to_string(),
+            server_properties_section_manifest,
+        );
+
+        ConfigurableManifest::new(false, false, false, setting_sections)
+    }
+
     pub async fn new(
         config: SetupConfig,
         dot_lodestone_config: DotLodestoneConfig,
@@ -824,13 +867,6 @@ impl MinecraftInstance {
             }
         });
 
-        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
-        let cmd_args = CmdArgSetting::Args(restore_config.cmd_args.clone());
-        cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
-        let min_ram = CmdArgSetting::MinRam(restore_config.min_ram);
-        cmd_args_config_map.insert(min_ram.get_identifier().to_owned(), min_ram.into());
-        let max_ram = CmdArgSetting::MaxRam(restore_config.max_ram);
-        cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
         let java_path = path_to_runtimes
             .join("java")
             .join(format!("jre{}", restore_config.jre_major_version))
@@ -840,37 +876,11 @@ impl MinecraftInstance {
                 "bin"
             })
             .join("java");
-        let java_cmd = CmdArgSetting::JavaCmd(java_path.to_string_lossy().into_owned());
-        cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
 
-        let cmd_line_section_manifest = SectionManifest::new(
-            CmdArgSetting::get_section_id().to_string(),
-            "Command Line Settings".to_string(),
-            "Settings are passed to the server and Java as command line arguments".to_string(),
-            cmd_args_config_map,
-        );
-
-        let server_properties_section_manifest = SectionManifest::new(
-            ServerPropertySetting::get_section_id().to_string(),
-            "Server Properties Settings".to_string(),
-            "All settings in the server.properties file can be configured here".to_string(),
-            BTreeMap::new(),
-        );
-
-        let mut setting_sections = BTreeMap::new();
-
-        setting_sections.insert(
-            CmdArgSetting::get_section_id().to_string(),
-            cmd_line_section_manifest,
-        );
-
-        setting_sections.insert(
-            ServerPropertySetting::get_section_id().to_string(),
-            server_properties_section_manifest,
-        );
-
-        let configurable_manifest =
-            ConfigurableManifest::new(false, false, false, setting_sections);
+        let configurable_manifest = Arc::new(Mutex::new(Self::init_configurable_manifest(
+            &restore_config,
+            java_path.to_string_lossy().to_string(),
+        )));
 
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
@@ -898,7 +908,7 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
-            configurable_manifest: Arc::new(Mutex::new(configurable_manifest)),
+            configurable_manifest,
         };
         instance
             .read_properties()
@@ -927,9 +937,8 @@ impl MinecraftInstance {
         for (key, value) in lock.iter() {
             self.configurable_manifest.lock().await.set_setting(
                 ServerPropertySetting::get_section_id(),
-                key,
                 ServerPropertySetting::from_key_val(key, value)?.into(),
-            );
+            )?;
         }
         Ok(())
     }
