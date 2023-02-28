@@ -426,3 +426,39 @@ pub fn format_byte(bytes: u64) -> String {
     }
     format!("{:.1} {}", bytes, unit)
 }
+
+mod tests {
+    use tokio;
+    use crate::prelude::LODESTONE_PATH;
+    use crate::util::{download_file, unzip_file};
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn test_unzip_file() {
+        // let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
+        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp_path = temp.path();
+        let zip = download_file(
+            "https://www.fileformat.info/format/zip/sample/a541997a299648af94d933f65a897f4a/download",
+            temp_path,
+            Some("test.zip"),
+            &Box::new(|_| {}),
+            true
+        ).await.unwrap();
+
+        let mut test: HashSet<PathBuf> = HashSet::new();
+        test.insert(temp_path.join("gettysburg.txt"));
+        test.insert(temp_path.join("amendments.txt"));
+        test.insert(temp_path.join("constitution.txt"));
+
+        assert_eq!(unzip_file(&zip, temp_path, false).await.unwrap(), test);
+
+        let mut test: HashSet<PathBuf> = HashSet::new();
+        test.insert(temp_path.join("gettysburg_1.txt"));
+        test.insert(temp_path.join("amendments_1.txt"));
+        test.insert(temp_path.join("constitution_1.txt"));
+
+        assert_eq!(unzip_file(&zip, temp_path, false).await.unwrap(), test);
+    }
+}
