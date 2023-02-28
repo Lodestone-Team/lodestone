@@ -436,7 +436,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_unzip_file() {
-        // let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let zip = download_file(
@@ -460,5 +459,28 @@ mod tests {
         test.insert(temp_path.join("constitution_1.txt"));
 
         assert_eq!(unzip_file(&zip, temp_path, false).await.unwrap(), test);
+    }
+
+    #[tokio::test]
+    async fn test_unzip_file_2() {
+        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp_path = temp.path();
+        let rar = download_file(
+            "https://getsamplefiles.com/download/rar/sample-1.rar",
+            temp_path,
+            Some("test.rar"),
+            &Box::new(|_| {}),
+            true
+        ).await.unwrap();
+
+        let mut test: HashSet<PathBuf> = HashSet::new();
+        test.insert(temp_path.join("hi").join("sample-1_1.webp"));
+
+        assert_eq!(unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(), test);
+
+        let mut test: HashSet<PathBuf> = HashSet::new();
+        test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
+
+        assert_eq!(unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(), test);
     }
 }
