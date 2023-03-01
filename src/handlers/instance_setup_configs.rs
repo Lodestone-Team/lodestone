@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::implementations::minecraft;
 use crate::minecraft::FlavourKind;
 use crate::traits::t_configurable::manifest::ConfigurableManifest;
+use crate::traits::t_configurable::manifest::SectionManifestValue;
 use crate::traits::t_configurable::GameType;
 use axum::extract::Path;
 use axum::routing::get;
@@ -59,9 +60,20 @@ pub async fn get_setup_manifest(
     ))
 }
 
+pub async fn validate_section(
+    Path((game_type, section_id)): Path<(HandlerGameType, String)>,
+    Json(section): Json<SectionManifestValue>,
+) -> Result<Json<()>, Error> {
+    Ok(Json(
+        minecraft::MinecraftInstance::validate_section(&game_type.into(), &section_id, &section)
+            .await?,
+    ))
+}
+
 pub fn get_instance_setup_config_routes() -> Router {
     Router::new()
         .route("/games", get(get_available_games))
         .route("/setup_manifest/:game_type", get(get_setup_manifest))
+        .route("/setup_manifest/:game_type/:section_id", get(validate_section))
         .with_state(())
 }

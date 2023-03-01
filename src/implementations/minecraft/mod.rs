@@ -41,7 +41,7 @@ use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, ManifestValue, SectionManifest,
-    SettingManifest,
+    SectionManifestValue, SettingManifest,
 };
 
 use crate::traits::t_server::State;
@@ -325,6 +325,20 @@ impl MinecraftInstance {
         sections.insert("section_2".to_string(), section_2);
 
         Ok(ConfigurableManifest::new(false, false, false, sections))
+    }
+
+    pub async fn validate_section(
+        flavour: &FlavourKind,
+        section_id: &str,
+        section_value: &SectionManifestValue,
+    ) -> Result<(), Error> {
+        let manifest = Self::setup_manifest(flavour).await?;
+        if let Some(section) = manifest.get_section(section_id) {
+            section.validate_section(section_value)?;
+            Ok(())
+        } else {
+            Err(eyre!("Section {} does not exist", section_id).into())
+        }
     }
 
     pub async fn construct_setup_config(
