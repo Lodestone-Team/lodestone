@@ -283,7 +283,7 @@ impl MinecraftInstance {
             "cmd_args".to_string(),
             "Command Line Arguments".to_string(),
             "Command line arguments to pass to the server".to_string(),
-            Some(ConfigurableValue::String("".to_string())),
+            None,
             ConfigurableValueType::String { regex: None },
             None,
             false,
