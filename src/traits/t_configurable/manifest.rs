@@ -478,6 +478,7 @@ impl SectionManifest {
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ConfigurableManifest {
     auto_start: bool,
     restart_on_crash: bool,
@@ -578,11 +579,7 @@ impl ConfigurableManifest {
         }
     }
 
-    pub fn set_setting(
-        &mut self,
-        section_id: &str,
-        setting: SettingManifest,
-    ) -> Result<(), Error> {
+    pub fn set_setting(&mut self, section_id: &str, setting: SettingManifest) -> Result<(), Error> {
         if let Some(section) = self.setting_sections.get_mut(section_id) {
             section.set_setting(setting)
         } else {
