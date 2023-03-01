@@ -9,8 +9,7 @@ import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
+// import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
 
 import {
   faChartLine,
