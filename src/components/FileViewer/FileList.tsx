@@ -128,7 +128,7 @@ export default function FileList({
   }, []);
   
 
-  const calculateStartMenuCoords = () => {
+  const calculateContextMenuCoords = () => {
     let x = null;
     let y = null;
     if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width) {
@@ -204,7 +204,7 @@ export default function FileList({
             })}
             onContextMenu={(e) => { e.preventDefault(); 
               setContextMenuFile(file);
-              calculateStartMenuCoords();
+              calculateContextMenuCoords();
               setShowContextMenu(true);
               setModalPath(file.file_type === "Directory" ? file.path : path);
             }}
