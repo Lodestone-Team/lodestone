@@ -196,7 +196,7 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn configurable_manifest(&self) -> ConfigurableManifest {
-        todo!()
+        self.configurable_manifest.lock().await.clone()
     }
 
     async fn update_configurable(
