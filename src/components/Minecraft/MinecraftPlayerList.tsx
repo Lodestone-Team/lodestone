@@ -12,6 +12,7 @@ export default function MinecraftPlayerList() {
   const uuid = instance?.uuid;
   
   // Ascending order is referring to alphabetical order
+  // Note: Arrow will point DOWN when sorting in ascending order, as seen on the figma
   const [sortAscending, setSortAscending] = useState(true);
   
   // Update playerList every time there a player leaves or joins
@@ -33,8 +34,8 @@ export default function MinecraftPlayerList() {
   if (!instance || !uuid) {
     return (
       <div
-      className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
-      key={uuid}
+        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+        key={uuid}
       >
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
@@ -66,8 +67,8 @@ export default function MinecraftPlayerList() {
             NAME
             {sortAscending ? (
               <FontAwesomeIcon icon={faArrowDown} className="mx-1.5" />
-              ) : (
-                <FontAwesomeIcon icon={faArrowUp} className="mx-1.5" />
+            ) : (
+              <FontAwesomeIcon icon={faArrowUp} className="mx-1.5" />
             )}
           </button>
           {updatedPlayerList.length > 0 && (
