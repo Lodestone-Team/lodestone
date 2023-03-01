@@ -4,6 +4,8 @@ const game_icons: { [key: string]: { [key: string]: string } } = {
   minecraft: {
     vanilla: '/assets/minecraft-vanilla.png',
     fabric: '/assets/minecraft-fabric.png',
+    forge: '/assets/minecraft-forge.png',
+    paper: '/assets/minecraft-paper.png',
   },
 };
 
@@ -12,7 +14,7 @@ const unknown_icon = '/assets/minecraft-missing-texture.svg';
 export default function GameIcon({
   game_type,
   game_flavour,
-  className = 'h-8 w-8',
+  className = 'h-8 w-8 rounded-sm',
 }: {
   game_type: string;
   game_flavour: string;
@@ -25,18 +27,17 @@ export default function GameIcon({
   return (
     <Tooltip
       showArrow={false}
-      overlay={<span>{
-        game_type.charAt(0).toUpperCase() + game_type.slice(1)} - {game_flavour.charAt(0).toUpperCase() + game_flavour.slice(1)
-        }</span>}
+      overlay={
+        <span>
+          {game_type.charAt(0).toUpperCase() + game_type.slice(1)} -{' '}
+          {game_flavour.charAt(0).toUpperCase() + game_flavour.slice(1)}
+        </span>
+      }
       placement="bottom"
       trigger={['hover']}
       mouseEnterDelay={0.2}
     >
-     <img
-      src={icon}
-      alt={game_type}
-      className={`${className}`}
-    />
+      <img src={icon} alt={game_type} className={`${className}`} />
     </Tooltip>
   );
 }

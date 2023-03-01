@@ -1,7 +1,8 @@
 import { faServer } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { RadioGroup } from '@headlessui/react';
-import InstanceLoadingCard from 'components/InstanceLoadingCard';
+import InstanceLoadingPill from 'components/InstanceLoadingPill';
+import InstanceLoadingCard from 'components/InstanceLoadingPill';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
@@ -39,7 +40,7 @@ export default function InstanceList({
 
   return (
     <RadioGroup
-      className={`gap mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full ${className}`}
+      className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full ${className}`}
       value={selectedInstance}
       onChange={selectInstance}
     >
@@ -76,28 +77,14 @@ export default function InstanceList({
               notification.start_value,
               otherwise(
                 {
-                  InstanceCreation: ({
-                    instance_uuid,
-                    instance_name,
-                    port,
-                    flavour,
-                    game_type,
-                  }) => (
-                    <InstanceLoadingCard
+                  InstanceCreation: ({ instance_uuid }) => (
+                    <InstanceLoadingPill
                       key={instance_uuid}
-                      uuid={instance_uuid}
-                      name={instance_name}
-                      port={port}
-                      flavour={flavour}
-                      game_type={game_type}
-                      level={notification.level}
-                      state={notification.state}
                       progress_percent={
                         notification.total
                           ? notification.progress / notification.total
                           : undefined
                       }
-                      progress_title={'Setting up...'}
                     />
                   ),
                 },

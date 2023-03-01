@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { cn } from 'utils/util';
 
 export default function DashboardCard({
   children,
@@ -9,7 +10,7 @@ export default function DashboardCard({
 }) {
   return (
     <div
-      className={`flex h-fit w-full flex-col justify-evenly gap-8 rounded-2xl bg-gray-800 px-10 pt-8 pb-10 ${className} border-gray-faded/30 border`}
+      className={cn(`flex h-fit w-full flex-col justify-evenly gap-8 rounded-2xl border border-gray-faded/30 bg-gray-850 p-4`, className)}
     >
       {children}
     </div>

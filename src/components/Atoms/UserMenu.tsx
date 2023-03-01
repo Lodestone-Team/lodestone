@@ -44,7 +44,7 @@ const UserMenu = () => {
 
   return (
     <div className="mb-6 flex w-full gap-2 px-2">
-      <Menu as="div" className="relative inline-block w-full text-left">
+      <Menu as="div" className="relative inline-block w-full min-w-0 text-left">
         <Menu.Button
           as={Button}
           align="start"

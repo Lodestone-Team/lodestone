@@ -65,7 +65,7 @@ export default function FileList({
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
-  const contextMenuDimensions = { height: 228, width: 160 } 
+  const contextMenuDimensions = { height: 234, width: 176 } 
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
@@ -96,6 +96,10 @@ export default function FileList({
             y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY 
         });
         setBoundingDivDimensions({ height: boundingDivRef.current.offsetHeight, width: boundingDivRef.current.offsetWidth })
+      }
+
+      if (contextMenuRef.current !== null) {
+        console.log(contextMenuRef.current.getBoundingClientRect())
       }
     }
 

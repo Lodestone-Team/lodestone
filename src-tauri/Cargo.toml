@@ -20,7 +20,7 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.1.1", features = ["api-all", "devtools"] }
 tauri-plugin-localhost = "0.1.0"
 portpicker = "0.1"
-lodestone_core = {git = "https://github.com/Lodestone-Team/lodestone_core", branch = "0.4.2"}
+lodestone_core = {git = "https://github.com/Lodestone-Team/lodestone_core", branch = "main"}
 tokio = { version = "1.21.1", features = ["macros", "rt"] }
 
 [features]

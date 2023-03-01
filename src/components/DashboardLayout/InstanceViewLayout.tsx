@@ -13,7 +13,7 @@ import LeftNav from './LeftNav';
 export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
   const userLoggedIn = useUserLoggedIn();
-  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 240);
+  const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 220);
   /* Start Instances */
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
   const { data: dataInstances, isFetched: instanceIsFetched } =
@@ -28,7 +28,7 @@ export const InstanceViewLayout = () => {
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
       if (!location.pathname.startsWith('/dashboard'))
-        setPathname('/dashboard/overview');
+        setPathname('/dashboard/console');
     } else {
       setInstanceState(undefined);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
@@ -44,7 +44,7 @@ export const InstanceViewLayout = () => {
     } else {
       setInstanceState(instance);
       setQueryInstanceId(instance.uuid);
-      setPathname('/dashboard/overview');
+      setPathname('/dashboard/console');
     }
   }
   /* End Instances */
@@ -60,8 +60,8 @@ export const InstanceViewLayout = () => {
     >
       <ResizePanel
         direction="e"
-        maxSize={500}
-        minSize={240}
+        maxSize={280}
+        minSize={200}
         size={leftNavSize}
         validateSize={false}
         onResize={setLeftNavSize}
