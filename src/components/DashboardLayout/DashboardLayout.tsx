@@ -28,7 +28,20 @@ export default function DashboardLayout() {
   const { data: coreInfo, isLoading: coreInfoLoading } = useCoreInfo();
   const { data: localCoreInfo } = useLocalCoreInfo();
   const [showMajorVersionModal, setShowMajorVersionModal] = useState(false);
+  const [showCoreErrorModal, setShowCoreErrorModal] = useState(false);
   const dashboardVersion = packageinfo.version;
+  
+  // open the error modal is coreConnectionStatus is error for more than 3 seconds
+  useEffect(() => {
+    if (coreConnectionStatus === 'error') {
+      const timeout = setTimeout(() => {
+        setShowCoreErrorModal(true);
+      }, 3000);
+      return () => clearTimeout(timeout);
+    }else{
+      setShowCoreErrorModal(false);
+    }
+  }, [coreConnectionStatus]);
 
   const versionMismatchModal = !coreInfoLoading && (
     <ConfirmDialog
@@ -125,7 +138,7 @@ export default function DashboardLayout() {
         process.
       </ConfirmDialog>
       <ConfirmDialog
-        isOpen={coreConnectionStatus === 'error'}
+        isOpen={showCoreErrorModal}
         title="Core Connection Error"
         type="info"
         z-index="20"
