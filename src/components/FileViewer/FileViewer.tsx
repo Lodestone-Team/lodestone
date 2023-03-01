@@ -60,7 +60,7 @@ export default function FileViewer() {
   const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
   const queryClient = useQueryClient();
   const [path, setPath] = useQueryParam('path', '.');
-  const [modalPath, setModalPath] = useState();
+  const [modalPath, setModalPath] = useState<string>('');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
@@ -525,7 +525,6 @@ export default function FileViewer() {
                 setClipboard={setClipboard}
                 setClipboardAction={setClipboardAction}
                 setTickedFiles={setTickedFiles}
-                tickedFiled={tickedFiles}
               />
             </ResizePanel>
             {openedFile && (

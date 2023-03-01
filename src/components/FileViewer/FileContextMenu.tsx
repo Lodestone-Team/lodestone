@@ -1,4 +1,4 @@
-import React, { Fragment, useContext, useState, useEffect, forwardRef } from 'react';
+import React, { useState, useEffect, forwardRef } from 'react';
 import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
@@ -9,8 +9,6 @@ const FileContextMenu = forwardRef(
     {
       file,
       coords,
-      path,
-      fileList,
       setCreateFileModalOpen,
       setCreateFolderModalOpen,
       setClipboard,
@@ -20,18 +18,20 @@ const FileContextMenu = forwardRef(
       setShowContextMenu,
     } : {
       file: ClientFile,
-      path: string,
-      fileList: ClientFile[],
+      coords: {x: number, y: number},
       setCreateFileModalOpen: (modalOpen: boolean) => void,
       setCreateFolderModalOpen: (modalOpen: boolean) => void,
       setShowContextMenu: (showContextMenu: boolean) => void,
+      setClipboard: (clipboard: ClientFile[]) => void;
+      setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
+      setTickedFiles: (tickedFiles: ClientFile[]) => void;
+      tickedFiles: ClientFile[];
     },
-    ref: React.Ref<HTMLButtonElement>
+    ref: React.Ref<HTMLDivElement>
   ) => {
 
 
-    // hacky, would be best to switch to using tauri 4 this &/or move this 2 index but this works for now :sunglasses:
-    const [ isMac, setIsMac ] = useState(true)
+    const [ isMac, setIsMac ] = useState(false)
     useEffect(() => {
       if (window.navigator.userAgent.indexOf("Mac") != -1) {
         setIsMac(true)
@@ -39,7 +39,6 @@ const FileContextMenu = forwardRef(
     }, [])
 
     const cutFile = async () => {
-      console.log("::D")
       if (tickedFiles.includes(file)) {
         setClipboard(tickedFiles);
       } else {
@@ -51,13 +50,13 @@ const FileContextMenu = forwardRef(
     }
 
     return (
-      <div className="fixed right-0 z-50 mt-1.5 w-40 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-none"
+      <div className="fixed right-0 z-50 mt-1.5 w-44 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-none"
         style={{ top: coords.y + "px", left: coords.x + "px", position: "absolute" }}
         ref={ref}
       >
         <div className="py-2">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Copy"
             subLabel={ isMac ? "⌘+C" : "CTRL+C"}
             align="end"
@@ -65,7 +64,7 @@ const FileContextMenu = forwardRef(
             intention="primary"
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Cut"
             align="end"
             subLabel={ isMac ? "⌘+X" : "CTRL+X"}
@@ -76,7 +75,7 @@ const FileContextMenu = forwardRef(
         </div>
         <div className="py-2">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Rename"
             align="end"
             variant="text"
@@ -84,15 +83,15 @@ const FileContextMenu = forwardRef(
             intention="primary"
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Delete"
             align="end"
             variant="text"
-            iconComponent={<BackspaceIcon className="h-3 w-3 text-gray-300" />}
+            iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
             intention="primary"
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Unzip"
             align="end"
             variant="text"
@@ -101,7 +100,7 @@ const FileContextMenu = forwardRef(
         </div>
         <div className="py-2">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New folder"
             align="end"
             variant="text"
@@ -109,7 +108,7 @@ const FileContextMenu = forwardRef(
             onClick={() => { setCreateFolderModalOpen(true); setShowContextMenu(false); }}
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-[11px] font-bold"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New file"
             align="end"
             variant="text"

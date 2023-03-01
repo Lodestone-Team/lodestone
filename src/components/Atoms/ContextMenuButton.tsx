@@ -1,8 +1,6 @@
 import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { DOMAttributes, forwardRef } from 'react';
+import { forwardRef } from 'react';
 import clsx from 'clsx';
-import { BeatLoader } from 'react-spinners';
 import { cva, VariantProps } from 'class-variance-authority';
 import { myTwMerge } from 'utils/util';
 
@@ -112,7 +110,6 @@ const ContextMenuButton = forwardRef(
             {label}
           </span>
           {subLabel &&
-            
             <span className="ml-auto mr-0 text-small font-medium text-gray-300 opacity-50 group-hover:opacity-100">
               {subLabel}
             </span> 
