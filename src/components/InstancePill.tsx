@@ -19,7 +19,6 @@ export default function InstancePill({
   port,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
-  flavour,
 }: InstancePillProps) {
   const stateColor = stateToColor[state];
 
@@ -35,11 +34,7 @@ export default function InstancePill({
       )}
       onClick={cardOnClick}
     >
-      <GameIcon
-        game_type={game_type}
-        game_flavour={flavour}
-        className="h-4 w-4"
-      />
+      <GameIcon game_type={game_type} className="h-4 w-4" />
       <p className="grow truncate text-left">{name}</p>
       <FontAwesomeIcon
         icon={faCircle}

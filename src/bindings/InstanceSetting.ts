@@ -3,7 +3,6 @@
 export type InstanceSetting =
   | 'uuid'
   | 'name'
-  | 'flavour'
   | 'server_instance'
   | 'cmd_args'
   | 'description'
