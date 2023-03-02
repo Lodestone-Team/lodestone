@@ -369,7 +369,7 @@ impl MinecraftInstance {
             .unwrap()
             .get_value()
             .unwrap()
-            .try_as_string()
+            .try_as_enum()
             .unwrap();
 
         let port = manifest_value
