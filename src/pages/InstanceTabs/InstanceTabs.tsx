@@ -2,11 +2,12 @@ import { useContext, useEffect, useState } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useDocumentTitle } from 'usehooks-ts';
 import { useLocation } from 'react-router-dom';
-import InstanceTabListMap from '../../data/InstanceTabListMap';
+import { InstanceTabListMap, spanMap } from '../../data/GameTypeMappings';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { SetupInstanceManifest } from 'data/InstanceGameTypes';
+import { Games } from 'bindings/InstanceInfo';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -45,7 +46,10 @@ const InstanceTabs = () => {
       );
     }
   }
-  const tabs = InstanceTabListMap[Object.keys(instance.game_type)[0]];
+  const game = Object.keys(instance.game_type)[0] as Games;
+  const variant = instance.game_type[game]['variant'];
+  const tabs = InstanceTabListMap[game];
+
   if (!tabs) {
     return (
       <div
@@ -55,7 +59,7 @@ const InstanceTabs = () => {
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              Unknown game type {instance.game_type}
+              Unknown game type {spanMap[game][variant]}
             </h1>
           </div>
         </div>
@@ -64,7 +68,6 @@ const InstanceTabs = () => {
   }
 
   const tab = tabs.find((tab) => tab.path === path);
-
   if (!tab) {
     return (
       <div

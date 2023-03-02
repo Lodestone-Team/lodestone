@@ -23,7 +23,25 @@ type InstanceTab = {
   content: JSX.Element;
 };
 
-const InstanceTabListMap: Record<string, InstanceTab[]> = {
+export const gameIcons: { [key: string]: { [key: string]: string } } = {
+  MinecraftJava: {
+    Vanilla: '/assets/minecraft-vanilla.png',
+    Fabric: '/assets/minecraft-fabric.png',
+    Forge: '/assets/minecraft-forge.png',
+    Paper: '/assets/minecraft-paper.png',
+  },
+};
+
+export const spanMap: { [key: string]: { [key: string]: string } } = {
+  MinecraftJava: {
+    Vanilla: 'Minecraft Vanilla',
+    Fabric: 'Minecraft Fabric',
+    Forge: 'Minecraft Forge',
+    Paper: 'Minecraft Paper',
+  },
+};
+
+export const InstanceTabListMap: Record<string, InstanceTab[]> = {
   MinecraftJava: [
     {
       title: 'Overview',
@@ -101,5 +119,3 @@ const InstanceTabListMap: Record<string, InstanceTab[]> = {
     },
   ],
 };
-
-export default InstanceTabListMap;
