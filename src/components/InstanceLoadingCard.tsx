@@ -5,6 +5,7 @@ import LoadingStatusIcon from './Atoms/LoadingStatusIcon';
 import { EventLevel } from 'bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 import ProgressBar from './Atoms/ProgressBar';
+import { GameType } from 'bindings/InstanceInfo';
 
 const NotificationLevelToBgColorClass = (
   level: EventLevel,
@@ -32,7 +33,6 @@ export default function InstanceLoadingCard({
   uuid,
   name,
   port,
-  flavour,
   game_type,
   focus = false,
   progress_percent = 0,
@@ -45,8 +45,7 @@ export default function InstanceLoadingCard({
   uuid: string;
   name: string;
   port: number;
-  flavour: string;
-  game_type: string;
+  game_type: GameType;
   focus?: boolean;
   progress_percent?: number;
   progress_title: string;
@@ -94,11 +93,7 @@ export default function InstanceLoadingCard({
           className="w-20 truncate"
           disabled={true}
         />
-        <GameIcon
-          game_type={game_type}
-          game_flavour={flavour}
-          className="h-8 w-8"
-        />
+        <GameIcon game_type={game_type} className="h-8 w-8" />
       </div>
     </div>
   );

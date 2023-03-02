@@ -17,7 +17,6 @@ Default.args = {
   uuid: 'bruh moment',
   name: 'My Minecraft Server',
   port: 25565,
-  flavour: 'vanilla',
   game_type: { MinecraftJava: { variant: 'Vanilla' } },
   focus: false,
   progress_percent: 0.5,

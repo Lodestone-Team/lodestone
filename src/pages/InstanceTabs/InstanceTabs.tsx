@@ -6,8 +6,8 @@ import { InstanceTabListMap, spanMap } from '../../data/GameTypeMappings';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
-import { SetupInstanceManifest } from 'data/InstanceGameTypes';
 import { Games } from 'bindings/InstanceInfo';
+
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();

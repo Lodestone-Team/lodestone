@@ -5,10 +5,10 @@ import type { InstanceUuid } from './InstanceUuid';
 export type GameType = Record<Games, {variant: GameVariants}>
 export type Games = "MinecraftJava";
 export type GameVariants = "Vanilla" | "Forge" | "Fabric" | "Paper";
+
 export interface InstanceInfo {
   uuid: InstanceUuid;
   name: string;
-  flavour: string;
   game_type: GameType;
   cmd_args: Array<string>;
   description: string;
