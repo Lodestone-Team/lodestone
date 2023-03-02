@@ -7,6 +7,7 @@ import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
+import { SetupInstanceManifest } from 'data/InstanceGameTypes';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -45,8 +46,7 @@ const InstanceTabs = () => {
       );
     }
   }
-
-  const tabs = InstanceTabListMap[instance.game_type];
+  const tabs = InstanceTabListMap[Object.keys(instance.game_type)[0]];
   if (!tabs) {
     return (
       <div
@@ -86,7 +86,10 @@ const InstanceTabs = () => {
   return (
     <CommandHistoryContextProvider>
       <div
-        className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
+        className={cn(
+          'relative mx-auto flex h-full w-full flex-row justify-center @container',
+          tab.width
+        )}
         key={uuid}
       >
         {InstanceTabListMap[instance.game_type].map(
@@ -97,18 +100,20 @@ const InstanceTabs = () => {
                 key={`${instance.name}-${tab.title}`}
               >
                 <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
-                  {tab.displayTitle && <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-                    {tab.displayTitle}
-                    {tab.title === 'Console' && (
-                      <Label
-                        size="medium"
-                        className="ml-2 mt-[6px]"
-                        color={stateToLabelColor[instance.state]}
-                      >
-                        {instance.state}
-                      </Label>
-                    )}
-                  </div>}
+                  {tab.title && (
+                    <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
+                      {tab.title}
+                      {tab.title === 'Console' && (
+                        <Label
+                          size="medium"
+                          className="ml-2 mt-[6px]"
+                          color={stateToLabelColor[instance.state]}
+                        >
+                          {instance.state}
+                        </Label>
+                      )}
+                    </div>
+                  )}
                   {tab.content}
                 </div>
               </div>

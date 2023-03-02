@@ -44,6 +44,7 @@ export const SelectedInstanceInfo = ({
     return <div></div>;
   }
 
+  console.log(selectedInstance);
   return (
     <RadioGroup
       className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
@@ -56,38 +57,40 @@ export const SelectedInstanceInfo = ({
       <InstanceCard {...selectedInstance} />
 
       {selectedInstance &&
-        InstanceTabListMap[selectedInstance.game_type].map((tab) => (
-          <RadioGroup.Option
-            key={tab.path}
-            value={`/dashboard/${tab.path}`}
-            className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
-          >
-            <button
-              className={clsx(
-                'flex flex-row items-center gap-x-1.5',
-                'cursor-pointer rounded-md py-1 px-2',
-                'text-medium font-medium leading-5 tracking-normal',
-                'hover:bg-gray-800',
-                'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
-                setActive === tab.path
-                  ? 'bg-gray-800 outline outline-1 outline-fade-700'
-                  : ''
-              )}
-              onClick={() => setPathname(`/dashboard/${tab.path}`)}
+        InstanceTabListMap[Object.keys(selectedInstance.game_type)[0]].map(
+          (tab) => (
+            <RadioGroup.Option
+              key={tab.path}
+              value={`/dashboard/${tab.path}`}
+              className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
             >
-              <div
+              <button
                 className={clsx(
+                  'flex flex-row items-center gap-x-1.5',
+                  'cursor-pointer rounded-md py-1 px-2',
+                  'text-medium font-medium leading-5 tracking-normal',
+                  'hover:bg-gray-800',
+                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                   setActive === tab.path
-                    ? 'text-white/50'
-                    : 'text-gray-faded/30'
+                    ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                    : ''
                 )}
+                onClick={() => setPathname(`/dashboard/${tab.path}`)}
               >
-                {tab.icon}
-              </div>
-              <div className="text-gray-300">{tab.title}</div>
-            </button>
-          </RadioGroup.Option>
-        ))}
+                <div
+                  className={clsx(
+                    setActive === tab.path
+                      ? 'text-white/50'
+                      : 'text-gray-faded/30'
+                  )}
+                >
+                  {tab.icon}
+                </div>
+                <div className="text-gray-300">{tab.title}</div>
+              </button>
+            </RadioGroup.Option>
+          )
+        )}
       {children}
     </RadioGroup>
   );

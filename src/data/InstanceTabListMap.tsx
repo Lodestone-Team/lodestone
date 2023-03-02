@@ -1,8 +1,8 @@
-import { 
+import {
   MinecraftPerformanceCard,
   MinecraftPlayerList,
   MinecraftGeneralCard,
-  MinecraftSettingCard
+  MinecraftSettingCard,
 } from 'components/Minecraft';
 
 import GameConsole from 'components/GameConsole';
@@ -20,8 +20,16 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 
-const InstanceTabListMap = {
-  minecraft: [
+type InstanceTab = {
+  title: string;
+  path: string;
+  width: string;
+  icon: JSX.Element;
+  content: JSX.Element;
+};
+
+const InstanceTabListMap: Record<string, InstanceTab[]> = {
+  MinecraftJava: [
     {
       title: 'Overview',
       path: 'overview',
@@ -36,7 +44,6 @@ const InstanceTabListMap = {
     },
     {
       title: 'Settings',
-      displayTitle: 'Settings',
       path: 'settings',
       width: 'max-w-2xl',
       icon: <FontAwesomeIcon icon={faCog} />,
@@ -49,7 +56,6 @@ const InstanceTabListMap = {
     },
     {
       title: 'Console',
-      displayTitle: 'Console',
       path: 'console',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faServer} />,
@@ -57,7 +63,6 @@ const InstanceTabListMap = {
     },
     {
       title: 'Files',
-      displayTitle: 'Files',
       path: 'files',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faFolder} />,
@@ -65,7 +70,6 @@ const InstanceTabListMap = {
     },
     {
       title: 'Tasks',
-      displayTitle: 'Tasks',
       path: 'tasks',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faCodeCompare} />,
@@ -84,7 +88,6 @@ const InstanceTabListMap = {
     },
     {
       title: 'Event Logs',
-      displayTitle: 'Event Logs',
       path: 'logs',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faInbox} />,
