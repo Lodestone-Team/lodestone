@@ -6,7 +6,7 @@ import useAnalyticsEventTracker from 'utils/hooks';
 import clsx from 'clsx';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import InstanceCard from 'components/InstanceCard';
-import InstanceTabListMap from '../../data/InstanceTabListMap';
+import { InstanceTabListMap } from '../../data/GameTypeMappings';
 
 export const SelectedInstanceInfo = ({
   className = '',

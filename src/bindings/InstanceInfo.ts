@@ -3,8 +3,9 @@ import type { InstanceState } from './InstanceState';
 import type { InstanceUuid } from './InstanceUuid';
 import type { Player } from './Player';
 
-export type GameType = 'minecraft';
-
+export type GameType = Record<Games, {variant: GameVariants}>
+export type Games = "MinecraftJava";
+export type GameVariants = "Vanilla" | "Forge" | "Fabric" | "Paper";
 export interface InstanceInfo {
   uuid: InstanceUuid;
   name: string;
