@@ -102,6 +102,16 @@ export default function GameConsole() {
   else if (consoleStatus === 'closed')
     consoleInputMessage = 'Console is closed';
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowUp') {
+      // Handle up arrow key press
+      console.log('Up arrow key pressed');
+    } else if (event.key === 'ArrowDown') {
+      // Handle down arrow key press
+      console.log('Down arrow key pressed');
+    }
+  };
+
   return (
     <div className="relative flex h-full w-full grow flex-col rounded-lg border border-gray-faded/30">
       <Tooltip
@@ -169,6 +179,7 @@ export default function GameConsole() {
             id="command"
             type="text"
             disabled={consoleInputMessage !== ''}
+            onKeyDown={handleKeyDown}
           />
         </form>
       </div>
