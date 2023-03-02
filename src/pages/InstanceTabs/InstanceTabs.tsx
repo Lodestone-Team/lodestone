@@ -6,6 +6,7 @@ import InstanceTabListMap from '../../data/InstanceTabListMap';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
+import { SetupInstanceManifest } from 'data/InstanceGameTypes';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -44,8 +45,7 @@ const InstanceTabs = () => {
       );
     }
   }
-
-  const tabs = InstanceTabListMap[instance.game_type];
+  const tabs = InstanceTabListMap[Object.keys(instance.game_type)[0]];
   if (!tabs) {
     return (
       <div
@@ -84,7 +84,10 @@ const InstanceTabs = () => {
 
   return (
     <div
-      className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
+      className={cn(
+        'relative mx-auto flex h-full w-full flex-row justify-center @container',
+        tab.width
+      )}
       key={uuid}
     >
       <div

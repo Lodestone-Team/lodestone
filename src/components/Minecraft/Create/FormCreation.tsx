@@ -1,7 +1,8 @@
+import { HandlerGameType } from 'bindings/HandlerGameType';
 import ComboField from 'components/Atoms/Form/ComboField';
 import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
-import { SectionManifest, SettingManifest } from './form';
+import { SectionManifest, SectionManifestValue, SettingManifest } from './form';
 
 export const createForm = (section: SectionManifest) => {
   const createField = (setting: SettingManifest) => {
@@ -12,7 +13,6 @@ export const createForm = (section: SectionManifest) => {
             type="text"
             name={`${setting.setting_id}.value`}
             label={setting.name ?? ''}
-            key={setting.setting_id}
           />
         );
       case 'Integer':
@@ -23,7 +23,6 @@ export const createForm = (section: SectionManifest) => {
             type="number"
             name={`${setting.setting_id}.value`}
             label={setting.name ?? ''}
-            key={setting.setting_id}
           />
         );
       case 'Boolean':
@@ -32,7 +31,6 @@ export const createForm = (section: SectionManifest) => {
             name={`${setting.setting_id}.value`}
             label={setting.name ?? ''}
             options={['false', 'true']}
-            key={setting.setting_id}
           />
         );
       case 'Enum':
@@ -48,7 +46,6 @@ export const createForm = (section: SectionManifest) => {
                     option.toLowerCase().startsWith(query.toLowerCase())
                   );
             }}
-            key={setting.setting_id}
           />
         );
     }

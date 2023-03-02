@@ -15,8 +15,16 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 
-const InstanceTabListMap = {
-  minecraft: [
+type InstanceTab = {
+  title: string;
+  path: string;
+  width: string;
+  icon: JSX.Element;
+  content: JSX.Element;
+};
+
+const InstanceTabListMap: Record<string, InstanceTab[]> = {
+  MinecraftJava: [
     {
       title: 'Overview',
       path: 'overview',
