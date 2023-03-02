@@ -97,6 +97,10 @@ pub async fn create_instance(
         ))
     });
 
+    tokio::fs::create_dir_all(&setup_path)
+        .await
+        .context("Failed to create instance directory")?;
+
     let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), game_type.into());
 
     // write dot lodestone config
