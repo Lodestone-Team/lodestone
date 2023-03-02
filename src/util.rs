@@ -171,7 +171,7 @@ pub async fn unzip_file(
         .await
         .context(format!("Failed to create directory {}", dest.display()))?;
 
-    let before: HashSet<PathBuf> = list_dir(dest, None).await?.iter().cloned().collect();
+    let mut output_files: HashSet<PathBuf> = HashSet::new();
 
     let dest_file_name = dest.file_name().unwrap_or_else(|| std::ffi::OsStr::new("")).to_str().unwrap_or_else(|| "");
     let temp_dest_dir = tempdir::TempDir::new(dest_file_name).context(format!("Failed to create temporary directory for {}", dest.display()))?;
@@ -231,11 +231,11 @@ pub async fn unzip_file(
         tokio::fs::copy(&temp_entry_path, &entry_path)
             .await
             .context(format!("Failed to copy from {} to {}", temp_entry_path.display(), entry_path.display()))?;
+        output_files.insert(entry_path);
     }
     
 
-    let after: HashSet<PathBuf> = list_dir(dest, None).await?.iter().cloned().collect();
-    Ok((&after - &before).iter().cloned().collect())
+    Ok(output_files.iter().cloned().collect())
 }
 
 pub fn rand_alphanumeric(len: usize) -> String {
@@ -482,5 +482,32 @@ mod tests {
         test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
 
         assert_eq!(unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(), test);
+    }
+
+    #[tokio::test]
+    async fn test_unzip_file_3() {
+        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp_path = temp.path();
+        let tar_gz = download_file(
+            "http://file.fyicenter.com/a/sample.tgz",
+            temp_path,
+            Some("test.tar.gz"),
+            &Box::new(|_| {}),
+            true
+        ).await.unwrap();
+
+        let mut test: HashSet<PathBuf> = HashSet::new();
+        test.insert(temp_path.join("sample").join("sample.c"));
+        test.insert(temp_path.join("sample").join("sample.exe"));
+        test.insert(temp_path.join("sample").join("sample.obj"));
+
+        assert_eq!(unzip_file(&tar_gz, temp_path, false).await.unwrap(), test);
+
+        let mut test: HashSet<PathBuf> = HashSet::new();
+        test.insert(temp_path.join("sample").join("sample_1.c"));
+        test.insert(temp_path.join("sample").join("sample_1.exe"));
+        test.insert(temp_path.join("sample").join("sample_1.obj"));
+
+        assert_eq!(unzip_file(&tar_gz, temp_path, false).await.unwrap(), test);
     }
 }
