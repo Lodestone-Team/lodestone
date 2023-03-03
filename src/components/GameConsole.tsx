@@ -9,6 +9,7 @@ import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
+import ErrorGraphic from './ErrorGraphic';
 
 const autoScrollThreshold = 100;
 
@@ -117,25 +118,15 @@ export default function GameConsole() {
         />
       </Tooltip>
       {!canAccessConsole || consoleStatus === 'no-permission' ? (
-        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
-          <FontAwesomeIcon
-            icon={faServer}
-            className="text-title text-gray-400"
-          />
-          <p className="text-center text-h3 font-medium text-white/50">
-            You don&#39;t have permission to access this console
-          </p>
-        </div>
+        <ErrorGraphic
+          iconProp={faServer}
+          message="You don't have permission to access this console"
+        />
       ) : consoleLog.length === 0 ? (
-        <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 rounded-t-lg border-b border-gray-faded/30 bg-gray-800">
-          <FontAwesomeIcon
-            icon={faServer}
-            className="text-title text-gray-400"
-          />
-          <p className="text-center text-h3 font-medium text-white/50">
-            No console messages yet
-          </p>
-        </div>
+        <ErrorGraphic
+          iconProp={faServer}
+          message="No console messages yet"
+        />
       ) : (
         <ol
           className="font-light flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
