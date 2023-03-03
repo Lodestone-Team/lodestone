@@ -14,6 +14,8 @@ import {
   faInbox,
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
+import { HandlerGameType } from 'bindings/HandlerGameType';
+import { GameType } from 'bindings/InstanceInfo';
 
 type InstanceTab = {
   title: string;
@@ -29,6 +31,30 @@ export const gameIcons: { [key: string]: { [key: string]: string } } = {
     Fabric: '/assets/minecraft-fabric.png',
     Forge: '/assets/minecraft-forge.png',
     Paper: '/assets/minecraft-paper.png',
+  },
+};
+
+export const gameTypeInfoFromHandlerType: Record<HandlerGameType, any> = {
+  MinecraftJavaVanilla: {
+    title: 'Minecraft',
+    description: 'A standard vanilla Minecraft server.',
+    game_type: { MinecraftJava: { variant: 'Vanilla' } },
+  },
+  MinecraftFabric: {
+    title: 'Paper (Minecraft)',
+    description: 'A high performance fork of the Spigot Minecraft Server.',
+    game_type: { MinecraftJava: { variant: 'Fabric' } },
+  },
+  MinecraftForge: {
+    title: 'Forge (Minecraft)',
+    description:
+      'Modifications to the Minecraft base files to assist in compatibility between mods.',
+    game_type: { MinecraftJava: { variant: 'Forge' } },
+  },
+  MinecraftPaper: {
+    title: 'Fabric (Minecraft)',
+    description: 'A lightweight, experimental modding toolchain for Minecraft.',
+    game_type: { MinecraftJava: { variant: 'Paper' } },
   },
 };
 

@@ -17,6 +17,7 @@ import MinecraftGameForm from './Create/MinecraftGameForm';
 import { SetupInstanceManifest } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
+import clsx from 'clsx';
 
 function _renderStepContent(
   step: number,
@@ -34,11 +35,15 @@ function _renderStepContent(
     }
   );
 
-  if (step == 0) {
-    return <MinecraftGameForm gameType={gameType} setGameType={setGameType} />;
-  } else {
-    return forms[step - 1];
-  }
+  return (
+    <div className="h-full">
+      {step == 0 ? (
+        <MinecraftGameForm gameType={gameType} setGameType={setGameType} />
+      ) : (
+        forms[step - 1]
+      )}
+    </div>
+  );
 }
 
 export default function CreateMinecraftInstance({
@@ -80,8 +85,13 @@ export default function CreateMinecraftInstance({
     generateInitialValues(setupManifest['setting_sections']);
   const validationSchema = generateValidationSchema(setupManifest);
   const currentValidationSchema = validationSchema[activeStep];
-  const steps = Object.keys(setupManifest['setting_sections']);
-  const formReady = activeStep === steps.length;
+  const steps = [
+    'Select Game',
+    Object.keys(setupManifest['setting_sections']).map(
+      (sectionId) => setupManifest['setting_sections'][sectionId]['name']
+    ),
+  ].flat();
+  const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: ManifestValue) => {
     console.log(JSON.stringify(value));
     await axiosWrapper<void>({
@@ -97,7 +107,7 @@ export default function CreateMinecraftInstance({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     const sectionValues: Record<string, SectionManifestValue> = {};
-    for (let i = 1; i <= steps.length; i++) {
+    for (let i = 1; i < steps.length; i++) {
       const structure = getSectionValidationStructure(values, i);
       sectionValues[structure[1]] = structure[0];
     }
@@ -171,7 +181,22 @@ export default function CreateMinecraftInstance({
   }
 
   return (
-    <div className="flex w-[800px] flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-800 px-12 py-24">
+    <div className="flex h-[560px] w-[812px] items-stretch rounded-2xl bg-gray-850">
+      <div className="flex w-[180px] border-r border-gray-700 ">
+        <div className="mt-9">
+          {steps.map((section, i) => (
+            <div
+              key={i}
+              className={clsx(
+                'cursor-pointer px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 hover:text-white',
+                activeStep === i && 'font-extrabold text-white'
+              )}
+            >
+              {section}
+            </div>
+          ))}
+        </div>
+      </div>
       <Formik
         initialValues={initialValue}
         validationSchema={currentValidationSchema}
@@ -183,25 +208,27 @@ export default function CreateMinecraftInstance({
         {({ isSubmitting }) => (
           <Form
             id={formId}
-            className="flex flex-col items-stretch gap-6 text-center"
+            className="relative flex h-full w-[632px] grow flex-col items-stretch overflow-auto p-9 text-center"
           >
-            {_renderStepContent(
-              activeStep,
-              gameType,
-              setGameType,
-              setupManifest
-            )}
-            <div className="flex flex-row justify-between">
-              {activeStep !== 0 ? (
-                <Button onClick={_handleBack} label="Back" />
-              ) : (
-                <div></div>
+            <div className="relative">
+              {_renderStepContent(
+                activeStep,
+                gameType,
+                setGameType,
+                setupManifest
               )}
-              <Button
-                type="submit"
-                label={formReady ? 'Create Instance' : 'Next'}
-                loading={isSubmitting}
-              />
+              <div className="flex flex-row justify-between">
+                {activeStep !== 0 ? (
+                  <Button onClick={_handleBack} label="Back" />
+                ) : (
+                  <div></div>
+                )}
+                <Button
+                  type="submit"
+                  label={formReady ? 'Create Instance' : 'Next'}
+                  loading={isSubmitting}
+                />
+              </div>
             </div>
           </Form>
         )}

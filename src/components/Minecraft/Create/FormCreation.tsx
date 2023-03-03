@@ -51,7 +51,7 @@ export const createForm = (section: SectionManifest) => {
     }
   };
   return (
-    <>
+    <div className="w-full">
       <h1 className="text-h2 font-bold tracking-medium text-gray-300">
         {section.name}
       </h1>
@@ -64,6 +64,6 @@ export const createForm = (section: SectionManifest) => {
           createField(section['settings'][field])
         )}
       </div>
-    </>
+    </div>
   );
 };
