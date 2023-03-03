@@ -47,8 +47,10 @@ import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
 import ConfirmDialog from '../Atoms/ConfirmDialog';
 import FileList from './FileList';
-import CreateFileModal from './CreateFileModal';
-import CreateFolderModal from './CreateFolderModal';
+import CreationModal from './CreationModal';
+import CreateFolderForm from './CreateFolderForm';
+import CreateFileForm from './CreateFileForm';
+
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
@@ -246,18 +248,28 @@ export default function FileViewer() {
 
   return (
     <>
-      <CreateFolderModal 
+      <CreationModal 
         setModalOpen={setCreateFolderModalOpen}
         modalOpen={createFolderModalOpen}
-        path={modalPath}
-        fileList={fileList}
-      />
-      <CreateFileModal 
+      >
+        <CreateFolderForm
+          onCancel={() => setCreateFolderModalOpen(false)}
+          onSuccess={() => setCreateFolderModalOpen(false)}
+          fileList={fileList}
+          path={modalPath}
+        />
+      </CreationModal>
+      <CreationModal 
         setModalOpen={setCreateFileModalOpen}
         modalOpen={createFileModalOpen}
-        path={modalPath}
-        fileList={fileList}
-      />
+      >
+        <CreateFileForm
+          onCancel={() => setCreateFileModalOpen(false)}
+          onSuccess={() => setCreateFileModalOpen(false)}
+          path={modalPath}
+          fileList={fileList}
+        />
+      </CreationModal>
       <ConfirmDialog
         isOpen={deleteFileModalOpen}
         onClose={() => setDeleteFileModalOpen(false)}

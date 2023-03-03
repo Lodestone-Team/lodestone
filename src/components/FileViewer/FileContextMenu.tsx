@@ -58,18 +58,13 @@ const FileContextMenu = forwardRef(
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Copy"
-            subLabel={ isMac ? "⌘+C" : "CTRL+C"}
-            align="end"
-            variant="text"
-            intention="primary"
+            // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
+            disabled={true}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Cut"
-            align="end"
-            subLabel={ isMac ? "⌘+X" : "CTRL+X"}
-            variant="text"
-            intention="primary"
+            // subLabel={ isMac ? "⌘+X" : "CTRL+X"}
             onClick={() => {cutFile(); }}
           />
         </div>
@@ -77,42 +72,30 @@ const FileContextMenu = forwardRef(
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Rename"
-            align="end"
-            variant="text"
-            subLabel={ isMac ? "⌘+R" : "CTRL+R"}
-            intention="primary"
+            // subLabel={ isMac ? "⌘+R" : "CTRL+R"}
+            disabled={true}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Delete"
-            align="end"
-            variant="text"
-            iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
-            intention="primary"
+            // iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
+            disabled={true}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Unzip"
-            align="end"
-            variant="text"
-            intention="primary"
+            disabled={true}
           />
         </div>
         <div className="py-2">
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New folder"
-            align="end"
-            variant="text"
-            intention="primary"
             onClick={() => { setCreateFolderModalOpen(true); setShowContextMenu(false); }}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New file"
-            align="end"
-            variant="text"
-            intention="primary"
             onClick={() => { setCreateFileModalOpen(true); setShowContextMenu(false); }}
           />
         </div>

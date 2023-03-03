@@ -11,6 +11,7 @@ import Checkbox from 'components/Atoms/Checkbox';
 import { formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef, } from 'react';
+import { useEventListener, useOnClickOutside } from 'usehooks-ts';
 
 export default function FileList({
   path,
@@ -74,63 +75,32 @@ export default function FileList({
   }, [boundingDivRef]);
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePos({ x: e.clientX - absCoords.x, y: e.clientY - absCoords.y });
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-
-    return () => {
-      window.removeEventListener(
-        'mousemove',
-        handleMouseMove
-      );
-    };
-  }, [absCoords]);
-
-  useEffect(() => {
-    const onResize = () => {
-      if (boundingDivRef.current !== null) {
-        setAbsCoords({
-            x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, 
-            y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY 
-        });
-        setBoundingDivDimensions({ height: boundingDivRef.current.offsetHeight, width: boundingDivRef.current.offsetWidth })
-      }
-
-      if (contextMenuRef.current !== null) {
-        console.log(contextMenuRef.current.getBoundingClientRect())
-      }
-    }
-
     if (boundingDivRef.current !== null) {
       setAbsCoords({
         x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, 
         y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY
       });
     }
-
-    window.addEventListener('resize', onResize);
-    return () => {
-        window.removeEventListener('resize', onResize);
-    };
-
   }, [])
 
-  useEffect(() => {
-    const handleClickOutside = (e: Event) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        console.log(contextMenuRef)
-        console.log(contextMenuRef.current.getBoundingClientRect())
-        setShowContextMenu(false)
-      }
+  const onMouseMove = (e: MouseEvent) => {
+    setMousePos({ x: e.clientX - absCoords.x, y: e.clientY - absCoords.y });
+  };
+
+  const onResize = () => {
+    if (boundingDivRef.current !== null) {
+      setAbsCoords({
+          x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, 
+          y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY 
+      });
+      setBoundingDivDimensions({ height: boundingDivRef.current.offsetHeight, width: boundingDivRef.current.offsetWidth });
     }
-    window.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      window.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-  
+  }
+
+  useEventListener('mousemove', onMouseMove);
+  useEventListener('resize', onResize);
+  useEventListener('mousedown', onResize);
+  useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
 
   const calculateContextMenuCoords = () => {
     let x = null;
@@ -140,11 +110,13 @@ export default function FileList({
     } else {
       x = mousePos.x
     }
-    console.log(boundingDivDimensions.height)
     if (mousePos.y + contextMenuDimensions.height > boundingDivDimensions.height - 10) {
       y = boundingDivDimensions.height - contextMenuDimensions.height - 10
     } else {
       y = mousePos.y
+    }
+    if (mousePos.x - contextMenuDimensions.width < 4) {
+      x = 4;
     }
     setContextMenuCoords({ x, y })
     
