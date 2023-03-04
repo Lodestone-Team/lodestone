@@ -18,9 +18,9 @@ jobs:
   build:
     strategy:
       matrix:
-        platform: [ubuntu-latest, windows-latest]
+        platform: [x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu, aarch64-unknown-linux-gnu]
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ./
@@ -31,16 +31,22 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
           toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.platform }}
 
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}-client
+          key: ${{ matrix.platform }}-client
 
       - name: Build Backend
-        run: cargo build --verbose --release
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: -v --release --target ${{ matrix.paltform }}
 
       # on windows it's ./target/release/main.exe
       # on linux it's ./target/release/main
@@ -48,5 +54,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.platform }}-client${{ matrix.platform == 'windows-latest' && '.exe' || '' }}
-          path: ./target/release/${{ matrix.platform == 'windows-latest' && 'main.exe' || 'main' }}
+          name: ${{ matrix.platform }}-client${{ contains(matrix.platform, 'windows') && '.exe' || '' }}
+          path: ./target/${{ matrix.platform }}/release/${{ contains(matrix.platform, 'windows') && 'main.exe' || 'main' }}
