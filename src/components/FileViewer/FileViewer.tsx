@@ -45,6 +45,7 @@ import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
+import ErrorGraphic from 'components/ErrorGraphic';
 import ConfirmDialog from '../Atoms/ConfirmDialog';
 import FileList from './FileList';
 import CreateFileForm from './CreateFileForm';
@@ -558,43 +559,45 @@ export default function FileViewer() {
                       setFileContent={setFileContent}
                     />
                   ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
-                      <FontAwesomeIcon
-                        icon={faFilePen}
-                        className="text-title text-gray-500"
-                      />
-                      <p className="text-center text-h3 text-gray-400">
-                        File Editor
-                      </p>
-                      <p className="text-center text-h3 text-gray-400">
-                        {fileError
+                    <ErrorGraphic
+                      icon={faFilePen}
+                      message="File Editor"
+                      message2={
+                        fileError
                           ? fileError?.message ?? 'Unknown Error'
                           : isFileLoading
                           ? 'Loading...'
-                          : 'Select a file to view its contents'}
-                      </p>
-                    </div>
+                          : 'Select a file to view its contents'
+                      }
+                      className=""
+                      iconClassName="text-gray-500"
+                      messageClassName="text-gray-400"
+                    />
                   )}
                 </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 text-clip rounded-lg border border-gray-faded/30 bg-gray-800">
-            <FontAwesomeIcon
-              icon={faFolder}
-              className="text-title text-gray-400"
-            />
-            <p className="text-center text-h3 font-medium text-white/50">
-              You don&#39;t have permission to read this folder
-            </p>
-          </div>
+          <ErrorGraphic
+            icon={faFolder}
+            message="You don't have permission to read this folder"
+            className="text-clip rounded-lg border border-gray-faded/30"
+            iconClassName="text-gray-400"
+            messageClassName="text-white/50"
+          />
         )}
         <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length > 0 && (
+          {tickedFiles.length === 1 && (
+            <div>1 item selected</div>
+          )}
+          {tickedFiles.length > 1 && (
             <div>{tickedFiles.length} items selected</div>
           )}
-          {clipboard.length > 0 && (
+          {clipboard.length === 1 && (
+            <div>1 item in clipboard</div>
+          )}
+          {clipboard.length > 1 && (
             <div>{clipboard.length} items in clipboard</div>
           )}
         </div>
