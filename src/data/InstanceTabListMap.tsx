@@ -20,8 +20,6 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 
-import ErrorGraphic from 'components/ErrorGraphic';
-
 const InstanceTabListMap = {
   minecraft: [
     {
@@ -55,16 +53,7 @@ const InstanceTabListMap = {
       path: 'console',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faServer} />,
-      content: (
-        <>
-          <GameConsole />
-          <ErrorGraphic
-            iconProp={faServer}
-            message="You don't have permission to access this console"
-          />
-        </>
-
-      )
+      content: <GameConsole />
     },
     {
       title: 'Files',

@@ -121,11 +121,17 @@ export default function GameConsole() {
         <ErrorGraphic
           iconProp={faServer}
           message="You don't have permission to access this console"
+          className="rounded-t-lg border-b border-gray-faded/30"
+          iconClassName="text-gray-400"
+          messageClassName="text-white/50"
         />
       ) : consoleLog.length === 0 ? (
         <ErrorGraphic
           iconProp={faServer}
           message="No console messages yet"
+          className="rounded-t-lg border-b border-gray-faded/30"
+          iconClassName="text-gray-400"
+          messageClassName="text-white/50"
         />
       ) : (
         <ol
