@@ -4,9 +4,72 @@ import { PortStatus } from 'bindings/PortStatus';
 
 export const formId = 'minecraftCreateNewInstanceForm';
 
+export const instanceSettingPageObject: SectionManifest = {
+  section_id: 'instance_settings',
+  name: 'Instance Settings',
+  description: 'Instance Settings',
+  settings: {
+    auto_start: {
+      setting_id: 'auto_start',
+      name: 'Auto Start',
+      description: 'Auto Start',
+      value: null,
+      value_type: {
+        type: 'Boolean',
+      },
+      default_value: {
+        type: 'Boolean',
+        value: false,
+      },
+      is_secret: false,
+      is_required: true,
+      is_mutable: true,
+    },
+    restart_on_crash: {
+      setting_id: 'restart_on_crash',
+      name: 'Restart on Crash',
+      description: 'Restart on Crash',
+      value: {
+        type: 'Boolean',
+        value: false,
+      },
+      value_type: {
+        type: 'Boolean',
+      },
+      default_value: {
+        type: 'Boolean',
+        value: false,
+      },
+      is_secret: false,
+      is_required: true,
+      is_mutable: true,
+    },
+    start_on_connection: {
+      setting_id: 'start_on_connection',
+      name: 'Start on Connection',
+      description: 'Start on Connection',
+      value: {
+        type: 'Boolean',
+        value: false,
+      },
+      value_type: {
+        type: 'Boolean',
+      },
+      default_value: {
+        type: 'Boolean',
+        value: false,
+      },
+      is_secret: false,
+      is_required: true,
+      is_mutable: true,
+    },
+  },
+};
+
 export const generateValidationSchema = (instanceManifest:ConfigurableManifest) => {
   const validationSchema:any[] = []
   const setting_sections = instanceManifest["setting_sections"]
+  setting_sections["instance_settings"] = instanceSettingPageObject
   validationSchema.push(yup.object().shape({})) //for select game type
   const generateYupObject = (setting: SettingManifest) => {
     const settingType = setting.value_type.type

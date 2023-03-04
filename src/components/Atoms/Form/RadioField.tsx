@@ -19,7 +19,6 @@ export default function RadioField(props: RadioFieldProps) {
   const errorText = isError ? meta.error : '';
   const disabledVisual = disabled || loading;
   const loadingVisual = loading && !disabled;
-
   // reset the field value if the options change
   useEffect(() => {
     if (selectedValue && !options.includes(selectedValue)) {
@@ -40,7 +39,7 @@ export default function RadioField(props: RadioFieldProps) {
       </label>
       <div className="relative mt-1">
         <RadioGroup
-          value={selectedValue ? selectedValue : ''}
+          value={selectedValue ? selectedValue.toString() : ''}
           name={field.name}
           onChange={(newValue: string) => {
             // need to generate a fake React.ChangeEvent
@@ -81,21 +80,26 @@ export default function RadioField(props: RadioFieldProps) {
                   : 'input-border-normal ui-not-disabled:focus-visible:ring-blue-faded/50'
               }`}
               >
-                {({ checked }) => (
-                  <span
-                    className={`block h-full w-full select-none py-1.5 px-3 text-center ${
-                      disabledVisual
-                        ? checked
-                          ? 'bg-blue-faded/30 text-white/50'
-                          : 'bg-gray-800 text-white/50'
-                        : checked
-                        ? 'bg-[#2B4554] text-gray-300'
-                        : 'text-white/75'
-                    }`}
-                  >
-                    {option}
-                  </span>
-                )}
+                {({ checked }) => {
+                  const initialChecked =
+                    selectedValue !== undefined &&
+                    selectedValue.toString() == option;
+                  return (
+                    <span
+                      className={`block h-full w-full select-none py-1.5 px-3 text-center ${
+                        disabledVisual
+                          ? checked || initialChecked
+                            ? 'bg-blue-faded/30 text-white/50'
+                            : 'bg-gray-800 text-white/50'
+                          : checked || initialChecked
+                          ? 'bg-[#2B4554] text-gray-300'
+                          : 'text-white/75'
+                      }`}
+                    >
+                      {option}
+                    </span>
+                  );
+                }}
               </RadioGroup.Option>
             ))
           )}
