@@ -11,7 +11,7 @@ import {
 } from 'data/InstanceGameTypes';
 import SelectGameCard from './SelectGameCard';
 import { gameTypeInfoFromHandlerType } from 'data/GameTypeMappings';
-export default function MinecraftAdvancedForm({
+export default function GameTypeSelectForm({
   gameType,
   setGameType,
   className,

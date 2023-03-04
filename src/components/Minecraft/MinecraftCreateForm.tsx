@@ -13,7 +13,7 @@ import {
 } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { createForm } from './Create/FormCreation';
-import MinecraftGameForm from './Create/MinecraftGameForm';
+import GameTypeSelectForm from './Create/GameTypeSelectForm';
 import { SetupInstanceManifest } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
@@ -38,7 +38,7 @@ function _renderStepContent(
   return (
     <div className="h-full">
       {step == 0 ? (
-        <MinecraftGameForm gameType={gameType} setGameType={setGameType} />
+        <GameTypeSelectForm gameType={gameType} setGameType={setGameType} />
       ) : (
         forms[step - 1]
       )}
@@ -181,35 +181,36 @@ export default function CreateMinecraftInstance({
   }
 
   return (
-    <div className="flex h-[560px] w-[812px] items-stretch rounded-2xl bg-gray-850">
-      <div className="flex w-[180px] border-r border-gray-700 ">
-        <div className="mt-9">
-          {steps.map((section, i) => (
-            <div
-              key={i}
-              className={clsx(
-                'cursor-pointer px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 hover:text-white',
-                activeStep === i && 'font-extrabold text-white'
-              )}
-            >
-              {section}
+    <Formik
+      initialValues={initialValue}
+      validationSchema={currentValidationSchema}
+      onSubmit={_handleSubmit}
+      innerRef={formikRef}
+      validateOnBlur={false}
+      validateOnChange={false}
+    >
+      {({ isSubmitting }) => (
+        <Form
+          id={formId}
+          className="flex h-[560px] w-[812px] items-stretch rounded-2xl bg-gray-850"
+        >
+          <div className="flex w-[180px] border-r border-gray-700 ">
+            <div className="mt-9">
+              {steps.map((section, i) => (
+                <div key={i} className="flex items-center">
+                  <div
+                    className={clsx(
+                      'px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 ',
+                      activeStep === i && 'font-extrabold text-white'
+                    )}
+                  >
+                    {section}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
-      <Formik
-        initialValues={initialValue}
-        validationSchema={currentValidationSchema}
-        onSubmit={_handleSubmit}
-        innerRef={formikRef}
-        validateOnBlur={false}
-        validateOnChange={false}
-      >
-        {({ isSubmitting }) => (
-          <Form
-            id={formId}
-            className="relative flex h-full w-[632px] grow flex-col items-stretch overflow-auto p-9 text-center"
-          >
+          </div>
+          <div className="relative flex h-full w-[632px] grow flex-col items-stretch overflow-auto p-9 text-center">
             <div className="relative">
               {_renderStepContent(
                 activeStep,
@@ -230,9 +231,9 @@ export default function CreateMinecraftInstance({
                 />
               </div>
             </div>
-          </Form>
-        )}
-      </Formik>
-    </div>
+          </div>
+        </Form>
+      )}
+    </Formik>
   );
 }
