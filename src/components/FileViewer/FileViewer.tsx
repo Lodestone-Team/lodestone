@@ -588,10 +588,16 @@ export default function FileViewer() {
           />
         )}
         <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length > 0 && (
+          {tickedFiles.length === 1 && (
+            <div>1 item selected</div>
+          )}
+          {tickedFiles.length > 1 && (
             <div>{tickedFiles.length} items selected</div>
           )}
-          {clipboard.length > 0 && (
+          {clipboard.length === 1 && (
+            <div>1 item in clipboard</div>
+          )}
+          {clipboard.length > 1 && (
             <div>{clipboard.length} items in clipboard</div>
           )}
         </div>

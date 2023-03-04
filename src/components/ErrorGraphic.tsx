@@ -10,6 +10,7 @@ interface ErrorGraphicProps {
   iconClassName: string;
   messageClassName: string
 }
+
 export default function ErrorGraphic({ className, iconProp, iconClassName, message, message2, messageClassName }: ErrorGraphicProps) {
     return (
       <div className={cn('flex', 'h-full', 'w-full', 'grow', 'flex-col', 'items-center', 'justify-center', 'gap-4', 'bg-gray-800', className)}>

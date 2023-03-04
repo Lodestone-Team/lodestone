@@ -82,8 +82,9 @@ export default function FileList({
           <div
             key={file.path}
             className={clsx(fileTreeEntryClassName, 'hover:bg-gray-700', {
-              'bg-gray-700': fileTicked(file),
-              'bg-gray-800': !fileTicked(file),
+              'bg-gray-900': file === openedFile,
+              'bg-gray-700': fileTicked(file) && file !== openedFile,
+              'bg-gray-800': !fileTicked(file) && file !== openedFile,
             })}
           >
             <Checkbox
