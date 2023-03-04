@@ -46,7 +46,7 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: -v --release --target ${{ matrix.paltform }}
+          args: --release --target ${{ matrix.platform }}
 
       # on windows it's ./target/release/main.exe
       # on linux it's ./target/release/main
