@@ -3,10 +3,7 @@ import { HandlerGameType } from 'bindings/HandlerGameType';
 import { GameType } from 'bindings/InstanceInfo';
 import clsx from 'clsx';
 import Spinner from 'components/DashboardLayout/Spinner';
-import {
-  InstanceGameTypes,
-  SetupInstanceManifest,
-} from 'data/InstanceGameTypes';
+import { InstanceGameTypes } from 'data/InstanceGameTypes';
 import SelectGameCard from './SelectGameCard';
 import { gameTypeInfoFromHandlerType } from 'data/GameTypeMappings';
 export default function GameTypeSelectForm({
@@ -23,7 +20,6 @@ export default function GameTypeSelectForm({
     return <Spinner />;
   }
 
-  const game_typesDuped = [game_types].flat();
   return (
     <div className={className}>
       <p className="text-left text-h2 font-bold tracking-medium text-gray-300">
@@ -33,10 +29,9 @@ export default function GameTypeSelectForm({
         What will your server be used for?
       </p>
       <div className="mt-9 box-border grid h-full grid-cols-2 gap-9">
-        {game_typesDuped.map((game) => {
+        {game_types.map((game) => {
           const { title, description, game_type } =
             gameTypeInfoFromHandlerType[game];
-          console.log(gameTypeInfoFromHandlerType[game]);
           return (
             <div
               key={game}

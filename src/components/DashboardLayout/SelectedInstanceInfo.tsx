@@ -44,7 +44,6 @@ export const SelectedInstanceInfo = ({
     return <div></div>;
   }
 
-  console.log(selectedInstance);
   return (
     <RadioGroup
       className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
