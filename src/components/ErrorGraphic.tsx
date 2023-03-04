@@ -1,6 +1,6 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import { IconDefinition } from "@fortawesome/free-solid-svg-icons"
-import { cn } from "utils/util";
+import clsx from "clsx";
 
 interface ErrorGraphicProps {
   icon: IconDefinition;
@@ -13,16 +13,16 @@ interface ErrorGraphicProps {
 
 export default function ErrorGraphic({ className, icon, iconClassName, message, message2, messageClassName }: ErrorGraphicProps) {
     return (
-      <div className={cn('flex', 'h-full', 'w-full', 'grow', 'flex-col', 'items-center', 'justify-center', 'gap-4', 'bg-gray-800', className)}>
+      <div className={clsx('flex', 'h-full', 'w-full', 'grow', 'flex-col', 'items-center', 'justify-center', 'gap-4', 'bg-gray-800', className)}>
         <FontAwesomeIcon
           icon={icon}
-          className={`text-title ${iconClassName}`}
+          className={clsx('text-title', iconClassName)}
         />
-        <p className={cn('text-center', 'text-h3', 'font-medium', messageClassName)}>
+        <p className={clsx('text-center', 'text-h3', 'font-medium', messageClassName)}>
           {message}
         </p>
         {message2 && (
-          <p className={cn('text-center', 'text-h3', 'font-medium', messageClassName)}>
+          <p className={clsx('text-center', 'text-h3', 'font-medium', messageClassName)}>
             {message2}
           </p>
         )}
