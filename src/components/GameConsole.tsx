@@ -3,9 +3,10 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import axios from 'axios';
 import { useConsoleStream } from 'data/ConsoleStream';
 import { InstanceContext } from 'data/InstanceContext';
+import { CommandHistoryContext } from 'data/CommandHistoryContext';
 import { useUserAuthorized } from 'data/UserInfo';
 import Tooltip from 'rc-tooltip';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect} from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
@@ -22,6 +23,8 @@ export default function GameConsole() {
   );
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
+  const { commandHistory, appendCommandHistory } = useContext(CommandHistoryContext);
+  const [commandNav, setCommandNav] = useState(commandHistory.length - 1);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -
@@ -103,12 +106,17 @@ export default function GameConsole() {
     consoleInputMessage = 'Console is closed';
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+
     if (event.key === 'ArrowUp') {
-      // Handle up arrow key press
-      console.log('Up arrow key pressed');
+      setCommand(commandHistory[commandNav]);
+      setCommandNav(prev => Math.max(prev - 1, 0));
+
     } else if (event.key === 'ArrowDown') {
-      // Handle down arrow key press
-      console.log('Down arrow key pressed');
+      setCommand(commandHistory[commandNav]);
+      setCommandNav(prev => Math.min(prev + 1, commandHistory.length - 1));
+
+    } else {
+      setCommandNav(commandHistory.length - 1);
     }
   };
 
@@ -168,7 +176,9 @@ export default function GameConsole() {
           onSubmit={(e: React.SyntheticEvent) => {
             e.preventDefault();
             sendCommand(command);
+            appendCommandHistory(command);
             setCommand('');
+            setCommandNav(commandHistory.length - 1);
           }}
         >
           <input

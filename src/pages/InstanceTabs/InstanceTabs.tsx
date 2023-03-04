@@ -6,6 +6,7 @@ import InstanceTabListMap from '../../data/InstanceTabListMap';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
+import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -83,36 +84,38 @@ const InstanceTabs = () => {
   }
 
   return (
-    <div
-      className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
-      key={uuid}
-    >
-      {InstanceTabListMap[instance.game_type].map(
-        (tab) =>
-          tab.path === path && (
-            <div
-              className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
-              key={`${instance.name}-${tab.title}`}
-            >
-              <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
-                {tab.displayTitle && <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-                  {tab.displayTitle}
-                  {tab.title === 'Console' && (
-                    <Label
-                      size="medium"
-                      className="ml-2 mt-[6px]"
-                      color={stateToLabelColor[instance.state]}
-                    >
-                      {instance.state}
-                    </Label>
-                  )}
-                </div>}
-                {tab.content}
+    <CommandHistoryContextProvider>
+      <div
+        className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
+        key={uuid}
+      >
+        {InstanceTabListMap[instance.game_type].map(
+          (tab) =>
+            tab.path === path && (
+              <div
+                className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
+                key={`${instance.name}-${tab.title}`}
+              >
+                <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
+                  {tab.displayTitle && <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
+                    {tab.displayTitle}
+                    {tab.title === 'Console' && (
+                      <Label
+                        size="medium"
+                        className="ml-2 mt-[6px]"
+                        color={stateToLabelColor[instance.state]}
+                      >
+                        {instance.state}
+                      </Label>
+                    )}
+                  </div>}
+                  {tab.content}
+                </div>
               </div>
-            </div>
-          )
-      )}
-    </div>
+            )
+        )}
+      </div>
+    </CommandHistoryContextProvider>
   );
 };
 
