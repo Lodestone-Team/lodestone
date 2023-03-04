@@ -53,7 +53,7 @@ const InstanceTabListMap = {
       path: 'console',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faServer} />,
-      content: <GameConsole />
+      content: <GameConsole />,
     },
     {
       title: 'Files',
