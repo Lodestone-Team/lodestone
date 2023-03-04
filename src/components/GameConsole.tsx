@@ -24,7 +24,7 @@ export default function GameConsole() {
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
   const { commandHistory, appendCommandHistory } = useContext(CommandHistoryContext);
-  const [commandNav, setCommandNav] = useState(commandHistory.length - 1);
+  const [commandNav, setCommandNav] = useState(commandHistory.length);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -
@@ -106,17 +106,22 @@ export default function GameConsole() {
     consoleInputMessage = 'Console is closed';
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-
     if (event.key === 'ArrowUp') {
-      setCommand(commandHistory[commandNav]);
-      setCommandNav(prev => Math.max(prev - 1, 0));
+      setCommandNav((prev) => {
+        prev = Math.max(prev - 1, 0)
+        setCommand(commandHistory[prev]);
+        return prev
+      });
 
     } else if (event.key === 'ArrowDown') {
-      setCommand(commandHistory[commandNav]);
-      setCommandNav(prev => Math.min(prev + 1, commandHistory.length - 1));
+      setCommandNav((prev) => {
+        prev = Math.min(prev + 1, commandHistory.length - 1)
+        setCommand(commandHistory[prev]);
+        return prev
+      });
 
     } else {
-      setCommandNav(commandHistory.length - 1);
+      setCommandNav(commandHistory.length);
     }
   };
 
@@ -177,8 +182,8 @@ export default function GameConsole() {
             e.preventDefault();
             sendCommand(command);
             appendCommandHistory(command);
+            setCommandNav(prev => prev + 1);
             setCommand('');
-            setCommandNav(commandHistory.length - 1);
           }}
         >
           <input
