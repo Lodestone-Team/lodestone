@@ -14,11 +14,9 @@ export const InstanceGameTypes = () =>
   );
 
 export const SetupInstanceManifest = (game_type: HandlerGameType) => {
-    console.log(game_type)
     return useQuery<ConfigurableManifest, AxiosError>(
         ['setup_manifest', game_type],
         async () => {
-            console.log(game_type)
             const response = await axios.get<ConfigurableManifest>(`/setup_manifest/${game_type}`);
             console.log(response.data);
             return response.data;
