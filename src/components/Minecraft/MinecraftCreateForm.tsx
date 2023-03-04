@@ -92,6 +92,7 @@ export default function CreateMinecraftInstance({
   ].flat();
   const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: ManifestValue) => {
+    console.log(JSON.stringify(value));
     await axiosWrapper<void>({
       method: 'post',
       url: `/instance/create/${gameType}`,
@@ -111,9 +112,11 @@ export default function CreateMinecraftInstance({
     }
 
     const parsedValues: ManifestValue = {
-      auto_start: values.auto_start?.value as boolean,
-      restart_on_crash: values.restart_on_crash?.value as boolean,
-      start_on_connection: values.start_on_connection?.value as boolean,
+      auto_start: values.auto_start?.value === 'true' ? true : false,
+      restart_on_crash:
+        values.restart_on_crash?.value === 'true' ? true : false,
+      start_on_connection:
+        values.start_on_connection?.value === 'true' ? true : false,
       setting_sections: sectionValues,
     };
 
