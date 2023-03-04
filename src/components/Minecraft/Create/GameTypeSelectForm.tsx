@@ -33,19 +33,21 @@ export default function GameTypeSelectForm({
           const { title, description, game_type } =
             gameTypeInfoFromHandlerType[game];
           return (
-            <div
-              key={game}
-              className="w-full hover:cursor-pointer"
-              onClick={() => setGameType(game)}
-            >
+            <div key={game}>
               <SelectGameCard
                 title={title}
                 description={description}
                 game_type={game_type}
                 className={clsx(
-                  'h-28 rounded-lg bg-gray-800 p-4 outline outline-1 outline-fade-700/10',
-                  game === gameType && 'border-2 border-red-300'
+                  'h-28 w-full rounded-md p-4 outline outline-1',
+                  'text-gray-faded/30 enabled:hover:text-white/50 disabled:text-gray-900',
+                  'border-gray-faded/30 bg-gray-800 enabled:hover:border-gray-faded/50 enabled:hover:bg-gray-700 enabled:active:border-gray-faded/50 enabled:active:bg-gray-800 disabled:border-fade-700/10',
+                  'outline-gray-faded/30 enabled:hover:outline-white/50',
+                  'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
+                  game === gameType &&
+                    'enabled:border-gray-faded/50 enabled:bg-gray-700 enabled:outline-white/50'
                 )}
+                onClick={() => setGameType(game)}
               />
             </div>
           );
