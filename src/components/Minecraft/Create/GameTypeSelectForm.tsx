@@ -2,8 +2,6 @@ import { RadioGroup } from '@headlessui/react';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import { GameType } from 'bindings/InstanceInfo';
 import clsx from 'clsx';
-import InputField from 'components/Atoms/Form/InputField';
-import RadioField from 'components/Atoms/Form/RadioField';
 import Spinner from 'components/DashboardLayout/Spinner';
 import {
   InstanceGameTypes,

@@ -70,7 +70,6 @@ export default function CreateMinecraftInstance({
   });
 
   useEffect(() => {
-    console.log(setup_manifest);
     if (!isLoading && !error) {
       setSetupManifest(setup_manifest);
     }
@@ -93,7 +92,6 @@ export default function CreateMinecraftInstance({
   ].flat();
   const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: ManifestValue) => {
-    console.log(JSON.stringify(value));
     await axiosWrapper<void>({
       method: 'post',
       url: `/instance/create/${gameType}`,
@@ -107,15 +105,15 @@ export default function CreateMinecraftInstance({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     const sectionValues: Record<string, SectionManifestValue> = {};
-    for (let i = 1; i < steps.length; i++) {
+    for (let i = 1; i < steps.length - 1; i++) {
       const structure = getSectionValidationStructure(values, i);
       sectionValues[structure[1]] = structure[0];
     }
 
     const parsedValues: ManifestValue = {
-      auto_start: false,
-      restart_on_crash: false,
-      start_on_connection: false,
+      auto_start: values.auto_start?.value as boolean,
+      restart_on_crash: values.restart_on_crash?.value as boolean,
+      start_on_connection: values.start_on_connection?.value as boolean,
       setting_sections: sectionValues,
     };
 
@@ -166,10 +164,10 @@ export default function CreateMinecraftInstance({
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
-    _sectionValidation(values, activeStep);
     if (formReady) {
       _submitForm(values, actions);
     } else {
+      _sectionValidation(values, activeStep);
       setActiveStep(activeStep + 1);
       actions.setTouched({});
       actions.setSubmitting(false);
