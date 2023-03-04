@@ -3,9 +3,10 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import axios from 'axios';
 import { useConsoleStream } from 'data/ConsoleStream';
 import { InstanceContext } from 'data/InstanceContext';
+import { CommandHistoryContext } from 'data/CommandHistoryContext';
 import { useUserAuthorized } from 'data/UserInfo';
 import Tooltip from 'rc-tooltip';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect} from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
@@ -23,6 +24,8 @@ export default function GameConsole() {
   );
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
+  const { commandHistory, appendCommandHistory } = useContext(CommandHistoryContext);
+  const [commandNav, setCommandNav] = useState(commandHistory.length);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -
@@ -103,6 +106,26 @@ export default function GameConsole() {
   else if (consoleStatus === 'closed')
     consoleInputMessage = 'Console is closed';
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowUp') {
+      setCommandNav((prev) => {
+        prev = Math.max(prev - 1, 0)
+        setCommand(commandHistory[prev]);
+        return prev
+      });
+
+    } else if (event.key === 'ArrowDown') {
+      setCommandNav((prev) => {
+        prev = Math.min(prev + 1, commandHistory.length - 1)
+        setCommand(commandHistory[prev]);
+        return prev
+      });
+
+    } else {
+      setCommandNav(commandHistory.length);
+    }
+  };
+
   return (
     <div className="relative flex h-full w-full grow flex-col rounded-lg border border-gray-faded/30">
       <Tooltip
@@ -155,6 +178,8 @@ export default function GameConsole() {
           onSubmit={(e: React.SyntheticEvent) => {
             e.preventDefault();
             sendCommand(command);
+            appendCommandHistory(command);
+            setCommandNav(prev => prev + 1);
             setCommand('');
           }}
         >
@@ -166,6 +191,7 @@ export default function GameConsole() {
             id="command"
             type="text"
             disabled={consoleInputMessage !== ''}
+            onKeyDown={handleKeyDown}
           />
         </form>
       </div>

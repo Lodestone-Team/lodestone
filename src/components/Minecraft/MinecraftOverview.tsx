@@ -1,6 +1,5 @@
 import { Tab } from '@headlessui/react';
 import ClipboardTextfield from 'components/ClipboardTextfield';
-import GameConsole from 'components/GameConsole';
 import DashboardCard from 'components/DashboardCard';
 import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
