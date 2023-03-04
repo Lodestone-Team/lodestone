@@ -560,7 +560,7 @@ export default function FileViewer() {
                     />
                   ) : (
                     <ErrorGraphic
-                      iconProp={faFilePen}
+                      icon={faFilePen}
                       message="File Editor"
                       message2={
                         fileError
@@ -580,7 +580,7 @@ export default function FileViewer() {
           </div>
         ) : (
           <ErrorGraphic
-            iconProp={faFolder}
+            icon={faFolder}
             message="You don't have permission to read this folder"
             className="text-clip rounded-lg border border-gray-faded/30"
             iconClassName="text-gray-400"

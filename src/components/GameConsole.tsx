@@ -119,7 +119,7 @@ export default function GameConsole() {
       </Tooltip>
       {!canAccessConsole || consoleStatus === 'no-permission' ? (
         <ErrorGraphic
-          iconProp={faServer}
+          icon={faServer}
           message="You don't have permission to access this console"
           className="rounded-t-lg border-b border-gray-faded/30"
           iconClassName="text-gray-400"
@@ -127,7 +127,7 @@ export default function GameConsole() {
         />
       ) : consoleLog.length === 0 ? (
         <ErrorGraphic
-          iconProp={faServer}
+          icon={faServer}
           message="No console messages yet"
           className="rounded-t-lg border-b border-gray-faded/30"
           iconClassName="text-gray-400"

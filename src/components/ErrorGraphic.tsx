@@ -3,7 +3,7 @@ import { IconDefinition } from "@fortawesome/free-solid-svg-icons"
 import { cn } from "utils/util";
 
 interface ErrorGraphicProps {
-  iconProp: IconDefinition;
+  icon: IconDefinition;
   message: string;
   message2?: string;
   className?: string;
@@ -11,12 +11,12 @@ interface ErrorGraphicProps {
   messageClassName: string
 }
 
-export default function ErrorGraphic({ className, iconProp, iconClassName, message, message2, messageClassName }: ErrorGraphicProps) {
+export default function ErrorGraphic({ className, icon, iconClassName, message, message2, messageClassName }: ErrorGraphicProps) {
     return (
       <div className={cn('flex', 'h-full', 'w-full', 'grow', 'flex-col', 'items-center', 'justify-center', 'gap-4', 'bg-gray-800', className)}>
         <FontAwesomeIcon
-          icon={iconProp}
-          className={cn('text-title', iconClassName)}
+          icon={icon}
+          className={`text-title ${iconClassName}`}
         />
         <p className={cn('text-center', 'text-h3', 'font-medium', messageClassName)}>
           {message}
