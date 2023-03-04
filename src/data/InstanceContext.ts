@@ -3,14 +3,14 @@ import { InstanceInfo } from './../bindings/InstanceInfo';
 
 interface InstanceContextType {
   instanceList: { [uuid: string]: InstanceInfo };
-  selectedInstance?: InstanceInfo;
-  selectInstance: (instance?: InstanceInfo) => void;
+  selectedInstance: InstanceInfo | null;
+  selectInstance: (instance: InstanceInfo | null) => void;
   isReady: boolean;
 }
 
 export const InstanceContext = createContext<InstanceContextType>({
   instanceList: {},
-  selectedInstance: undefined,
+  selectedInstance: null,
   selectInstance: () => {
     throw new Error('InstanceContext not initialized');
   },

@@ -2,8 +2,12 @@ import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Tooltip from 'rc-tooltip';
 import { toast } from 'react-toastify';
+import clsx from 'clsx';
+import { LabelColor } from './Atoms/Label';
 
 export default function ClipboardTextfield({
+  color = 'gray',
+  iconLeft = true,
   text,
   textToCopy,
   className,
@@ -11,6 +15,8 @@ export default function ClipboardTextfield({
   text: string;
   textToCopy?: string;
   className?: string;
+  color?: LabelColor;
+  iconLeft?: boolean;
 }) {
   const onClickCopy = (e: React.MouseEvent<HTMLSpanElement>) => {
     e.stopPropagation();
@@ -28,17 +34,23 @@ export default function ClipboardTextfield({
       mouseEnterDelay={0.2}
     >
       <div
-        className={`group flex flex-row items-center justify-center gap-3 whitespace-nowrap hover:cursor-pointer ${className}`}
+        className={`group flex flex-row items-center justify-center gap-2 whitespace-nowrap hover:cursor-pointer ${className} select-none`}
         onClick={onClickCopy}
       >
-        <div className={`select-none`}>
+          {/* TODO develop custom tooltip component */}
+          {!iconLeft && <>{text}</>}
           <FontAwesomeIcon
-            className={`mr-2 text-gray-faded/30 group-hover:text-gray-500`}
+            className={clsx({
+              gray: `text-gray-faded/25 group-hover:text-gray-500`,
+              blue: `text-blue-faded/25 group-hover:text-blue-150`,
+              green: 'text-green-faded/25 group-hover:text-green',
+              yellow: 'text-yellow-faded/25 group-hover:text-yellow',
+              red: 'text-red-faded/25 group-hover:text-red',
+            }[color],
+            )}
             icon={faClone}
           />
-          {/* TODO develop custom tooltip component */}
-          {text}&nbsp;&nbsp;
-        </div>
+          {iconLeft && <>{text}&nbsp;&nbsp;</>}
       </div>
     </Tooltip>
   );

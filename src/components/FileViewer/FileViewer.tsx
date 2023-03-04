@@ -50,6 +50,7 @@ import FileList from './FileList';
 import CreationModal from './CreationModal';
 import CreateFolderForm from './CreateFolderForm';
 import CreateFileForm from './CreateFileForm';
+import RenameFileForm from './RenameFileForm';
 
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
@@ -65,6 +66,7 @@ export default function FileViewer() {
   const [modalPath, setModalPath] = useState<string>('');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
+  const [renameFileModalOpen, setRenameFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
@@ -125,29 +127,32 @@ export default function FileViewer() {
     await uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
   };
 
+  const deleteSingleFile = async (file: ClientFile) => {
+    if (file.file_type === 'Directory') {
+      await deleteInstanceDirectory(
+        instance.uuid,
+        path,
+        file.path,
+        queryClient
+      );
+      tickFile(file, false);
+      if (openedFile?.path.startsWith(file.path)) {
+        setOpenedFile(null);
+        setFileContent('');
+      }
+    } else if (file.file_type === 'File') {
+      await deleteInstanceFile(instance.uuid, path, file, queryClient);
+      tickFile(file, false);
+      if (openedFile?.path === file.path) {
+        setOpenedFile(null);
+        setFileContent('');
+      }
+    }
+  }
   const deleteTickedFiles = async () => {
     if (!tickedFiles) return;
     for (const file of tickedFiles) {
-      if (file.file_type === 'Directory') {
-        await deleteInstanceDirectory(
-          instance.uuid,
-          path,
-          file.path,
-          queryClient
-        );
-        tickFile(file, false);
-        if (openedFile?.path.startsWith(file.path)) {
-          setOpenedFile(null);
-          setFileContent('');
-        }
-      } else if (file.file_type === 'File') {
-        await deleteInstanceFile(instance.uuid, path, file, queryClient);
-        tickFile(file, false);
-        if (openedFile?.path === file.path) {
-          setOpenedFile(null);
-          setFileContent('');
-        }
-      }
+      await deleteSingleFile(file);
     }
     setTickedFiles([]);
   };
@@ -198,9 +203,7 @@ export default function FileViewer() {
     }
   };
 
-  const unzipTickedFile = async () => {
-    if (!tickedFiles) return;
-    const file = tickedFiles[0];
+  const unzipFile = async (file: ClientFile)  => { 
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
@@ -221,6 +224,12 @@ export default function FileViewer() {
       queryClient,
       directorySeparator
     );
+  }
+
+  const unzipTickedFile = async () => {
+    if (!tickedFiles) return;
+    const file = tickedFiles[0];
+    await unzipFile(file);
     tickFile(file, false);
   };
 
@@ -268,6 +277,16 @@ export default function FileViewer() {
           onSuccess={() => setCreateFileModalOpen(false)}
           path={modalPath}
           fileList={fileList}
+        />
+      </CreationModal>
+      <CreationModal 
+        setModalOpen={setRenameFileModalOpen}
+        modalOpen={renameFileModalOpen}
+      >
+        <RenameFileForm
+          onCancel={() => setRenameFileModalOpen(false)}
+          onSuccess={() => setRenameFileModalOpen(false)}
+          path={modalPath}
         />
       </CreationModal>
       <ConfirmDialog
@@ -516,6 +535,7 @@ export default function FileViewer() {
                 error={fileListError}
                 tickedFiles={tickedFiles}
                 tickFile={tickFile}
+                unzipFile={unzipFile}
                 openedFile={openedFile}
                 onParentClick={() =>
                   setPath(parentPath(path, directorySeparator), false)
@@ -533,10 +553,13 @@ export default function FileViewer() {
                 }}
                 setCreateFileModalOpen={setCreateFileModalOpen}
                 setCreateFolderModalOpen={setCreateFolderModalOpen}
+                setRenameFileModalOpen={setRenameFileModalOpen}
                 setModalPath={setModalPath}
                 setClipboard={setClipboard}
                 setClipboardAction={setClipboardAction}
                 setTickedFiles={setTickedFiles}
+                deleteSingleFile={deleteSingleFile}
+                deleteTickedFiles={deleteTickedFiles}
               />
             </ResizePanel>
             {openedFile && (

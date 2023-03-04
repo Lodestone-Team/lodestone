@@ -20,6 +20,7 @@ export default function FileList({
   error,
   tickedFiles,
   tickFile,
+  unzipFile,
   openedFile,
   atTopLevel,
   onParentClick,
@@ -30,7 +31,10 @@ export default function FileList({
   setModalPath,
   setClipboard,
   setClipboardAction,
+  setRenameFileModalOpen,
   setTickedFiles,
+  deleteSingleFile,
+  deleteTickedFiles,
 }: {
   path: string;
   fileList: ClientFile[] | undefined;
@@ -38,17 +42,21 @@ export default function FileList({
   error: Error | null;
   tickedFiles: ClientFile[];
   tickFile: (file: ClientFile, ticked: boolean) => void;
+  unzipFile: (file: ClientFile) => void;
   openedFile: ClientFile | null;
   atTopLevel: boolean;
   onParentClick: () => void;
   onEmptyClick: () => void;
   onFileClick: (file: ClientFile) => void;
   setCreateFileModalOpen: (modalOpen: boolean) => void;
+  setRenameFileModalOpen: (modalOpen: boolean) => void;
   setCreateFolderModalOpen: (modalOpen: boolean) => void;
   setModalPath: (modalPath: string) => void;
   setClipboard: (clipboard: ClientFile[]) => void;
   setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
   setTickedFiles: (tickedFiles: ClientFile[]) => void;
+  deleteSingleFile: (file: ClientFile) => void;
+  deleteTickedFiles: () => void;
 }) {
   const fileTicked = (file: ClientFile) => {
     // check just the path and type, not other metadata
@@ -115,7 +123,7 @@ export default function FileList({
     } else {
       y = mousePos.y
     }
-    if (mousePos.x - contextMenuDimensions.width < 4) {
+    if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width && mousePos.x - contextMenuDimensions.width < 4) {
       x = 4;
     }
     setContextMenuCoords({ x, y })
@@ -133,12 +141,17 @@ export default function FileList({
           file={contextMenuFile as ClientFile} 
           coords={contextMenuCoords} 
           setCreateFileModalOpen={setCreateFileModalOpen} 
+          setRenameFileModalOpen={setRenameFileModalOpen} 
           setCreateFolderModalOpen={setCreateFolderModalOpen} 
           setShowContextMenu={setShowContextMenu}
           setClipboard={setClipboard}
+          unzipFile={unzipFile}
+          setModalPath={setModalPath}
           setClipboardAction={setClipboardAction}
           setTickedFiles={setTickedFiles}
           tickedFiles={tickedFiles}
+          deleteSingleFile={deleteSingleFile}
+          deleteTickedFiles={deleteTickedFiles}
         /> 
       }
       <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">

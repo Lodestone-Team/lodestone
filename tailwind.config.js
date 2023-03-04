@@ -8,6 +8,7 @@ module.exports = {
       transparent: 'transparent', //! what
       current: 'currentColor',
       blue: {
+        150: '#69C9FF',
         200: '#59B2F3',
         300: '#1D8EB2',
         DEFAULT: '#1D8EB2',

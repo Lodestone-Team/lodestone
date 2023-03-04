@@ -1,20 +1,7 @@
-import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { forwardRef } from 'react';
 import clsx from 'clsx';
-import { cva, VariantProps } from 'class-variance-authority';
 import { myTwMerge } from 'utils/util';
 
-
-export interface ButtonProps extends VariantProps<typeof buttonClasses> {
-  label: string;
-  subLabel?: string,
-  disabled?: boolean;
-  className?: string;
-  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  iconComponent?: React.ReactNode;
-}
-
-// A styled button component
 const ContextMenuButton = forwardRef(
   (
     {
@@ -24,7 +11,14 @@ const ContextMenuButton = forwardRef(
       className,
       onClick,
       iconComponent,
-    }: ButtonProps,
+    }: {
+      label: string;
+      subLabel?: string,
+      disabled?: boolean;
+      className?: string;
+      onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+      iconComponent?: React.ReactNode;
+    },
     ref: React.Ref<HTMLButtonElement>
   ) => {
     return (

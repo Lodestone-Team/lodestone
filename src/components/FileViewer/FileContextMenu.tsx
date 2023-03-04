@@ -3,6 +3,9 @@ import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
 import { BackspaceIcon } from "@heroicons/react/24/outline";
+import {
+  unzipInstanceFile,
+} from 'utils/apis';
 
 const FileContextMenu = forwardRef(
   (
@@ -14,17 +17,27 @@ const FileContextMenu = forwardRef(
       setClipboard,
       setClipboardAction,
       setTickedFiles,
+      setModalPath,
       tickedFiles,
       setShowContextMenu,
+      unzipFile,
+      setRenameFileModalOpen,
+      deleteSingleFile,
+      deleteTickedFiles,
     } : {
       file: ClientFile,
       coords: {x: number, y: number},
       setCreateFileModalOpen: (modalOpen: boolean) => void,
       setCreateFolderModalOpen: (modalOpen: boolean) => void,
+      setRenameFileModalOpen: (modalOpen: boolean) => void,
       setShowContextMenu: (showContextMenu: boolean) => void,
       setClipboard: (clipboard: ClientFile[]) => void;
+      unzipFile: (file: ClientFile) => void;
       setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
       setTickedFiles: (tickedFiles: ClientFile[]) => void;
+      setModalPath: (modalPath: string) => void;
+      deleteSingleFile: (file: ClientFile) => void;
+      deleteTickedFiles: () => void;
       tickedFiles: ClientFile[];
     },
     ref: React.Ref<HTMLDivElement>
@@ -37,6 +50,17 @@ const FileContextMenu = forwardRef(
         setIsMac(true)
       }
     }, [])
+    
+
+    const deleteFile = async () => {
+      if (tickedFiles.includes(file)) {
+        await deleteTickedFiles();
+      } else {
+        await deleteSingleFile(file)
+      }
+      setTickedFiles([]);
+      toast.info('Files deleted');
+    }
 
     const cutFile = async () => {
       if (tickedFiles.includes(file)) {
@@ -48,6 +72,7 @@ const FileContextMenu = forwardRef(
       setClipboardAction('cut');
       toast.info('Files cut to clipboard');
     }
+
 
     return (
       <div className="fixed right-0 z-50 mt-1.5 w-44 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-none"
@@ -73,18 +98,18 @@ const FileContextMenu = forwardRef(
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Rename"
             // subLabel={ isMac ? "⌘+R" : "CTRL+R"}
-            disabled={true}
+            onClick={() => { setModalPath(file.path); setRenameFileModalOpen(true); setShowContextMenu(false); }}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Delete"
             // iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
-            disabled={true}
+            onClick={() => { deleteFile(); setShowContextMenu(false); }}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Unzip"
-            disabled={true}
+            onClick={() => { unzipFile(file); setShowContextMenu(false); }}
           />
         </div>
         <div className="py-2">
