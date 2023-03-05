@@ -13,6 +13,7 @@ import { LODESTONE_PORT } from 'utils/util';
 import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
 import { toast } from 'react-toastify';
+import { Player } from 'bindings/Player';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -56,6 +57,17 @@ export const useEventStream = () => {
         return {
           ...oldInfo,
           player_count: player_num,
+        };
+      });
+    },
+    [queryClient]
+  );
+  const updateInstancePlayerList = useCallback(
+    (uuid: string, players: Player[]) => {
+      updateInstance(uuid, queryClient, (oldInfo) => {
+        return {
+          ...oldInfo,
+          player_list: players,
         };
       });
     },
@@ -135,7 +147,10 @@ export const useEventStream = () => {
               console.log(`Got player change on ${name}: ${player_list}`);
               console.log(`${players_joined} joined ${name}`);
               console.log(`${players_left} left ${name}`);
-              if (fresh) updateInstancePlayerCount(uuid, player_list.length);
+              if (fresh) {
+                updateInstancePlayerList(uuid, player_list);
+                updateInstancePlayerCount(uuid, player_list.length);
+              }
 
               // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
               const player_list_names = player_list.map((p) => p.name);
