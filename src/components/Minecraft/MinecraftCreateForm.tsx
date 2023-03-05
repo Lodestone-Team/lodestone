@@ -30,7 +30,6 @@ function _renderStepContent(
   }
   const forms = Object.keys(setupManifest['setting_sections']).map(
     (key: string) => {
-      // const section:SectionManifest = setupManifest['setting_sections'][key];
       return createForm(setupManifest['setting_sections'][key]);
     }
   );

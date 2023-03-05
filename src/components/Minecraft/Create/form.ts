@@ -13,7 +13,10 @@ export const instanceSettingPageObject: SectionManifest = {
       setting_id: 'auto_start',
       name: 'Auto Start',
       description: 'Auto Start',
-      value: null,
+      value: {
+        type: 'Boolean',
+        value: false,
+      },
       value_type: {
         type: 'Boolean',
       },

@@ -6,6 +6,7 @@ import { SectionManifest, SectionManifestValue, SettingManifest } from './form';
 import InputBox from 'components/Atoms/Config/InputBox';
 export const createForm = (section: SectionManifest) => {
   const createField = (setting: SettingManifest) => {
+    console.log(setting);
     switch (setting.value_type.type) {
       case 'String':
         return (
@@ -14,23 +15,6 @@ export const createForm = (section: SectionManifest) => {
             name={`${setting.setting_id}.value`}
             label={setting.name ?? ''}
           />
-          // <div
-          //   className={`group relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-medium`}
-          // >
-          //   <div className={`flex min-w-0 grow flex-col`}>
-          //     <label className="text-medium font-medium text-gray-300">
-          //       {setting.name}
-          //     </label>
-          //     <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-          //       {setting.description}
-          //     </div>
-          //   </div>
-          //   <InputField
-          //     type="text"
-          //     name={`${setting.setting_id}.value`}
-          //     label={setting.name ?? ''}
-          //   />
-          // </div>
         );
       case 'Integer':
       case 'UnsignedInteger':
@@ -43,6 +27,7 @@ export const createForm = (section: SectionManifest) => {
           />
         );
       case 'Boolean':
+        console.log(`${setting.setting_id}.value`);
         return (
           <RadioField
             name={`${setting.setting_id}.value`}

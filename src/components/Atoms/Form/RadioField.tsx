@@ -14,7 +14,8 @@ export type RadioFieldProps = FieldHookConfig<string> & {
 export default function RadioField(props: RadioFieldProps) {
   const { label, className, disabled, options, loading, ...rest } = props;
   const [field, meta] = useField(props);
-  const { value: selectedValue } = field;
+  const { value } = field;
+  const selectedValue = value === undefined ? false : value;
   const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
   const disabledVisual = disabled || loading;
