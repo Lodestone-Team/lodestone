@@ -48,7 +48,6 @@ const MinecraftOverview = () => {
 
   // tablist is map from GameType to tabs
 
-
   const setInstanceName = async (name: string) => {
     await axiosPutSingleValue<void>(`/instance/${uuid}/name`, name);
     updateInstance(uuid, queryClient, (oldData) => ({
@@ -75,11 +74,7 @@ const MinecraftOverview = () => {
             />
           </div>
           <div className="-mt-2 mb-2 flex flex-row flex-wrap items-center gap-4">
-            <GameIcon
-              game_type={instance.game_type}
-              game_flavour={instance.flavour}
-              className="h-6 w-6"
-            />
+            <GameIcon game_type={instance.game_type} className="h-6 w-6" />
             <Label size="large" color={labelColor}>
               {instance.state}
             </Label>
@@ -87,12 +82,16 @@ const MinecraftOverview = () => {
               Player Count {instance.player_count}/{instance.max_player_count}
             </Label>
             <Label size="large" color={'blue'}>
-              <ClipboardTextfield text={`${domain}:${instance.port}`} color='blue' iconLeft={false} />
+              <ClipboardTextfield
+                text={`${domain}:${instance.port}`}
+                color="blue"
+                iconLeft={false}
+              />
             </Label>
           </div>
         </div>
       </div>
-      <MinecraftPerformanceCard/>
+      <MinecraftPerformanceCard />
     </>
   );
 };
