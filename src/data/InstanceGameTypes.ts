@@ -8,7 +8,6 @@ export const InstanceGameTypes = () =>
     ['games'],
     async () => {
       const response = await axios.get<HandlerGameType[]>('/games');
-        console.log(response.data);
         return response.data;
     }
   );
@@ -18,7 +17,6 @@ export const SetupInstanceManifest = (game_type: HandlerGameType) => {
         ['setup_manifest', game_type],
         async () => {
             const response = await axios.get<ConfigurableManifest>(`/setup_manifest/${game_type}`);
-            console.log(response.data);
             return response.data;
         }
     );

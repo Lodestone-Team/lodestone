@@ -1,9 +1,7 @@
-import { HandlerGameType } from 'bindings/HandlerGameType';
 import ComboField from 'components/Atoms/Form/ComboField';
 import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
-import { SectionManifest, SectionManifestValue, SettingManifest } from './form';
-import InputBox from 'components/Atoms/Config/InputBox';
+import { SectionManifest, SettingManifest } from './form';
 import { toast } from 'react-toastify';
 export const createForm = (section: SectionManifest) => {
   const createField = (setting: SettingManifest) => {
