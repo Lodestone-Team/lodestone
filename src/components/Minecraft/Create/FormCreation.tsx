@@ -4,9 +4,9 @@ import InputField from 'components/Atoms/Form/InputField';
 import RadioField from 'components/Atoms/Form/RadioField';
 import { SectionManifest, SectionManifestValue, SettingManifest } from './form';
 import InputBox from 'components/Atoms/Config/InputBox';
+import { toast } from 'react-toastify';
 export const createForm = (section: SectionManifest) => {
   const createField = (setting: SettingManifest) => {
-    console.log(setting);
     switch (setting.value_type.type) {
       case 'String':
         return (
@@ -27,7 +27,6 @@ export const createForm = (section: SectionManifest) => {
           />
         );
       case 'Boolean':
-        console.log(`${setting.setting_id}.value`);
         return (
           <RadioField
             name={`${setting.setting_id}.value`}
@@ -50,6 +49,9 @@ export const createForm = (section: SectionManifest) => {
             }}
           />
         );
+      default:
+        toast.error('Error generating form: Unknown value type.');
+        return <></>;
     }
   };
   return (

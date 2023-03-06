@@ -20,7 +20,12 @@ const SelectGameCard = ({
       type={'button'}
       className={clsx(
         className,
-        'flex flex-col items-start text-left align-top font-sans tracking-medium'
+        'flex flex-col items-start text-left align-top font-sans tracking-medium',
+        'h-28 w-full rounded-md p-4 outline outline-1',
+        'text-gray-faded/30 enabled:hover:text-white/50 disabled:text-gray-900',
+        'border-gray-faded/30 bg-gray-800 enabled:hover:border-gray-faded/50 enabled:hover:bg-gray-700 enabled:active:border-gray-faded/50 enabled:active:bg-gray-800 disabled:border-fade-700/10',
+        'outline-gray-faded/30 enabled:hover:outline-white/50',
+        'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
       )}
       onClick={onClick}
     >

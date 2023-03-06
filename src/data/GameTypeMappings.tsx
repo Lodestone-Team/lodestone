@@ -24,6 +24,7 @@ import { GameType } from 'bindings/InstanceInfo';
 
 type InstanceTab = {
   title: string;
+  displayTitle: string;
   path: string;
   width: string;
   icon: JSX.Element;
@@ -76,6 +77,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
   MinecraftJava: [
     {
       title: 'Overview',
+      displayTitle: 'Overview',
       path: 'overview',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faChartLine} />,
@@ -88,6 +90,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
     },
     {
       title: 'Settings',
+      displayTitle: 'Settings',
       path: 'settings',
       width: 'max-w-2xl',
       icon: <FontAwesomeIcon icon={faCog} />,
@@ -100,6 +103,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
     },
     {
       title: 'Console',
+      displayTitle: 'Console',
       path: 'console',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faServer} />,
@@ -107,6 +111,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
     },
     {
       title: 'Files',
+      displayTitle: 'Files',
       path: 'files',
       width: 'max-w-6xl',
       icon: <FontAwesomeIcon icon={faFolder} />,
@@ -114,6 +119,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
     },
     {
       title: 'Tasks',
+      displayTitle: 'Tasks',
       path: 'tasks',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faCodeCompare} />,
@@ -132,6 +138,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
     },
     {
       title: 'Event Logs',
+      displayTitle: 'Event Logs',
       path: 'logs',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faInbox} />,

@@ -1,6 +1,6 @@
 import Button from 'components/Atoms/Button';
 import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { axiosWrapper } from 'utils/util';
@@ -25,15 +25,14 @@ function _renderStepContent(
   setGameType: (gameType: HandlerGameType) => void,
   setupManifest?: ConfigurableManifest | null
 ) {
-  if (!setupManifest) {
-    return null;
-  }
-  const forms = Object.keys(setupManifest['setting_sections']).map(
-    (key: string) => {
+  const forms = useMemo(() => {
+    if (!setupManifest) return null;
+    return Object.keys(setupManifest['setting_sections']).map((key: string) => {
       return createForm(setupManifest['setting_sections'][key]);
-    }
-  );
+    });
+  }, [setupManifest]);
 
+  if (!forms) return <Spinner />;
   return (
     <div className="h-full">
       {step == 0 ? (
@@ -105,17 +104,32 @@ export default function CreateMinecraftInstance({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     const sectionValues: Record<string, SectionManifestValue> = {};
+
+    const parseBooleanFields = (
+      fieldValue: string | number | boolean | undefined
+    ) => (fieldValue === 'true' ? true : false);
+
     for (let i = 1; i < steps.length - 1; i++) {
       const structure = getSectionValidationStructure(values, i);
-      sectionValues[structure[1]] = structure[0];
+      Object.keys(structure[0]['settings']).forEach((key) => {
+        if (structure[0]['settings'][key].value?.type === 'Boolean') {
+          structure[0]['settings'][key] = {
+            value: {
+              type: 'Boolean',
+              value: parseBooleanFields(values[key]?.value),
+            },
+          };
+        }
+        sectionValues[structure[1]] = structure[0];
+      });
     }
 
     const parsedValues: ManifestValue = {
-      auto_start: values.auto_start?.value === 'true' ? true : false,
-      restart_on_crash:
-        values.restart_on_crash?.value === 'true' ? true : false,
-      start_on_connection:
-        values.start_on_connection?.value === 'true' ? true : false,
+      auto_start: parseBooleanFields(values.auto_start?.value),
+      restart_on_crash: parseBooleanFields(values.restart_on_crash?.value),
+      start_on_connection: parseBooleanFields(
+        values.start_on_connection?.value
+      ),
       setting_sections: sectionValues,
     };
 
@@ -158,8 +172,6 @@ export default function CreateMinecraftInstance({
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify(sectionValidation),
     });
-
-    console.log(result);
   }
 
   function _handleSubmit(

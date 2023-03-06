@@ -15,7 +15,15 @@ export default function RadioField(props: RadioFieldProps) {
   const { label, className, disabled, options, loading, ...rest } = props;
   const [field, meta] = useField(props);
   const { value } = field;
-  const selectedValue = value === undefined ? false : value;
+  if (value === undefined) {
+    field.onChange({
+      target: {
+        name: field.name,
+        value: false,
+      },
+    });
+  }
+  const selectedValue = value === undefined ? false : value; //for initial render for default value
   const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
   const disabledVisual = disabled || loading;
@@ -82,17 +90,14 @@ export default function RadioField(props: RadioFieldProps) {
               }`}
               >
                 {({ checked }) => {
-                  const initialChecked =
-                    selectedValue !== undefined &&
-                    selectedValue.toString() == option;
                   return (
                     <span
                       className={`block h-full w-full select-none py-1.5 px-3 text-center ${
                         disabledVisual
-                          ? checked || initialChecked
+                          ? checked || selectedValue.toString() == option
                             ? 'bg-blue-faded/30 text-white/50'
                             : 'bg-gray-800 text-white/50'
-                          : checked || initialChecked
+                          : checked || selectedValue.toString() == option
                           ? 'bg-[#2B4554] text-gray-300'
                           : 'text-white/75'
                       }`}
