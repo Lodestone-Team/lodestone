@@ -1,6 +1,4 @@
-import { RadioGroup } from '@headlessui/react';
 import { HandlerGameType } from 'bindings/HandlerGameType';
-import { GameType } from 'bindings/InstanceInfo';
 import clsx from 'clsx';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { InstanceGameTypes } from 'data/InstanceGameTypes';
@@ -28,7 +26,7 @@ export default function GameTypeSelectForm({
       <p className="text-left text-medium font-bold italic leading-5 tracking-medium text-white/50">
         What will your server be used for?
       </p>
-      <div className="mt-9 box-border grid h-full grid-cols-2 gap-9">
+      <div className="box-border grid h-full grid-cols-2 gap-9 pt-9">
         {game_types.map((game) => {
           const { title, description, game_type } =
             gameTypeInfoFromHandlerType[game];

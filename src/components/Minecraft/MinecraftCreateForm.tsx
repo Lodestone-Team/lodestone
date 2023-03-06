@@ -34,13 +34,13 @@ function _renderStepContent(
 
   if (!forms) return <Spinner />;
   return (
-    <div className="h-full">
+    <>
       {step == 0 ? (
         <GameTypeSelectForm gameType={gameType} setGameType={setGameType} />
       ) : (
         forms[step - 1]
       )}
-    </div>
+    </>
   );
 }
 
@@ -204,44 +204,41 @@ export default function CreateMinecraftInstance({
       {({ isSubmitting }) => (
         <Form
           id={formId}
-          className="flex h-[560px] w-[812px] items-stretch rounded-2xl bg-gray-850"
+          className="flex h-[560px] w-[812px] rounded-2xl bg-gray-850"
         >
-          <div className="flex w-[180px] border-r border-gray-700 ">
-            <div className="mt-9">
-              {steps.map((section, i) => (
-                <div key={i} className="flex items-center">
-                  <div
-                    className={clsx(
-                      'px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 ',
-                      activeStep === i && 'font-extrabold text-white'
-                    )}
-                  >
-                    {section}
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="w-[180px] border-r border-gray-700 pt-9 ">
+            {steps.map((section, i) => (
+              <div
+                key={i}
+                className={clsx(
+                  'px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 ',
+                  activeStep === i && 'font-extrabold text-white'
+                )}
+              >
+                {section}
+              </div>
+            ))}
           </div>
-          <div className="relative flex h-full w-[632px] grow flex-col items-stretch overflow-auto p-9 text-center">
-            <div className="relative">
+          <div className="overflow-y-overlay flex w-[632px] flex-col p-9">
+            <div>
               {_renderStepContent(
                 activeStep,
                 gameType,
                 setGameType,
                 setupManifest
               )}
-              <div className="flex flex-row justify-between">
-                {activeStep !== 0 ? (
-                  <Button onClick={_handleBack} label="Back" />
-                ) : (
-                  <div></div>
-                )}
-                <Button
-                  type="submit"
-                  label={formReady ? 'Create Instance' : 'Next'}
-                  loading={isSubmitting}
-                />
-              </div>
+            </div>
+            <div className="flex flex-row justify-between pt-9">
+              {activeStep !== 0 ? (
+                <Button onClick={_handleBack} label="Back" />
+              ) : (
+                <div></div>
+              )}
+              <Button
+                type="submit"
+                label={formReady ? 'Create Instance' : 'Next'}
+                loading={isSubmitting}
+              />
             </div>
           </div>
         </Form>

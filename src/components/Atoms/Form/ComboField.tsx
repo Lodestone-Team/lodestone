@@ -150,7 +150,7 @@ export default function ComboField(props: ComboFieldProps) {
               >
                 <Combobox.Options
                   className={clsx(
-                    'input-shape input-outlines input-text-style  absolute z-40 mt-2 w-full rounded-md',
+                    'input-shape input-outlines input-text-style absolute z-40 mt-2 w-full rounded-md',
                     'bg-gray-850 p-0 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
                   )}
                 >

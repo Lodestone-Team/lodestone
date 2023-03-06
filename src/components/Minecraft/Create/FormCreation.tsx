@@ -53,7 +53,7 @@ export const createForm = (section: SectionManifest) => {
     }
   };
   return (
-    <div className="w-full">
+    <>
       <h1 className="text-h2 font-bold tracking-medium text-gray-300">
         {section.name}
       </h1>
@@ -61,11 +61,11 @@ export const createForm = (section: SectionManifest) => {
         {section.description}
         <br />
       </p>
-      <div className="mt-10 flex flex-col gap-14 text-left">
+      <div className="flex flex-col gap-14 pt-9 text-left">
         {Object.keys(section['settings']).map((field: string) =>
           createField(section['settings'][field])
         )}
       </div>
-    </div>
+    </>
   );
 };
