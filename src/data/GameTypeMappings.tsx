@@ -1,6 +1,4 @@
 import {
-  MinecraftPerformanceCard,
-  MinecraftPlayerList,
   MinecraftGeneralCard,
   MinecraftSettingCard,
 } from 'components/Minecraft';
@@ -9,7 +7,7 @@ import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-// import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
+import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
 
 import {
   faChartLine,
@@ -24,7 +22,7 @@ import { GameType } from 'bindings/InstanceInfo';
 
 type InstanceTab = {
   title: string;
-  displayTitle: string;
+  displayTitle: string | null;
   path: string;
   width: string;
   icon: JSX.Element;
@@ -77,14 +75,13 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
   MinecraftJava: [
     {
       title: 'Overview',
-      displayTitle: 'Overview',
+      displayTitle: null,
       path: 'overview',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faChartLine} />,
       content: (
         <>
-          <MinecraftPerformanceCard />
-          <MinecraftPlayerList />
+          <MinecraftOverview />
         </>
       ),
     },

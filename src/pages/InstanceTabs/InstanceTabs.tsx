@@ -100,10 +100,10 @@ const InstanceTabs = () => {
           key={`${instance.name}-${tab.title}`}
         >
           <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
-            {tab.title && (
+            {tab.displayTitle && (
               <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-                {tab.title}
-                {tab.title === 'Console' && (
+                {tab.displayTitle}
+                {tab.displayTitle === 'Console' && (
                   <Label
                     size="medium"
                     className="ml-2 mt-[6px]"
