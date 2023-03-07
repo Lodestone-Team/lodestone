@@ -90,7 +90,6 @@ export default function CreateGameInstance({
   ].flat();
   const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: ManifestValue) => {
-    console.log(JSON.stringify(value));
     await axiosWrapper<void>({
       method: 'post',
       url: `/instance/create/${gameType}`,
