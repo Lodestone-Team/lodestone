@@ -70,7 +70,7 @@ export default function FileList({
   const [mousePos, setMousePos] = useState<{x: number, y: number}>({x: 0, y: 0});
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuCoords, setContextMenuCoords] = useState({x: 0, y: 0});
-  const [contextMenuFile, setContextMenuFile] = useState<ClientFile>();
+  const [contextMenuFile, setContextMenuFile] = useState<ClientFile | null>();
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
@@ -242,7 +242,16 @@ export default function FileList({
             </p>
           </div>
         ))}
-        <div onClick={onEmptyClick} className="min-h-[25%] grow"></div>
+        <div 
+          onClick={onEmptyClick} 
+          className="min-h-[25%] grow"
+          onContextMenu={(e) => { e.preventDefault(); 
+            setContextMenuFile(null);
+            calculateContextMenuCoords();
+            setShowContextMenu(true);
+            setModalPath(path);
+          }}
+        ></div>
       </div>
     </div>
   );

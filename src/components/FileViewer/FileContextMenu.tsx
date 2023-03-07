@@ -25,7 +25,7 @@ const FileContextMenu = forwardRef(
       deleteSingleFile,
       deleteTickedFiles,
     } : {
-      file: ClientFile,
+      file: ClientFile | null,
       coords: {x: number, y: number},
       setCreateFileModalOpen: (modalOpen: boolean) => void,
       setCreateFolderModalOpen: (modalOpen: boolean) => void,
@@ -53,20 +53,20 @@ const FileContextMenu = forwardRef(
     
 
     const deleteFile = async () => {
-      if (tickedFiles.includes(file)) {
+      if (tickedFiles.includes(file as ClientFile)) {
         await deleteTickedFiles();
       } else {
-        await deleteSingleFile(file)
+        await deleteSingleFile(file as ClientFile)
       }
       setTickedFiles([]);
       toast.info('Files deleted');
     }
 
     const cutFile = async () => {
-      if (tickedFiles.includes(file)) {
+      if (tickedFiles.includes(file as ClientFile)) {
         setClipboard(tickedFiles);
       } else {
-        setClipboard([file]);
+        setClipboard([file as ClientFile]);
       }
       setTickedFiles([]);
       setClipboardAction('cut');
@@ -91,6 +91,7 @@ const FileContextMenu = forwardRef(
             label="Cut"
             // subLabel={ isMac ? "⌘+X" : "CTRL+X"}
             onClick={() => {cutFile(); }}
+            disabled={file === null}
           />
         </div>
         <div className="py-2">
@@ -98,18 +99,21 @@ const FileContextMenu = forwardRef(
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Rename"
             // subLabel={ isMac ? "⌘+R" : "CTRL+R"}
-            onClick={() => { setModalPath(file.path); setRenameFileModalOpen(true); setShowContextMenu(false); }}
+            onClick={() => { setModalPath((file as ClientFile).path); setRenameFileModalOpen(true); setShowContextMenu(false); }}
+            disabled={file === null}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Delete"
             // iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
             onClick={() => { deleteFile(); setShowContextMenu(false); }}
+            disabled={file === null}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Unzip"
-            onClick={() => { unzipFile(file); setShowContextMenu(false); }}
+            onClick={() => { unzipFile(file as ClientFile); setShowContextMenu(false); }}
+            disabled={file === null}
           />
         </div>
         <div className="py-2">
