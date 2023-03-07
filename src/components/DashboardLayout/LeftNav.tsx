@@ -31,8 +31,8 @@ export default function LeftNav({ className }: { className?: string }) {
         >
           <Dialog onClose={() => setShowCreateInstance(false)} className="z-10">
             <div className="fixed inset-0 bg-gray-900/60" />
-            <div className="fixed inset-0 overflow-y-auto">
-              <div className="flex min-h-full items-center justify-center p-4 text-center">
+            <div className="fixed inset-0">
+              <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
                 <Dialog.Panel>
                   <CreateInstanceFlow
                     onComplete={() => setShowCreateInstance(false)}

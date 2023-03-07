@@ -204,7 +204,7 @@ export default function CreateMinecraftInstance({
       {({ isSubmitting }) => (
         <Form
           id={formId}
-          className="flex h-[560px] w-[812px] rounded-2xl bg-gray-850"
+          className="flex h-fit min-h-[560px] w-[812px] rounded-2xl bg-gray-850"
         >
           <div className="w-[180px] border-r border-gray-700 pt-9 ">
             {steps.map((section, i) => (
@@ -219,7 +219,7 @@ export default function CreateMinecraftInstance({
               </div>
             ))}
           </div>
-          <div className="overflow-y-overlay flex w-[632px] flex-col p-9">
+          <div className="flex w-[632px] flex-col p-9">
             {_renderStepContent(
               activeStep,
               gameType,

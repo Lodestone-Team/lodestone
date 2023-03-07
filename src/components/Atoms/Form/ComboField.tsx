@@ -148,39 +148,45 @@ export default function ComboField(props: ComboFieldProps) {
           >
             <Combobox.Options
               className={clsx(
-                'input-shape input-outlines input-text-style absolute z-40 mt-2 w-full rounded-md',
-                'bg-gray-850 p-0 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
+                'absolute z-40 mt-2 w-full pb-4'
               )}
             >
-              {filteredOptions.length === 0 ? (
-                allowCustom ? (
-                  <Combobox.Option
-                    value={query}
-                    className={clsx(
-                      'relative cursor-default select-none rounded-md py-2 pl-3 pr-4 text-gray-300',
-                      'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-                      'ui-selected:font-medium ui-not-selected:font-medium',
-                      'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
-                      'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
-                    )}
-                  >
-                    <div className="flex flex-row justify-between">
-                      <span className="block truncate pr-1">
-                        Add &#34;{query}&#34;
-                      </span>
+              <div
+                className={clsx(
+                  'input-shape input-outlines input-text-style w-full rounded-md',
+                  'bg-gray-850 p-0 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
+                )}
+              >
+                {filteredOptions.length === 0 ? (
+                  allowCustom ? (
+                    <Combobox.Option
+                      value={query}
+                      className={clsx(
+                        'relative cursor-default select-none rounded-md py-2 pl-3 pr-4 text-gray-300',
+                        'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
+                        'ui-selected:font-medium ui-not-selected:font-medium',
+                        'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+                        'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
+                      )}
+                    >
+                      <div className="flex flex-row justify-between">
+                        <span className="block truncate pr-1">
+                          Add &#34;{query}&#34;
+                        </span>
+                      </div>
+                    </Combobox.Option>
+                  ) : (
+                    <div className="relative cursor-default select-none rounded-md bg-gray-800 py-2 pl-3 pr-4 text-gray-300">
+                      Nothing found.
                     </div>
-                  </Combobox.Option>
+                  )
                 ) : (
-                  <div className="relative cursor-default select-none rounded-md bg-gray-800 py-2 pl-3 pr-4 text-gray-300">
-                    Nothing found.
-                  </div>
-                )
-              ) : (
-                <VirtualizedList
-                  items={filteredOptions}
-                  selectedValue={selectedValue}
-                />
-              )}
+                  <VirtualizedList
+                    items={filteredOptions}
+                    selectedValue={selectedValue}
+                  />
+                )}
+              </div>
             </Combobox.Options>
           </Transition>
         </Combobox>
