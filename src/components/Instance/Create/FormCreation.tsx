@@ -9,7 +9,7 @@ export const createForm = (section: SectionManifest) => {
       case 'String':
         return (
           <InputField
-            type="text"
+            type={setting.is_secret ? 'password' : 'text'}
             name={`${setting.setting_id}.value`}
             label={setting.name ?? ''}
           />
