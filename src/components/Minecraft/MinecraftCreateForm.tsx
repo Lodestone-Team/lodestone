@@ -220,14 +220,12 @@ export default function CreateMinecraftInstance({
             ))}
           </div>
           <div className="overflow-y-overlay flex w-[632px] flex-col p-9">
-            <div>
-              {_renderStepContent(
-                activeStep,
-                gameType,
-                setGameType,
-                setupManifest
-              )}
-            </div>
+            {_renderStepContent(
+              activeStep,
+              gameType,
+              setGameType,
+              setupManifest
+            )}
             <div className="flex flex-row justify-between pt-9">
               {activeStep !== 0 ? (
                 <Button onClick={_handleBack} label="Back" />
