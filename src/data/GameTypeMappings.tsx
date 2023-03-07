@@ -1,13 +1,10 @@
-import {
-  MinecraftGeneralCard,
-  MinecraftSettingCard,
-} from 'components/Minecraft';
+import { InstanceGeneralCard, InstanceSettingCard } from 'components/Instance';
 
 import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
+import InstanceOverview from 'components/Instance/InstanceOverview';
 
 import {
   faChartLine,
@@ -81,7 +78,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
       icon: <FontAwesomeIcon icon={faChartLine} />,
       content: (
         <>
-          <MinecraftOverview />
+          <InstanceOverview />
         </>
       ),
     },
@@ -93,8 +90,8 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
       icon: <FontAwesomeIcon icon={faCog} />,
       content: (
         <div className="flex flex-col gap-8">
-          <MinecraftGeneralCard />
-          <MinecraftSettingCard />
+          <InstanceGeneralCard />
+          <InstanceSettingCard />
         </div>
       ),
     },

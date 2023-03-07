@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { toast } from 'react-toastify';
 
-export default function MinecraftSettingCard() {
+export default function InstanceSettingCard() {
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');

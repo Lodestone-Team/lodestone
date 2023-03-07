@@ -8,7 +8,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import { PortStatus } from 'bindings/PortStatus';
 import { useUserAuthorized } from 'data/UserInfo';
 
-export default function MinecraftGeneralCard() {
+export default function InstanceGeneralCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const queryClient = useQueryClient();

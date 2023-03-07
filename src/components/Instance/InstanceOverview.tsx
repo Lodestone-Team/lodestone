@@ -8,7 +8,7 @@ import { useContext, useEffect, useState } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
+import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
 import FileViewer from 'components/FileViewer/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
@@ -16,7 +16,7 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 
 import { useDocumentTitle } from 'usehooks-ts';
 
-const MinecraftOverview = () => {
+const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);
   const { address } = core;
@@ -91,9 +91,9 @@ const MinecraftOverview = () => {
           </div>
         </div>
       </div>
-      <MinecraftPerformanceCard />
+      <InstancePerformanceCard />
     </>
   );
 };
 
-export default MinecraftOverview;
+export default InstanceOverview;

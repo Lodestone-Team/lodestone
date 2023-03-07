@@ -1,7 +1,7 @@
 import { HandlerGameType } from "bindings/HandlerGameType";
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { ConfigurableManifest } from "components/Minecraft/Create/form";
+import { ConfigurableManifest } from "components/Instance/Create/form";
 
 export const InstanceGameTypes = () =>
   useQuery<HandlerGameType[], AxiosError>(

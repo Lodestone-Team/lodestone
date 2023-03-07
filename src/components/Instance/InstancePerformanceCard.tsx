@@ -8,7 +8,7 @@ import { round } from 'utils/util';
 
 const bytesInGigabyte = 1073741824;
 
-export default function MinecraftPerformanceCard() {
+export default function InstancePerformanceCard() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const {

@@ -3,7 +3,7 @@ import { Fragment, useState } from 'react';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
-import CreateInstanceFlow from 'components/Minecraft/MinecraftCreateForm';
+import CreateInstanceFlow from 'components/Instance/InstanceCreateForm';
 import { useUserAuthorized } from 'data/UserInfo';
 import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';

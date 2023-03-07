@@ -26,13 +26,14 @@ export default function GameTypeSelectForm({
       <p className="text-left text-medium font-bold italic leading-5 tracking-medium text-white/50">
         What will your server be used for?
       </p>
-      <div className="box-border grid h-full grid-cols-2 gap-9 pt-9">
+      <div className="box-border grid grid-cols-2 gap-9 pt-9">
         {game_types.map((game) => {
           const { title, description, game_type } =
             gameTypeInfoFromHandlerType[game];
           return (
-            <div key={game}>
+            <>
               <SelectGameCard
+                key={game}
                 title={title}
                 description={description}
                 game_type={game_type}
@@ -42,7 +43,7 @@ export default function GameTypeSelectForm({
                 )}
                 onClick={() => setGameType(game)}
               />
-            </div>
+            </>
           );
         })}
       </div>

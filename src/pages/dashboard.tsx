@@ -9,9 +9,9 @@ import { useContext, useEffect, useState } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
-import MinecraftGeneralCard from 'components/Minecraft/MinecraftGeneralCard';
-import MinecraftSettingCard from 'components/Minecraft/MinecraftSettingCard';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
+import InstanceGeneralCard from 'components/Instance/InstanceGeneralCard';
+import InstanceSettingCard from 'components/Instance/InstanceSettingCard';
+import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
 import FileViewer from 'components/FileViewer/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
@@ -62,8 +62,8 @@ const Dashboard = () => {
   //       title: 'Settings',
   //       content: (
   //         <>
-  //           <MinecraftGeneralCard />
-  //           <MinecraftSettingCard />
+  //           <InstanceGeneralCard />
+  //           <InstanceSettingCard />
   //         </>
   //       ),
   //     },
@@ -75,7 +75,7 @@ const Dashboard = () => {
   //       title: 'Performance',
   //       content: (
   //         <>
-  //           <MinecraftPerformanceCard />
+  //           <InstancePerformanceCard />
   //         </>
   //       ),
   //     },

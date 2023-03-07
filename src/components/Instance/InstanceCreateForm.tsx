@@ -44,7 +44,7 @@ function _renderStepContent(
   );
 }
 
-export default function CreateMinecraftInstance({
+export default function CreateGameInstance({
   onComplete,
 }: {
   onComplete: () => void;
@@ -136,7 +136,6 @@ export default function CreateMinecraftInstance({
     await createInstance(parsedValues);
     actions.setSubmitting(false);
 
-    setActiveStep(activeStep + 1);
     gaEventTracker('Create Instance Complete');
     onComplete();
   }
