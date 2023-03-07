@@ -20,11 +20,11 @@ export default function GameTypeSelectForm({
 
   return (
     <div className={className}>
-      <p className="text-left text-h2 font-bold tracking-medium text-gray-300">
-        Select Game
+      <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
+        Select a game
       </p>
-      <p className="text-left text-medium font-bold italic leading-5 tracking-medium text-white/50">
-        What will your server be used for?
+      <p className="text-left text-medium font-medium italic leading-5 tracking-medium text-white/50">
+        What will your instance be used for?
       </p>
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
         {game_types.map((game) => {
