@@ -202,7 +202,7 @@ export default function CreateGameInstance({
       {({ isSubmitting }) => (
         <Form
           id={formId}
-          className="flex h-fit min-h-[560px] w-[812px] rounded-2xl bg-gray-850"
+          className="flex h-fit min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
         >
           <div className="w-[180px] border-r border-gray-700 pt-9 ">
             {steps.map((section, i) => (
