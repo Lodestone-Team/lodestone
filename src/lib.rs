@@ -80,7 +80,7 @@ pub mod prelude;
 pub mod tauri_export;
 mod traits;
 pub mod types;
-mod util;
+pub mod util;
 
 #[derive(Clone)]
 pub struct AppState {

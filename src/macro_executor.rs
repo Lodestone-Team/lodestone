@@ -38,6 +38,8 @@ use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::{anyhow, error::generic_error};
+use deno_core::ResolutionKind;
+use deno_runtime::permissions::{PermissionsContainer, Permissions};
 use futures::FutureExt;
 
 pub trait MainWorkerGenerator: Send + Sync {
@@ -60,7 +62,7 @@ impl ModuleLoader for TypescriptModuleLoader {
         &self,
         specifier: &str,
         referrer: &str,
-        _is_main: bool,
+        _kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, anyhow::Error> {
         Ok(resolve_import(specifier, referrer)?)
     }
@@ -365,6 +367,7 @@ mod tests {
     use deno_core::error::generic_error;
     use deno_core::{anyhow, op, ModuleSpecifier};
     use deno_core::{resolve_import, ModuleLoader, ModuleSource, ModuleSourceFuture, ModuleType};
+    use deno_runtime::permissions::{PermissionsContainer, Permissions};
     use futures::FutureExt;
     use serde_json::{json, Value};
     use tokio::sync::broadcast;
@@ -390,7 +393,7 @@ mod tests {
             worker_options.module_loader = Rc::new(TypescriptModuleLoader::default());
             let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
                 deno_core::resolve_path(".").unwrap(),
-                deno_runtime::permissions::Permissions::allow_all(),
+                PermissionsContainer::new(Permissions::allow_all()),
                 worker_options,
             );
 
