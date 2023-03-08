@@ -182,7 +182,7 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
             ..Default::default()
         };
 
-        let ext = deno_core::Extension::builder()
+        let ext = deno_core::Extension::builder("minecraft_deno_extension_builder")
             .ops(vec![
                 send_stdin::decl(),
                 send_rcon::decl(),
@@ -205,7 +205,7 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
         let permissions = deno_runtime::permissions::Permissions::allow_all();
         let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
             main_module,
-            permissions,
+            deno_runtime::permissions::PermissionsContainer::new(permissions),
             worker_options,
         );
         let js = include_str!("js_macro/runtime.js");
