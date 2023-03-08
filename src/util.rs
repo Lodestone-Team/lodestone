@@ -1,13 +1,11 @@
 use color_eyre::eyre::{eyre, Context};
 use std::collections::HashSet;
-use tempdir::TempDir;
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -25,7 +23,6 @@ pub struct Authentication {
 }
 
 use crate::error::Error;
-use crate::prelude::PATH_TO_BINARIES;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -150,7 +147,8 @@ pub async fn list_dir(
                 .collect())
         }
     })
-    .await.context("Failed to list directory")?;
+    .await
+    .context("Failed to list directory")?;
     ret
 }
 
@@ -162,7 +160,9 @@ pub async fn unzip_file(
     let file = file.as_ref();
     let dest = dest.as_ref();
 
-    let file_extension = file.extension().ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?;
+    let file_extension = file
+        .extension()
+        .ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?;
     if file_extension != "gz" && file_extension != "zip" && file_extension != "rar" {
         return Err(eyre!("Unsupported extension for {}", file.display()).into());
     }
@@ -173,48 +173,85 @@ pub async fn unzip_file(
 
     let mut output_files: HashSet<PathBuf> = HashSet::new();
 
-    let dest_file_name = dest.file_name().unwrap_or_else(|| std::ffi::OsStr::new("")).to_str().unwrap_or_else(|| "");
-    let temp_dest_dir = tempdir::TempDir::new(dest_file_name).context(format!("Failed to create temporary directory for {}", dest.display()))?;
+    let dest_file_name = dest
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new(""))
+        .to_str()
+        .unwrap_or_else(|| "");
+    let temp_dest_dir = tempdir::TempDir::new(dest_file_name).context(format!(
+        "Failed to create temporary directory for {}",
+        dest.display()
+    ))?;
     let temp_dest = temp_dest_dir.path();
 
     if file_extension == "gz" {
-        let tar_gz = std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
+        let tar_gz =
+            std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
         let tar = GzDecoder::new(tar_gz);
         let mut archive = Archive::new(tar);
         archive.set_overwrite(true);
-        archive.unpack(temp_dest).context(format!("Failed to decompress file {}", file.display()))?;
-    } else if file_extension == "zip" {
-        let zip = std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
-        let mut archive = zip::ZipArchive::new(zip).context(format!("Failed to decompress file {}", file.display()))?;
-        archive.extract(temp_dest).context(format!("Failed to decompress file {}", file.display()))?;
-    } else if file_extension == "rar" {
-        let archive = unrar::Archive::new(file.to_str().ok_or_else(|| eyre!("Non-unicode character in file name {}", file.display()))?.to_string());
         archive
-            .extract_to(temp_dest.to_str().ok_or_else(|| eyre!("Non-unicode character in file name {}", temp_dest.display()))?.to_string())
+            .unpack(temp_dest)
+            .context(format!("Failed to decompress file {}", file.display()))?;
+    } else if file_extension == "zip" {
+        let zip =
+            std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
+        let mut archive = zip::ZipArchive::new(zip)
+            .context(format!("Failed to decompress file {}", file.display()))?;
+        archive
+            .extract(temp_dest)
+            .context(format!("Failed to decompress file {}", file.display()))?;
+    } else if file_extension == "rar" {
+        let archive = unrar::Archive::new(
+            file.to_str()
+                .ok_or_else(|| eyre!("Non-unicode character in file name {}", file.display()))?
+                .to_string(),
+        );
+        archive
+            .extract_to(
+                temp_dest
+                    .to_str()
+                    .ok_or_else(|| {
+                        eyre!("Non-unicode character in file name {}", temp_dest.display())
+                    })?
+                    .to_string(),
+            )
             .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?
             .process()
             .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?;
     }
 
-    for temp_entry in walkdir::WalkDir::new(temp_dest).into_iter().filter_map(|e| e.ok()) {
+    for temp_entry in walkdir::WalkDir::new(temp_dest)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let temp_entry_path = temp_entry.path();
         let entry_path = temp_entry_path.strip_prefix(temp_dest);
         let mut entry_path = match entry_path {
             Ok(p) => dest.join(p),
-            Err(e) => continue,
+            Err(_) => continue,
         };
 
         if temp_entry_path.is_dir() {
             tokio::fs::create_dir_all(&entry_path)
                 .await
-                .context(format!("Failed to create directory {}", entry_path.display()))?;
+                .context(format!(
+                    "Failed to create directory {}",
+                    entry_path.display()
+                ))?;
             continue;
         }
 
         if !overwrite_old && entry_path.exists() {
             let mut duplicate = 1;
-            let stem = entry_path.file_stem().unwrap_or_else(|| std::ffi::OsStr::new("")).to_os_string();
-            let extension = entry_path.extension().unwrap_or_else(|| std::ffi::OsStr::new("")).to_os_string();
+            let stem = entry_path
+                .file_stem()
+                .unwrap_or_else(|| std::ffi::OsStr::new(""))
+                .to_os_string();
+            let extension = entry_path
+                .extension()
+                .unwrap_or_else(|| std::ffi::OsStr::new(""))
+                .to_os_string();
             loop {
                 let mut name = stem.clone();
                 name.push(format!("_{}", duplicate).as_str());
@@ -224,16 +261,19 @@ pub async fn unzip_file(
                 if !entry_path.exists() {
                     break;
                 }
-                duplicate = duplicate + 1;
+                duplicate += 1;
             }
         }
 
         tokio::fs::copy(&temp_entry_path, &entry_path)
             .await
-            .context(format!("Failed to copy from {} to {}", temp_entry_path.display(), entry_path.display()))?;
+            .context(format!(
+                "Failed to copy from {} to {}",
+                temp_entry_path.display(),
+                entry_path.display()
+            ))?;
         output_files.insert(entry_path);
     }
-    
 
     Ok(output_files.iter().cloned().collect())
 }
@@ -427,12 +467,12 @@ pub fn format_byte(bytes: u64) -> String {
     format!("{:.1} {}", bytes, unit)
 }
 
+#[cfg(test)]
 mod tests {
-    use tokio;
-    use crate::prelude::LODESTONE_PATH;
     use crate::util::{download_file, unzip_file};
     use std::collections::HashSet;
     use std::path::PathBuf;
+    use tokio;
 
     #[tokio::test]
     async fn test_unzip_file() {
@@ -470,18 +510,26 @@ mod tests {
             temp_path,
             Some("test.rar"),
             &Box::new(|_| {}),
-            true
-        ).await.unwrap();
+            true,
+        )
+        .await
+        .unwrap();
 
         let mut test: HashSet<PathBuf> = HashSet::new();
         test.insert(temp_path.join("hi").join("sample-1_1.webp"));
 
-        assert_eq!(unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(), test);
+        assert_eq!(
+            unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(),
+            test
+        );
 
         let mut test: HashSet<PathBuf> = HashSet::new();
         test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
 
-        assert_eq!(unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(), test);
+        assert_eq!(
+            unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(),
+            test
+        );
     }
 
     #[tokio::test]
@@ -493,8 +541,10 @@ mod tests {
             temp_path,
             Some("test.tar.gz"),
             &Box::new(|_| {}),
-            true
-        ).await.unwrap();
+            true,
+        )
+        .await
+        .unwrap();
 
         let mut test: HashSet<PathBuf> = HashSet::new();
         test.insert(temp_path.join("sample").join("sample.c"));
