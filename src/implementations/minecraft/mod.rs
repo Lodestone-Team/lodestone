@@ -350,7 +350,12 @@ impl MinecraftInstance {
             .validate_manifest_value(&manifest_value)?;
 
         // ALL of the following unwraps are safe because we just validated the manifest value
-
+        let description = manifest_value
+            .get_unique_setting("description")
+            .unwrap()
+            .get_value()
+            .map(|v| v.try_as_string().unwrap());
+        
         let name = manifest_value
             .get_unique_setting("name")
             .unwrap()
@@ -358,11 +363,6 @@ impl MinecraftInstance {
             .unwrap()
             .try_as_string()
             .unwrap();
-        let description = manifest_value
-            .get_unique_setting("description")
-            .unwrap()
-            .get_value()
-            .map(|v| v.try_as_string().unwrap());
 
         let version = manifest_value
             .get_unique_setting("version")
