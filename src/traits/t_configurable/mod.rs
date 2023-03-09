@@ -69,7 +69,6 @@ pub trait TConfigurable {
     async fn name(&self) -> String;
     async fn flavour(&self) -> String;
     async fn game_type(&self) -> Game;
-    async fn cmd_args(&self) -> Vec<String>;
     async fn description(&self) -> String;
     async fn port(&self) -> u32;
     async fn creation_time(&self) -> i64;
@@ -77,12 +76,6 @@ pub trait TConfigurable {
     /// does start when lodestone starts
     async fn auto_start(&self) -> bool;
     async fn restart_on_crash(&self) -> bool;
-    async fn backup_period(&self) -> Result<Option<u32>, Error> {
-        Err(Error {
-            kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support backup period"),
-        })
-    }
     // setters
     async fn set_name(&mut self, name: String) -> Result<(), Error>;
     async fn set_description(&mut self, description: String) -> Result<(), Error>;

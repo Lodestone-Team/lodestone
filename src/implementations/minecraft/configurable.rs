@@ -35,10 +35,6 @@ impl TConfigurable for MinecraftInstance {
         self.config.flavour.to_string()
     }
 
-    async fn cmd_args(&self) -> Vec<String> {
-        self.config.cmd_args.clone()
-    }
-
     async fn description(&self) -> String {
         self.config.description.clone()
     }
@@ -61,10 +57,6 @@ impl TConfigurable for MinecraftInstance {
 
     async fn restart_on_crash(&self) -> bool {
         self.config.restart_on_crash
-    }
-
-    async fn backup_period(&self) -> Result<Option<u32>, Error> {
-        Ok(self.config.backup_period)
     }
 
     async fn set_name(&mut self, name: String) -> Result<(), Error> {
@@ -119,14 +111,6 @@ impl TConfigurable for MinecraftInstance {
         self.config.restart_on_crash = restart_on_crash;
         self.auto_start
             .store(restart_on_crash, atomic::Ordering::Relaxed);
-        self.write_config_to_file().await
-    }
-
-    async fn set_backup_period(&mut self, backup_period: Option<u32>) -> Result<(), Error> {
-        self.config.backup_period = backup_period;
-        self.backup_sender
-            .send(BackupInstruction::SetPeriod(backup_period))
-            .unwrap();
         self.write_config_to_file().await
     }
 
