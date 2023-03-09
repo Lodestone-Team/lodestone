@@ -32,6 +32,21 @@ pub async fn get_instance_configurable_manifest(
     Ok(Json(instance.configurable_manifest().await))
 }
 
+pub async fn get_instance_settings(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<ConfigurableManifest>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    let instances = state.instances.lock().await;
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    Ok(Json(instance.configurable_manifest().await))
+}
+
 pub async fn set_instance_setting(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, section_id, setting_id)): Path<(InstanceUuid, String, String)>,
@@ -80,10 +95,11 @@ pub fn get_instance_config_routes(state: AppState) -> Router {
             "/instance/:uuid/configurable_manifest",
             get(get_instance_configurable_manifest),
         )
+        .route("/instance/:uuid/version/:new_version", put(change_version))
+        .route("/instance/:uuid/settings", get(get_instance_settings))
         .route(
-            "/instance/:uuid/configurable_manifest/:section_id/:setting_id",
+            "/instance/:uuid/settings/:section_id/:setting_id",
             put(set_instance_setting),
         )
-        .route("/instance/:uuid/version/:new_version", put(change_version))
         .with_state(state)
 }
