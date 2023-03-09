@@ -3,4 +3,4 @@ import type { Game } from "./Game";
 import type { InstanceState } from "./InstanceState";
 import type { InstanceUuid } from "./InstanceUuid";
 
-export interface InstanceInfo { uuid: InstanceUuid, name: string, game_type: Game, description: string, port: number, creation_time: bigint, path: string, auto_start: boolean, restart_on_crash: boolean, backup_period: number | null, state: InstanceState, player_count: number | null, max_player_count: number | null, }
+export interface InstanceInfo { uuid: InstanceUuid, name: string, game_type: Game, description: string, port: number, creation_time: bigint, path: string, auto_start: boolean, restart_on_crash: boolean, state: InstanceState, player_count: number | null, max_player_count: number | null, }
