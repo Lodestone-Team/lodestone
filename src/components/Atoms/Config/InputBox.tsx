@@ -51,8 +51,8 @@ export default function InputBox({
   value?: string;
   className?: string;
   type?: InputBoxType;
-  min?: number;
-  max?: number;
+  min?: number | null;
+  max?: number | null;
   required?: boolean;
   maxLength?: number;
   error?: string;
@@ -83,10 +83,9 @@ export default function InputBox({
         }
         const numValue = parseintStrict(value);
         if (isNaN(numValue)) throw new Error('Must be a number');
-        if (min !== undefined && numValue < min)
+        if (min && numValue < min)
           throw new Error(`Must be greater than ${min}`);
-        if (max !== undefined && numValue > max)
-          throw new Error(`Must be less than ${max}`);
+        if (max && numValue > max) throw new Error(`Must be less than ${max}`);
       }
       if (validateProp) await validateProp(value);
     },

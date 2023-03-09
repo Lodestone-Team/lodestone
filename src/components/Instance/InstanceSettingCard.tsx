@@ -1,7 +1,7 @@
 import SettingField from 'components/SettingField';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
-import { useContext, useState } from 'react';
+import { useContext, useState, useEffect } from 'react';
 import { parse } from 'minecraft-motd-util';
 import { MOTDRender } from 'components/Atoms/MOTDRender';
 import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
@@ -10,183 +10,32 @@ import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { toast } from 'react-toastify';
-
+import {
+  iterateSections,
+  SettingFieldObject,
+  SectionFieldObject,
+} from './InstanceSettingsCreate/SettingObject';
 export default function InstanceSettingCard() {
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
-  const { data: manifest, isLoading } = useInstanceManifest(instance.uuid);
+  const {
+    data: manifest,
+    isLoading,
+    error,
+  } = useInstanceManifest(instance.uuid);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const supportedOptions = manifest?.supported_operations
-    ? manifest.supported_operations
-    : [];
-  const supportedSettings = manifest?.settings ? manifest.settings : [];
+  console.log(manifest);
+
   const can_delete_instance = useUserAuthorized('can_delete_instance');
   const queryClient = useQueryClient();
 
-  const commonSettings: {
-    [key: string]: {
-      name: string;
-      type: 'toggle' | 'number' | 'text' | 'dropdown' | 'password';
-      options?: string[];
-      description?: React.ReactNode;
-      descriptionFunc?: (value: any) => React.ReactNode;
-    };
-  } = {
-    gamemode: {
-      name: 'Game Mode',
-      type: 'dropdown',
-      options: ['survival', 'creative', 'adventure', 'spectator'],
-      descriptionFunc: (value: string) =>
-        `New players will join in ${value} mode`,
-    },
-    difficulty: {
-      name: 'Difficulty',
-      type: 'dropdown',
-      options: ['peaceful', 'easy', 'normal', 'hard'],
-      descriptionFunc: (value: string) =>
-        `The server difficulty is set to ${value}`,
-    },
-    'spawn-protection': {
-      name: 'Spawn Protection',
-      type: 'number',
-      descriptionFunc: (value: number) =>
-        `Players cannot build within ${value} blocks of spawn`,
-    },
-    'view-distance': {
-      name: 'View Distance',
-      type: 'number',
-      descriptionFunc: (value: number) =>
-        `Players can see ${value} chunks away`,
-    },
-    hardcore: {
-      name: 'Hardcore',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value
-          ? 'Difficulty is set to hard and players are set to spectator mode when they die'
-          : 'No special hardcore settings are enabled',
-    },
-    pvp: {
-      name: 'PvP',
-      type: 'toggle',
-      descriptionFunc: (pvp) =>
-        pvp
-          ? 'Players can directly attack each other'
-          : 'Players cannot directly attack each other',
-    },
-    'online-mode': {
-      name: 'Online Mode',
-      type: 'toggle',
-      descriptionFunc: (onlineMode) =>
-        onlineMode
-          ? 'Players must be authenticated with Xbox Live or Mojang to join'
-          : 'Players can join without authentication and with any username',
-    },
-    motd: {
-      name: 'MOTD: Message of the Day',
-      type: 'text',
-      descriptionFunc: (motd) => (
-        <div
-          className={`mt-1 whitespace-pre-wrap p-2 font-minecraft text-medium text-[gray]`}
-          style={{ backgroundImage: `url(/assets/dirt.png)` }}
-        >
-          <MOTDRender motd={parse(convertUnicode(motd))} />
-        </div>
-      ),
-    },
-  };
-
-  // hand picked list of minecraft settings to be shown
-  const advancedSettings: {
-    [key: string]: {
-      name: string;
-      type: 'toggle' | 'number' | 'text' | 'dropdown' | 'password';
-      options?: string[];
-      description?: string;
-      descriptionFunc?: (value: any) => string;
-    };
-  } = {
-    'white-list': {
-      name: 'Whitelist',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value ? 'Only whitelisted players can join' : 'All players can join',
-    },
-    'enforce-whitelist': {
-      name: 'Enforce Whitelist',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value
-          ? 'Online players not on the whitelist are kicked'
-          : 'Online players are not kicked even if they are not on the whitelist',
-    },
-    'enable-command-block': {
-      name: 'Command Blocks',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value ? 'Command blocks are enabled' : 'Command blocks are disabled',
-    },
-    'allow-flight': {
-      name: 'Flight',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value
-          ? 'Survival players with a fly mod can fly'
-          : 'Survival players in air for 5 seconds will be kicked',
-    },
-    'force-gamemode': {
-      name: 'Force Gamemode',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value
-          ? 'Players join in the default gamemode'
-          : 'Players join in the gamemode they left in',
-    },
-    'simulation-distance': {
-      name: 'Simulation Distance',
-      type: 'number',
-      descriptionFunc: (value: number) =>
-        `Living entities within ${value} chunks of a player will be simulated`,
-    },
-    'player-idle-timeout': {
-      name: 'Player Idle Timeout',
-      type: 'number',
-      descriptionFunc: (value: number) =>
-        value == 0
-          ? 'Players will not be kicked for inactivity'
-          : `Players will be kicked after ${value} minutes of inactivity`,
-    },
-    'enforce-secure-profile': {
-      name: 'Enforce Secure Profile',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value
-          ? 'Players without a Mojang-signed public key will not be able to connect to the server'
-          : "Players don't need a Mojang-signed public key to connect to the server",
-    },
-    'enable-rcon': {
-      name: 'Enable RCON',
-      type: 'toggle',
-      descriptionFunc: (value: boolean) =>
-        value
-          ? 'Server admins can remotely access the server console'
-          : 'Server admins cannot remote access to the server console',
-    },
-    'rcon.password': {
-      name: 'RCON Password',
-      type: 'password',
-      descriptionFunc: () => 'Set a password for RCON',
-    },
-  };
-
-  // filter out unsupported settings
-  const availableCommonSettings = Object.keys(commonSettings).filter((key) =>
-    supportedSettings.includes(key)
-  );
-  const availableAdvancedSettings = Object.keys(advancedSettings).filter(
-    (key) => supportedSettings.includes(key)
-  );
+  // const sampleDataObject = manifest;
+  const [sections, setSections] = useState<SectionFieldObject[]>([]);
+  useEffect(() => {
+    if (!manifest) return;
+    setSections(iterateSections(manifest));
+  }, [manifest]);
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -223,7 +72,106 @@ export default function InstanceSettingCard() {
         instance&#39;s settings, worlds and backups will be permanently deleted.
         Please backup any important data before proceeding.
       </ConfirmDialog>
-      <div className="flex flex-col gap-4 @4xl:flex-row">
+
+      <div>
+        {sections.map((section) => (
+          <div
+            key={section.section_id}
+            className="mb-16 flex flex-col gap-4 @4xl:flex-row"
+          >
+            <div className="w-80 shrink-0">
+              <h2 className="text-h2 font-bold tracking-medium">
+                {section.name}
+              </h2>
+              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+                {section.description}
+              </h3>
+            </div>
+            <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+              {Object.keys(section['settings']).length ? (
+                Object.keys(section['settings']).map((settingKey: string) => {
+                  const setting: SettingFieldObject =
+                    section['settings'][settingKey];
+                  return (
+                    <SettingField
+                      instance={instance}
+                      // initialValue={setting.value}
+                      setting={setting}
+                      // label={setting.name}
+                      // options={setting.options}
+                      key={settingKey}
+                      // description={setting.description}
+                      sectionId={section.section_id}
+                      settingId={settingKey}
+                      // disabled={!setting.is_mutable}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      // type={setting.type as any}
+                      error={error}
+                    />
+                  );
+                })
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
+                  <h2 className="text-h3 font-bold tracking-medium text-white/50">
+                    Not available at this moment
+                  </h2>
+                  <h2 className="text-medium font-medium tracking-medium text-white/50">
+                    Try to start this instance at least once
+                  </h2>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 
+      {sections.map((section) => 
+
+          (
+            <div className="flex flex-col gap-4 @4xl:flex-row">
+              <div className="w-80 shrink-0">
+                <h2 className="text-h2 font-bold tracking-medium">
+                  {section.name}
+                </h2>
+                <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+                  {section.description}
+                </h3>
+              </div>
+              <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+                {Object.keys(section['settings']).length ? (
+                  Object.keys(section['settings']).map((settingKey: string) => {
+                    console.log(settingKey);
+                    const setting = section['settings'][settingKey];
+                    return (
+                      <SettingField
+                        instance={instance}
+                        setting={settingKey}
+                        label={setting.name}
+                        options={setting.options}
+                        key={settingKey}
+                        description={setting.description}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        type={setting.type as any}
+                      />
+                    );
+                  })
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
+                    <h2 className="text-h3 font-bold tracking-medium text-white/50">
+                      Not available at this moment
+                    </h2>
+                    <h2 className="text-medium font-medium tracking-medium text-white/50">
+                      Try to start this instance at least once
+                    </h2>
+                  </div>
+                )}
+              </div>
+          </div>
+          )          
+        )
+      } */}
+      {/* <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium">
             General Game Settings
@@ -233,18 +181,20 @@ export default function InstanceSettingCard() {
           </h3>
         </div>
         <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          {availableCommonSettings.length ? (
-            availableCommonSettings.map((setting) => {
+          {Object.keys(sections[0]['settings']).length ? (
+            Object.keys(sections[0]['settings']).map((settingKey: string) => {
+              console.log(sections[0]['settings'][settingKey]);
               return (
                 <SettingField
                   instance={instance}
-                  descriptionFunc={commonSettings[setting].descriptionFunc}
-                  setting={setting}
-                  label={commonSettings[setting].name}
-                  options={commonSettings[setting].options}
-                  key={setting}
+                  // descriptionFunc={commonSettings[setting].descriptionFunc}
+                  setting={settingKey}
+                  label={sections[0]['settings'][settingKey].name}
+                  options={sections[0]['settings'][settingKey].options}
+                  key={settingKey}
+                  description={sections[0]['settings'][settingKey].description}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  type={commonSettings[setting].type as any}
+                  type={sections[0]['settings'][settingKey].type as any}
                 />
               );
             })
@@ -259,8 +209,8 @@ export default function InstanceSettingCard() {
             </div>
           )}
         </div>
-      </div>
-      <div className="flex flex-col gap-4 @4xl:flex-row">
+      </div> */}
+      {/* <div className="flex flex-col gap-4 @4xl:flex-row">
         <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium">
             Advanced Game Settings
@@ -296,7 +246,7 @@ export default function InstanceSettingCard() {
             </div>
           )}
         </div>
-      </div>
+      </div> */}
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>

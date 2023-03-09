@@ -4,10 +4,10 @@ import { InstanceManifest } from 'bindings/InstanceManifest';
 
 export const useInstanceManifest = (uuid: string) => {
   return useQuery<InstanceManifest, AxiosError>(
-    ['instances', uuid, 'manifest'],
+    ['instances', uuid, 'settings'],
     () => {
       return axios
-        .get<InstanceManifest>(`/instance/${uuid}/manifest`)
+        .get<InstanceManifest>(`/instance/${uuid}/settings`)
         .then((response) => response.data);
     },
     {
