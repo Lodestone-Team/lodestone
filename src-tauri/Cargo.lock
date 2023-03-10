@@ -3400,9 +3400,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.139"
+version = "0.2.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
+checksum = "99227334921fae1a979cf0bfdfcc6b3e5ce376ef57e16fb6fb3ea2ed6095f80c"
 
 [[package]]
 name = "libdbus-sys"
@@ -3528,7 +3528,7 @@ dependencies = [
 [[package]]
 name = "lodestone_core"
 version = "0.4.3"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=dev/refactor-setup#a6aea065bd7619a1c424669a7dfa098fc472119c"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=dev/refactor-setup#7b176d82768a18db89b8d1cb326182fca9b42450"
 dependencies = [
  "ansi_term",
  "argon2",
