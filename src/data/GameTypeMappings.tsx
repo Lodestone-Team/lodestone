@@ -1,5 +1,4 @@
-import { InstanceGeneralCard, InstanceSettingCard } from 'components/Instance';
-
+import { InstanceSettingCard } from 'components/Instance';
 import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
@@ -90,7 +89,6 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
       icon: <FontAwesomeIcon icon={faCog} />,
       content: (
         <div className="flex flex-col gap-8">
-          <InstanceGeneralCard />
           <InstanceSettingCard />
         </div>
       ),
