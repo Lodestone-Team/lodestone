@@ -16,30 +16,14 @@ import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObj
 export default function SettingField({
   instance,
   setting,
-  // label,
-  // type = 'text',
-  // options,
-  // min,
-  // max,
-  // description,
-  // initialValue,
   sectionId,
   settingId,
-  // disabled,
   error,
 }: {
   instance: InstanceInfo;
   setting: SettingFieldObject;
-  // label?: string;
-  // type?: 'text' | 'number' | 'dropdown' | 'toggle' | 'password';
-  // min?: number;
-  // max?: number;
-  // options?: string[];
-  // description?: React.ReactNode;
-  // initialValue: ConfigurableValue | null;
   sectionId: string;
   settingId: string;
-  // disabled: boolean;
   error?: AxiosError<unknown, any> | null;
 }) {
   const {
@@ -108,6 +92,7 @@ export default function SettingField({
           label={label}
           value={value}
           type="text"
+          isFloat={initialValue?.type === 'Float'}
           // isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}

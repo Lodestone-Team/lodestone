@@ -205,6 +205,16 @@ export function parseintStrict(value: string): number {
   return parsed;
 }
 
+export function parseFloatStrict(value: string): number {
+  // parseFloat passes even if there are trailing characters
+  // so we check that the string is the same as the parsed float
+  const parsed = parseFloat(value);
+  if (parsed.toString() !== value) throw new Error('Not a valid float');
+  return parsed;
+}
+
+  
+
 export function getWidth(
   el: HTMLElement,
   type: 'inner' | 'outer' | 'width' | 'full'

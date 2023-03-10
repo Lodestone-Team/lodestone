@@ -2,8 +2,6 @@ import SettingField from 'components/SettingField';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext, useState, useEffect } from 'react';
-import { parse } from 'minecraft-motd-util';
-import { MOTDRender } from 'components/Atoms/MOTDRender';
 import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -95,17 +93,10 @@ export default function InstanceSettingCard() {
                   return (
                     <SettingField
                       instance={instance}
-                      // initialValue={setting.value}
                       setting={setting}
-                      // label={setting.name}
-                      // options={setting.options}
                       key={settingKey}
-                      // description={setting.description}
                       sectionId={section.section_id}
                       settingId={settingKey}
-                      // disabled={!setting.is_mutable}
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      // type={setting.type as any}
                       error={error}
                     />
                   );
@@ -124,129 +115,6 @@ export default function InstanceSettingCard() {
           </div>
         ))}
       </div>
-
-      {/* 
-      {sections.map((section) => 
-
-          (
-            <div className="flex flex-col gap-4 @4xl:flex-row">
-              <div className="w-80 shrink-0">
-                <h2 className="text-h2 font-bold tracking-medium">
-                  {section.name}
-                </h2>
-                <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                  {section.description}
-                </h3>
-              </div>
-              <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-                {Object.keys(section['settings']).length ? (
-                  Object.keys(section['settings']).map((settingKey: string) => {
-                    console.log(settingKey);
-                    const setting = section['settings'][settingKey];
-                    return (
-                      <SettingField
-                        instance={instance}
-                        setting={settingKey}
-                        label={setting.name}
-                        options={setting.options}
-                        key={settingKey}
-                        description={setting.description}
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        type={setting.type as any}
-                      />
-                    );
-                  })
-                ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-                    <h2 className="text-h3 font-bold tracking-medium text-white/50">
-                      Not available at this moment
-                    </h2>
-                    <h2 className="text-medium font-medium tracking-medium text-white/50">
-                      Try to start this instance at least once
-                    </h2>
-                  </div>
-                )}
-              </div>
-          </div>
-          )          
-        )
-      } */}
-      {/* <div className="flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-80 shrink-0">
-          <h2 className="text-h2 font-bold tracking-medium">
-            General Game Settings
-          </h2>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-            Basic Minecraft world settings
-          </h3>
-        </div>
-        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          {Object.keys(sections[0]['settings']).length ? (
-            Object.keys(sections[0]['settings']).map((settingKey: string) => {
-              console.log(sections[0]['settings'][settingKey]);
-              return (
-                <SettingField
-                  instance={instance}
-                  // descriptionFunc={commonSettings[setting].descriptionFunc}
-                  setting={settingKey}
-                  label={sections[0]['settings'][settingKey].name}
-                  options={sections[0]['settings'][settingKey].options}
-                  key={settingKey}
-                  description={sections[0]['settings'][settingKey].description}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  type={sections[0]['settings'][settingKey].type as any}
-                />
-              );
-            })
-          ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-              <h2 className="text-h3 font-bold tracking-medium text-white/50">
-                Not available at this moment
-              </h2>
-              <h2 className="text-medium font-medium tracking-medium text-white/50">
-                Try to start this instance at least once
-              </h2>
-            </div>
-          )}
-        </div>
-      </div> */}
-      {/* <div className="flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-80 shrink-0">
-          <h2 className="text-h2 font-bold tracking-medium">
-            Advanced Game Settings
-          </h2>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-            Less commonly used Minecraft world settings
-          </h3>
-        </div>
-        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          {availableAdvancedSettings.length ? (
-            availableAdvancedSettings.map((setting) => {
-              return (
-                <SettingField
-                  instance={instance}
-                  descriptionFunc={advancedSettings[setting].descriptionFunc}
-                  setting={setting}
-                  label={advancedSettings[setting].name}
-                  options={advancedSettings[setting].options}
-                  key={setting}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  type={advancedSettings[setting].type as any}
-                />
-              );
-            })
-          ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-              <h1 className="text-h3 font-bold tracking-medium text-white/50">
-                Not available at this moment
-              </h1>
-              <h2 className="text-medium font-medium tracking-medium text-white/50">
-                Try to start this instance at least once
-              </h2>
-            </div>
-          )}
-        </div>
-      </div> */}
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-80 shrink-0">
           <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>
