@@ -1,4 +1,4 @@
-import { 
+import {
   MinecraftPerformanceCard,
   MinecraftPlayerList,
   MinecraftGeneralCard,
@@ -9,7 +9,6 @@ import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-// import MinecraftOverview from 'components/Minecraft/MinecraftOverview';
 
 import {
   faChartLine,
