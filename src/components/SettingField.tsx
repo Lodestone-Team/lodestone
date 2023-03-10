@@ -1,6 +1,5 @@
 // a wrapper around TextField that fetches a single setting from the server
 import { InstanceInfo } from 'bindings/InstanceInfo';
-import { useGameSetting } from 'data/GameSetting';
 import { axiosPutSingleValue, errorToString } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
 import InputBox from './Atoms/Config/InputBox';
@@ -8,47 +7,76 @@ import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
 import ToggleBox from './Atoms/Config/ToggleBox';
+import { ConfigurableValue } from './Instance/Create/form';
+import { AxiosError } from 'axios';
+import { toast } from 'react-toastify';
+import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';
 
 export default function SettingField({
   instance,
   setting,
-  label,
-  type = 'text',
-  options,
-  min,
-  max,
-  description,
-  descriptionFunc,
+  sectionId,
+  settingId,
+  error,
 }: {
   instance: InstanceInfo;
-  setting: string;
-  label?: string;
-  type?: 'text' | 'number' | 'dropdown' | 'toggle' | 'password';
-  min?: number;
-  max?: number;
-  options?: string[];
-  description?: React.ReactNode;
-  descriptionFunc?: (arg: any) => React.ReactNode;
+  setting: SettingFieldObject;
+  sectionId: string;
+  settingId: string;
+  error?: AxiosError<unknown, any> | null;
 }) {
+  const {
+    name: label,
+    type,
+    options,
+    description,
+    value: initialValue,
+    min,
+    max,
+    is_mutable,
+  } = setting;
   const uuid = instance.uuid;
   const can_access_instance_setting = useUserAuthorized(
     'can_access_instance_setting',
     instance.uuid
   );
-  const {
-    data: initialSetting,
-    isLoading: isSettingLoading,
-    error,
-  } = useGameSetting(uuid, setting, can_access_instance_setting);
-  label = label ?? setting;
-  const [value, setValue] = useState(initialSetting ?? '');
+  const [value, setValue] = useState(
+    initialValue ? initialValue.value.toString() : ''
+  );
 
   useIsomorphicLayoutEffect(() => {
-    setValue(initialSetting ?? '');
-  }, [initialSetting]);
+    setValue(value.toString() ?? '');
+  }, [value]);
 
   const errorString = errorToString(error);
-  const isLoading = can_access_instance_setting ? isSettingLoading : false;
+  const URL = `/instance/${uuid}/settings/${sectionId}/${settingId}`;
+  const submitSettingField = async (value: string) => {
+    const getConfigurableValue: (value: string) => ConfigurableValue | null = (
+      value: string
+    ) => {
+      switch (type) {
+        case 'text':
+          if (initialValue?.type === 'Float')
+            return { type: 'Float', value: parseFloat(value) };
+          else return { type: 'String', value: value };
+        case 'password':
+          return { type: 'String', value: value };
+        case 'number':
+          if (initialValue?.type === 'Integer')
+            return { type: 'Integer', value: parseInt(value) };
+          else return { type: 'UnsignedInteger', value: parseInt(value) };
+        case 'toggle':
+          return { type: 'Boolean', value: value === 'true' };
+        case 'dropdown':
+          return { type: 'Enum', value: value };
+        default:
+          toast.error('Submission Error: Unknown value type.');
+          return null;
+      }
+    };
+    await axiosPutSingleValue<void>(`${URL}`, getConfigurableValue(value));
+  };
+  // const isLoading = can_access_instance_setting ? isSettingLoading : false;
 
   switch (type) {
     case 'text':
@@ -57,18 +85,15 @@ export default function SettingField({
           label={label}
           value={value}
           type="text"
-          isLoading={isLoading}
+          isFloat={initialValue?.type === 'Float'}
+          // isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            await axiosPutSingleValue<void>(
-              `/instance/${uuid}/game/${setting}`,
-              value
-            );
+            submitSettingField(value);
             setValue(value);
           }}
           description={description}
-          descriptionFunc={descriptionFunc}
         />
       );
     case 'password':
@@ -77,18 +102,13 @@ export default function SettingField({
           label={label}
           value={value}
           type="password"
-          isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            await axiosPutSingleValue<void>(
-              `/instance/${uuid}/game/${setting}`,
-              value
-            );
+            submitSettingField(value);
             setValue(value);
           }}
           description={description}
-          descriptionFunc={descriptionFunc}
         />
       );
     case 'number':
@@ -99,20 +119,14 @@ export default function SettingField({
           type="number"
           min={min}
           max={max}
-          isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            await axiosPutSingleValue<void>(
-              `/instance/${uuid}/game/${setting}`,
-              value
-            );
-            // print type of value
-            console.log(typeof value);
+            submitSettingField(value);
             setValue(value);
           }}
           description={description}
-          descriptionFunc={descriptionFunc}
+          disabled={!is_mutable}
         />
       );
     case 'dropdown':
@@ -124,17 +138,10 @@ export default function SettingField({
           label={label}
           value={value}
           options={options}
-          isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}
-          onChange={async (value) => {
-            await axiosPutSingleValue<void>(
-              `/instance/${uuid}/game/${setting}`,
-              value
-            );
-          }}
+          onChange={submitSettingField}
           description={description}
-          descriptionFunc={descriptionFunc}
         />
       );
     case 'toggle':
@@ -142,17 +149,15 @@ export default function SettingField({
         <ToggleBox
           label={label}
           value={value === 'true'}
-          isLoading={isLoading}
           error={errorString}
           canRead={can_access_instance_setting}
           onChange={async (value) => {
-            await axiosPutSingleValue<void>(
-              `/instance/${uuid}/game/${setting}`,
-              value ? 'true' : 'false'
-            );
+            await axiosPutSingleValue<void>(`${URL}`, {
+              type: 'Boolean',
+              value: value,
+            });
           }}
           description={description}
-          descriptionFunc={descriptionFunc}
         />
       );
   }

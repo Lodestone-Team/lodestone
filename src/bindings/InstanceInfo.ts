@@ -11,16 +11,12 @@ export interface InstanceInfo {
   uuid: InstanceUuid;
   name: string;
   game_type: GameType;
-  cmd_args: Array<string>;
   description: string;
   port: number;
-  min_ram: number | null;
-  max_ram: number | null;
   creation_time: bigint;
   path: string;
   auto_start: boolean;
   restart_on_crash: boolean;
-  backup_period: number | null;
   state: InstanceState;
   player_count: number | null;
   max_player_count: number | null;

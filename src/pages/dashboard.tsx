@@ -1,26 +1,25 @@
-import { Tab } from '@headlessui/react';
-import ClipboardTextfield from 'components/ClipboardTextfield';
-import GameConsole from 'components/GameConsole';
-import DashboardCard from 'components/DashboardCard';
-import Label from 'components/Atoms/Label';
-import { updateInstance } from 'data/InstanceList';
-import { LodestoneContext } from 'data/LodestoneContext';
-import { useContext, useEffect, useState } from 'react';
-import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
-import EditableTextfield from 'components/EditableTextfield';
-import { useQueryClient } from '@tanstack/react-query';
-import InstanceGeneralCard from 'components/Instance/InstanceGeneralCard';
-import InstanceSettingCard from 'components/Instance/InstanceSettingCard';
-import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
-import FileViewer from 'components/FileViewer/FileViewer';
-import { InstanceContext } from 'data/InstanceContext';
-import GameIcon from 'components/Atoms/GameIcon';
-import { useGlobalSettings } from 'data/GlobalSettings';
-import { toast } from 'react-toastify';
-import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCompass } from '@fortawesome/free-solid-svg-icons';
-import { useDocumentTitle } from 'usehooks-ts';
+// import { Tab } from '@headlessui/react';
+// import ClipboardTextfield from 'components/ClipboardTextfield';
+// import GameConsole from 'components/GameConsole';
+// import DashboardCard from 'components/DashboardCard';
+// import Label from 'components/Atoms/Label';
+// import { updateInstance } from 'data/InstanceList';
+// import { LodestoneContext } from 'data/LodestoneContext';
+// import { useContext, useEffect, useState } from 'react';
+// import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
+// import EditableTextfield from 'components/EditableTextfield';
+// import { useQueryClient } from '@tanstack/react-query';
+// import InstanceSettingCard from 'components/Instance/InstanceSettingCard';
+// import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
+// import FileViewer from 'components/FileViewer/FileViewer';
+// import { InstanceContext } from 'data/InstanceContext';
+// import GameIcon from 'components/Atoms/GameIcon';
+// import { useGlobalSettings } from 'data/GlobalSettings';
+// import { toast } from 'react-toastify';
+// import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
+// import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+// import { faCompass } from '@fortawesome/free-solid-svg-icons';
+// import { useDocumentTitle } from 'usehooks-ts';
 
 /*CURRENTLY NOT BEING USED*/
 
