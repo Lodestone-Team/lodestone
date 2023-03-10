@@ -2,6 +2,7 @@ import {
   ConfigurableValueType,
   ConfigurableValue,
   SectionManifest,
+  ConfigurableManifest,
 } from '../Create/form';
 
 export type SectionFieldObject = {
@@ -43,8 +44,6 @@ export const generateSectionDataObject = (settingSection: SectionManifest) => {
         return 'dropdown';
     }
   };
-  console.log(settingSection)
-  console.log(settingSection.settings)
 
   const settingsObject: Record<string, SettingFieldObject> = {};
   Object.keys(settingSection.settings).forEach((settingKey) => {
@@ -75,10 +74,10 @@ export const generateSectionDataObject = (settingSection: SectionManifest) => {
 };
 
 
-export const iterateSections = (sampleDataObject: any) => {
+export const iterateSections = (manifest: ConfigurableManifest) => {
   const fieldSections:SectionFieldObject[] = []
-  Object.keys(sampleDataObject["setting_sections"]).forEach((sectionKey) => {
-    const section = sampleDataObject["setting_sections"][sectionKey];
+  Object.keys(manifest["setting_sections"]).forEach((sectionKey) => {
+    const section = manifest["setting_sections"][sectionKey];
     fieldSections.push(generateSectionDataObject(section));
   })
   return fieldSections

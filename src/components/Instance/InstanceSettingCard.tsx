@@ -23,12 +23,10 @@ export default function InstanceSettingCard() {
     error,
   } = useInstanceManifest(instance.uuid);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  console.log(manifest);
 
   const can_delete_instance = useUserAuthorized('can_delete_instance');
   const queryClient = useQueryClient();
 
-  // const sampleDataObject = manifest;
   const [sections, setSections] = useState<SectionFieldObject[]>([]);
   useEffect(() => {
     if (!manifest) return;
