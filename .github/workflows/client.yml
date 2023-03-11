@@ -15,8 +15,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-windows:
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            components: clippy
+            override: true
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
+
+  build_windows:
     runs-on: windows-latest
+    needs: clippy_check
     defaults:
       run:
         working-directory: ./
@@ -50,12 +65,13 @@ jobs:
           name: x86_64-pc-windows-msvc-client.exe
           path: ./target/release/main.exe
 
-  build-linux:
+  build_linux:
     strategy:
       matrix:
         platform: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
 
     runs-on: ubuntu-latest
+    needs: clippy_check
     defaults:
       run:
         working-directory: ./
