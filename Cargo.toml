@@ -82,6 +82,7 @@ ts-rs = "6.2.1"
 walkdir = "2.3.2"
 whoami = "1.2.3"
 zip = "0.6.2"
+openssl = { version = "0.10.45", features = ["vendored"] }
 [dependencies.uuid]
 version = "1.1.2"
 features = [

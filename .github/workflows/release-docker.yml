@@ -1,0 +1,69 @@
+name: publish docker image
+
+on:
+  release:
+    types: [ published ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: checkout repository
+        uses: actions/checkout@v3
+      -
+        name: set up QEMU
+        uses: docker/setup-qemu-action@v2
+      -
+        name: set up docker buildx
+        uses: docker/setup-buildx-action@v2
+      -
+        name: log in to the container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - 
+        id: string_tag
+        uses: ASzc/change-string-case-action@v5
+        with:
+          string: ${{ env.REGISTRY}}/${{ env.IMAGE_NAME }}
+
+      -
+        id: release_asset
+        name: Download release assets
+        uses: dsaltares/fetch-gh-release-asset@master
+        with:
+          regex: true
+          file: "lodestone_core_.*"
+          target: release/
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      -
+        name: build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          platforms: linux/amd64
+          file: {context}/githubactions.Dockerfile
+          build-arg: |
+            binpath=./target/lodestone_core_${{ steps.release_asset.outputs.version }}
+          push: true
+          tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_asset.outputs.version }}
+
+      -
+        name: build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          platforms: linux/arm64
+          file: {context}/githubactions.Dockerfile
+          build-arg: |
+            binpath=./target/lodestone_core_arm_${{ steps.release_asset.outputs.version }}
+          push: true
+          tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_asset.outputs.version }}
