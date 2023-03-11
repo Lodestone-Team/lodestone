@@ -50,8 +50,8 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          file: {context}/githubactions.Dockerfile
-          build-arg: |
+          file: ./githubactions.Dockerfile
+          build-args: |
             binpath=./target/lodestone_core_${{ steps.release_asset.outputs.version }}
           push: true
           tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_asset.outputs.version }}
@@ -62,8 +62,8 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
-          file: {context}/githubactions.Dockerfile
-          build-arg: |
+          file: ./githubactions.Dockerfile
+          build-args: |
             binpath=./target/lodestone_core_arm_${{ steps.release_asset.outputs.version }}
           push: true
           tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_asset.outputs.version }}
