@@ -97,6 +97,7 @@ export default function SettingField({
           }}
           description={description}
           descriptionFunc={descriptionFunc}
+          disabled={!is_mutable}
         />
       );
     case 'password':
@@ -113,6 +114,7 @@ export default function SettingField({
           }}
           description={description}
           descriptionFunc={descriptionFunc}
+          disabled={!is_mutable}
         />
       );
     case 'number':
@@ -130,8 +132,8 @@ export default function SettingField({
             setValue(value);
           }}
           description={description}
-          disabled={!is_mutable}
           descriptionFunc={descriptionFunc}
+          disabled={!is_mutable}
         />
       );
     case 'dropdown':
@@ -148,6 +150,7 @@ export default function SettingField({
           onChange={submitSettingField}
           description={description}
           descriptionFunc={descriptionFunc}
+          disabled={!is_mutable}
         />
       );
     case 'toggle':
@@ -165,6 +168,7 @@ export default function SettingField({
           }}
           description={description}
           descriptionFunc={descriptionFunc}
+          disabled={!is_mutable}
         />
       );
   }
