@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 pub use std::path::PathBuf;
 
 use color_eyre::eyre::eyre;
+use indexmap::IndexMap;
 pub use serde::{Deserialize, Serialize};
 pub use serde_json;
 use ts_rs::TS;
@@ -407,13 +408,12 @@ impl SettingManifest {
 
 // A Setting section contains a name and a description (for UI)
 // A Setting section contains a list of InstanceSetting
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionManifest {
     pub(super) section_id: String,
     pub(super) name: String,
     pub(super) description: String,
-    pub(super) settings: BTreeMap<String, SettingManifest>,
+    pub(super) settings: IndexMap<String, SettingManifest>,
 }
 
 impl SectionManifest {
@@ -421,7 +421,7 @@ impl SectionManifest {
         section_id: String,
         name: String,
         description: String,
-        settings: BTreeMap<String, SettingManifest>,
+        settings: IndexMap<String, SettingManifest>,
     ) -> Self {
         Self {
             section_id,
@@ -477,13 +477,12 @@ impl SectionManifest {
 
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigurableManifest {
     auto_start: bool,
     restart_on_crash: bool,
     start_on_connection: bool,
-    setting_sections: BTreeMap<String, SectionManifest>,
+    setting_sections: IndexMap<String, SectionManifest>,
 }
 
 impl ConfigurableManifest {
@@ -491,7 +490,7 @@ impl ConfigurableManifest {
         auto_start: bool,
         restart_on_crash: bool,
         start_on_connection: bool,
-        setting_sections: BTreeMap<String, SectionManifest>,
+        setting_sections: IndexMap<String, SectionManifest>,
     ) -> Self {
         Self {
             auto_start,
@@ -559,7 +558,7 @@ impl ConfigurableManifest {
         self.setting_sections.get(section_id)
     }
 
-    pub fn get_all_sections(&self) -> BTreeMap<String, SectionManifest> {
+    pub fn get_all_sections(&self) -> IndexMap<String, SectionManifest> {
         self.setting_sections.clone()
     }
 

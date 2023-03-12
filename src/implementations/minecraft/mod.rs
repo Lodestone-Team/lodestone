@@ -13,6 +13,7 @@ pub mod versions;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;
+use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
@@ -290,14 +291,14 @@ impl MinecraftInstance {
             true,
         );
 
-        let mut section_1_map = BTreeMap::new();
+        let mut section_1_map = IndexMap::new();
         section_1_map.insert("name".to_string(), name_setting);
         section_1_map.insert("description".to_string(), description_setting);
 
         section_1_map.insert("version".to_string(), version_setting);
         section_1_map.insert("port".to_string(), port_setting);
 
-        let mut section_2_map = BTreeMap::new();
+        let mut section_2_map = IndexMap::new();
 
         section_2_map.insert("min_ram".to_string(), min_ram_setting);
 
@@ -319,7 +320,7 @@ impl MinecraftInstance {
             section_2_map,
         );
 
-        let mut sections = BTreeMap::new();
+        let mut sections = IndexMap::new();
 
         sections.insert("section_1".to_string(), section_1);
         sections.insert("section_2".to_string(), section_2);
@@ -426,7 +427,7 @@ impl MinecraftInstance {
         restore_config: &RestoreConfig,
         java_cmd: String,
     ) -> ConfigurableManifest {
-        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
+        let mut cmd_args_config_map = IndexMap::new();
         let cmd_args = CmdArgSetting::Args(restore_config.cmd_args.clone());
         cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
         let min_ram = CmdArgSetting::MinRam(restore_config.min_ram);
@@ -447,10 +448,10 @@ impl MinecraftInstance {
             ServerPropertySetting::get_section_id().to_string(),
             "Server Properties Settings".to_string(),
             "All settings in the server.properties file can be configured here".to_string(),
-            BTreeMap::new(),
+            IndexMap::new(),
         );
 
-        let mut setting_sections = BTreeMap::new();
+        let mut setting_sections = IndexMap::new();
 
         setting_sections.insert(
             CmdArgSetting::get_section_id().to_string(),
