@@ -56,9 +56,9 @@ export default function InstancePlayerList() {
 
   return (
     <div>
-      <h2 className="text-h3 font-extrabold tracking-medium">Player List</h2>
-      <h3 className="text-medium font-medium italic tracking-medium text-white/50">
-        All players currently online
+      <h2 className="text-h2 font-extrabold tracking-medium">Player List</h2>
+      <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+        All players that are currently online
       </h3>
       <button
         className="mt-4 mb-2 flex items-center justify-center text-small font-medium tracking-medium text-white/50"
@@ -72,7 +72,7 @@ export default function InstancePlayerList() {
         )}
       </button>
       {updatedPlayerList && updatedPlayerList.length > 0 ? (
-        <PlayerListCard >
+        <PlayerListCard>
           {updatedPlayerList.map((player) => (
             <PlayerListItem key={player.uuid}>
               <img

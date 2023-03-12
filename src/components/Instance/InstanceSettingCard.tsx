@@ -77,7 +77,7 @@ export default function InstanceSettingCard() {
             className="mb-16 flex flex-col gap-4 @4xl:flex-row"
           >
             <div className="w-80 shrink-0">
-              <h2 className="text-h2 font-bold tracking-medium">
+              <h2 className="text-h2 font-extrabold tracking-medium">
                 {section.name}
               </h2>
               <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
@@ -120,7 +120,9 @@ export default function InstanceSettingCard() {
       </div>
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-80 shrink-0">
-          <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>
+          <h2 className="text-h2 font-extrabold tracking-medium">
+            Danger Zone
+          </h2>
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
             These settings can cause irreversible damage to your server!
           </h3>

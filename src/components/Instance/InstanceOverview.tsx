@@ -74,7 +74,7 @@ const InstanceOverview = () => {
               containerClassName="min-w-0"
             />
           </div>
-          <div className="-mt-2 mb-2 flex flex-row flex-wrap items-center gap-4">
+          <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
             <GameIcon game_type={instance.game_type} className="h-6 w-6" />
             <Label size="large" color={labelColor}>
               {instance.state}

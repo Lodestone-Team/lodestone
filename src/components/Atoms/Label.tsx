@@ -33,7 +33,7 @@ export default function Label({
           red: 'bg-red-faded/25 text-red',
           gray: 'bg-gray-faded/30 text-gray-300',
         }[color],
-        `h-fit select-none whitespace-nowrap rounded-full font-bold tracking-medium ${className}`
+        `h-fit select-none whitespace-nowrap rounded-full font-title font-bold tracking-medium ${className}`
       )}
       onClick={onClick}
       {...rest}

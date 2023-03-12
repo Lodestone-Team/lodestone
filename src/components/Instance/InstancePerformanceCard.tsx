@@ -20,38 +20,59 @@ export default function InstancePerformanceCard() {
   const total_ram = data?.total_ram ?? 32;
 
   return (
-    <DashboardCard>
-      <h1 className="text-h3 font-bold"> Performance </h1>
-      <div className="mb-10 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
+    <div>
+      <h2 className="text-h2 font-extrabold tracking-medium">
+        Instance Monitors
+      </h2>
+      <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+        Instance’s usage of your Lodestone Core
+      </h3>
+      <div className="mt-4 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
-          <PerformanceGraph
-            title="CPU Usage"
-            color="#62DD76"
-            backgroundColor="#61AE3240"
-            data={performanceBuffer.map((p) =>
-              p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
-            )}
-            max={100}
-            counter={counter}
-            unit="%"
-          />
+          <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
+            CPU LOAD
+          </h3>
+
+          <DashboardCard className="border-0 bg-gray-900">
+            <div>
+              <PerformanceGraph
+                title="CPU Usage"
+                color="#62DD76"
+                backgroundColor="#61AE3240"
+                data={performanceBuffer.map((p) =>
+                  p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
+                )}
+                max={100}
+                counter={counter}
+                unit="%"
+              />
+            </div>
+          </DashboardCard>
         </div>
         <div>
-          <PerformanceGraph
-            title="Memory Usage"
-            color="#62DD76"
-            backgroundColor="#61AE3240"
-            data={performanceBuffer.map((p) =>
-              p.memory_usage !== null
-                ? round(Number(p.memory_usage) / bytesInGigabyte, 1)
-                : NaN
-            )}
-            max={round(total_ram / bytesInGigabyte, 1)}
-            counter={counter}
-            unit="GiB"
-          />
+          <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
+            MEMORY USED
+          </h3>
+
+          <DashboardCard className="border-0 bg-gray-900">
+            <div>
+              <PerformanceGraph
+                title="Memory Usage"
+                color="#62DD76"
+                backgroundColor="#61AE3240"
+                data={performanceBuffer.map((p) =>
+                  p.memory_usage !== null
+                    ? round(Number(p.memory_usage) / bytesInGigabyte, 1)
+                    : NaN
+                )}
+                max={round(total_ram / bytesInGigabyte, 1)}
+                counter={counter}
+                unit="GiB"
+              />
+            </div>
+          </DashboardCard>
         </div>
       </div>
-    </DashboardCard>
+    </div>
   );
 }
