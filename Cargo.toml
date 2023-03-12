@@ -39,6 +39,7 @@ futures-util = "0.3.14"
 headers = "0.3"
 home = "0.5.3"
 igd = "0.12.0"
+indexmap = {version = "1.0.2", features = ["serde-1"]}
 indicatif = "0.15.0"
 jsonwebtoken = "8.1.1"
 lazy_static = "1.4.0"
