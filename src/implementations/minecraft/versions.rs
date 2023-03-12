@@ -8,9 +8,9 @@ use crate::error::Error;
 #[derive(Serialize, Deserialize, Debug, TS)]
 #[ts(export)]
 pub struct MinecraftVersions {
-    old_alpha: Vec<String>,
-    snapshot: Vec<String>,
-    release: Vec<String>,
+    pub old_alpha: Vec<String>,
+    pub snapshot: Vec<String>,
+    pub release: Vec<String>,
 }
 
 pub async fn get_vanilla_versions() -> Result<MinecraftVersions, Error> {
@@ -65,9 +65,21 @@ pub async fn group_minecraft_versions(versions: &Vec<&str>) -> Result<MinecraftV
         old_alpha: Vec::new(),
     };
 
-    let release: Vec<String> = vanilla_versions.release.iter().map(|s| s.replace('_', "-")).collect();
-    let snapshot: Vec<String> = vanilla_versions.snapshot.iter().map(|s| s.replace('_', "-")).collect();
-    let old_alpha: Vec<String> = vanilla_versions.old_alpha.iter().map(|s| s.replace('_', "-")).collect();
+    let release: Vec<String> = vanilla_versions
+        .release
+        .iter()
+        .map(|s| s.replace('_', "-"))
+        .collect();
+    let snapshot: Vec<String> = vanilla_versions
+        .snapshot
+        .iter()
+        .map(|s| s.replace('_', "-"))
+        .collect();
+    let old_alpha: Vec<String> = vanilla_versions
+        .old_alpha
+        .iter()
+        .map(|s| s.replace('_', "-"))
+        .collect();
 
     for version_str in versions {
         let version_standard = version_str.replace('_', "-");
@@ -104,19 +116,19 @@ pub async fn get_fabric_versions() -> Result<MinecraftVersions, Error> {
         .as_array()
         .ok_or_else(|| eyre!("Failed to get fabric versions. Game array is not an array"))?
         .iter()
-        .map( |item|
+        .map(|item| {
             item["version"].as_str().ok_or_else(|| {
                 eyre!("Failed to get fabric versions. Version string is not a string").into()
             })
-        )
+        })
         .collect::<Result<Vec<&str>, Error>>()?; // Rust converts Vec<Result<&str, Error>> to Result<Vec<&str>, Error>
-    
+
     group_minecraft_versions(&versions).await
 }
 
 pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
     let http = reqwest::Client::new();
-    
+
     let response: Value = serde_json::from_str(
         http.get("https://api.papermc.io/v2/projects/paper")
             .send()
@@ -133,24 +145,21 @@ pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
         .as_array()
         .ok_or_else(|| eyre!("Failed to get paper versions. Versions array is not an array"))?
         .iter()
-        .map( |item|
+        .map(|item| {
             item.as_str().ok_or_else(|| {
                 eyre!("Failed to get paper versions. Versions element is not a string").into()
             })
-        )
+        })
         .collect::<Result<Vec<&str>, Error>>()?;
-    
+
     versions.reverse();
 
     group_minecraft_versions(&versions).await
 }
 
-
-
-
 pub async fn get_forge_versions() -> Result<MinecraftVersions, Error> {
     let http = reqwest::Client::new();
-    
+
     let response: Value = serde_json::from_str(
         http.get("https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json")
             .send()
@@ -183,7 +192,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(get_paper_versions()).unwrap();
     }
-    
+
     #[test]
     fn test_forge_versions() {
         let rt = tokio::runtime::Runtime::new().unwrap();

@@ -1,51 +1,80 @@
-use std::collections::HashSet;
-
-use axum::routing::get;
-use axum::Router;
-use axum::{extract::Path, Json};
-
 use crate::error::Error;
-use crate::implementations::minecraft::versions::MinecraftVersions;
-use crate::prelude::GameInstanceKind;
-
 use crate::implementations::minecraft;
-
-pub async fn get_available_games() -> Json<HashSet<GameInstanceKind>> {
-    Json(HashSet::from([GameInstanceKind::MinecraftInstance]))
+use crate::minecraft::FlavourKind;
+use crate::traits::t_configurable::manifest::ConfigurableManifest;
+use crate::traits::t_configurable::manifest::SectionManifestValue;
+use crate::traits::t_configurable::GameType;
+use axum::extract::Path;
+use axum::routing::get;
+use axum::Json;
+use axum::Router;
+use axum::routing::put;
+use serde::Deserialize;
+use serde::Serialize;
+use ts_rs::TS;
+#[allow(clippy::enum_variant_names)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum HandlerGameType {
+    MinecraftJavaVanilla,
+    MinecraftFabric,
+    MinecraftForge,
+    MinecraftPaper,
 }
 
-pub async fn get_available_flavours(
-    Path(game_type): Path<GameInstanceKind>,
-) -> Json<Vec<String>> {
-    match game_type {
-        GameInstanceKind::MinecraftInstance => Json(vec![
-            minecraft::Flavour::Vanilla.to_string(),
-            minecraft::Flavour::Fabric { loader_version: None, installer_version: None }.to_string(),
-            minecraft::Flavour::Paper { build_version: None }.to_string(),
-            minecraft::Flavour::Forge { build_version: None }.to_string(),
-        ]),
+impl From<HandlerGameType> for GameType {
+    fn from(value: HandlerGameType) -> Self {
+        match value {
+            HandlerGameType::MinecraftJavaVanilla => Self::MinecraftJava,
+            HandlerGameType::MinecraftFabric => Self::MinecraftJava,
+            HandlerGameType::MinecraftForge => Self::MinecraftJava,
+            HandlerGameType::MinecraftPaper => Self::MinecraftJava,
+        }
     }
 }
 
-pub async fn get_minecraft_versions(
-    Path(flavour): Path<String>,
-) -> Result<Json<MinecraftVersions>, Error> {
-    Ok(Json(match flavour.as_str() {
-        "vanilla" => minecraft::versions::get_vanilla_versions().await?,
-        "fabric" => minecraft::versions::get_fabric_versions().await?,
-        "paper" => minecraft::versions::get_paper_versions().await?,
-        "forge" => minecraft::versions::get_forge_versions().await?,
-        _ => unimplemented!(),
-    }))
+impl From<HandlerGameType> for FlavourKind {
+    fn from(value: HandlerGameType) -> Self {
+        match value {
+            HandlerGameType::MinecraftJavaVanilla => Self::Vanilla,
+            HandlerGameType::MinecraftFabric => Self::Fabric,
+            HandlerGameType::MinecraftForge => Self::Forge,
+            HandlerGameType::MinecraftPaper => Self::Paper,
+        }
+    }
+}
+
+pub async fn get_available_games() -> Json<Vec<HandlerGameType>> {
+    Json(vec![
+        HandlerGameType::MinecraftJavaVanilla,
+        HandlerGameType::MinecraftFabric,
+        HandlerGameType::MinecraftForge,
+        HandlerGameType::MinecraftPaper,
+    ])
+}
+
+pub async fn get_setup_manifest(
+    Path(game_type): Path<HandlerGameType>,
+) -> Result<Json<ConfigurableManifest>, Error> {
+    Ok(Json(
+        minecraft::MinecraftInstance::setup_manifest(&game_type.into()).await?,
+    ))
+}
+
+pub async fn validate_section(
+    Path((game_type, section_id)): Path<(HandlerGameType, String)>,
+    Json(section): Json<SectionManifestValue>,
+) -> Result<Json<()>, Error> {
+    Ok(Json(
+        minecraft::MinecraftInstance::validate_section(&game_type.into(), &section_id, &section)
+            .await?,
+    ))
 }
 
 pub fn get_instance_setup_config_routes() -> Router {
     Router::new()
         .route("/games", get(get_available_games))
-        .route("/games/:game_type/flavours", get(get_available_flavours))
-        .route(
-            "/games/minecraft/flavours/:flavour/versions",
-            get(get_minecraft_versions),
-        )
+        .route("/setup_manifest/:game_type", get(get_setup_manifest))
+        .route("/setup_manifest/:game_type/:section_id", put(validate_section))
         .with_state(())
 }

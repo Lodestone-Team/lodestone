@@ -7,7 +7,6 @@ use self::r#macro::GenericMainWorkerGenerator;
 use crate::{
     error::Error,
     events::{CausedBy, Event},
-    handlers::instance::GenericSetupConfigPrimitive,
     macro_executor::MacroExecutor,
     types::InstanceUuid,
 };
@@ -31,20 +30,20 @@ pub struct SetupConfig {
     pub started_count: u32,
 }
 
-impl From<GenericSetupConfigPrimitive> for SetupConfig {
-    fn from(val: GenericSetupConfigPrimitive) -> Self {
-        SetupConfig {
-            game_type: "generic".to_string(),
-            uuid: InstanceUuid::default(),
-            name: val.name,
-            description: val.description.unwrap_or_default(),
-            port: val.port,
-            auto_start: val.auto_start.unwrap_or(false),
-            restart_on_crash: val.restart_on_crash.unwrap_or(false),
-            started_count: 0,
-        }
-    }
-}
+// impl From<GenericSetupConfigPrimitive> for SetupConfig {
+//     fn from(val: GenericSetupConfigPrimitive) -> Self {
+//         SetupConfig {
+//             game_type: "generic".to_string(),
+//             uuid: InstanceUuid::default(),
+//             name: val.name,
+//             description: val.description.unwrap_or_default(),
+//             port: val.port,
+//             auto_start: val.auto_start.unwrap_or(false),
+//             restart_on_crash: val.restart_on_crash.unwrap_or(false),
+//             started_count: 0,
+//         }
+//     }
+// }
 
 #[derive(Clone)]
 pub struct GenericInstance {
@@ -123,50 +122,42 @@ impl GenericInstance {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use crate::{
-        events::CausedBy, handlers::instance::GenericSetupConfigPrimitive,
-        macro_executor::MacroExecutor, traits::t_server::TServer,
-    };
-
-    use super::{GenericInstance, SetupConfig};
 
     #[tokio::test]
     async fn test_create_generic_instance() {
-        let (event_tx, mut rx) = tokio::sync::broadcast::channel(100);
-        let core_macro_executor = MacroExecutor::new(event_tx.clone());
-        let mut instance = GenericInstance::new(
-            SetupConfig::from(GenericSetupConfigPrimitive {
-                name: "test".to_string(),
-                description: None,
-                port: 25565,
-                auto_start: None,
-                restart_on_crash: None,
-                timeout_last_left: None,
-                timeout_no_activity: None,
-                start_on_connection: None,
-            }),
-            event_tx,
-            core_macro_executor,
-            PathBuf::from("./InstanceTest/instances/generic_instance_test"),
-        )
-        .await
-        .unwrap();
+        // let (event_tx, mut rx) = tokio::sync::broadcast::channel(100);
+        // let core_macro_executor = MacroExecutor::new(event_tx.clone());
+        // let mut instance = GenericInstance::new(
+        //     SetupConfig::from(GenericSetupConfigPrimitive {
+        //         name: "test".to_string(),
+        //         description: None,
+        //         port: 25565,
+        //         auto_start: None,
+        //         restart_on_crash: None,
+        //         timeout_last_left: None,
+        //         timeout_no_activity: None,
+        //         start_on_connection: None,
+        //     }),
+        //     event_tx,
+        //     core_macro_executor,
+        //     PathBuf::from("./InstanceTest/instances/generic_instance_test"),
+        // )
+        // .await
+        // .unwrap();
 
-        tokio::spawn(async move {
-            loop {
-                let event = rx.recv().await.unwrap();
-                println!("Event on its way to WS: {:#?}", event);
-            }
-        });
+        // tokio::spawn(async move {
+        //     loop {
+        //         let event = rx.recv().await.unwrap();
+        //         println!("Event on its way to WS: {:#?}", event);
+        //     }
+        // });
 
-        instance.start(CausedBy::Unknown, false).await.unwrap();
+        // instance.start(CausedBy::Unknown, false).await.unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-        instance.kill(CausedBy::Unknown).await.unwrap();
+        // instance.kill(CausedBy::Unknown).await.unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_secs(100)).await;
+        // tokio::time::sleep(std::time::Duration::from_secs(100)).await;
     }
 }

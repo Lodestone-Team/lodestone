@@ -376,7 +376,6 @@ impl Event {
         }
     }
 
-
     pub fn new_instance_state_transition(
         instance_uuid: InstanceUuid,
         instance_name: String,
@@ -393,6 +392,4 @@ impl Event {
             caused_by: CausedBy::System,
         }
     }
-
-
 }
