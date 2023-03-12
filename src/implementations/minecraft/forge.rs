@@ -1,14 +1,13 @@
-use std::collections::BTreeMap;
 
 use color_eyre::eyre::Context;
+use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::error::Error;
 
 pub async fn get_forge_minecraft_versions() -> Result<Vec<String>, Error> {
     let http = reqwest::Client::new();
-
-    let response: BTreeMap<String, Value> = serde_json::from_str(
+    let response: IndexMap<String, Value> = serde_json::from_str(
         http.get("https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json")
             .send()
             .await
@@ -20,7 +19,7 @@ pub async fn get_forge_minecraft_versions() -> Result<Vec<String>, Error> {
     )
     .context("Failed to get forge versions, json is not a map")?;
 
-    Ok(response.keys().map(|version| version.to_string()).collect())
+    Ok(response.into_iter().map(|(k, _)| k).collect())
 }
 
 #[cfg(test)]

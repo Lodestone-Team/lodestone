@@ -345,7 +345,7 @@ impl From<CmdArgSetting> for SettingManifest {
                 },
                 None,
                 false,
-                false,
+                true,
             ),
             CmdArgSetting::MaxRam(max_ram) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
@@ -358,7 +358,7 @@ impl From<CmdArgSetting> for SettingManifest {
                 },
                 None,
                 false,
-                false,
+                true,
             ),
             CmdArgSetting::JavaCmd(ref java_cmd) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
@@ -368,7 +368,7 @@ impl From<CmdArgSetting> for SettingManifest {
                 ConfigurableValueType::String { regex: None },
                 None,
                 false,
-                false,
+                true,
             ),
             CmdArgSetting::Args(ref args) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
@@ -378,7 +378,7 @@ impl From<CmdArgSetting> for SettingManifest {
                 ConfigurableValueType::String { regex: None },
                 None,
                 false,
-                false,
+                true,
             ),
         }
     }
@@ -989,7 +989,7 @@ impl From<ServerPropertySetting> for SettingManifest {
                 value.get_description(),
                 ConfigurableValue::String(inner_val.clone()),
                 None,
-                false,
+                true,
                 true,
             ),
             ServerPropertySetting::PlayerIdleTimeout(inner_val) => Self::new_required_value(

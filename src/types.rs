@@ -85,6 +85,7 @@ impl From<String> for InstanceUuid {
         Self(uuid)
     }
 }
+// new type idiom
 
 impl Default for InstanceUuid {
     fn default() -> Self {
