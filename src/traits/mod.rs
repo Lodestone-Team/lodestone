@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use ts_rs::TS;
 
-use self::t_manifest::TManifest;
 use self::t_player::Player;
 use self::t_configurable::Game;
 use self::t_server::State;
