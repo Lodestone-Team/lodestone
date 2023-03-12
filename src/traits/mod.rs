@@ -1,9 +1,12 @@
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 
 use serde::{Deserialize, Serialize};
 
 use ts_rs::TS;
 
+use self::t_player::Player;
 use self::t_configurable::Game;
 use self::t_server::State;
 use self::{
@@ -32,6 +35,7 @@ pub struct InstanceInfo {
     pub state: State,
     pub player_count: Option<u32>,
     pub max_player_count: Option<u32>,
+    pub player_list: Option<HashSet<Player>>,
 }
 use crate::minecraft::MinecraftInstance;
 use crate::prelude::GameInstance;
@@ -55,6 +59,7 @@ pub trait TInstance:
             state: self.state().await,
             player_count: self.get_player_count().await.ok(),
             max_player_count: self.get_max_player_count().await.ok(),
+            player_list: self.get_player_list().await.ok(),
         }
     }
 }
