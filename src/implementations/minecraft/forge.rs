@@ -19,7 +19,7 @@ pub async fn get_forge_minecraft_versions() -> Result<Vec<String>, Error> {
     )
     .context("Failed to get forge versions, json is not a map")?;
 
-    Ok(response.into_iter().map(|(k, _)| k).collect())
+    Ok(response.into_iter().map(|(k, _)| k).rev().collect())
 }
 
 #[cfg(test)]
