@@ -203,7 +203,7 @@ export default function ComboField(props: ComboFieldProps) {
   );
 }
 
-function VirtualizedList({
+export function VirtualizedList({
   items,
   selectedValue,
 }: {

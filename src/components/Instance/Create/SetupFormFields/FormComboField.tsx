@@ -7,6 +7,7 @@ import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import Label from 'components/Atoms/Label';
+import { VirtualizedList } from '../../../Atoms/Form/ComboField';
 
 /**
  * A combo box field that allows the user to select from a list of options, or
@@ -221,75 +222,5 @@ export default function FormComboField(props: ComboFieldProps) {
         </div>
       </div>
     </>
-  );
-}
-
-function VirtualizedList({
-  items,
-  selectedValue,
-}: {
-  items: string[];
-  selectedValue: string | null;
-}) {
-  const parentRef = useRef<HTMLDivElement>(null);
-  const selectedIndex = useMemo(
-    () => items.findIndex((item) => item === selectedValue),
-    [selectedValue]
-  );
-
-  const rowVirtualizer = useVirtualizer({
-    count: items?.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 35,
-    overscan: 5,
-    paddingEnd: 8,
-    paddingStart: 8,
-    getItemKey: (index) => items[index],
-    initialOffset:
-      selectedIndex && selectedIndex > 0 ? selectedIndex * 35 - 20 : 0,
-  });
-
-  return (
-    <div
-      ref={parentRef}
-      className="overflow-y-overlay max-h-60 w-full overflow-auto rounded-md"
-    >
-      <div
-        className="relative z-40 w-full"
-        style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-        }}
-      >
-        {rowVirtualizer.getVirtualItems().map((virtualRow: VirtualItem) => (
-          <Combobox.Option
-            key={virtualRow.index}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: `${virtualRow.size}px`,
-              transform: `translateY(${virtualRow.start}px)`,
-            }}
-            className={clsx(
-              'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
-              'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-              'ui-selected:font-medium ui-not-selected:font-medium',
-              'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
-              'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
-            )}
-            value={items?.[virtualRow.index]}
-          >
-            {({ selected, active }) => (
-              <div className="flex flex-row justify-between">
-                <span className="block truncate pr-1">
-                  {items?.[virtualRow.index]}
-                </span>
-              </div>
-            )}
-          </Combobox.Option>
-        ))}
-      </div>
-    </div>
   );
 }
