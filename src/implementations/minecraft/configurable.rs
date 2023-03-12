@@ -855,11 +855,19 @@ impl From<ServerPropertySetting> for SettingManifest {
                 false,
                 true,
             ),
-            ServerPropertySetting::Difficulty(ref inner_val) => Self::new_required_value(
+            ServerPropertySetting::Difficulty(ref inner_val) => Self::new_value_with_type(
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableValue::String(inner_val.to_string()),
+                Some(ConfigurableValue::Enum(inner_val.to_string())),
+                ConfigurableValueType::Enum {
+                    options: vec![
+                        "peaceful".to_string(),
+                        "easy".to_string(),
+                        "normal".to_string(),
+                        "hard".to_string(),
+                    ],
+                },
                 None,
                 false,
                 true,
