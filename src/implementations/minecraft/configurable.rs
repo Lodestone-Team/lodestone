@@ -559,6 +559,7 @@ pub(super) enum ServerPropertySetting {
     SpawnProtection(u32),
     ResourcePackSha1(String),
     MaxWorldSize(u32),
+    MaxBuildHeight(u32),
     Unknown(String, String),
 }
 
@@ -1117,6 +1118,15 @@ impl From<ServerPropertySetting> for SettingManifest {
                 false,
                 true,
             ),
+            ServerPropertySetting::MaxBuildHeight(val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableValue::UnsignedInteger(val),
+                None,
+                false,
+                true,
+            ),
         }
     }
 }
@@ -1387,6 +1397,12 @@ impl TryFrom<SettingManifest> for ServerPropertySetting {
                     .context(err_msg)?
                     .try_as_unsigned_integer()?,
             )),
+            "max-build-height" => Ok(ServerPropertySetting::MaxBuildHeight(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
             _ => Ok(ServerPropertySetting::Unknown(
                 value.get_identifier().to_string(),
                 value.get_value().context(err_msg)?.to_string(),
@@ -1459,6 +1475,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "spawn-protection",
             Self::ResourcePackSha1(_) => "resource-pack-sha1",
             Self::MaxWorldSize(_) => "max-world-size",
+            Self::MaxBuildHeight(_) => "max-build-height",
             Self::Unknown(key, _) => key,
         }
         .to_string()
@@ -1467,11 +1484,11 @@ impl ServerPropertySetting {
     // name to be displayed in the UI
     fn get_name(&self) -> String {
         if let Self::Unknown(key, _) = self {
-            return key
-                .to_string()
-                .get_mut(0..1)
-                .map(|c| c.to_uppercase())
-                .unwrap_or_default();
+            // capitalize the first letter of the key
+            let mut chars = key.chars();
+            let first = chars.next().unwrap().to_uppercase();
+            let rest = chars.as_str();
+            return format!("{}{}", first, rest);
         };
         match self {
             Self::EnableJmxMonitoring(_) => "Enable JMX Monitoring",
@@ -1531,6 +1548,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "Spawn Protection",
             Self::ResourcePackSha1(_) => "Resource Pack Sha1",
             Self::MaxWorldSize(_) => "Max World Size",
+            Self::MaxBuildHeight(_) => "Max Build Height",
             Self::Unknown(_, _) => unreachable!("Handled above"),
         }
         .to_string()
@@ -1601,6 +1619,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "The radius of the spawn protection area.",
             Self::ResourcePackSha1(_) => "The SHA1 hash of the resource pack that will be used by default.",
             Self::MaxWorldSize(_) => "The maximum size of the world in blocks.",
+            Self::MaxBuildHeight(_) => "The maximum height of the world in blocks.",
             Self::Unknown(_, _) => unreachable!("Already handled above.")
         }.to_string()
     }
@@ -1913,6 +1932,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(v) => format!("{}={}", self.get_identifier(), v),
             Self::ResourcePackSha1(v) => format!("{}={}", self.get_identifier(), v),
             Self::MaxWorldSize(v) => format!("{}={}", self.get_identifier(), v),
+            Self::MaxBuildHeight(v) => format!("{}={}", self.get_identifier(), v),
             Self::Unknown(_k, v) => format!("{}={}", self.get_identifier(), v),
         }
     }
