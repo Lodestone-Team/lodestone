@@ -5,7 +5,7 @@ export const formId = 'minecraftCreateNewInstanceForm';
 export const instanceSettingPageObject: SectionManifest = {
   section_id: 'instance_settings',
   name: 'Instance Settings',
-  description: 'Instance Settings',
+  description: 'Instance configurations for your server.',
   settings: {
     auto_start: {
       setting_id: 'auto_start',

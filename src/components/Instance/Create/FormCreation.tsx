@@ -66,13 +66,12 @@ export const createForm = (section: SectionManifest) => {
   };
   return (
     <>
-      <h1 className="text-h2 font-bold tracking-medium text-gray-300">
+      <div className="text-left text-h2 font-extrabold leading-7 tracking-medium text-white">
         {section.name}
-      </h1>
-      <p>
+      </div>
+      <div className="text-left text-medium font-mediumbold italic leading-4 text-white/50">
         {section.description}
-        <br />
-      </p>
+      </div>
       <div className="mt-9 flex flex-col rounded-md border border-gray-faded/30 text-left child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
         {Object.keys(section['settings']).map((field: string, i: number) =>
           createField(section['settings'][field], i)

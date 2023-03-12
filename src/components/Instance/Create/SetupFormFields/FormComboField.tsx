@@ -3,10 +3,13 @@ import { FieldHookConfig, useField } from 'formik';
 import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
+import {
+  faAsterisk,
+  faSort,
+  IconDefinition,
+} from '@fortawesome/free-solid-svg-icons';
 import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
-import Label from 'components/Atoms/Label';
 import { VirtualizedList } from '../../../Atoms/Form/ComboField';
 
 /**
@@ -111,19 +114,17 @@ export default function FormComboField(props: ComboFieldProps) {
       >
         <div className={`flex min-w-0 grow flex-col`}>
           {label && (
-            <label className="text-medium font-medium text-gray-300">
+            <label className="relative text-medium font-medium text-gray-300">
               {label}
-              {optional && (
-                <span className="ml-2">
-                  <Label size="small" color="green" className="py-[0.2rem]">
-                    Optional
-                  </Label>
+              {!optional && (
+                <span className="absolute ml-1 mt-1 text-[8px] text-red-200">
+                  <FontAwesomeIcon icon={faAsterisk} />
                 </span>
               )}
             </label>
           )}
           {errorText ? (
-            <div className="text-medium font-medium tracking-medium text-red">
+            <div className="text-medium font-medium tracking-medium text-red-200">
               {errorText || 'Unknown error'}
             </div>
           ) : (

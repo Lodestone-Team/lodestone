@@ -118,11 +118,11 @@ main {
   }
 
   .input-border-normal {
-    @apply outline-gray-faded/30 invalid:outline-red invalid:focus-visible:outline-red enabled:focus-visible:ring-blue-faded/50;
+    @apply outline-gray-faded/30 invalid:outline-red-200 invalid:focus-visible:outline-red-200 enabled:focus-visible:ring-blue-faded/50;
   }
 
   .input-border-error {
-    @apply outline-red focus-visible:outline-red enabled:focus-visible:ring-red-faded/30;
+    @apply outline-red-200 focus-visible:outline-red-200 enabled:focus-visible:ring-red-faded/30;
   }
   
 }
