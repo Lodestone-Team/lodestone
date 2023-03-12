@@ -8,7 +8,7 @@ pub mod server;
 pub mod util;
 pub mod versions;
 
-use color_eyre::eyre::{eyre, Context};
+use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
@@ -217,7 +217,7 @@ impl MinecraftInstance {
         // Step 2: Download JRE
         let (url, jre_major_version) = get_jre_url(config.version.as_str())
             .await
-            .ok_or(eyre!("Could not find a JRE for version {}", config.version))?;
+            .context("Could not get JRE URL")?;
         if !path_to_runtimes
             .join("java")
             .join(format!("jre{}", jre_major_version))
@@ -279,7 +279,10 @@ impl MinecraftInstance {
                     .join(format!("jre{}", jre_major_version)),
             )
             .await
-            .unwrap();
+            .context(format!(
+                "Could not rename JRE directory {}",
+                unzipped_content.iter().last().unwrap().display()
+            ))?;
         } else {
             let _ = event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
@@ -326,7 +329,7 @@ impl MinecraftInstance {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
                                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                                    progress: (dl.step as f64 / total as f64) * 5.0,
+                                    progress: (dl.step as f64 / total as f64) * 3.0,
                                     progress_message: format!(
                                         "3/4: Downloading {} {} {}",
                                         flavour_name,
@@ -365,12 +368,12 @@ impl MinecraftInstance {
         .await?;
 
         // Step 3 (part 2): Forge Setup
-        if let Flavour::Forge { build_version } = flavour.clone() {
+        if let Flavour::Forge { .. } = flavour.clone() {
             let _ = event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 0.8,
+                        progress: 1.0,
                         progress_message: "3/4: Installing Forge Server".to_string(),
                     },
                 }),
