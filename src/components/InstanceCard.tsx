@@ -211,11 +211,11 @@ export default function InstanceCard({
                     <Menu.Item key={i}>
                       {({ disabled }) => (
                         <Button
-                          className="w-full gap-12 whitespace-nowrap"
+                          className="w-full gap-8 whitespace-nowrap"
                           label={menuInfo.label}
                           iconRight={menuInfo.icon}
                           onClick={menuInfo.onClick}
-                          align="end"
+                          align="between"
                           disabled={disabled}
                           variant="text"
                         />

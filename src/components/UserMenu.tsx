@@ -88,7 +88,7 @@ const UserMenu = () => {
                       setSearchParam('instance', undefined);
                       setSearchParam('user', undefined);
                     }}
-                    align="end"
+                    align="between"
                     disabled={disabled}
                     variant="text"
                   />
@@ -101,7 +101,7 @@ const UserMenu = () => {
                     className="w-full flex-nowrap whitespace-nowrap"
                     label="Change core"
                     iconRight={faArrowRightArrowLeft}
-                    align="end"
+                    align="between"
                     disabled={disabled}
                     onClick={() => {
                       setSearchParam('instance', undefined);

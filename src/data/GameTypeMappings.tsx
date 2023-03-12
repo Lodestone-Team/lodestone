@@ -74,11 +74,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
       path: 'overview',
       width: 'max-w-4xl',
       icon: <FontAwesomeIcon icon={faChartLine} />,
-      content: (
-        <>
-          <InstanceOverview />
-        </>
-      ),
+      content: <InstanceOverview />,
     },
     {
       title: 'Settings',

@@ -20,22 +20,6 @@ interface CardProps {
 }
 
 export function PlayerListCard({ children, className }: CardProps) {
-  const numItems = React.Children.count(children);
-
-  if (numItems === 0) {
-    return null;
-  }
-
-  if (numItems === 1) {
-    return (
-      <div
-        className={`flex h-fit w-full flex-col rounded border border-gray-faded/30 bg-gray-850 p-2 ${className}`}
-      >
-        {children}
-      </div>
-    );
-  }
-
   return (
     <div
       className={`flex h-fit w-full flex-col rounded border border-gray-faded/30 bg-gray-850 p-2 ${className}`}

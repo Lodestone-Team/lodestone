@@ -15,6 +15,7 @@ import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
 
 import { useDocumentTitle } from 'usehooks-ts';
+import InstancePlayerList from './InstancePlayerList';
 
 const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -92,6 +93,7 @@ const InstanceOverview = () => {
         </div>
       </div>
       <InstancePerformanceCard />
+      <InstancePlayerList />
     </>
   );
 };
