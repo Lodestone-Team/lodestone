@@ -18,12 +18,14 @@ export default function SettingField({
   sectionId,
   settingId,
   error,
+  descriptionFunc,
 }: {
   instance: InstanceInfo;
   setting: SettingFieldObject;
   sectionId: string;
   settingId: string;
   error?: AxiosError<unknown, any> | null;
+  descriptionFunc?: (arg: string | boolean) => React.ReactNode;
 }) {
   const {
     name: label,
@@ -94,6 +96,7 @@ export default function SettingField({
             setValue(value);
           }}
           description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'password':
@@ -109,6 +112,7 @@ export default function SettingField({
             setValue(value);
           }}
           description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'number':
@@ -127,6 +131,7 @@ export default function SettingField({
           }}
           description={description}
           disabled={!is_mutable}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'dropdown':
@@ -142,6 +147,7 @@ export default function SettingField({
           canRead={can_access_instance_setting}
           onChange={submitSettingField}
           description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
     case 'toggle':
@@ -158,6 +164,7 @@ export default function SettingField({
             });
           }}
           description={description}
+          descriptionFunc={descriptionFunc}
         />
       );
   }

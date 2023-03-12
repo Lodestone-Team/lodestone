@@ -13,6 +13,7 @@ import {
   SettingFieldObject,
   SectionFieldObject,
 } from './InstanceSettingsCreate/SettingObject';
+import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
 export default function InstanceSettingCard() {
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
@@ -96,6 +97,10 @@ export default function InstanceSettingCard() {
                       sectionId={section.section_id}
                       settingId={settingKey}
                       error={error}
+                      descriptionFunc={
+                        SettingOverrides[settingKey]?.descriptionFunc ??
+                        undefined
+                      }
                     />
                   );
                 })
