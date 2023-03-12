@@ -18,9 +18,10 @@ export const InstanceViewLayout = () => {
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
   const { data: dataInstances, isFetched: instanceIsFetched } =
     useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | null>(
-    null
-  );
+  const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
+
+  const [showCreateInstance, setShowCreateInstance] = useState(userLoggedIn);
+
   const instances = userLoggedIn ? dataInstances : undefined;
 
   useEffect(() => {
@@ -55,6 +56,8 @@ export const InstanceViewLayout = () => {
         selectedInstance: instance,
         selectInstance: selectInstance,
         isReady: instanceIsFetched && userLoggedIn,
+        showCreateInstance: showCreateInstance,
+        setShowCreateInstance: setShowCreateInstance,
       }}
     >
       <ResizePanel

@@ -1,5 +1,5 @@
 import InstanceList from './InstanceList';
-import { Fragment, useState } from 'react';
+import { Fragment, useContext, useState } from 'react';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
@@ -8,8 +8,10 @@ import { useUserAuthorized } from 'data/UserInfo';
 import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
+import { InstanceContext } from 'data/InstanceContext';
 export default function LeftNav({ className }: { className?: string }) {
-  const [showCreateInstance, setShowCreateInstance] = useState(false);
+  const { showCreateInstance, setShowCreateInstance } =
+    useContext(InstanceContext);
   const canCreateInstance = useUserAuthorized('can_create_instance');
 
   return (
