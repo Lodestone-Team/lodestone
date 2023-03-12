@@ -179,7 +179,6 @@ pub struct MinecraftInstance {
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
-    pub(super) server_properties_buffer: Arc<Mutex<BTreeMap<String, String>>>,
     configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
@@ -356,7 +355,7 @@ impl MinecraftInstance {
             .unwrap()
             .get_value()
             .map(|v| v.try_as_string().unwrap());
-        
+
         let name = manifest_value
             .get_unique_setting("name")
             .unwrap()
@@ -918,7 +917,6 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-            server_properties_buffer: Arc::new(Mutex::new(BTreeMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,
@@ -947,9 +945,8 @@ impl MinecraftInstance {
     }
 
     async fn read_properties(&mut self) -> Result<(), Error> {
-        let mut lock = self.server_properties_buffer.lock().await;
-        *lock = read_properties_from_path(&self.path_to_properties).await?;
-        for (key, value) in lock.iter() {
+        let properties = read_properties_from_path(&self.path_to_properties).await?;
+        for (key, value) in properties.iter() {
             self.configurable_manifest.lock().await.set_setting(
                 ServerPropertySetting::get_section_id(),
                 ServerPropertySetting::from_key_val(key, value)?.into(),
@@ -967,10 +964,25 @@ impl MinecraftInstance {
                 &self.path_to_properties.display()
             ))?;
         let mut setting_str = "".to_string();
-        for (key, value) in self.server_properties_buffer.lock().await.iter() {
+        for (key, value) in self
+            .configurable_manifest
+            .lock()
+            .await
+            .get_section(ServerPropertySetting::get_section_id())
+            .unwrap()
+            .all_settings()
+            .iter()
+        {
             // print the key and value separated by a =
             // println!("{}={}", key, value);
-            setting_str.push_str(&format!("{}={}\n", key, value));
+            setting_str.push_str(&format!(
+                "{}={}\n",
+                key,
+                value
+                    .get_value()
+                    .expect("Programming error, value is not set")
+                    .to_string()
+            ));
         }
         file.write_all(setting_str.as_bytes())
             .await

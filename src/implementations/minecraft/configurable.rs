@@ -89,12 +89,6 @@ impl TConfigurable for MinecraftInstance {
             ServerPropertySetting::ServerPort(port as u16).into(),
         )?;
         self.config.port = port;
-        *self
-            .server_properties_buffer
-            .lock()
-            .await
-            .entry("server-port".to_string())
-            .or_insert_with(|| port.to_string()) = port.to_string();
 
         self.write_config_to_file()
             .await
@@ -192,7 +186,8 @@ impl TConfigurable for MinecraftInstance {
         self.configurable_manifest
             .lock()
             .await
-            .update_setting_value(section_id, setting_id, value.clone())
+            .update_setting_value(section_id, setting_id, value.clone())?;
+        self.write_properties_to_file().await
     }
 }
 

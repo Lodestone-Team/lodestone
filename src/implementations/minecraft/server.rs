@@ -173,9 +173,6 @@ impl TServer for MinecraftInstance {
                     use lazy_static::lazy_static;
 
                     let event_broadcaster = self.event_broadcaster.clone();
-                    let server_properties_buffer = self.server_properties_buffer.clone();
-                    let _state = self.state.clone();
-                    let path_to_properties = self.path_to_properties.clone();
                     let uuid = self.uuid.clone();
                     let name = self.config.name.clone();
                     let players_manager = self.players_manager.clone();
@@ -374,19 +371,32 @@ impl TServer for MinecraftInstance {
                                     )
                                     .unwrap();
 
-                                *server_properties_buffer.lock().await =
-                                    read_properties_from_path(&path_to_properties)
-                                        .await.map_err(|e| {
-                                            error!("Failed to read properties: {}, falling back to empty properties map", e);
-                                            e
-                                        }).map_or_else(|_| BTreeMap::new(), |v| v);
+                                let _ = self.read_properties().await.map_err(|e| {
+                                    error!("Failed to read properties: {}", e);
+                                    e
+                                });
 
-                                if let (Some(Ok(true)), Some(rcon_psw), Some(Ok(rcon_port))) = {
-                                    let lock = self.server_properties_buffer.lock().await;
+                                if let (Some(true), Some(rcon_psw), Some(rcon_port)) = {
+                                    let lock = self.configurable_manifest.lock().await;
                                     (
-                                        lock.get("enable-rcon").map(|v| v.parse()),
-                                        lock.get("rcon.password").cloned(),
-                                        lock.get("rcon.port").map(|v| v.parse::<u16>()),
+                                        lock.get_unique_setting_key("enable-rcon")
+                                            .and_then(|v| {
+                                                v.get_value().map(|v| v.try_as_boolean().ok())
+                                            })
+                                            .flatten(),
+                                        // lock.get("rcon.password").cloned(),
+                                        // lock.get("rcon.port").map(|v| v.parse::<u16>()),
+                                        lock.get_unique_setting_key("rcon-password")
+                                            .and_then(|v| {
+                                                v.get_value().map(|v| v.try_as_string().ok())
+                                            })
+                                            .flatten()
+                                            .cloned(),
+                                        lock.get_unique_setting_key("rcon-port")
+                                            .and_then(|v| {
+                                                v.get_value().map(|v| v.try_as_integer().ok())
+                                            })
+                                            .flatten(),
                                     )
                                 } {
                                     let max_retry = 3;

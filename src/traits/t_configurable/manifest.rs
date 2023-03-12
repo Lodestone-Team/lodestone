@@ -22,6 +22,36 @@ pub enum ConfigurableValue {
     Enum(String),
 }
 
+impl From<String> for ConfigurableValue {
+    fn from(value: String) -> Self {
+        ConfigurableValue::String(value)
+    }
+}
+
+impl From<i32> for ConfigurableValue {
+    fn from(value: i32) -> Self {
+        ConfigurableValue::Integer(value)
+    }
+}
+
+impl From<u32> for ConfigurableValue {
+    fn from(value: u32) -> Self {
+        ConfigurableValue::UnsignedInteger(value)
+    }
+}
+
+impl From<f32> for ConfigurableValue {
+    fn from(value: f32) -> Self {
+        ConfigurableValue::Float(value)
+    }
+}
+
+impl From<bool> for ConfigurableValue {
+    fn from(value: bool) -> Self {
+        ConfigurableValue::Boolean(value)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
 #[ts(export)]
@@ -472,6 +502,9 @@ impl SectionManifest {
                 source: eyre!("Setting does not exist"),
             })
         }
+    }
+    pub fn all_settings(&self) -> &IndexMap<String, SettingManifest> {
+        &self.settings
     }
 }
 
