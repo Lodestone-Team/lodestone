@@ -5,12 +5,12 @@ export const formId = 'minecraftCreateNewInstanceForm';
 export const instanceSettingPageObject: SectionManifest = {
   section_id: 'instance_settings',
   name: 'Instance Settings',
-  description: 'Instance Settings',
+  description: 'Instance configurations for your server.',
   settings: {
     auto_start: {
       setting_id: 'auto_start',
       name: 'Auto Start',
-      description: 'Auto Start',
+      description: 'The instance will start automatically when the application starts',
       value: {
         type: 'Boolean',
         value: false,
@@ -29,7 +29,7 @@ export const instanceSettingPageObject: SectionManifest = {
     restart_on_crash: {
       setting_id: 'restart_on_crash',
       name: 'Restart on Crash',
-      description: 'Restart on Crash',
+      description: 'The instance will restart automatically if it crashes',
       value: {
         type: 'Boolean',
         value: false,
@@ -48,7 +48,7 @@ export const instanceSettingPageObject: SectionManifest = {
     start_on_connection: {
       setting_id: 'start_on_connection',
       name: 'Start on Connection',
-      description: 'Start on Connection',
+      description: 'The instance will start automatically when you connect to the server',
       value: {
         type: 'Boolean',
         value: false,

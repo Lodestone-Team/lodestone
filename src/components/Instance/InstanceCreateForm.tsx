@@ -103,32 +103,15 @@ export default function CreateGameInstance({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     const sectionValues: Record<string, SectionManifestValue> = {};
-
-    const parseBooleanFields = (
-      fieldValue: string | number | boolean | undefined
-    ) => (fieldValue === 'true' ? true : false);
-
     for (let i = 1; i < steps.length - 1; i++) {
       const structure = getSectionValidationStructure(values, i);
-      Object.keys(structure[0]['settings']).forEach((key) => {
-        if (structure[0]['settings'][key].value?.type === 'Boolean') {
-          structure[0]['settings'][key] = {
-            value: {
-              type: 'Boolean',
-              value: parseBooleanFields(values[key]?.value),
-            },
-          };
-        }
-        sectionValues[structure[1]] = structure[0];
-      });
+      sectionValues[structure[1]] = structure[0];
     }
 
     const parsedValues: ManifestValue = {
-      auto_start: parseBooleanFields(values.auto_start?.value),
-      restart_on_crash: parseBooleanFields(values.restart_on_crash?.value),
-      start_on_connection: parseBooleanFields(
-        values.start_on_connection?.value
-      ),
+      auto_start: values.auto_start?.value as boolean,
+      restart_on_crash: values.restart_on_crash?.value as boolean,
+      start_on_connection: values.start_on_connection?.value as boolean,
       setting_sections: sectionValues,
     };
 
