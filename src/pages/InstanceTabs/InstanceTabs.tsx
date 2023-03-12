@@ -2,11 +2,13 @@ import { useContext, useEffect, useState } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useDocumentTitle } from 'usehooks-ts';
 import { useLocation } from 'react-router-dom';
-import InstanceTabListMap from '../../data/InstanceTabListMap';
+import { InstanceTabListMap, spanMap } from '../../data/GameTypeMappings';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
+import { Games } from 'bindings/InstanceInfo';
+
 const InstanceTabs = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
@@ -45,8 +47,10 @@ const InstanceTabs = () => {
       );
     }
   }
+  const game = Object.keys(instance.game_type)[0] as Games;
+  const variant = instance.game_type[game]['variant'];
+  const tabs = InstanceTabListMap[game];
 
-  const tabs = InstanceTabListMap[instance.game_type];
   if (!tabs) {
     return (
       <div
@@ -56,7 +60,7 @@ const InstanceTabs = () => {
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              Unknown game type {instance.game_type}
+              Unknown game type {spanMap[game][variant]}
             </h1>
           </div>
         </div>
@@ -65,7 +69,6 @@ const InstanceTabs = () => {
   }
 
   const tab = tabs.find((tab) => tab.path === path);
-
   if (!tab) {
     return (
       <div
@@ -86,34 +89,34 @@ const InstanceTabs = () => {
   return (
     <CommandHistoryContextProvider>
       <div
-        className={cn("relative mx-auto flex h-full w-full flex-row justify-center @container", tab.width)}
+        className={cn(
+          'relative mx-auto flex h-full w-full flex-row justify-center @container',
+          tab.width
+        )}
         key={uuid}
       >
-        {InstanceTabListMap[instance.game_type].map(
-          (tab) =>
-            tab.path === path && (
-              <div
-                className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
-                key={`${instance.name}-${tab.title}`}
-              >
-                <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
-                  {tab.displayTitle && <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-                    {tab.displayTitle}
-                    {tab.title === 'Console' && (
-                      <Label
-                        size="medium"
-                        className="ml-2 mt-[6px]"
-                        color={stateToLabelColor[instance.state]}
-                      >
-                        {instance.state}
-                      </Label>
-                    )}
-                  </div>}
-                  {tab.content}
-                </div>
+        <div
+          className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
+          key={`${instance.name}-${tab.title}`}
+        >
+          <div className="flex h-fit min-h-full w-full flex-col gap-16 pt-6 pb-10 focus:outline-none">
+            {tab.displayTitle && (
+              <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
+                {tab.displayTitle}
+                {tab.displayTitle === 'Console' && (
+                  <Label
+                    size="medium"
+                    className="ml-2 mt-[6px]"
+                    color={stateToLabelColor[instance.state]}
+                  >
+                    {instance.state}
+                  </Label>
+                )}
               </div>
-            )
-        )}
+            )}
+            {tab.content}
+          </div>
+        </div>
       </div>
     </CommandHistoryContextProvider>
   );

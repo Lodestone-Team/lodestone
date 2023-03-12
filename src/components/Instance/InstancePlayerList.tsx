@@ -6,15 +6,14 @@ import { faArrowDown, faArrowUp } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 // import { Player } from 'bindings/Player';
 
-export default function MinecraftPlayerList() {
-
+export default function InstancePlayerList() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const uuid = instance?.uuid;
-  
+
   // Ascending order is referring to alphabetical order
   // Note: Arrow will point DOWN when sorting in ascending order, as seen on the figma
   const [sortAscending, setSortAscending] = useState(true);
-  
+
   // Update playerList every time there a player leaves or joins
   // Also sorts and updates when sort button is pressed
   const updatedPlayerList = useMemo(() => {
@@ -29,7 +28,7 @@ export default function MinecraftPlayerList() {
     });
     return playerList;
   }, [instance, sortAscending]);
-  
+
   // Catch case where server instance is not available; return early
   if (!instance || !uuid) {
     return (
@@ -47,7 +46,7 @@ export default function MinecraftPlayerList() {
       </div>
     );
   }
-  
+
   // API to get the avatar head png 16x16 px
   const mcHeadURL = 'https://mc-heads.net/avatar/';
   const avatarDimension = 16;
@@ -80,11 +79,9 @@ export default function MinecraftPlayerList() {
                     alt={`Avatar of ${player.name}`}
                     className={`mx-1 h-4 w-4`}
                     draggable="false"
-                    style={{ imageRendering: "pixelated", userSelect: 'none' }}
+                    style={{ imageRendering: 'pixelated', userSelect: 'none' }}
                   />
-                  <div className="mx-1 text-medium" >
-                    {player.name}
-                  </div>
+                  <div className="mx-1 text-medium">{player.name}</div>
                 </PlayerListItem>
               ))}
             </PlayerListCard>

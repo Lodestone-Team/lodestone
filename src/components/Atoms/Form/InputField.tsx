@@ -15,7 +15,6 @@ export default function InputField(props: InputFieldProps) {
   const [field, meta] = useField(props);
   const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
-
   return (
     <div
       className={`flex flex-col gap-1 ${className} group relative text-medium`}

@@ -1,13 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { InstanceManifest } from 'bindings/InstanceManifest';
+import { ConfigurableManifest } from 'components/Instance/Create/form';
 
 export const useInstanceManifest = (uuid: string) => {
-  return useQuery<InstanceManifest, AxiosError>(
-    ['instances', uuid, 'manifest'],
+  return useQuery<ConfigurableManifest, AxiosError>(
+    ['instances', uuid, 'settings'],
     () => {
       return axios
-        .get<InstanceManifest>(`/instance/${uuid}/manifest`)
+        .get<ConfigurableManifest>(`/instance/${uuid}/settings`)
         .then((response) => response.data);
     },
     {

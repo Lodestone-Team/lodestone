@@ -11,6 +11,5 @@ const Template: ComponentStory<typeof GameIcon> = (args) => (
 );
 export const MinecraftVanilla = Template.bind({});
 MinecraftVanilla.args = {
-  game_type: 'minecraft',
-  game_flavour: 'vanilla',
+  game_type: { MinecraftJava: { variant: 'Vanilla' } },
 };

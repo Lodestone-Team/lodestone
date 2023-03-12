@@ -73,7 +73,6 @@ export default function InstanceCard({
   focus = false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
-  flavour,
 }: InstanceCardProps) {
   const [loading, setLoading] = useState(false);
 
@@ -186,11 +185,7 @@ export default function InstanceCard({
           'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
         )}
       >
-        <GameIcon
-          game_type={game_type}
-          game_flavour={flavour}
-          className="h-4 w-4"
-        />
+        <GameIcon game_type={game_type} className="h-4 w-4" />
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}

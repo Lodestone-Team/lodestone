@@ -8,7 +8,7 @@ import { useContext, useEffect, useState } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
-import MinecraftPerformanceCard from 'components/Minecraft/MinecraftPerformanceCard';
+import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
 import FileViewer from 'components/FileViewer/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
@@ -16,7 +16,7 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 
 import { useDocumentTitle } from 'usehooks-ts';
 
-const MinecraftOverview = () => {
+const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);
   const { address } = core;
@@ -48,7 +48,6 @@ const MinecraftOverview = () => {
 
   // tablist is map from GameType to tabs
 
-
   const setInstanceName = async (name: string) => {
     await axiosPutSingleValue<void>(`/instance/${uuid}/name`, name);
     updateInstance(uuid, queryClient, (oldData) => ({
@@ -75,11 +74,7 @@ const MinecraftOverview = () => {
             />
           </div>
           <div className="-mt-2 mb-2 flex flex-row flex-wrap items-center gap-4">
-            <GameIcon
-              game_type={instance.game_type}
-              game_flavour={instance.flavour}
-              className="h-6 w-6"
-            />
+            <GameIcon game_type={instance.game_type} className="h-6 w-6" />
             <Label size="large" color={labelColor}>
               {instance.state}
             </Label>
@@ -87,14 +82,18 @@ const MinecraftOverview = () => {
               Player Count {instance.player_count}/{instance.max_player_count}
             </Label>
             <Label size="large" color={'blue'}>
-              <ClipboardTextfield text={`${domain}:${instance.port}`} color='blue' iconLeft={false} />
+              <ClipboardTextfield
+                text={`${domain}:${instance.port}`}
+                color="blue"
+                iconLeft={false}
+              />
             </Label>
           </div>
         </div>
       </div>
-      <MinecraftPerformanceCard/>
+      <InstancePerformanceCard />
     </>
   );
 };
 
-export default MinecraftOverview;
+export default InstanceOverview;
