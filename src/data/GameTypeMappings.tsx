@@ -14,7 +14,6 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 import { HandlerGameType } from 'bindings/HandlerGameType';
-import { GameType } from 'bindings/InstanceInfo';
 
 type InstanceTab = {
   title: string;

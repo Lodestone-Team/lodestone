@@ -200,7 +200,7 @@ export const moveInstanceFileOrDirectory = async (
     toast.error(
       `Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`
     );
-    return;
+    return error;
   }
 
   // just invalided the query instead of updating it because file name might be different due to conflict

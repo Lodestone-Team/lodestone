@@ -28,7 +28,7 @@ export const InstanceViewLayout = () => {
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
       if (!location.pathname.startsWith('/dashboard'))
-        setPathname('/dashboard/console');
+        setPathname('/dashboard/overview');
     } else {
       setInstanceState(null);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
@@ -44,7 +44,6 @@ export const InstanceViewLayout = () => {
     } else {
       setInstanceState(instance);
       setQueryInstanceId(instance.uuid);
-      setPathname('/dashboard/console');
     }
   }
   /* End Instances */
