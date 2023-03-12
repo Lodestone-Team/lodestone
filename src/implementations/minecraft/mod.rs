@@ -1,15 +1,19 @@
 pub mod configurable;
+pub mod fabric;
+mod forge;
 pub mod r#macro;
-pub mod manifest;
+mod paper;
 pub mod player;
 mod players_manager;
 pub mod resource;
 pub mod server;
 pub mod util;
+mod vanilla;
 pub mod versions;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use std::collections::{BTreeMap, HashMap};
+use enum_kinds::EnumKind;
+use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -36,19 +40,24 @@ use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
-    ConfigurableManifest, SectionManifest, SettingManifest,
+    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, ManifestValue, SectionManifest,
+    SectionManifestValue, SettingManifest,
 };
 
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
-use crate::types::{InstanceUuid, Snowflake};
+use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::util::{
     dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
 };
 
 use self::configurable::{CmdArgSetting, ServerPropertySetting};
+use self::fabric::get_fabric_minecraft_versions;
+use self::forge::get_forge_minecraft_versions;
+use self::paper::get_paper_minecraft_versions;
 use self::players_manager::PlayersManager;
 use self::util::{get_jre_url, get_server_jar_url, read_properties_from_path};
+use self::vanilla::get_vanilla_minecraft_versions;
 
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
@@ -63,9 +72,9 @@ pub struct PaperBuildVersion(i64);
 #[ts(export)]
 pub struct ForgeBuildVersion(String);
 
-#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
-#[serde(rename = "MinecraftFlavour", rename_all = "snake_case")]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, EnumKind)]
+#[serde(rename_all = "snake_case")]
+#[enum_kind(FlavourKind, derive(Serialize, Deserialize, TS))]
 pub enum Flavour {
     Vanilla,
     Fabric {
@@ -79,6 +88,25 @@ pub enum Flavour {
     Forge {
         build_version: Option<ForgeBuildVersion>,
     },
+}
+
+impl From<FlavourKind> for Flavour {
+    fn from(kind: FlavourKind) -> Self {
+        match kind {
+            FlavourKind::Vanilla => Flavour::Vanilla,
+            FlavourKind::Fabric => Flavour::Fabric {
+                loader_version: None,
+                installer_version: None,
+            },
+            FlavourKind::Paper => Flavour::Paper {
+                build_version: None,
+            },
+            FlavourKind::Spigot => Flavour::Spigot,
+            FlavourKind::Forge => Flavour::Forge {
+                build_version: None,
+            },
+        }
+    }
 }
 
 impl ToString for Flavour {
@@ -95,38 +123,29 @@ impl ToString for Flavour {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetupConfig {
-    pub game_type: String,
-    pub uuid: InstanceUuid,
     pub name: String,
     pub version: String,
     pub flavour: Flavour,
     pub port: u32,
-    pub path: PathBuf,
-    pub cmd_args: Option<Vec<String>>,
+    pub cmd_args: Vec<String>,
     pub description: Option<String>,
     pub min_ram: Option<u32>,
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
     pub restart_on_crash: Option<bool>,
-    pub timeout_last_left: Option<u32>,
-    pub timeout_no_activity: Option<u32>,
     pub start_on_connection: Option<bool>,
     pub backup_period: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RestoreConfig {
-    pub game_type: String,
-    pub uuid: InstanceUuid,
     pub name: String,
     pub version: String,
     pub flavour: Flavour,
     pub description: String,
     pub cmd_args: Vec<String>,
-    pub path: PathBuf,
     pub port: u32,
     pub min_ram: u32,
     pub max_ram: u32,
-    pub creation_time: i64,
     pub auto_start: bool,
     pub restart_on_crash: bool,
     pub backup_period: Option<u32>,
@@ -137,9 +156,12 @@ pub struct RestoreConfig {
 #[derive(Clone)]
 pub struct MinecraftInstance {
     config: RestoreConfig,
+    uuid: InstanceUuid,
+    creation_time: i64,
     state: Arc<Mutex<State>>,
     event_broadcaster: Sender<Event>,
     // file paths
+    path_to_instance: PathBuf,
     path_to_config: PathBuf,
     path_to_properties: PathBuf,
 
@@ -156,7 +178,7 @@ pub struct MinecraftInstance {
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
-    server_properties_buffer: Arc<Mutex<HashMap<String, String>>>,
+    pub(super) server_properties_buffer: Arc<Mutex<BTreeMap<String, String>>>,
     configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
@@ -171,19 +193,294 @@ enum BackupInstruction {
     Resume,
 }
 
+#[tokio::test]
+async fn test_setup_manifest() {
+    let manifest = MinecraftInstance::setup_manifest(&FlavourKind::Fabric)
+        .await
+        .unwrap();
+    let manifest_json_string = serde_json::to_string_pretty(&manifest).unwrap();
+    println!("{manifest_json_string}");
+}
+
 impl MinecraftInstance {
+    pub async fn setup_manifest(flavour: &FlavourKind) -> Result<ConfigurableManifest, Error> {
+        let versions = match flavour {
+            FlavourKind::Vanilla => get_vanilla_minecraft_versions().await,
+            FlavourKind::Fabric => get_fabric_minecraft_versions().await,
+            FlavourKind::Paper => get_paper_minecraft_versions().await,
+            FlavourKind::Spigot => todo!(),
+            FlavourKind::Forge => get_forge_minecraft_versions().await,
+        }
+        .context("Failed to get minecraft versions")?;
+
+        let name_setting = SettingManifest::new_required_value(
+            "name".to_string(),
+            "Server Name".to_string(),
+            "The name of the server instance".to_string(),
+            ConfigurableValue::String("Minecraft Server".to_string()),
+            None,
+            false,
+            true,
+        );
+
+        let description_setting = SettingManifest::new_optional_value(
+            "description".to_string(),
+            "Description".to_string(),
+            "A description of the server instance".to_string(),
+            None,
+            ConfigurableValueType::String { regex: None },
+            None,
+            false,
+            true,
+        );
+
+        let version_setting = SettingManifest::new_value_with_type(
+            "version".to_string(),
+            "Version".to_string(),
+            "The version of minecraft to use".to_string(),
+            Some(ConfigurableValue::Enum(versions.first().unwrap().clone())),
+            ConfigurableValueType::Enum { options: versions },
+            None,
+            false,
+            true,
+        );
+
+        let port_setting = SettingManifest::new_value_with_type(
+            "port".to_string(),
+            "Port".to_string(),
+            "The port to run the server on".to_string(),
+            Some(ConfigurableValue::UnsignedInteger(25565)),
+            ConfigurableValueType::UnsignedInteger {
+                min: Some(0),
+                max: Some(65535),
+            },
+            Some(ConfigurableValue::UnsignedInteger(25565)),
+            false,
+            true,
+        );
+
+        let min_ram_setting = SettingManifest::new_required_value(
+            "min_ram".to_string(),
+            "Minimum RAM".to_string(),
+            "The minimum amount of RAM to allocate to the server".to_string(),
+            ConfigurableValue::UnsignedInteger(1024),
+            Some(ConfigurableValue::UnsignedInteger(1024)),
+            false,
+            true,
+        );
+
+        let max_ram_setting = SettingManifest::new_required_value(
+            "max_ram".to_string(),
+            "Maximum RAM".to_string(),
+            "The maximum amount of RAM to allocate to the server".to_string(),
+            ConfigurableValue::UnsignedInteger(2048),
+            Some(ConfigurableValue::UnsignedInteger(2048)),
+            false,
+            true,
+        );
+
+        let command_line_args_setting = SettingManifest::new_optional_value(
+            "cmd_args".to_string(),
+            "Command Line Arguments".to_string(),
+            "Command line arguments to pass to the server".to_string(),
+            None,
+            ConfigurableValueType::String { regex: None },
+            None,
+            false,
+            true,
+        );
+
+        let mut section_1_map = BTreeMap::new();
+        section_1_map.insert("name".to_string(), name_setting);
+        section_1_map.insert("description".to_string(), description_setting);
+
+        section_1_map.insert("version".to_string(), version_setting);
+        section_1_map.insert("port".to_string(), port_setting);
+
+        let mut section_2_map = BTreeMap::new();
+
+        section_2_map.insert("min_ram".to_string(), min_ram_setting);
+
+        section_2_map.insert("max_ram".to_string(), max_ram_setting);
+
+        section_2_map.insert("cmd_args".to_string(), command_line_args_setting);
+
+        let section_1 = SectionManifest::new(
+            "section_1".to_string(),
+            "Basic Settings".to_string(),
+            "Basic settings for the server.".to_string(),
+            section_1_map,
+        );
+
+        let section_2 = SectionManifest::new(
+            "section_2".to_string(),
+            "Advanced Settings".to_string(),
+            "Advanced settings for your minecraft server.".to_string(),
+            section_2_map,
+        );
+
+        let mut sections = BTreeMap::new();
+
+        sections.insert("section_1".to_string(), section_1);
+        sections.insert("section_2".to_string(), section_2);
+
+        Ok(ConfigurableManifest::new(false, false, false, sections))
+    }
+
+    pub async fn validate_section(
+        flavour: &FlavourKind,
+        section_id: &str,
+        section_value: &SectionManifestValue,
+    ) -> Result<(), Error> {
+        let manifest = Self::setup_manifest(flavour).await?;
+        if let Some(section) = manifest.get_section(section_id) {
+            section.validate_section(section_value)?;
+            Ok(())
+        } else {
+            Err(eyre!("Section {} does not exist", section_id).into())
+        }
+    }
+
+    pub async fn construct_setup_config(
+        manifest_value: ManifestValue,
+        flavour: FlavourKind,
+    ) -> Result<SetupConfig, Error> {
+        Self::setup_manifest(&flavour)
+            .await?
+            .validate_manifest_value(&manifest_value)?;
+
+        // ALL of the following unwraps are safe because we just validated the manifest value
+        let description = manifest_value
+            .get_unique_setting("description")
+            .unwrap()
+            .get_value()
+            .map(|v| v.try_as_string().unwrap());
+        
+        let name = manifest_value
+            .get_unique_setting("name")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_string()
+            .unwrap();
+
+        let version = manifest_value
+            .get_unique_setting("version")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_enum()
+            .unwrap();
+
+        let port = manifest_value
+            .get_unique_setting("port")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_unsigned_integer()
+            .unwrap();
+
+        let min_ram = manifest_value
+            .get_unique_setting("min_ram")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_unsigned_integer()
+            .unwrap();
+
+        let max_ram = manifest_value
+            .get_unique_setting("max_ram")
+            .unwrap()
+            .get_value()
+            .unwrap()
+            .try_as_unsigned_integer()
+            .unwrap();
+
+        let cmd_args: Vec<String> = manifest_value
+            .get_unique_setting("cmd_args")
+            .unwrap()
+            .get_value()
+            .map(|v| v.try_as_string().unwrap())
+            .unwrap_or(&"".to_string())
+            .split(' ')
+            .map(|s| s.to_string())
+            .collect();
+
+        Ok(SetupConfig {
+            name: name.clone(),
+            description: description.cloned(),
+            version: version.clone(),
+            port,
+            min_ram: Some(min_ram),
+            max_ram: Some(max_ram),
+            cmd_args,
+            flavour: flavour.into(),
+            auto_start: Some(manifest_value.get_auto_start()),
+            restart_on_crash: Some(manifest_value.get_restart_on_crash()),
+            start_on_connection: Some(manifest_value.get_start_on_connection()),
+            backup_period: None,
+        })
+    }
+
+    fn init_configurable_manifest(
+        restore_config: &RestoreConfig,
+        java_cmd: String,
+    ) -> ConfigurableManifest {
+        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
+        let cmd_args = CmdArgSetting::Args(restore_config.cmd_args.clone());
+        cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
+        let min_ram = CmdArgSetting::MinRam(restore_config.min_ram);
+        cmd_args_config_map.insert(min_ram.get_identifier().to_owned(), min_ram.into());
+        let max_ram = CmdArgSetting::MaxRam(restore_config.max_ram);
+        cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
+        let java_cmd = CmdArgSetting::JavaCmd(java_cmd);
+        cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
+
+        let cmd_line_section_manifest = SectionManifest::new(
+            CmdArgSetting::get_section_id().to_string(),
+            "Command Line Settings".to_string(),
+            "Settings are passed to the server and Java as command line arguments".to_string(),
+            cmd_args_config_map,
+        );
+
+        let server_properties_section_manifest = SectionManifest::new(
+            ServerPropertySetting::get_section_id().to_string(),
+            "Server Properties Settings".to_string(),
+            "All settings in the server.properties file can be configured here".to_string(),
+            BTreeMap::new(),
+        );
+
+        let mut setting_sections = BTreeMap::new();
+
+        setting_sections.insert(
+            CmdArgSetting::get_section_id().to_string(),
+            cmd_line_section_manifest,
+        );
+
+        setting_sections.insert(
+            ServerPropertySetting::get_section_id().to_string(),
+            server_properties_section_manifest,
+        );
+
+        ConfigurableManifest::new(false, false, false, setting_sections)
+    }
+
     pub async fn new(
         config: SetupConfig,
+        dot_lodestone_config: DotLodestoneConfig,
+        path_to_instance: PathBuf,
         progression_event_id: Snowflake,
         event_broadcaster: Sender<Event>,
         macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
-        let path_to_config = config.path.join(".lodestone_config");
-        let path_to_eula = config.path.join("eula.txt");
-        let path_to_macros = config.path.join("macros");
-        let path_to_resources = config.path.join("resources");
-        let path_to_properties = config.path.join("server.properties");
+        let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
+        let path_to_eula = path_to_instance.join("eula.txt");
+        let path_to_macros = path_to_instance.join("macros");
+        let path_to_resources = path_to_instance.join("resources");
+        let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+
+        let uuid = dot_lodestone_config.uuid().to_owned();
 
         // Step 1: Create Directories
         let _ = event_broadcaster.send(Event {
@@ -198,7 +495,7 @@ impl MinecraftInstance {
             snowflake: Snowflake::default(),
             caused_by: CausedBy::Unknown,
         });
-        tokio::fs::create_dir_all(&config.path)
+        tokio::fs::create_dir_all(&path_to_instance)
             .await
             .and(tokio::fs::create_dir_all(&path_to_macros).await)
             .and(tokio::fs::create_dir_all(&path_to_resources.join("mods")).await)
@@ -230,7 +527,7 @@ impl MinecraftInstance {
                 None,
                 {
                     let event_broadcaster = event_broadcaster.clone();
-                    let _uuid = config.uuid.clone();
+                    let _uuid = uuid.clone();
                     let progression_event_id = progression_event_id;
                     &move |dl| {
                         if let Some(total) = dl.total {
@@ -318,7 +615,7 @@ impl MinecraftInstance {
 
         download_file(
             jar_url.as_str(),
-            &config.path,
+            &path_to_instance,
             Some(jar_name),
             {
                 let event_broadcaster = event_broadcaster.clone();
@@ -395,9 +692,9 @@ impl MinecraftInstance {
             if !dont_spawn_terminal(
                 Command::new(&jre)
                     .arg("-jar")
-                    .arg(&config.path.join("forge-installer.jar"))
+                    .arg(&path_to_instance.join("forge-installer.jar"))
                     .arg("--installServer")
-                    .arg(&config.path),
+                    .arg(&path_to_instance),
             )
             .stdout(Stdio::null())
             .stdin(Stdio::null())
@@ -413,7 +710,7 @@ impl MinecraftInstance {
             }
 
             tokio::fs::write(
-                &config.path.join("user_jvm_args.txt"),
+                &path_to_instance.join("user_jvm_args.txt"),
                 "# Generated by Lodestone\n# This file is ignored by Lodestone\n# Please set arguments using Lodestone",
             )
             .await
@@ -435,18 +732,14 @@ impl MinecraftInstance {
         });
 
         let restore_config = RestoreConfig {
-            game_type: config.game_type,
-            uuid: config.uuid,
             name: config.name,
             version: config.version,
             flavour,
             description: config.description.unwrap_or_default(),
-            cmd_args: config.cmd_args.unwrap_or_default(),
-            path: config.path,
+            cmd_args: config.cmd_args,
             port: config.port,
             min_ram: config.min_ram.unwrap_or(2048),
             max_ram: config.max_ram.unwrap_or(4096),
-            creation_time: chrono::Utc::now().timestamp(),
             auto_start: config.auto_start.unwrap_or(false),
             restart_on_crash: config.restart_on_crash.unwrap_or(false),
             backup_period: config.backup_period,
@@ -465,24 +758,44 @@ impl MinecraftInstance {
             "Failed to write config file at {}",
             &path_to_config.display()
         ))?;
-        Ok(MinecraftInstance::restore(restore_config, event_broadcaster, macro_executor).await)
+        MinecraftInstance::restore(
+            path_to_instance,
+            dot_lodestone_config,
+            uuid,
+            event_broadcaster,
+            macro_executor,
+        )
+        .await
     }
 
     pub async fn restore(
-        config: RestoreConfig,
+        path_to_instance: PathBuf,
+        dot_lodestone_config: DotLodestoneConfig,
+        instance_uuid: InstanceUuid,
         event_broadcaster: Sender<Event>,
         _macro_executor: MacroExecutor,
-    ) -> MinecraftInstance {
-        let path_to_config = config.path.join(".lodestone_config");
-        let path_to_macros = config.path.join("macros");
-        let path_to_resources = config.path.join("resources");
-        let path_to_properties = config.path.join("server.properties");
+    ) -> Result<MinecraftInstance, Error> {
+        let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
+        let restore_config: RestoreConfig =
+            serde_json::from_reader(std::fs::File::open(&path_to_config).context(format!(
+                "Failed to open config file at {}",
+                &path_to_config.display()
+            ))?)
+            .context(
+                "Failed to deserialize config from string. Was the config file modified manually?",
+            )?;
+        let path_to_macros = path_to_instance.join("macros");
+        let path_to_resources = path_to_instance.join("resources");
+        let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
         // if the properties file doesn't exist, create it
         if !path_to_properties.exists() {
-            tokio::fs::write(&path_to_properties, format!("server-port={}", config.port))
-                .await
-                .expect("failed to write to server.properties");
+            tokio::fs::write(
+                &path_to_properties,
+                format!("server-port={}", restore_config.port),
+            )
+            .await
+            .expect("failed to write to server.properties");
         };
         let state = Arc::new(Mutex::new(State::Stopped));
         let (backup_tx, mut backup_rx): (
@@ -490,9 +803,9 @@ impl MinecraftInstance {
             UnboundedReceiver<BackupInstruction>,
         ) = tokio::sync::mpsc::unbounded_channel();
         let _backup_task = tokio::spawn({
-            let backup_period = config.backup_period;
+            let backup_period = restore_config.backup_period;
             let path_to_resources = path_to_resources.clone();
-            let path_to_instance = config.path.clone();
+            let path_to_instance = path_to_instance.clone();
             let state = state.clone();
             async move {
                 let backup_now = || async {
@@ -568,64 +881,34 @@ impl MinecraftInstance {
             }
         });
 
-        let mut cmd_args_config_map: BTreeMap<String, SettingManifest> = BTreeMap::new();
-        let cmd_args = CmdArgSetting::Args(config.cmd_args.clone());
-        cmd_args_config_map.insert(cmd_args.get_identifier().to_owned(), cmd_args.into());
-        let min_ram = CmdArgSetting::MinRam(config.min_ram);
-        cmd_args_config_map.insert(min_ram.get_identifier().to_owned(), min_ram.into());
-        let max_ram = CmdArgSetting::MaxRam(config.max_ram);
-        cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
         let java_path = path_to_runtimes
             .join("java")
-            .join(format!("jre{}", config.jre_major_version))
+            .join(format!("jre{}", restore_config.jre_major_version))
             .join(if std::env::consts::OS == "macos" {
                 "Contents/Home/bin"
             } else {
                 "bin"
             })
             .join("java");
-        let java_cmd = CmdArgSetting::JavaCmd(java_path.to_string_lossy().into_owned());
-        cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
 
-        let mut cmd_line_section_manifest = SectionManifest::new(
-            CmdArgSetting::get_section_id().to_string(),
-            "Command Line Settings".to_string(),
-            "Settings are passed to the server and Java as command line arguments".to_string(),
-            cmd_args_config_map,
-        );
-
-        let server_properties_section_manifest = SectionManifest::new(
-            ServerPropertySetting::get_section_id().to_string(),
-            "Server Properties Settings".to_string(),
-            "All settings in the server.properties file can be configured here".to_string(),
-            BTreeMap::new(),
-        );
-
-        let mut setting_sections = BTreeMap::new();
-
-        setting_sections.insert(
-            CmdArgSetting::get_section_id().to_string(),
-            cmd_line_section_manifest,
-        );
-
-        setting_sections.insert(
-            ServerPropertySetting::get_section_id().to_string(),
-            server_properties_section_manifest,
-        );
-
-        let configurable_manifest =
-            ConfigurableManifest::new(false, false, false, false, setting_sections);
+        let configurable_manifest = Arc::new(Mutex::new(Self::init_configurable_manifest(
+            &restore_config,
+            java_path.to_string_lossy().to_string(),
+        )));
 
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
-            auto_start: Arc::new(AtomicBool::new(config.auto_start)),
-            restart_on_crash: Arc::new(AtomicBool::new(config.restart_on_crash)),
-            backup_period: config.backup_period,
+            uuid: instance_uuid.clone(),
+            creation_time: dot_lodestone_config.creation_time(),
+            auto_start: Arc::new(AtomicBool::new(restore_config.auto_start)),
+            restart_on_crash: Arc::new(AtomicBool::new(restore_config.restart_on_crash)),
+            backup_period: restore_config.backup_period,
             players_manager: Arc::new(Mutex::new(PlayersManager::new(
                 event_broadcaster.clone(),
-                config.uuid.clone(),
+                instance_uuid,
             ))),
-            config,
+            config: restore_config,
+            path_to_instance,
             path_to_config,
             path_to_properties,
             path_to_macros,
@@ -634,18 +917,18 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-            server_properties_buffer: Arc::new(Mutex::new(HashMap::new())),
+            server_properties_buffer: Arc::new(Mutex::new(BTreeMap::new())),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
-            configurable_manifest: Arc::new(Mutex::new(configurable_manifest)),
+            configurable_manifest,
         };
         instance
             .read_properties()
             .await
-            .expect("Failed to read properties");
-        instance
+            .context("Failed to read properties")?;
+        Ok(instance)
     }
 
     async fn write_config_to_file(&self) -> Result<(), Error> {
@@ -668,9 +951,8 @@ impl MinecraftInstance {
         for (key, value) in lock.iter() {
             self.configurable_manifest.lock().await.set_setting(
                 ServerPropertySetting::get_section_id(),
-                key,
                 ServerPropertySetting::from_key_val(key, value)?.into(),
-            );
+            )?;
         }
         Ok(())
     }

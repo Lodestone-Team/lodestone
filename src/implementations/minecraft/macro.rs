@@ -5,12 +5,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use color_eyre::eyre::{eyre};
+use color_eyre::eyre::eyre;
 use deno_core::{
     anyhow::{self},
     op, OpState,
 };
-
 
 use crate::{
     error::Error,
@@ -269,7 +268,7 @@ impl TMacro for MinecraftInstance {
             args,
             caused_by,
             Box::new(main_worker_generator),
-            Some(self.config.uuid.clone()),
+            Some(self.uuid.clone()),
         );
         // self.macro_executor.spawn(exec_instruction).await?;
 
