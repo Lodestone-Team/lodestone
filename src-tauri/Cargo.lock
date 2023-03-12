@@ -729,9 +729,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.23"
+version = "0.4.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16b0a3d9ed01224b22057780a37bb8c5dbfe1be8ba48678e7bf57ec4b385411f"
+checksum = "4e3c5919066adf22df73762e50cffcde3a758f2a848b113b586d1f86728b673b"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -3528,7 +3528,7 @@ dependencies = [
 [[package]]
 name = "lodestone_core"
 version = "0.4.3"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=dev/refactor-setup#d81857eb344665f74bfc2588de30301ea5de14aa"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=releases/0.4.3#105ef1168225314183b3591243ec6cb17fb43314"
 dependencies = [
  "ansi_term",
  "argon2",
