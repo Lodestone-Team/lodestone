@@ -30,46 +30,46 @@ export default function InstancePerformanceCard() {
       <div className="mt-4 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
           <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
-            CPU LOAD
+            CPU LOAD: {performanceBuffer[0]?.cpu_usage?.toFixed(1) ?? 0}%
           </h3>
 
           <DashboardCard className="border-0 bg-gray-900">
-            <div>
-              <PerformanceGraph
-                title="CPU Usage"
-                color="#62DD76"
-                backgroundColor="#61AE3240"
-                data={performanceBuffer.map((p) =>
-                  p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
-                )}
-                max={100}
-                counter={counter}
-                unit="%"
-              />
-            </div>
+            <PerformanceGraph
+              title="CPU Usage"
+              color="#62DD76"
+              backgroundColor="#61AE3240"
+              data={performanceBuffer.map((p) =>
+                p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
+              )}
+              max={100}
+              counter={counter}
+              unit="%"
+            />
           </DashboardCard>
         </div>
         <div>
           <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
-            MEMORY USED
+            MEMORY USED:{' '}
+            {(
+              Number(performanceBuffer[0]?.memory_usage ?? 0) / bytesInGigabyte
+            ).toFixed(1)}{' '}
+            GiB
           </h3>
 
           <DashboardCard className="border-0 bg-gray-900">
-            <div>
-              <PerformanceGraph
-                title="Memory Usage"
-                color="#62DD76"
-                backgroundColor="#61AE3240"
-                data={performanceBuffer.map((p) =>
-                  p.memory_usage !== null
-                    ? round(Number(p.memory_usage) / bytesInGigabyte, 1)
-                    : NaN
-                )}
-                max={round(total_ram / bytesInGigabyte, 1)}
-                counter={counter}
-                unit="GiB"
-              />
-            </div>
+            <PerformanceGraph
+              title="Memory Usage"
+              color="#62DD76"
+              backgroundColor="#61AE3240"
+              data={performanceBuffer.map((p) =>
+                p.memory_usage !== null
+                  ? round(Number(p.memory_usage) / bytesInGigabyte, 1)
+                  : NaN
+              )}
+              max={round(total_ram / bytesInGigabyte, 1)}
+              counter={counter}
+              unit="GiB"
+            />
           </DashboardCard>
         </div>
       </div>
