@@ -25,22 +25,22 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn name(&self) -> String {
-        self.config.name.clone()
+        self.config.lock().await.name.clone()
     }
 
     async fn game_type(&self) -> Game {
-        self.config.flavour.clone().into()
+        self.config.lock().await.flavour.clone().into()
     }
     async fn flavour(&self) -> String {
-        self.config.flavour.to_string()
+        self.config.lock().await.flavour.to_string()
     }
 
     async fn description(&self) -> String {
-        self.config.description.clone()
+        self.config.lock().await.description.clone()
     }
 
     async fn port(&self) -> u32 {
-        self.config.port
+        self.config.lock().await.port
     }
 
     async fn creation_time(&self) -> i64 {
@@ -52,11 +52,11 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn auto_start(&self) -> bool {
-        self.config.auto_start
+        self.config.lock().await.auto_start
     }
 
     async fn restart_on_crash(&self) -> bool {
-        self.config.restart_on_crash
+        self.config.lock().await.restart_on_crash
     }
 
     async fn set_name(&mut self, name: String) -> Result<(), Error> {
@@ -72,13 +72,13 @@ impl TConfigurable for MinecraftInstance {
                 source: eyre!("Name cannot be longer than 100 characters"),
             });
         }
-        self.config.name = name;
+        self.config.lock().await.name = name;
         self.write_config_to_file().await?;
         Ok(())
     }
 
     async fn set_description(&mut self, description: String) -> Result<(), Error> {
-        self.config.description = description;
+        self.config.lock().await.description = description;
         self.write_config_to_file().await?;
         Ok(())
     }
@@ -88,7 +88,7 @@ impl TConfigurable for MinecraftInstance {
             ServerPropertySetting::get_section_id(),
             ServerPropertySetting::ServerPort(port as u16).into(),
         )?;
-        self.config.port = port;
+        self.config.lock().await.port = port;
 
         self.write_config_to_file()
             .await
@@ -96,13 +96,13 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), Error> {
-        self.config.auto_start = auto_start;
+        self.config.lock().await.auto_start = auto_start;
         self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
     }
 
     async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), Error> {
-        self.config.restart_on_crash = restart_on_crash;
+        self.config.lock().await.restart_on_crash = restart_on_crash;
         self.auto_start
             .store(restart_on_crash, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
@@ -115,10 +115,10 @@ impl TConfigurable for MinecraftInstance {
                 source: eyre!("Cannot change version while server is running"),
             });
         }
-        if version == self.config.version {
+        if version == self.config.lock().await.version {
             return Ok(());
         }
-        let (url, _) = match self.config.flavour {
+        let (url, _) = match self.config.lock().await.flavour {
             super::Flavour::Vanilla => get_vanilla_jar_url(&version).await.ok_or_else(|| {
                 let error_msg =
                     format!("Cannot get the vanilla jar version for version {}", version);
@@ -169,7 +169,7 @@ impl TConfigurable for MinecraftInstance {
         tokio::fs::rename(jar_path, self.path().await.join("server.jar"))
             .await
             .context("Cannot move the downloaded server jar file to the server directory")?;
-        self.config.version = version;
+        self.config.lock().await.version = version;
         self.write_config_to_file().await
     }
 
@@ -187,6 +187,8 @@ impl TConfigurable for MinecraftInstance {
             .lock()
             .await
             .update_setting_value(section_id, setting_id, value.clone())?;
+        self.sync_configurable_to_restore_config().await;
+        self.write_config_to_file().await?;
         self.write_properties_to_file().await
     }
 }
@@ -333,8 +335,8 @@ impl From<CmdArgSetting> for SettingManifest {
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableValue::Integer(min_ram as i32)),
-                ConfigurableValueType::Integer {
+                Some(ConfigurableValue::UnsignedInteger(min_ram)),
+                ConfigurableValueType::UnsignedInteger {
                     min: Some(0),
                     max: None,
                 },
@@ -346,8 +348,8 @@ impl From<CmdArgSetting> for SettingManifest {
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableValue::Integer(max_ram as i32)),
-                ConfigurableValueType::Integer {
+                Some(ConfigurableValue::UnsignedInteger(max_ram)),
+                ConfigurableValueType::UnsignedInteger {
                     min: Some(0),
                     max: None,
                 },
@@ -1553,7 +1555,7 @@ impl ServerPropertySetting {
     fn get_description(&self) -> String {
         if let Self::Unknown(key, val) = self {
             return format!(
-                "Unknown property: {key} = {val} Please report this to the developers."
+                "Unknown property: {key} = {val}. Please report this to the developers."
             );
         };
         match self {
@@ -1862,6 +1864,11 @@ impl ServerPropertySetting {
             "max-world-size" => {
                 Ok(Self::MaxWorldSize(value.parse::<u32>().with_context(
                     || eyre!("Invalid value: {value} for \"max-world-size\", expected u32"),
+                )?))
+            }
+            "max-build-height" => {
+                Ok(Self::MaxBuildHeight(value.parse::<u32>().with_context(
+                    || eyre!("Invalid value: {value} for \"max-build-height\", expected u32"),
                 )?))
             }
             _ => Ok(Self::Unknown(key.to_string(), value.to_string())),

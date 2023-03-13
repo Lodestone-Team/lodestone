@@ -36,12 +36,6 @@ async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<String, a
 }
 
 #[op]
-fn config(state: Rc<RefCell<OpState>>) -> Result<String, anyhow::Error> {
-    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
-    Ok(serde_json::to_string(&instance.config)?)
-}
-
-#[op]
 async fn on_event(
     state: Rc<RefCell<OpState>>,
     event: String,
@@ -186,7 +180,6 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
             .ops(vec![
                 send_stdin::decl(),
                 send_rcon::decl(),
-                config::decl(),
                 on_event::decl(),
             ])
             .state({

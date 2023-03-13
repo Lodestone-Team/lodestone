@@ -340,6 +340,11 @@ impl SettingManifest {
         is_secret: bool,
         is_mutable: bool,
     ) -> Self {
+        if let Some(value) = value.as_ref() {
+            value_type
+                .type_check(value)
+                .expect("Programmer error, value does not match type");
+        }
         Self {
             setting_id,
             name,

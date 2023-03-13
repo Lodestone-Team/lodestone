@@ -23,6 +23,7 @@ impl From<RestoreConfigV042> for RestoreConfig {
             backup_period: config.backup_period,
             jre_major_version: config.jre_major_version,
             has_started: config.has_started,
+            java_cmd: None,
         }
     }
 }

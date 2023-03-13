@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::env;
 use std::process::Stdio;
 use std::time::Duration;
@@ -11,14 +10,13 @@ use tokio::process::Command;
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::player::MinecraftPlayer;
-use crate::implementations::minecraft::util::{name_to_uuid, read_properties_from_path};
-use crate::prelude::LODESTONE_PATH;
+use crate::implementations::minecraft::util::name_to_uuid;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TMacro;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::types::Snowflake;
-use crate::util::dont_spawn_terminal;
+use crate::util::{dont_spawn_terminal, list_dir};
 
 use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
 use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
@@ -27,12 +25,13 @@ use tracing::{debug, error, info, warn};
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+        let config = self.config.lock().await.clone();
         self.state.lock().await.try_transition(
             StateAction::UserStart,
             Some(&|state| {
                 self.event_broadcaster.send(Event {
                     event_inner: EventInner::InstanceEvent(InstanceEvent {
-                        instance_name: self.config.name.clone(),
+                        instance_name: config.name.clone(),
                         instance_uuid: self.uuid.clone(),
                         instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
@@ -43,16 +42,12 @@ impl TServer for MinecraftInstance {
             }),
         )?;
 
-        if !port_scanner::local_port_available(self.config.port as u16) {
+        if !port_scanner::local_port_available(config.port as u16) {
             return Err(Error {
                 kind: ErrorKind::Internal,
-                source: eyre!("Port {} is already in use", self.config.port),
+                source: eyre!("Port {} is already in use", config.port),
             });
         }
-
-        env::set_current_dir(&self.path_to_instance).context(
-            "Failed to set current directory to the instance's path, is the path valid?",
-        )?;
 
         let prelaunch = resolve_macro_invocation(&self.path_to_macros, "prelaunch", false);
         if let Some(prelaunch) = prelaunch {
@@ -73,14 +68,14 @@ impl TServer for MinecraftInstance {
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
-                self.config.name.clone()
+                config.name.clone()
             );
         }
 
         let jre = self
             .path_to_runtimes
             .join("java")
-            .join(format!("jre{}", self.config.jre_major_version))
+            .join(format!("jre{}", config.jre_major_version))
             .join(if std::env::consts::OS == "macos" {
                 "Contents/Home/bin"
             } else {
@@ -90,43 +85,85 @@ impl TServer for MinecraftInstance {
 
         let mut server_start_command = Command::new(&jre);
         let server_start_command = server_start_command
-            .arg(format!("-Xmx{}M", self.config.max_ram))
-            .arg(format!("-Xms{}M", self.config.min_ram))
+            .arg(format!("-Xmx{}M", config.max_ram))
+            .arg(format!("-Xms{}M", config.min_ram))
             .args(
-                &self
-                    .config
+                &config
                     .cmd_args
                     .iter()
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<&String>>(),
             );
 
-        let server_start_command = match &self.config.flavour {
+        let server_start_command = match &config.flavour {
             Flavour::Forge { build_version } => {
                 let ForgeBuildVersion(build_version) = build_version
                     .as_ref()
                     .ok_or_else(|| eyre!("Forge version not found"))?;
-                let forge_args = match std::env::consts::OS {
-                    "windows" => "win_args.txt",
-                    _ => "unix_args.txt",
-                };
-                let mut full_forge_args = std::ffi::OsString::from("@");
-                full_forge_args.push(
-                    self.path_to_instance
-                        .join("libraries")
-                        .join("net")
-                        .join("minecraftforge")
-                        .join("forge")
-                        .join(format!(
-                            "{}-{}",
-                            self.config.version,
-                            build_version.as_str()
-                        ))
-                        .join(forge_args)
-                        .into_os_string()
-                        .as_os_str(),
-                );
-                server_start_command.arg(full_forge_args)
+                let version_parts: Vec<&str> = config.version.split('.').collect();
+                let major_version: i32 = version_parts[1]
+                    .parse()
+                    .context("Unable to parse major Minecraft version for Forge")?;
+
+                if 17 <= major_version {
+                    let forge_args = match std::env::consts::OS {
+                        "windows" => "win_args.txt",
+                        _ => "unix_args.txt",
+                    };
+
+                    let mut full_forge_args = std::ffi::OsString::from("@");
+                    full_forge_args.push(
+                        self.path_to_instance
+                            .join("libraries")
+                            .join("net")
+                            .join("minecraftforge")
+                            .join("forge")
+                            .join(build_version.as_str())
+                            .join(forge_args)
+                            .into_os_string()
+                            .as_os_str(),
+                    );
+
+                    server_start_command.arg(full_forge_args)
+                } else if 7 <= major_version && major_version <= 16 {
+                    let files = list_dir(&self.path_to_instance, Some(false))
+                        .await
+                        .context("Failed to find forge.jar")?;
+                    let forge_jar_name = files
+                        .iter()
+                        .find(|p| {
+                            p.extension().unwrap_or_default() == "jar"
+                                && p.file_name()
+                                    .unwrap_or_default()
+                                    .to_str()
+                                    .unwrap_or_default()
+                                    .starts_with(format!("forge-{}-", config.version,).as_str())
+                        })
+                        .ok_or_else(|| eyre!("Failed to find forge.jar"))?;
+                    server_start_command
+                        .arg("-jar")
+                        .arg(&self.path_to_instance.join(forge_jar_name))
+                } else {
+                    // 1.5 doesn't work due to JRE issues
+                    // 1.4 doesn't work since forge doesn't provide an installer
+                    let files = list_dir(&self.path_to_instance, Some(false))
+                        .await
+                        .context("Failed to find minecraftforge.jar")?;
+                    let server_jar_name = files
+                        .iter()
+                        .find(|p| {
+                            p.extension().unwrap_or_default() == "jar"
+                                && p.file_name()
+                                    .unwrap_or_default()
+                                    .to_str()
+                                    .unwrap_or_default()
+                                    .starts_with("minecraftforge")
+                        })
+                        .ok_or_else(|| eyre!("Failed to find minecraftforge.jar"))?;
+                    server_start_command
+                        .arg("-jar")
+                        .arg(&self.path_to_instance.join(server_jar_name))
+                }
             }
             _ => server_start_command
                 .arg("-jar")
@@ -147,7 +184,7 @@ impl TServer for MinecraftInstance {
                 let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
-                        self.config.name.clone()
+                        config.name.clone()
                     );
                     eyre!("Failed to take stdin during startup")
                 })?;
@@ -155,14 +192,14 @@ impl TServer for MinecraftInstance {
                 let stdout = proc.stdout.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdout during startup",
-                        self.config.name.clone()
+                        config.name.clone()
                     );
                     eyre!("Failed to take stdout during startup")
                 })?;
                 let stderr = proc.stderr.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stderr during startup",
-                        self.config.name.clone()
+                        config.name.clone()
                     );
                     eyre!("Failed to take stderr during startup")
                 })?;
@@ -173,7 +210,7 @@ impl TServer for MinecraftInstance {
 
                     let event_broadcaster = self.event_broadcaster.clone();
                     let uuid = self.uuid.clone();
-                    let name = self.config.name.clone();
+                    let name = config.name.clone();
                     let players_manager = self.players_manager.clone();
                     let macro_executor = self.macro_executor.clone();
                     let mut __self = self.clone();
@@ -354,7 +391,7 @@ impl TServer for MinecraftInstance {
                                             self.event_broadcaster.send(Event {
                                                 event_inner: EventInner::InstanceEvent(
                                                     InstanceEvent {
-                                                        instance_name: self.config.name.clone(),
+                                                        instance_name: config.name.clone(),
                                                         instance_uuid: self.uuid.clone(),
                                                         instance_event_inner:
                                                             InstanceEventInner::StateTransition {
@@ -509,7 +546,7 @@ impl TServer for MinecraftInstance {
                                 Some(&|state| {
                                     self.event_broadcaster.send(Event {
                                         event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                            instance_name: self.config.name.clone(),
+                                            instance_name: config.name.clone(),
                                             instance_uuid: self.uuid.clone(),
                                             instance_event_inner:
                                                 InstanceEventInner::StateTransition { to: state },
@@ -526,7 +563,7 @@ impl TServer for MinecraftInstance {
                     }
                 });
 
-                self.config.has_started = true;
+                self.config.lock().await.has_started = true;
                 self.write_config_to_file().await?;
                 let instance_uuid = self.uuid.clone();
                 let mut rx = self.event_broadcaster.subscribe();
@@ -566,7 +603,7 @@ impl TServer for MinecraftInstance {
                         Some(&|state| {
                             self.event_broadcaster.send(Event {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_name: self.config.name.clone(),
+                                    instance_name: config.name.clone(),
                                     instance_uuid: self.uuid.clone(),
                                     instance_event_inner: InstanceEventInner::StateTransition {
                                         to: state,
@@ -585,12 +622,14 @@ impl TServer for MinecraftInstance {
         }
     }
     async fn stop(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+        let config = self.config.lock().await.clone();
+
         self.state.lock().await.try_transition(
             StateAction::UserStop,
             Some(&|state| {
                 self.event_broadcaster.send(Event {
                     event_inner: EventInner::InstanceEvent(InstanceEvent {
-                        instance_name: self.config.name.clone(),
+                        instance_name: config.name.clone(),
                         instance_uuid: self.uuid.clone(),
                         instance_event_inner: InstanceEventInner::StateTransition { to: state },
                     }),
@@ -600,7 +639,7 @@ impl TServer for MinecraftInstance {
                 });
             }),
         )?;
-        let name = self.config.name.clone();
+        let name = config.name.clone();
         let _uuid = self.uuid.clone();
         self.stdin
             .lock()
@@ -660,8 +699,10 @@ impl TServer for MinecraftInstance {
     }
 
     async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), Error> {
+        let config = self.config.lock().await.clone();
+
         if self.state().await == State::Stopped {
-            warn!("[{}] Instance is already stopped", self.config.name.clone());
+            warn!("[{}] Instance is already stopped", config.name.clone());
             return Err(eyre!("Instance is already stopped").into());
         }
         self.process
@@ -671,7 +712,7 @@ impl TServer for MinecraftInstance {
             .ok_or_else(|| {
                 error!(
                     "[{}] Failed to kill instance: process not available",
-                    self.config.name.clone()
+                    config.name.clone()
                 );
                 eyre!("Failed to kill instance: process not available")
             })?
@@ -679,11 +720,7 @@ impl TServer for MinecraftInstance {
             .await
             .context("Failed to kill process")
             .map_err(|e| {
-                error!(
-                    "[{}] Failed to kill instance: {}",
-                    self.config.name.clone(),
-                    e
-                );
+                error!("[{}] Failed to kill instance: {}", config.name.clone(), e);
                 e
             })?;
         Ok(())
@@ -694,6 +731,7 @@ impl TServer for MinecraftInstance {
     }
 
     async fn send_command(&self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
+        let config = self.config.lock().await.clone();
         if self.state().await == State::Stopped {
             Err(eyre!("Instance is stopped").into())
         } else {
@@ -705,7 +743,7 @@ impl TServer for MinecraftInstance {
                             Some(&|state| {
                                 self.event_broadcaster.send(Event {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                        instance_name: self.config.name.clone(),
+                                        instance_name: config.name.clone(),
                                         instance_uuid: self.uuid.clone(),
                                         instance_event_inner: InstanceEventInner::StateTransition {
                                             to: state,
@@ -724,7 +762,7 @@ impl TServer for MinecraftInstance {
                     Err(e) => {
                         warn!(
                             "[{}] Failed to send command to instance: {}",
-                            self.config.name.clone(),
+                            config.name.clone(),
                             e
                         );
                         Err(e).context("Failed to send command to instance")?;
@@ -734,7 +772,7 @@ impl TServer for MinecraftInstance {
                 None => {
                     let err_msg =
                         "Failed to write to stdin because stdin is None. Please report this bug.";
-                    error!("[{}] {}", self.config.name.clone(), err_msg);
+                    error!("[{}] {}", config.name.clone(), err_msg);
                     Err(eyre!(err_msg).into())
                 }
             }
