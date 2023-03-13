@@ -20,7 +20,7 @@ export const InstanceViewLayout = () => {
     useInstanceList(userLoggedIn);
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
 
-  const [showCreateInstance, setShowCreateInstance] = useState(userLoggedIn);
+  const [showCreateInstance, setShowCreateInstance] = useState(false);
 
   const instances = userLoggedIn ? dataInstances : undefined;
 
