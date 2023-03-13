@@ -14,7 +14,7 @@ pub mod versions;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;
 use indexmap::IndexMap;
-use std::collections::BTreeMap;
+
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

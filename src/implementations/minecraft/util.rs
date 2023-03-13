@@ -397,11 +397,10 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
                 .as_str(),
         )
         .ok()?
-        .get("javaVersion") {
-            Some(java_version) => java_version
-                .get("majorVersion")?
-                .as_u64()?,
-            None => 8
+        .get("javaVersion")
+        {
+            Some(java_version) => java_version.get("majorVersion")?.as_u64()?,
+            None => 8,
         };
         // Ddoptium won't provide java 16 for some reason
         // updateing to 17 should be safe, and 17 is preferred since its LTS

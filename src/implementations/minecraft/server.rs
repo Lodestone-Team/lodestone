@@ -1,4 +1,3 @@
-use std::env;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -125,7 +124,7 @@ impl TServer for MinecraftInstance {
                     );
 
                     server_start_command.arg(full_forge_args)
-                } else if 7 <= major_version && major_version <= 16 {
+                } else if (7..=16).contains(&major_version) {
                     let files = list_dir(&self.path_to_instance, Some(false))
                         .await
                         .context("Failed to find forge.jar")?;

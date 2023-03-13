@@ -37,9 +37,9 @@ use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
-use deno_core::{anyhow, error::generic_error};
 use deno_core::ResolutionKind;
-use deno_runtime::permissions::{PermissionsContainer, Permissions};
+use deno_core::{anyhow, error::generic_error};
+
 use futures::FutureExt;
 
 pub trait MainWorkerGenerator: Send + Sync {
@@ -367,7 +367,7 @@ mod tests {
     use deno_core::error::generic_error;
     use deno_core::{anyhow, op, ModuleSpecifier};
     use deno_core::{resolve_import, ModuleLoader, ModuleSource, ModuleSourceFuture, ModuleType};
-    use deno_runtime::permissions::{PermissionsContainer, Permissions};
+    use deno_runtime::permissions::{Permissions, PermissionsContainer};
     use futures::FutureExt;
     use serde_json::{json, Value};
     use tokio::sync::broadcast;

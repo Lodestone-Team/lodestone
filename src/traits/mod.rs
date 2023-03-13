@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use ts_rs::TS;
 
-use self::t_player::Player;
 use self::t_configurable::Game;
+use self::t_player::Player;
 use self::t_server::State;
 use self::{
     t_configurable::TConfigurable, t_macro::TMacro, t_player::TPlayerManagement,
