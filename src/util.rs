@@ -219,63 +219,107 @@ pub async fn unzip_file(
             .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?;
     }
 
-    for temp_entry in walkdir::WalkDir::new(temp_dest)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let temp_entry_path = temp_entry.path();
+    let mut ret: HashSet<PathBuf> = HashSet::new();
+
+    // Only loop through direct children
+    for temp_entry_path in list_dir(temp_dest, None).await?.iter() {
         let mut entry_path = match temp_entry_path.strip_prefix(temp_dest) {
             Ok(p) => dest.join(p),
             Err(_) => continue,
         };
 
-        if temp_entry_path.is_dir() {
+        if temp_entry_path.is_dir() { // Direct child is a directory
+            if !overwrite_old && entry_path.exists() {
+                let mut duplicate = 1;
+                let name = entry_path
+                    .file_name()
+                    .unwrap_or_else(|| std::ffi::OsStr::new(""))
+                    .to_os_string();
+
+                loop {
+                    let mut new_name = name.clone();
+                    new_name.push(format!("_{}", duplicate).as_str());
+                    entry_path.set_file_name(&new_name);
+
+                    if !entry_path.exists() {
+                        break;
+                    }
+                    duplicate += 1;
+                }
+            }
+
             tokio::fs::create_dir_all(&entry_path)
                 .await
                 .context(format!(
                     "Failed to create directory {}",
                     entry_path.display()
                 ))?;
-            continue;
-        }
 
-        if !overwrite_old && entry_path.exists() {
-            let mut duplicate = 1;
-            let stem = entry_path
-                .file_stem()
-                .unwrap_or_else(|| std::ffi::OsStr::new(""))
-                .to_os_string();
-            let extension = entry_path
-                .extension()
-                .unwrap_or_else(|| std::ffi::OsStr::new(""))
-                .to_os_string();
-            loop {
-                let mut name = stem.clone();
-                name.push(format!("_{}", duplicate).as_str());
-                entry_path.set_file_name(&name);
-                entry_path.set_extension(&extension);
+            // Copy all files from direct child directory. Guarentee no duplicate
+            for temp_child in walkdir::WalkDir::new(temp_entry_path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let temp_child_path = temp_child.path();
+                let child_path = match temp_child_path.strip_prefix(temp_entry_path) {
+                    Ok(p) => entry_path.join(p),
+                    Err(_) => continue,
+                };
 
-                if !entry_path.exists() {
-                    break;
+                tokio::fs::create_dir_all(&child_path)
+                    .await
+                    .context(format!(
+                        "Failed to create directory {}",
+                        child_path.display()
+                    ))?;
+
+                if child_path.is_file() {
+                    tokio::fs::copy(&temp_child_path, &child_path)
+                        .await
+                        .context(format!(
+                            "Failed to copy from {} to {}",
+                            temp_child_path.display(),
+                            child_path.display()
+                        ))?;
                 }
-                duplicate += 1;
             }
+        } else { // Direct child is a file
+            dbg!(list_dir(dest, None).await?);
+            dbg!(&entry_path);
+            if !overwrite_old && entry_path.exists() {
+                let mut duplicate = 1;
+                let stem = entry_path
+                    .file_stem()
+                    .unwrap_or_else(|| std::ffi::OsStr::new(""))
+                    .to_os_string();
+                let extension = entry_path
+                    .extension()
+                    .unwrap_or_else(|| std::ffi::OsStr::new(""))
+                    .to_os_string();
+                loop {
+                    let mut name = stem.clone();
+                    name.push(format!("_{}", duplicate).as_str());
+                    entry_path.set_file_name(&name);
+                    entry_path.set_extension(&extension);
+    
+                    if !entry_path.exists() {
+                        break;
+                    }
+                    duplicate += 1;
+                }
+            }
+    
+            // Copy direct child file
+            tokio::fs::copy(&temp_entry_path, &entry_path)
+                .await
+                .context(format!(
+                    "Failed to copy from {} to {}",
+                    temp_entry_path.display(),
+                    entry_path.display()
+                ))?;
         }
-
-        tokio::fs::copy(&temp_entry_path, &entry_path)
-            .await
-            .context(format!(
-                "Failed to copy from {} to {}",
-                temp_entry_path.display(),
-                entry_path.display()
-            ))?;
+        ret.insert(entry_path);
     }
-
-    let ret: HashSet<PathBuf> = list_dir(temp_dest, None)
-        .await?
-        .iter()
-        .map(|p| dest.join(p.strip_prefix(temp_dest).unwrap()))
-        .collect();
 
     Ok(ret)
 }
