@@ -21,6 +21,8 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 - [ ] Automated macros and tasks 🚧
 - [ ] Connecting without port forward 🚧
 
+![Lodestone Spring 2023 Roadmap](/public/assets/springRoadmap.png)
+
 ## [Download](https://github.com/Lodestone-Team/dashboard/releases/latest)
 
 You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest).
