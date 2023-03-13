@@ -48,7 +48,7 @@ export const SelectedInstanceInfo = ({
         <div className="text-small font-bold leading-snug text-gray-faded/30">
           SELECTED INSTANCE
         </div>
-        <div className="mt-[0.5rem] flex h-[17.61rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30">
+        <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30">
           <div className="mt-20 w-[5.5rem]">
             <div className="text-h1">
               <FontAwesomeIcon icon={faExpand} />

@@ -30,12 +30,13 @@ const Home = () => {
 
   return (
     // used to possibly center the content
-    <div className="flex flex-col items-center justify-center text-gray-faded/30">
+    <div className="relative flex flex-col items-center overflow-auto text-gray-faded/30">
       <div className="flex h-28 w-28 items-center justify-center rounded-full border border-dashed border-gray-faded/30 align-middle">
         <img
           src="/assets/placeholder-cube.png"
           alt="placeholder"
           className="mx-auto w-20"
+          style={{ imageRendering: 'pixelated' }}
         />
       </div>
       <div className="mt-4 text-h2 font-extrabold ">Manage your instances</div>
