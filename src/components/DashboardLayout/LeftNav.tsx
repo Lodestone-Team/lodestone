@@ -1,5 +1,5 @@
 import InstanceList from './InstanceList';
-import { Fragment, useState } from 'react';
+import { Fragment, useContext, useState } from 'react';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
@@ -8,13 +8,15 @@ import { useUserAuthorized, useUserLoggedIn } from 'data/UserInfo';
 import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
+import { InstanceContext } from 'data/InstanceContext';
 export default function LeftNav({ className }: { className?: string }) {
-  const [showCreateInstance, setShowCreateInstance] = useState(false);
+  const { showCreateInstance, setShowCreateInstance } =
+    useContext(InstanceContext);
   const canCreateInstance = useUserAuthorized('can_create_instance');
   const userLoggedIn = useUserLoggedIn();
   return (
     <div
-      className={`flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
+      className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
       <div className="mt-10 flex h-full w-full grow flex-col ">
         <UserMenu />
