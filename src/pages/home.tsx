@@ -30,7 +30,7 @@ const Home = () => {
 
   return (
     // used to possibly center the content
-    <div className="relative flex flex-col items-center overflow-auto text-gray-faded/30">
+    <div className="relative flex flex-col items-center justify-center overflow-auto text-gray-faded/30">
       <div className="flex h-28 w-28 items-center justify-center rounded-full border border-dashed border-gray-faded/30 align-middle">
         <img
           src="/assets/placeholder-cube.png"

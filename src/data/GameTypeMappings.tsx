@@ -120,6 +120,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
             src="/assets/placeholder-cube.png"
             alt="placeholder"
             className="mx-auto w-20"
+            style={{ imageRendering: 'pixelated' }}
           />
           <p className="text-center font-medium text-white/50">
             Coming soon to a dashboard near you!
@@ -139,6 +140,7 @@ export const InstanceTabListMap: Record<string, InstanceTab[]> = {
             src="/assets/placeholder-cube.png"
             alt="placeholder"
             className="mx-auto w-20"
+            style={{ imageRendering: 'pixelated' }}
           />
           <p className="text-center font-medium text-white/50">
             Coming soon to a dashboard near you!
