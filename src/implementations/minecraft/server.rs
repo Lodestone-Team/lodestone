@@ -133,7 +133,9 @@ impl TServer for MinecraftInstance {
                 .arg(&self.path_to_instance.join("server.jar")),
         };
 
-        let server_start_command = server_start_command.arg("nogui");
+        let server_start_command = server_start_command
+            .arg("nogui")
+            .current_dir(&self.path_to_instance);
 
         match dont_spawn_terminal(server_start_command)
             .stdout(Stdio::piped())
@@ -142,9 +144,6 @@ impl TServer for MinecraftInstance {
             .spawn()
         {
             Ok(mut proc) => {
-                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).context(
-                    "Failed to set current directory to the Lodestone path, is the path valid?",
-                )?;
                 let stdin = proc.stdin.take().ok_or_else(|| {
                     error!(
                         "[{}] Failed to take stdin during startup",
@@ -378,26 +377,27 @@ impl TServer for MinecraftInstance {
 
                                 if let (Some(true), Some(rcon_psw), Some(rcon_port)) = {
                                     let lock = self.configurable_manifest.lock().await;
-                                    (
-                                        lock.get_unique_setting_key("enable-rcon")
-                                            .and_then(|v| {
-                                                v.get_value().map(|v| v.try_as_boolean().ok())
-                                            })
-                                            .flatten(),
-                                        // lock.get("rcon.password").cloned(),
-                                        // lock.get("rcon.port").map(|v| v.parse::<u16>()),
-                                        lock.get_unique_setting_key("rcon-password")
-                                            .and_then(|v| {
-                                                v.get_value().map(|v| v.try_as_string().ok())
-                                            })
-                                            .flatten()
-                                            .cloned(),
-                                        lock.get_unique_setting_key("rcon-port")
-                                            .and_then(|v| {
-                                                v.get_value().map(|v| v.try_as_integer().ok())
-                                            })
-                                            .flatten(),
-                                    )
+
+                                    let a = lock
+                                        .get_unique_setting_key("enable-rcon")
+                                        .and_then(|v| {
+                                            v.get_value().map(|v| v.try_as_boolean().ok())
+                                        })
+                                        .flatten();
+
+                                    let b = lock
+                                        .get_unique_setting_key("rcon.password")
+                                        .and_then(|v| v.get_value().map(|v| v.try_as_string().ok()))
+                                        .flatten()
+                                        .cloned();
+
+                                    let c = lock
+                                        .get_unique_setting_key("rcon.port")
+                                        .and_then(|v| {
+                                            v.get_value().map(|v| v.try_as_unsigned_integer().ok())
+                                        })
+                                        .flatten();
+                                    (a, b, c)
                                 } {
                                     let max_retry = 3;
                                     for i in 0..max_retry {
@@ -558,7 +558,6 @@ impl TServer for MinecraftInstance {
             }
             Err(e) => {
                 error!("Failed to start server, {}", e);
-                env::set_current_dir(LODESTONE_PATH.with(|v| v.clone())).unwrap();
                 self.state
                     .lock()
                     .await

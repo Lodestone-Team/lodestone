@@ -366,7 +366,7 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     };
 
     let major_java_version = {
-        let val = serde_json::Value::from_str(
+        let val = match serde_json::Value::from_str(
             client
                 .get(
                     serde_json::Value::from_str(
@@ -397,9 +397,12 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
                 .as_str(),
         )
         .ok()?
-        .get("javaVersion")?
-        .get("majorVersion")?
-        .as_u64()?;
+        .get("javaVersion") {
+            Some(java_version) => java_version
+                .get("majorVersion")?
+                .as_u64()?,
+            None => 8
+        };
         // Ddoptium won't provide java 16 for some reason
         // updateing to 17 should be safe, and 17 is preferred since its LTS
         if val == 16 {
