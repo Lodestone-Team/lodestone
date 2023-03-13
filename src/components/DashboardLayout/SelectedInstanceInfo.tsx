@@ -44,16 +44,16 @@ export const SelectedInstanceInfo = ({
   const uuid = selectedInstance?.uuid;
   if (!selectedInstance || !uuid) {
     return (
-      <div className="mx-1 text-gray-faded/30">
+      <div className="mx-1 px-1 text-gray-faded/30">
         <div className="text-small font-bold leading-snug text-gray-faded/30">
           SELECTED INSTANCE
         </div>
         <div className="mt-[0.5rem] flex h-[17.61rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30">
-          <div className="mt-16 w-[5.5rem]">
+          <div className="mt-20 w-[5.5rem]">
             <div className="text-h1">
               <FontAwesomeIcon icon={faExpand} />
             </div>
-            <div className="mt-4 text-medium font-bold">
+            <div className="mt-2 text-medium font-bold">
               Any selected instance will appear here
             </div>
           </div>

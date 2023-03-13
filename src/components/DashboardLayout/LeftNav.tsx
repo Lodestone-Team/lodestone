@@ -16,7 +16,7 @@ export default function LeftNav({ className }: { className?: string }) {
 
   return (
     <div
-      className={`flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
+      className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
       <div className="mt-10 flex h-full w-full grow flex-col ">
         <UserMenu />
