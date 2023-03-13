@@ -171,13 +171,11 @@ pub async fn unzip_file(
         .await
         .context(format!("Failed to create directory {}", dest.display()))?;
 
-    let mut output_files: HashSet<PathBuf> = HashSet::new();
-
     let dest_file_name = dest
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new(""))
         .to_str()
-        .unwrap_or_else(|| "");
+        .unwrap_or("");
     let temp_dest_dir = tempdir::TempDir::new(dest_file_name).context(format!(
         "Failed to create temporary directory for {}",
         dest.display()
@@ -226,8 +224,7 @@ pub async fn unzip_file(
         .filter_map(|e| e.ok())
     {
         let temp_entry_path = temp_entry.path();
-        let entry_path = temp_entry_path.strip_prefix(temp_dest);
-        let mut entry_path = match entry_path {
+        let mut entry_path = match temp_entry_path.strip_prefix(temp_dest) {
             Ok(p) => dest.join(p),
             Err(_) => continue,
         };
@@ -272,10 +269,15 @@ pub async fn unzip_file(
                 temp_entry_path.display(),
                 entry_path.display()
             ))?;
-        output_files.insert(entry_path);
     }
 
-    Ok(output_files.iter().cloned().collect())
+    let ret: HashSet<PathBuf> = list_dir(temp_dest, None)
+        .await?
+        .iter()
+        .map(|p| dest.join(p.strip_prefix(temp_dest).unwrap()))
+        .collect();
+
+    Ok(ret)
 }
 
 pub fn rand_alphanumeric(len: usize) -> String {
@@ -535,10 +537,11 @@ mod tests {
     #[tokio::test]
     async fn test_unzip_file_3() {
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
-        let temp_path = temp.path();
+        let dest_path = temp.path().to_path_buf();
+        dbg!(&dest_path);
         let tar_gz = download_file(
             "http://file.fyicenter.com/a/sample.tgz",
-            temp_path,
+            &dest_path,
             Some("test.tar.gz"),
             &Box::new(|_| {}),
             true,
@@ -546,18 +549,31 @@ mod tests {
         .await
         .unwrap();
 
-        let mut test: HashSet<PathBuf> = HashSet::new();
-        test.insert(temp_path.join("sample").join("sample.c"));
-        test.insert(temp_path.join("sample").join("sample.exe"));
-        test.insert(temp_path.join("sample").join("sample.obj"));
+        dbg!(&tar_gz);
+        dbg!(dest_path.join("sample"));
 
-        assert_eq!(unzip_file(&tar_gz, temp_path, false).await.unwrap(), test);
+        let mut expected: HashSet<PathBuf> = HashSet::new();
+        expected.insert(dest_path.join("sample"));
 
-        let mut test: HashSet<PathBuf> = HashSet::new();
-        test.insert(temp_path.join("sample").join("sample_1.c"));
-        test.insert(temp_path.join("sample").join("sample_1.exe"));
-        test.insert(temp_path.join("sample").join("sample_1.obj"));
+        assert_eq!(
+            unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
+            expected
+        );
 
-        assert_eq!(unzip_file(&tar_gz, temp_path, false).await.unwrap(), test);
+        let mut expected: HashSet<PathBuf> = HashSet::new();
+        expected.insert(dest_path.join("sample_1"));
+
+        assert_eq!(
+            unzip_file(&tar_gz, dest_path, false).await.unwrap(),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn test_unzip_file_4() {
+        let res = unzip_file("testunzip/jre.gz", "testunzip/output", false)
+            .await
+            .unwrap();
+        dbg!(&res);
     }
 }
