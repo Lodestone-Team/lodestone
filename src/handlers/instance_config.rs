@@ -68,6 +68,50 @@ pub async fn set_instance_setting(
     Ok(Json(()))
 }
 
+pub async fn set_instance_name(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+    Json(new_name): Json<String>,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    state
+        .instances
+        .lock()
+        .await
+        .get_mut(&uuid)
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
+        })?
+        .set_name(new_name)
+        .await?;
+    Ok(Json(()))
+}
+
+pub async fn set_instance_description(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+    Json(new_description): Json<String>,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    state
+        .instances
+        .lock()
+        .await
+        .get_mut(&uuid)
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
+        })?
+        .set_description(new_description)
+        .await?;
+    Ok(Json(()))
+}
+
 pub async fn change_version(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, new_version)): Path<(InstanceUuid, String)>,
@@ -101,5 +145,7 @@ pub fn get_instance_config_routes(state: AppState) -> Router {
             "/instance/:uuid/settings/:section_id/:setting_id",
             put(set_instance_setting),
         )
+        .route("/instance/:uuid/name", put(set_instance_name))
+        .route("/instance/:uuid/description", put(set_instance_description))
         .with_state(state)
 }
