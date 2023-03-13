@@ -57,6 +57,17 @@ const InstanceOverview = () => {
     }));
   };
 
+  const setInstanceDescription = async (description: string) => {
+    await axiosPutSingleValue<void>(
+      `/instance/${uuid}/description`,
+      description
+    );
+    updateInstance(uuid, queryClient, (oldData) => ({
+      ...oldData,
+      description,
+    }));
+  };
+
   return (
     <>
       <div
@@ -89,6 +100,15 @@ const InstanceOverview = () => {
                 iconLeft={false}
               />
             </Label>
+          </div>
+          <div className="flex w-full flex-row items-center gap-2">
+            <EditableTextfield
+              initialText={instance.description}
+              type={'description'}
+              onSubmit={setInstanceDescription}
+              placeholder="No description"
+              containerClassName="min-w-0"
+            />
           </div>
         </div>
       </div>
