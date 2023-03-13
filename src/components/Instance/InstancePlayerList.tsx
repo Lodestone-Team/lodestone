@@ -61,7 +61,7 @@ export default function InstancePlayerList() {
         All players that are currently online
       </h3>
       <button
-        className="mt-4 mb-2 flex items-center justify-center text-small font-medium tracking-medium text-white/50"
+        className="mt-4 mb-2 ml-2 flex items-center justify-center text-small font-medium tracking-medium text-white/50"
         onClick={() => setSortAscending(!sortAscending)}
       >
         NAME
