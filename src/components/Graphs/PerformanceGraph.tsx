@@ -32,8 +32,8 @@ ChartJS.register(
 );
 
 ChartJS.defaults.font = {
-  family: 'Satoshi',
-  size: 14,
+  family: 'JetBrains Mono, Satoshi',
+  size: 12,
   style: 'normal',
   weight: 'normal',
   lineHeight: 1.2,
@@ -156,11 +156,16 @@ export default function PerformanceGraph({
         },
       },
       title: {
-        display: true,
+        display: false,
         text: title,
+        align: 'start',
+        font: {
+          family: 'Satoshi',
+          size: 16,
+        },
         padding: {
-          top: 0,
-          bottom: 24,
+          top: 16,
+          bottom: 32,
         },
       },
     },
@@ -288,7 +293,7 @@ const externalTooltipHandler = (context: ScriptableTooltipContext<'line'>) => {
     // Add title lines
     titleLines.forEach((title) => {
       const titleEl = document.createElement('div');
-      titleEl.textContent = title + ":";
+      titleEl.textContent = title + ':';
       titleEl.style.margin = '0 0.25rem 0 0';
       tooltipEl.appendChild(titleEl);
     });

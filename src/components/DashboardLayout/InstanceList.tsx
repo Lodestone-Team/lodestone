@@ -1,13 +1,12 @@
-import { faServer } from '@fortawesome/free-solid-svg-icons';
+import { faExpand } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { RadioGroup } from '@headlessui/react';
 import InstanceLoadingPill from 'components/InstanceLoadingPill';
-import InstanceLoadingCard from 'components/InstanceLoadingPill';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
-import { useContext, useEffect} from 'react';
+import { useContext, useEffect } from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
@@ -18,7 +17,7 @@ export default function InstanceList({
 }: {
   className?: string;
   children?: React.ReactNode;
-  }) {
+}) {
   const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const {
     instanceList: instances,
@@ -28,7 +27,9 @@ export default function InstanceList({
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
   const userLoggedIn = useUserLoggedIn();
-  const { location: {pathname} } = useContext(BrowserLocationContext);
+  const {
+    location: { pathname },
+  } = useContext(BrowserLocationContext);
 
   useEffect(() => {
     if (!isReady) return;
@@ -41,10 +42,10 @@ export default function InstanceList({
   }, [isReady, instances]);
 
   useEffect(() => {
-    if (pathname == "/") {
-      selectInstance(null)
+    if (pathname == '/') {
+      selectInstance(null);
     }
-  }, [pathname])
+  }, [pathname]);
 
   return (
     <RadioGroup
@@ -68,11 +69,14 @@ export default function InstanceList({
         ))
       ) : (
         <div
-          className={`flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight`}
+          className={`mt-2 flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border-2 border-dashed border-gray-faded/10 py-4 px-6 text-medium font-bold tracking-tight`}
         >
-          <FontAwesomeIcon icon={faServer} className="text-h1 text-gray-400" />
-          <p className="text-center text-h3 text-gray-400">
-            Log in to view game server instances.
+          <FontAwesomeIcon
+            icon={faExpand}
+            className="text-h1 text-gray-faded/30"
+          />
+          <p className="text-center text-medium italic text-gray-faded/30">
+            Log in to view your server instances.
           </p>
         </div>
       )}
