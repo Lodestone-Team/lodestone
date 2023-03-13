@@ -73,8 +73,10 @@ pub async fn create_instance(
     let mut instance_uuid = InstanceUuid::default();
 
     for uuid in state.instances.lock().await.keys() {
-        if uuid.no_prefix()[0..5] == instance_uuid.no_prefix()[0..5] {
-            instance_uuid = InstanceUuid::default();
+        if let Some(uuid) = uuid.as_ref().get(0..8) {
+            if uuid == &instance_uuid.no_prefix()[0..8] {
+                instance_uuid = InstanceUuid::default();
+            }
         }
     }
 
@@ -93,7 +95,7 @@ pub async fn create_instance(
         path.join(format!(
             "{}-{}",
             setup_config.name,
-            &instance_uuid.no_prefix()[0..5]
+            &instance_uuid.no_prefix()[0..8]
         ))
     });
 
