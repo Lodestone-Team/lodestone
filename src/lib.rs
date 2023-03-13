@@ -122,6 +122,7 @@ async fn restore_instances(
                 std::fs::File::open(path.join(".lodestone_config")).unwrap(),
             )
             .unwrap();
+            debug!("restoring instance: {}", path.display());
 
             if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
                 let instance = minecraft::MinecraftInstance::restore(
@@ -133,7 +134,7 @@ async fn restore_instances(
                 )
                 .await
                 .unwrap();
-                debug!("restored instance: {}", instance.name().await);
+                debug!("Restored successfully");
                 ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
             }
         }
