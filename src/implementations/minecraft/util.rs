@@ -1,14 +1,17 @@
-use color_eyre::eyre::{eyre, Context};
+use color_eyre::eyre::{eyre, Context, ContextCompat};
+use indexmap::IndexMap;
 use serde_json::{self, Value};
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{collections::BTreeMap, path::Path, str::FromStr};
 use tokio::io::AsyncBufReadExt;
 
+use super::{
+    FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, PaperBuildVersion,
+};
 use crate::error::Error;
-use super::{Flavour, FabricLoaderVersion, FabricInstallerVersion, PaperBuildVersion, ForgeBuildVersion};
 
 pub async fn read_properties_from_path(
     path_to_properties: &Path,
-) -> Result<HashMap<String, String>, Error> {
+) -> Result<IndexMap<String, String>, Error> {
     let properties_file = tokio::fs::File::open(path_to_properties)
         .await
         .context(format!(
@@ -17,7 +20,7 @@ pub async fn read_properties_from_path(
         ))?;
     let buf_reader = tokio::io::BufReader::new(properties_file);
     let mut stream = buf_reader.lines();
-    let mut ret = HashMap::new();
+    let mut ret = IndexMap::new();
 
     while let Some(line) = stream
         .next_line()
@@ -47,26 +50,14 @@ pub async fn read_properties_from_path(
 // Returns the jar url and the updated flavour with version information
 pub async fn get_server_jar_url(version: &str, flavour: &Flavour) -> Option<(String, Flavour)> {
     match flavour {
-        Flavour::Vanilla =>
-            get_vanilla_jar_url(version).await,
-        Flavour::Fabric { loader_version, installer_version } =>
-            get_fabric_jar_url(
-                version,
-                loader_version,
-                installer_version,
-            ).await,
-        Flavour::Paper { build_version } =>
-            get_paper_jar_url(
-                version,
-                build_version,
-            ).await,
-        Flavour::Spigot =>
-            todo!(),
-        Flavour::Forge { build_version } =>
-            get_forge_jar_url(
-                version,
-                build_version,
-            ).await,
+        Flavour::Vanilla => get_vanilla_jar_url(version).await,
+        Flavour::Fabric {
+            loader_version,
+            installer_version,
+        } => get_fabric_jar_url(version, loader_version, installer_version).await,
+        Flavour::Paper { build_version } => get_paper_jar_url(version, build_version).await,
+        Flavour::Spigot => todo!(),
+        Flavour::Forge { build_version } => get_forge_jar_url(version, build_version).await.ok(),
     }
 }
 
@@ -119,7 +110,9 @@ pub async fn get_fabric_jar_url(
     let mut installer_version = String::new();
     let client = reqwest::Client::new();
 
-    if let (Some(FabricLoaderVersion(l)), Some(FabricInstallerVersion(i))) = (fabric_loader_version, fabric_installer_version) {
+    if let (Some(FabricLoaderVersion(l)), Some(FabricInstallerVersion(i))) =
+        (fabric_loader_version, fabric_installer_version)
+    {
         loader_version = l.to_string();
         installer_version = i.to_string();
         return Some((
@@ -130,7 +123,7 @@ pub async fn get_fabric_jar_url(
             Flavour::Fabric {
                 loader_version: Some(FabricLoaderVersion(loader_version)),
                 installer_version: Some(FabricInstallerVersion(installer_version)),
-            }
+            },
         ));
     }
 
@@ -257,27 +250,44 @@ pub async fn get_fabric_jar_url(
         Flavour::Fabric {
             loader_version: Some(FabricLoaderVersion(loader_version)),
             installer_version: Some(FabricInstallerVersion(installer_version)),
-        }
+        },
     ))
 }
 
-pub async fn get_paper_jar_url(version: &str, paper_build_version: &Option<PaperBuildVersion>) -> Option<(String, Flavour)> {
+pub async fn get_paper_jar_url(
+    version: &str,
+    paper_build_version: &Option<PaperBuildVersion>,
+) -> Option<(String, Flavour)> {
     let client = reqwest::Client::new();
 
     let builds_text = client
-        .get(format!("https://api.papermc.io/v2/projects/paper/versions/{}/builds/", version))
-        .send().await.ok()?
-        .text().await.ok()?;
+        .get(format!(
+            "https://api.papermc.io/v2/projects/paper/versions/{}/builds/",
+            version
+        ))
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()?;
     let builds: serde_json::Value = serde_json::from_str(&builds_text).ok()?;
     let mut builds = builds.get("builds")?.as_array()?.iter();
 
     let build = if let Some(PaperBuildVersion(b)) = paper_build_version {
-        builds
-            .find(|build| build.get("build").unwrap().as_i64().unwrap().eq(b))?
+        builds.find(|build| build.get("build").unwrap().as_i64().unwrap().eq(b))?
     } else {
         builds
-            .filter(|build| build.get("channel").unwrap().as_str().unwrap().to_string().eq("default"))
-            .max_by(|a, b|  {
+            .filter(|build| {
+                build
+                    .get("channel")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+                    .eq("default")
+            })
+            .max_by(|a, b| {
                 let a = a.get("build").unwrap().as_i64().unwrap();
                 let b = b.get("build").unwrap().as_i64().unwrap();
                 a.cmp(&b)
@@ -290,56 +300,55 @@ pub async fn get_paper_jar_url(version: &str, paper_build_version: &Option<Paper
             "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
             version,
             build_version,
-            build.get("downloads")?.get("application")?.get("name")?.as_str()?,
+            build
+                .get("downloads")?
+                .get("application")?
+                .get("name")?
+                .as_str()?,
         ),
         Flavour::Paper {
             build_version: Some(PaperBuildVersion(build_version)),
-        }
+        },
     ))
 }
 
-pub async fn get_forge_jar_url(version: &str, forge_build_version: &Option<ForgeBuildVersion>) -> Option<(String, Flavour)> {
+pub async fn get_forge_jar_url(
+    version: &str,
+    forge_build_version: &Option<ForgeBuildVersion>,
+) -> Result<(String, Flavour), Error> {
     let client = reqwest::Client::new();
 
-    let forge_versions_text = client
-        .get("https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json")
-        .send().await.ok()?
-        .text().await.ok()?;
-    let forge_versions: serde_json::Value = serde_json::from_str(&forge_versions_text).ok()?;
-    let mut builds = forge_versions.get(version)?.as_array()?.iter().map(
-        |b| {
-            // Converts "1.19.3-44.0.0" to "44.0.0"
-            // Converts "1.7.10-10.13.3.1367-1.7.10" to "10.13.3.1367-1.7.10"
-            let b = b.as_str().unwrap();
-            &b[(version.len() + 1)..]
-        }    
-    );
+    let response: BTreeMap<String, Vec<String>> = serde_json::from_str(
+        client
+            .get("https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json")
+            .send()
+            .await
+            .context("Failed to get forge versions, http request failed")?
+            .text()
+            .await
+            .context("Failed to get forge versions, text conversion failed")?
+            .as_str(),
+    )
+    .context("Failed to get forge versions, json is not a map")?;
 
     let build = if let Some(ForgeBuildVersion(b)) = forge_build_version {
-        builds
-            .find(|build| build.eq(&b))?
+        b
     } else {
-        builds
-            .max_by(|a, b| {
-                let a = &a[..(a.find('-').or(Some(a.len())).unwrap())];
-                let a: Vec<i32> = a.split('.').map(|s| s.parse().unwrap()).collect();
-                let b = &b[..(b.find('-').or(Some(b.len())).unwrap())];
-                let b: Vec<i32> = b.split('.').map(|s| s.parse().unwrap()).collect();
-                a.cmp(&b)
-            })?
+        response
+            .get(version)
+            .context("Failed to get forge versions, version not found")?
+            .last()
+            .context("Failed to get forge versions, no builds found")?
     };
 
-    Some((
+    Ok((
         format!(
-            "https://maven.minecraftforge.net/net/minecraftforge/forge/{}-{}/forge-{}-{}-installer.jar",
-            version.to_string(),
-            build,
-            version,
-            build,
+            "https://maven.minecraftforge.net/net/minecraftforge/forge/{}/forge-{}-installer.jar",
+            build, build
         ),
         Flavour::Forge {
             build_version: Some(ForgeBuildVersion(build.to_string())),
-        }
+        },
     ))
 }
 
@@ -357,7 +366,7 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
     };
 
     let major_java_version = {
-        let val = serde_json::Value::from_str(
+        let val = match serde_json::Value::from_str(
             client
                 .get(
                     serde_json::Value::from_str(
@@ -388,9 +397,11 @@ pub async fn get_jre_url(version: &str) -> Option<(String, u64)> {
                 .as_str(),
         )
         .ok()?
-        .get("javaVersion")?
-        .get("majorVersion")?
-        .as_u64()?;
+        .get("javaVersion")
+        {
+            Some(java_version) => java_version.get("majorVersion")?.as_u64()?,
+            None => 8,
+        };
         // Ddoptium won't provide java 16 for some reason
         // updateing to 17 should be safe, and 17 is preferred since its LTS
         if val == 16 {
@@ -426,9 +437,13 @@ pub async fn name_to_uuid(name: impl AsRef<str>) -> Option<String> {
     Some(res["id"].as_str()?.to_owned())
 }
 
+#[cfg(test)]
 mod tests {
+    use crate::minecraft::{
+        util::{get_forge_jar_url, get_server_jar_url},
+        FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, PaperBuildVersion,
+    };
     use tokio;
-    use crate::minecraft::{FabricInstallerVersion, FabricLoaderVersion, PaperBuildVersion, ForgeBuildVersion, Flavour, util::{get_server_jar_url, get_forge_jar_url}};
 
     #[tokio::test]
     async fn test_get_vanilla_jar_url() {
@@ -451,7 +466,12 @@ mod tests {
     #[tokio::test]
     async fn test_get_fabric_jar_url() {
         assert_eq!(
-            super::get_fabric_jar_url("1.19", &Some(FabricLoaderVersion("0.14.8".to_string())), &Some(FabricInstallerVersion("0.11.0".to_string()))).await,
+            super::get_fabric_jar_url(
+                "1.19",
+                &Some(FabricLoaderVersion("0.14.8".to_string())),
+                &Some(FabricInstallerVersion("0.11.0".to_string()))
+            )
+            .await,
             Some((
                 "https://meta.fabricmc.net/v2/versions/loader/1.19/0.14.8/0.11.0/server/jar"
                     .to_string(),
@@ -476,22 +496,22 @@ mod tests {
             "https://api.papermc.io/v2/projects/paper/versions/1.13-pre7/builds/1/downloads/paper-1.13-pre7-1.jar".to_string(),
             Flavour::Paper { build_version: Some(PaperBuildVersion(1)) }
         )));
-        assert_eq!(super::get_paper_jar_url("1.19.3", &None).await, Some((
-            "https://api.papermc.io/v2/projects/paper/versions/1.19.3/builds/397/downloads/paper-1.19.3-397.jar".to_string(),
-            Flavour::Paper { build_version: Some(PaperBuildVersion(397)) }
+        assert_eq!(super::get_paper_jar_url("1.19", &None).await, Some((
+            "https://api.papermc.io/v2/projects/paper/versions/1.19/builds/81/downloads/paper-1.19-81.jar".to_string(),
+            Flavour::Paper { build_version: Some(PaperBuildVersion(81)) }
         )));
-        
+
         assert_eq!(super::get_paper_jar_url("1.19.3bruh", &None).await, None);
     }
 
     #[tokio::test]
     async fn test_get_forge_jar_url() {
         assert_eq!(
-            get_forge_jar_url("1.19.3", &None).await,
-            Some((
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.19.3-44.1.16/forge-1.19.3-44.1.16-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("44.1.16".to_string())) }
-            ))
+            get_forge_jar_url("1.18.2", &None).await.unwrap(),
+            (
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.18.2-40.2.1/forge-1.18.2-40.2.1-installer.jar".to_string(),
+                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.18.2-40.2.1".to_string())) }
+            )
         );
     }
 
@@ -501,32 +521,24 @@ mod tests {
             get_server_jar_url("1.7.10", &Flavour::Forge { build_version: None }).await,
             Some((
                 "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("10.13.4.1614-1.7.10".to_string())) }
+                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.7.10-10.13.4.1614-1.7.10".to_string())) }
             ))
         );
         assert_eq!(
             get_server_jar_url("1.7.10_pre4", &Flavour::Forge { build_version: None }).await,
             Some((
                 "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10_pre4-10.12.2.1149-prerelease/forge-1.7.10_pre4-10.12.2.1149-prerelease-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("10.12.2.1149-prerelease".to_string())) }
+                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.7.10_pre4-10.12.2.1149-prerelease".to_string())) }
             ))
         );
         assert_eq!(
-            get_server_jar_url("1.7.10_pre4", &Flavour::Forge { build_version: Some(ForgeBuildVersion("10.12.2.1144-prerelease".to_string())) }).await,
-            Some((
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10_pre4-10.12.2.1144-prerelease/forge-1.7.10_pre4-10.12.2.1144-prerelease-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("10.12.2.1144-prerelease".to_string())) }
-            ))
-        );
-        assert_eq!(
-            get_server_jar_url("1.19.3", &Flavour::Forge { build_version: None }).await,
-            Some((
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.19.3-44.1.16/forge-1.19.3-44.1.16-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("44.1.16".to_string())) }
-            ))
-        );
-        assert_eq!(
-            get_server_jar_url("1.19.3bruh", &Flavour::Forge { build_version: None }).await,
+            get_server_jar_url(
+                "1.19.3bruh",
+                &Flavour::Forge {
+                    build_version: None
+                }
+            )
+            .await,
             None
         );
     }

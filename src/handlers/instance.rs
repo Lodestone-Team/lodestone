@@ -4,10 +4,6 @@ use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
 use color_eyre::eyre::{eyre, Context};
-use serde::{Deserialize, Serialize};
-use tracing::info;
-
-use ts_rs::TS;
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -16,12 +12,17 @@ use crate::events::{
     ProgressionStartValue,
 };
 
-use crate::implementations::minecraft::{Flavour, SetupConfig};
+use minecraft::FlavourKind;
+
+use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::PATH_TO_INSTANCES;
+use crate::traits::t_configurable::manifest::ManifestValue;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
-use crate::types::{InstanceUuid, Snowflake};
+use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::{implementations::minecraft, traits::t_server::State, AppState};
+
+use super::instance_setup_configs::HandlerGameType;
 
 pub async fn get_instance_list(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -60,106 +61,61 @@ pub async fn get_instance_info(
     Ok(Json(instance.get_instance_info().await))
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-pub struct MinecraftSetupConfigPrimitive {
-    pub name: String,
-    pub version: String,
-    pub flavour: Flavour,
-    pub port: u32,
-    pub cmd_args: Option<Vec<String>>,
-    pub description: Option<String>,
-    pub min_ram: Option<u32>,
-    pub max_ram: Option<u32>,
-    pub auto_start: Option<bool>,
-    pub restart_on_crash: Option<bool>,
-    pub timeout_last_left: Option<u32>,
-    pub timeout_no_activity: Option<u32>,
-    pub start_on_connection: Option<bool>,
-    pub backup_period: Option<u32>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-pub struct GenericSetupConfigPrimitive {
-    pub name: String,
-    pub description: Option<String>,
-    pub port: u32,
-    pub auto_start: Option<bool>,
-    pub restart_on_crash: Option<bool>,
-    pub timeout_last_left: Option<u32>,
-    pub timeout_no_activity: Option<u32>,
-    pub start_on_connection: Option<bool>,
-}
-
-impl From<MinecraftSetupConfigPrimitive> for SetupConfig {
-    fn from(config: MinecraftSetupConfigPrimitive) -> Self {
-        let uuid = InstanceUuid::default();
-        SetupConfig {
-            name: config.name.clone(),
-            version: config.version,
-            flavour: config.flavour,
-            port: config.port,
-            cmd_args: config.cmd_args,
-            description: config.description,
-            min_ram: config.min_ram,
-            max_ram: config.max_ram,
-            auto_start: config.auto_start,
-            restart_on_crash: config.restart_on_crash,
-            timeout_last_left: config.timeout_last_left,
-            timeout_no_activity: config.timeout_no_activity,
-            start_on_connection: config.start_on_connection,
-            backup_period: config.backup_period,
-            game_type: "minecraft".to_string(),
-            uuid: uuid.clone(),
-            path: PATH_TO_INSTANCES
-                .with(|path| path.join(format!("{}-{}", config.name, &uuid.no_prefix()[0..8]))),
-        }
-    }
-}
-pub async fn create_minecraft_instance(
+pub async fn create_instance(
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
-    Json(mut primitive_setup_config): Json<MinecraftSetupConfigPrimitive>,
+    Path(game_type): Path<HandlerGameType>,
+    Json(manifest_value): Json<ManifestValue>,
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::CreateInstance)?;
-    primitive_setup_config.name = sanitize_filename::sanitize(&primitive_setup_config.name);
-    let mut setup_config: SetupConfig = primitive_setup_config.into();
-    let name = setup_config.name.clone();
-    if name.is_empty() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Name must not be empty"),
-        });
-    }
-    if name.len() > 100 {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Name must not be longer than 100 characters"),
-        });
-    }
-    for (_, instance) in state.instances.lock().await.iter() {
-        let path = instance.path().await;
-        if path == setup_config.path {
-            while path == setup_config.path {
-                info!("You just hit the lottery");
-                setup_config.uuid = InstanceUuid::default();
-                let name_with_uuid = format!("{}-{}", name, &setup_config.uuid.no_prefix()[0..5]);
-                setup_config.path = PATH_TO_INSTANCES.with(|path| {
-                    path.join(format!(
-                        "{}-{}",
-                        name_with_uuid,
-                        &setup_config.uuid.no_prefix()[0..5]
-                    ))
-                });
+
+    let mut instance_uuid = InstanceUuid::default();
+
+    for uuid in state.instances.lock().await.keys() {
+        if let Some(uuid) = uuid.as_ref().get(0..8) {
+            if uuid == &instance_uuid.no_prefix()[0..8] {
+                instance_uuid = InstanceUuid::default();
             }
         }
     }
 
-    let uuid = setup_config.uuid.clone();
+    let instance_uuid = instance_uuid;
+
+    let flavour = match game_type {
+        HandlerGameType::MinecraftJavaVanilla => FlavourKind::Vanilla,
+        HandlerGameType::MinecraftForge => FlavourKind::Forge,
+        HandlerGameType::MinecraftFabric => FlavourKind::Fabric,
+        HandlerGameType::MinecraftPaper => FlavourKind::Paper,
+    };
+
+    let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
+
+    let setup_path = PATH_TO_INSTANCES.with(|path| {
+        path.join(format!(
+            "{}-{}",
+            setup_config.name,
+            &instance_uuid.no_prefix()[0..8]
+        ))
+    });
+
+    tokio::fs::create_dir_all(&setup_path)
+        .await
+        .context("Failed to create instance directory")?;
+
+    let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), game_type.into());
+
+    // write dot lodestone config
+
+    tokio::fs::write(
+        setup_path.join(".lodestone_config"),
+        serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
+    )
+    .await
+    .context("Failed to write .lodestone_config file")?;
+
     tokio::task::spawn({
-        let uuid = uuid.clone();
+        let uuid = instance_uuid.clone();
         let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
         let port = setup_config.port;
@@ -174,7 +130,7 @@ pub async fn create_minecraft_instance(
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
-                        progression_name: format!("Setting up Minecraft server {}", name),
+                        progression_name: format!("Setting up Minecraft server {}", instance_name),
                         producer_id: Some(uuid.clone()),
                         total: Some(10.0),
                         inner: Some(ProgressionStartValue::InstanceCreation {
@@ -192,6 +148,8 @@ pub async fn create_minecraft_instance(
             });
             let minecraft_instance = match minecraft::MinecraftInstance::new(
                 setup_config.clone(),
+                dot_lodestone_config,
+                setup_path.clone(),
                 progression_event_id,
                 state.event_broadcaster.clone(),
                 state.macro_executor.clone(),
@@ -230,7 +188,7 @@ pub async fn create_minecraft_instance(
                         snowflake: Snowflake::default(),
                         caused_by: caused_by.clone(),
                     });
-                    crate::util::fs::remove_dir_all(setup_config.path)
+                    crate::util::fs::remove_dir_all(setup_path)
                         .await
                         .context("Failed to remove directory after instance creation failed")
                         .unwrap();
@@ -246,7 +204,7 @@ pub async fn create_minecraft_instance(
                 .insert(uuid.clone(), minecraft_instance.into());
         }
     });
-    Ok(Json(uuid))
+    Ok(Json(instance_uuid))
 }
 
 pub async fn delete_instance(
@@ -363,7 +321,7 @@ pub async fn delete_instance(
 pub fn get_instance_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/list", get(get_instance_list))
-        .route("/instance/minecraft", post(create_minecraft_instance))
+        .route("/instance/create/:game_type", post(create_instance))
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))
         .with_state(state)

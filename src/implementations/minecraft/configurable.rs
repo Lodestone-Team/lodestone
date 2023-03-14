@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::{collections::HashMap, sync::atomic};
+use std::sync::atomic;
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
@@ -9,71 +9,54 @@ use crate::error::{Error, ErrorKind};
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SettingManifest,
 };
-use crate::traits::t_configurable::TConfigurable;
+use crate::traits::t_configurable::{Game, TConfigurable};
 use crate::traits::t_server::State;
 
 use crate::types::InstanceUuid;
 use crate::util::download_file;
 
 use super::util::{get_fabric_jar_url, get_paper_jar_url, get_vanilla_jar_url};
-use super::{BackupInstruction, MinecraftInstance};
+use super::MinecraftInstance;
 
 #[async_trait]
 impl TConfigurable for MinecraftInstance {
     async fn uuid(&self) -> InstanceUuid {
-        self.config.uuid.clone()
+        self.uuid.clone()
     }
 
     async fn name(&self) -> String {
-        self.config.name.clone()
+        self.config.lock().await.name.clone()
     }
 
-    async fn game_type(&self) -> String {
-        self.config.game_type.clone()
+    async fn game_type(&self) -> Game {
+        self.config.lock().await.flavour.clone().into()
     }
-
     async fn flavour(&self) -> String {
-        self.config.flavour.to_string()
-    }
-
-    async fn cmd_args(&self) -> Vec<String> {
-        self.config.cmd_args.clone()
+        self.config.lock().await.flavour.to_string()
     }
 
     async fn description(&self) -> String {
-        self.config.description.clone()
+        self.config.lock().await.description.clone()
     }
 
     async fn port(&self) -> u32 {
-        self.config.port
-    }
-
-    async fn min_ram(&self) -> Result<u32, Error> {
-        Ok(self.config.min_ram)
-    }
-
-    async fn max_ram(&self) -> Result<u32, Error> {
-        Ok(self.config.max_ram)
+        self.config.lock().await.port
     }
 
     async fn creation_time(&self) -> i64 {
-        self.config.creation_time
+        self.creation_time
     }
 
     async fn path(&self) -> std::path::PathBuf {
-        self.config.path.clone()
+        self.path_to_instance.clone()
     }
 
     async fn auto_start(&self) -> bool {
-        self.config.auto_start
+        self.config.lock().await.auto_start
     }
 
     async fn restart_on_crash(&self) -> bool {
-        self.config.restart_on_crash
-    }
-
-    async fn backup_period(&self) -> Result<Option<u32>, Error> {
-        Ok(self.config.backup_period)
+        self.config.lock().await.restart_on_crash
     }
 
     async fn set_name(&mut self, name: String) -> Result<(), Error> {
@@ -89,124 +72,40 @@ impl TConfigurable for MinecraftInstance {
                 source: eyre!("Name cannot be longer than 100 characters"),
             });
         }
-        self.config.name = name;
+        self.config.lock().await.name = name;
         self.write_config_to_file().await?;
         Ok(())
     }
 
     async fn set_description(&mut self, description: String) -> Result<(), Error> {
-        self.config.description = description;
+        self.config.lock().await.description = description;
         self.write_config_to_file().await?;
         Ok(())
     }
 
     async fn set_port(&mut self, port: u32) -> Result<(), Error> {
-        self.config.port = port;
-        *self
-            .server_properties_buffer
-            .lock()
-            .await
-            .entry("server-port".to_string())
-            .or_insert_with(|| port.to_string()) = port.to_string();
+        self.configurable_manifest.lock().await.set_setting(
+            ServerPropertySetting::get_section_id(),
+            ServerPropertySetting::ServerPort(port as u16).into(),
+        )?;
+        self.config.lock().await.port = port;
 
-        self.configurable_manifest
-            .lock()
-            .await
-            .update_setting_value(
-                ServerPropertySetting::get_section_id(),
-                &ServerPropertySetting::ServerPort(0).get_identifier(),
-                ConfigurableValue::UnsignedInteger(port),
-            )?;
         self.write_config_to_file()
             .await
             .and(self.write_properties_to_file().await)
     }
 
-    async fn set_cmd_args(&mut self, cmd_args: Vec<String>) -> Result<(), Error> {
-        self.config.cmd_args = cmd_args.clone();
-        self.configurable_manifest
-            .lock()
-            .await
-            .update_setting_value(
-                CmdArgSetting::get_section_id(),
-                CmdArgSetting::Args(vec![]).get_identifier(),
-                ConfigurableValue::String(
-                    cmd_args
-                        .iter()
-                        .map(|arg| arg.to_string())
-                        .collect::<Vec<String>>()
-                        .join(" "),
-                ),
-            )?;
-        self.write_config_to_file().await
-    }
-
-    async fn set_min_ram(&mut self, min_ram: u32) -> Result<(), Error> {
-        self.config.min_ram = min_ram;
-        self.configurable_manifest
-            .lock()
-            .await
-            .update_setting_value(
-                CmdArgSetting::get_section_id(),
-                CmdArgSetting::MinRam(0).get_identifier(),
-                ConfigurableValue::UnsignedInteger(min_ram),
-            )?;
-        self.write_config_to_file().await
-    }
-
-    async fn set_max_ram(&mut self, max_ram: u32) -> Result<(), Error> {
-        self.config.max_ram = max_ram;
-        self.configurable_manifest
-            .lock()
-            .await
-            .update_setting_value(
-                CmdArgSetting::get_section_id(),
-                CmdArgSetting::MaxRam(0).get_identifier(),
-                ConfigurableValue::UnsignedInteger(max_ram),
-            )?;
-        self.write_config_to_file().await
-    }
-
     async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), Error> {
-        self.config.auto_start = auto_start;
+        self.config.lock().await.auto_start = auto_start;
         self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
     }
 
     async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), Error> {
-        self.config.restart_on_crash = restart_on_crash;
+        self.config.lock().await.restart_on_crash = restart_on_crash;
         self.auto_start
             .store(restart_on_crash, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
-    }
-
-    async fn set_backup_period(&mut self, backup_period: Option<u32>) -> Result<(), Error> {
-        self.config.backup_period = backup_period;
-        self.backup_sender
-            .send(BackupInstruction::SetPeriod(backup_period))
-            .unwrap();
-        self.write_config_to_file().await
-    }
-
-    async fn set_field(&mut self, field: &str, value: String) -> Result<(), Error> {
-        self.server_properties_buffer
-            .lock()
-            .await
-            .insert(field.to_string(), value);
-        self.write_properties_to_file().await
-    }
-
-    async fn get_field(&self, field: &str) -> Result<String, Error> {
-        Ok(self
-            .server_properties_buffer
-            .lock()
-            .await
-            .get(field)
-            .ok_or(Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("Field {} not found", field),
-            })?
-            .to_string())
     }
 
     async fn change_version(&mut self, version: String) -> Result<(), Error> {
@@ -216,10 +115,10 @@ impl TConfigurable for MinecraftInstance {
                 source: eyre!("Cannot change version while server is running"),
             });
         }
-        if version == self.config.version {
+        if version == self.config.lock().await.version {
             return Ok(());
         }
-        let (url, _) = match self.config.flavour {
+        let (url, _) = match self.config.lock().await.flavour {
             super::Flavour::Vanilla => get_vanilla_jar_url(&version).await.ok_or_else(|| {
                 let error_msg =
                     format!("Cannot get the vanilla jar version for version {}", version);
@@ -270,16 +169,12 @@ impl TConfigurable for MinecraftInstance {
         tokio::fs::rename(jar_path, self.path().await.join("server.jar"))
             .await
             .context("Cannot move the downloaded server jar file to the server directory")?;
-        self.config.version = version;
+        self.config.lock().await.version = version;
         self.write_config_to_file().await
     }
 
-    async fn settings(&self) -> Result<HashMap<String, String>, Error> {
-        Ok(self.server_properties_buffer.lock().await.clone())
-    }
-
     async fn configurable_manifest(&self) -> ConfigurableManifest {
-        todo!()
+        self.configurable_manifest.lock().await.clone()
     }
 
     async fn update_configurable(
@@ -291,7 +186,10 @@ impl TConfigurable for MinecraftInstance {
         self.configurable_manifest
             .lock()
             .await
-            .update_setting_value(section_id, setting_id, value.clone())
+            .update_setting_value(section_id, setting_id, value.clone())?;
+        self.sync_configurable_to_restore_config().await;
+        self.write_config_to_file().await?;
+        self.write_properties_to_file().await
     }
 }
 
@@ -437,47 +335,47 @@ impl From<CmdArgSetting> for SettingManifest {
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableValue::Integer(min_ram as i32)),
-                ConfigurableValueType::Integer {
+                Some(ConfigurableValue::UnsignedInteger(min_ram)),
+                ConfigurableValueType::UnsignedInteger {
                     min: Some(0),
                     max: None,
                 },
                 None,
                 false,
-                false,
+                true,
             ),
             CmdArgSetting::MaxRam(max_ram) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
-                Some(ConfigurableValue::Integer(max_ram as i32)),
-                ConfigurableValueType::Integer {
+                Some(ConfigurableValue::UnsignedInteger(max_ram)),
+                ConfigurableValueType::UnsignedInteger {
                     min: Some(0),
                     max: None,
                 },
                 None,
                 false,
-                false,
+                true,
             ),
             CmdArgSetting::JavaCmd(ref java_cmd) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
                 Some(ConfigurableValue::String(java_cmd.to_owned())),
-                ConfigurableValueType::String(None),
+                ConfigurableValueType::String { regex: None },
                 None,
                 false,
-                false,
+                true,
             ),
             CmdArgSetting::Args(ref args) => SettingManifest::new_optional_value(
                 value.get_identifier().to_owned(),
                 value.get_name().to_owned(),
                 value.get_description().to_owned(),
                 Some(ConfigurableValue::String(args.join(" "))),
-                ConfigurableValueType::String(None),
+                ConfigurableValueType::String { regex: None },
                 None,
                 false,
-                false,
+                true,
             ),
         }
     }
@@ -658,6 +556,7 @@ pub(super) enum ServerPropertySetting {
     SpawnProtection(u32),
     ResourcePackSha1(String),
     MaxWorldSize(u32),
+    MaxBuildHeight(u32),
     Unknown(String, String),
 }
 
@@ -685,8 +584,7 @@ impl From<ServerPropertySetting> for SettingManifest {
                 None,
                 false,
                 true,
-            )
-            .expect("Programming error"),
+            ),
             ServerPropertySetting::LevelSeed(ref inner_val) => Self::new_required_value(
                 value.get_identifier(),
                 value.get_name(),
@@ -712,8 +610,7 @@ impl From<ServerPropertySetting> for SettingManifest {
                 None,
                 false,
                 true,
-            )
-            .expect("Programming error: invalid enum value"),
+            ),
             ServerPropertySetting::EnableCommandBlock(inner_val) => Self::new_required_value(
                 value.get_identifier(),
                 value.get_name(),
@@ -780,8 +677,7 @@ impl From<ServerPropertySetting> for SettingManifest {
                 None,
                 false,
                 true,
-            )
-            .expect("Programming error"),
+            ),
             ServerPropertySetting::Pvp(inner_val) => Self::new_required_value(
                 value.get_identifier(),
                 value.get_name(),
@@ -957,11 +853,19 @@ impl From<ServerPropertySetting> for SettingManifest {
                 false,
                 true,
             ),
-            ServerPropertySetting::Difficulty(ref inner_val) => Self::new_required_value(
+            ServerPropertySetting::Difficulty(ref inner_val) => Self::new_value_with_type(
                 value.get_identifier(),
                 value.get_name(),
                 value.get_description(),
-                ConfigurableValue::String(inner_val.to_string()),
+                Some(ConfigurableValue::Enum(inner_val.to_string())),
+                ConfigurableValueType::Enum {
+                    options: vec![
+                        "peaceful".to_string(),
+                        "easy".to_string(),
+                        "normal".to_string(),
+                        "hard".to_string(),
+                    ],
+                },
                 None,
                 false,
                 true,
@@ -1091,7 +995,7 @@ impl From<ServerPropertySetting> for SettingManifest {
                 value.get_description(),
                 ConfigurableValue::String(inner_val.clone()),
                 None,
-                false,
+                true,
                 true,
             ),
             ServerPropertySetting::PlayerIdleTimeout(inner_val) => Self::new_required_value(
@@ -1207,6 +1111,15 @@ impl From<ServerPropertySetting> for SettingManifest {
                 value.get_name(),
                 value.get_description(),
                 ConfigurableValue::String(val.clone()),
+                None,
+                false,
+                true,
+            ),
+            ServerPropertySetting::MaxBuildHeight(val) => Self::new_required_value(
+                value.get_identifier(),
+                value.get_name(),
+                value.get_description(),
+                ConfigurableValue::UnsignedInteger(val),
                 None,
                 false,
                 true,
@@ -1481,6 +1394,12 @@ impl TryFrom<SettingManifest> for ServerPropertySetting {
                     .context(err_msg)?
                     .try_as_unsigned_integer()?,
             )),
+            "max-build-height" => Ok(ServerPropertySetting::MaxBuildHeight(
+                value
+                    .get_value()
+                    .context(err_msg)?
+                    .try_as_unsigned_integer()?,
+            )),
             _ => Ok(ServerPropertySetting::Unknown(
                 value.get_identifier().to_string(),
                 value.get_value().context(err_msg)?.to_string(),
@@ -1553,6 +1472,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "spawn-protection",
             Self::ResourcePackSha1(_) => "resource-pack-sha1",
             Self::MaxWorldSize(_) => "max-world-size",
+            Self::MaxBuildHeight(_) => "max-build-height",
             Self::Unknown(key, _) => key,
         }
         .to_string()
@@ -1561,11 +1481,11 @@ impl ServerPropertySetting {
     // name to be displayed in the UI
     fn get_name(&self) -> String {
         if let Self::Unknown(key, _) = self {
-            return key
-                .to_string()
-                .get_mut(0..1)
-                .map(|c| c.to_uppercase())
-                .unwrap_or_default();
+            // capitalize the first letter of the key
+            let mut chars = key.chars();
+            let first = chars.next().unwrap().to_uppercase();
+            let rest = chars.as_str();
+            return format!("{}{}", first, rest);
         };
         match self {
             Self::EnableJmxMonitoring(_) => "Enable JMX Monitoring",
@@ -1625,6 +1545,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "Spawn Protection",
             Self::ResourcePackSha1(_) => "Resource Pack Sha1",
             Self::MaxWorldSize(_) => "Max World Size",
+            Self::MaxBuildHeight(_) => "Max Build Height",
             Self::Unknown(_, _) => unreachable!("Handled above"),
         }
         .to_string()
@@ -1634,7 +1555,7 @@ impl ServerPropertySetting {
     fn get_description(&self) -> String {
         if let Self::Unknown(key, val) = self {
             return format!(
-                "Unknown property: {key} = {val} Please report this to the developers."
+                "Unknown property: {key} = {val}. Please report this to the developers."
             );
         };
         match self {
@@ -1695,6 +1616,7 @@ impl ServerPropertySetting {
             Self::SpawnProtection(_) => "The radius of the spawn protection area.",
             Self::ResourcePackSha1(_) => "The SHA1 hash of the resource pack that will be used by default.",
             Self::MaxWorldSize(_) => "The maximum size of the world in blocks.",
+            Self::MaxBuildHeight(_) => "The maximum height of the world in blocks.",
             Self::Unknown(_, _) => unreachable!("Already handled above.")
         }.to_string()
     }
@@ -1944,6 +1866,11 @@ impl ServerPropertySetting {
                     || eyre!("Invalid value: {value} for \"max-world-size\", expected u32"),
                 )?))
             }
+            "max-build-height" => {
+                Ok(Self::MaxBuildHeight(value.parse::<u32>().with_context(
+                    || eyre!("Invalid value: {value} for \"max-build-height\", expected u32"),
+                )?))
+            }
             _ => Ok(Self::Unknown(key.to_string(), value.to_string())),
         }
     }
@@ -2007,7 +1934,8 @@ impl ServerPropertySetting {
             Self::SpawnProtection(v) => format!("{}={}", self.get_identifier(), v),
             Self::ResourcePackSha1(v) => format!("{}={}", self.get_identifier(), v),
             Self::MaxWorldSize(v) => format!("{}={}", self.get_identifier(), v),
-            Self::Unknown(k, v) => format!("{}={}", self.get_identifier(), v.to_string()),
+            Self::MaxBuildHeight(v) => format!("{}={}", self.get_identifier(), v),
+            Self::Unknown(_k, v) => format!("{}={}", self.get_identifier(), v),
         }
     }
 }

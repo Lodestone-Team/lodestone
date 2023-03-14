@@ -15,12 +15,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        platform: [ubuntu-latest, windows-latest]
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+        with:
+            toolchain: nightly
+            components: clippy
+            override: true
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
 
-    runs-on: ${{ matrix.platform }}
+  build_windows:
+    runs-on: windows-latest
+    needs: clippy_check
     defaults:
       run:
         working-directory: ./
@@ -31,16 +42,19 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
           toolchain: stable
+          profile: minimal
 
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}-client
+          key: windows-client
 
       - name: Build Backend
-        run: cargo build --verbose --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
 
       # on windows it's ./target/release/main.exe
       # on linux it's ./target/release/main
@@ -48,5 +62,48 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.platform }}-client${{ matrix.platform == 'windows-latest' && '.exe' || '' }}
-          path: ./target/release/${{ matrix.platform == 'windows-latest' && 'main.exe' || 'main' }}
+          name: x86_64-pc-windows-msvc-client.exe
+          path: ./target/release/main.exe
+
+  build_linux:
+    strategy:
+      matrix:
+        platform: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+
+    runs-on: ubuntu-latest
+    needs: clippy_check
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.platform }}
+
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}-client
+
+      - name: Build Backend
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.platform }}
+
+      # on windows it's ./target/release/main.exe
+      # on linux it's ./target/release/main
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.platform }}-client
+          path: ./target/${{ matrix.platform }}/release/main

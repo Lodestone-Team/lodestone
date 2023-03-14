@@ -5,12 +5,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use color_eyre::eyre::{eyre};
+use color_eyre::eyre::eyre;
 use deno_core::{
     anyhow::{self},
     op, OpState,
 };
-
 
 use crate::{
     error::Error,
@@ -34,12 +33,6 @@ async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<String, a
     let instance = state.borrow().borrow::<MinecraftInstance>().clone();
     let ret = instance.send_rcon(&cmd).await?;
     Ok(ret)
-}
-
-#[op]
-fn config(state: Rc<RefCell<OpState>>) -> Result<String, anyhow::Error> {
-    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
-    Ok(serde_json::to_string(&instance.config)?)
 }
 
 #[op]
@@ -183,11 +176,10 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
             ..Default::default()
         };
 
-        let ext = deno_core::Extension::builder()
+        let ext = deno_core::Extension::builder("minecraft_deno_extension_builder")
             .ops(vec![
                 send_stdin::decl(),
                 send_rcon::decl(),
-                config::decl(),
                 on_event::decl(),
             ])
             .state({
@@ -206,7 +198,7 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
         let permissions = deno_runtime::permissions::Permissions::allow_all();
         let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
             main_module,
-            permissions,
+            deno_runtime::permissions::PermissionsContainer::new(permissions),
             worker_options,
         );
         let js = include_str!("js_macro/runtime.js");
@@ -269,7 +261,7 @@ impl TMacro for MinecraftInstance {
             args,
             caused_by,
             Box::new(main_worker_generator),
-            Some(self.config.uuid.clone()),
+            Some(self.uuid.clone()),
         );
         // self.macro_executor.spawn(exec_instruction).await?;
 

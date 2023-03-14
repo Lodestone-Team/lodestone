@@ -1,5 +1,6 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
+use crate::traits::t_configurable::GameType;
 use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
@@ -8,8 +9,8 @@ use crate::{
         gateway::get_gateway_routes, global_fs::get_global_fs_routes,
         global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
-        instance_macro::get_instance_macro_routes, instance_manifest::get_instance_manifest_routes,
-        instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
+        instance_macro::get_instance_macro_routes, instance_players::get_instance_players_routes,
+        instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
@@ -18,6 +19,7 @@ use crate::{
     },
     util::{download_file, rand_alphanumeric},
 };
+
 use auth::user::UsersManager;
 use axum::Router;
 
@@ -32,7 +34,7 @@ use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use serde_json::{Value, json};
+
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
@@ -63,7 +65,7 @@ use tracing_subscriber::{
     fmt::time::LocalTime, prelude::__tracing_subscriber_SubscriberExt, EnvFilter,
 };
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
-use types::InstanceUuid;
+use types::{DotLodestoneConfig, InstanceUuid};
 use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
@@ -74,13 +76,14 @@ pub mod global_settings;
 mod handlers;
 pub mod implementations;
 pub mod macro_executor;
+mod migration;
 mod output_types;
 mod port_manager;
 pub mod prelude;
 pub mod tauri_export;
 mod traits;
 pub mod types;
-mod util;
+pub mod util;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -107,54 +110,34 @@ async fn restore_instances(
 ) -> HashMap<InstanceUuid, GameInstance> {
     let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
 
-    for instance_future in list_dir(&lodestone_path.join("instances"), Some(true))
+    for path in list_dir(&lodestone_path.join("instances"), Some(true))
         .await
         .unwrap()
-        .iter()
-        .filter(|path| {
-            debug!("{}", path.display());
-            path.join(".lodestone_config").is_file()
-        })
-        .map(|path| {
-            // read config as json
-            let config: Value = serde_json::from_reader(
+    {
+        if path.join(".lodestone_config").is_file() {
+            migration::migrate(&path).await.unwrap();
+
+            // read config as DotLodestoneConfig
+            let dot_lodestone_config: DotLodestoneConfig = serde_json::from_reader(
                 std::fs::File::open(path.join(".lodestone_config")).unwrap(),
             )
             .unwrap();
-            config
-        })
-        .map(|mut config| {
-            match config["game_type"]
-                .as_str()
-                .unwrap()
-                .to_ascii_lowercase()
-                .as_str()
-            {
-                "minecraft" => {
-                    debug!(
-                        "Restoring Minecraft instance {}",
-                        config["name"].as_str().unwrap()
-                    );
+            debug!("restoring instance: {}", path.display());
 
-                    // Backwards compatability for before flavour versions were stored
-                    if let Some("fabric") = config["flavour"].as_str() {
-                        config["flavour"] = json!({ "fabric": { "loader_version": null, "installer_version": null } });
-                    } else if let Some("paper") = config["flavour"].as_str() {
-                        config["flavour"] = json!({ "paper": { "build_version": null } });
-                    }
-
-                    minecraft::MinecraftInstance::restore(
-                        serde_json::from_value(config).unwrap(),
-                        event_broadcaster.clone(),
-                        macro_executor.clone(),
-                    )
-                }
-                _ => unimplemented!(),
+            if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
+                let instance = minecraft::MinecraftInstance::restore(
+                    path.to_owned(),
+                    dot_lodestone_config.clone(),
+                    dot_lodestone_config.uuid().to_owned(),
+                    event_broadcaster.clone(),
+                    macro_executor.clone(),
+                )
+                .await
+                .unwrap();
+                debug!("Restored successfully");
+                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
             }
-        })
-    {
-        let instance = instance_future.await;
-        ret.insert(instance.uuid().await, instance.into());
+        }
     }
     ret
 }
@@ -486,7 +469,6 @@ pub async fn run() -> (
                 let api_routes = Router::new()
                     .merge(get_events_routes(shared_state.clone()))
                     .merge(get_instance_setup_config_routes())
-                    .merge(get_instance_manifest_routes(shared_state.clone()))
                     .merge(get_instance_server_routes(shared_state.clone()))
                     .merge(get_instance_config_routes(shared_state.clone()))
                     .merge(get_instance_players_routes(shared_state.clone()))

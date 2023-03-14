@@ -1,12 +1,13 @@
 use async_trait::async_trait;
-use color_eyre::eyre::Context;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::traits::t_player::Player;
 use crate::traits::t_player::{TPlayer, TPlayerManagement};
-use crate::traits::{t_configurable::TConfigurable, t_player::Player};
 use crate::Error;
 
+use super::configurable::ServerPropertySetting;
 use super::MinecraftInstance;
 
 #[derive(Eq, Debug, Clone, Serialize, Deserialize, TS)]
@@ -57,12 +58,12 @@ impl TPlayerManagement for MinecraftInstance {
     }
 
     async fn get_max_player_count(&self) -> Result<u32, Error> {
-        Ok(self
-            .get_field("max-players")
+        self.configurable_manifest
+            .lock()
             .await
-            .unwrap_or_else(|_| "20".to_string())
-            .parse()
-            .context("Failed to parse max player count from server.properties")?)
+            .get_unique_setting_key(&ServerPropertySetting::MaxPlayers(0).get_identifier())
+            .and_then(|v| v.get_value().map(|v| v.try_as_unsigned_integer()))
+            .unwrap_or(Ok(20))
     }
 
     async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
@@ -70,7 +71,14 @@ impl TPlayerManagement for MinecraftInstance {
     }
 
     async fn set_max_player_count(&mut self, max_player_count: u32) -> Result<(), Error> {
-        self.set_field("max-players", max_player_count.to_string())
+        self.configurable_manifest
+            .lock()
             .await
+            .set_unique_setting_key(
+                &ServerPropertySetting::MaxPlayers(0).get_identifier(),
+                max_player_count.into(),
+            )?;
+        self.write_properties_to_file().await?;
+        Ok(())
     }
 }

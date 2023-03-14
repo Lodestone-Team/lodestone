@@ -6,7 +6,7 @@ thread_local! {
     pub static VERSION: semver::Version = semver::Version {
         major: 0,
         minor: 4,
-        patch: 2,
+        patch: 3,
         pre: Prerelease::new("").unwrap(),
         build: BuildMetadata::EMPTY,
     };
@@ -44,42 +44,7 @@ use crate::minecraft::MinecraftInstance;
     TServer,
     TManifest
 )]
-#[derive(Clone, enum_kinds::EnumKind)]
-#[enum_kind(GameInstanceKind, derive(Hash))]
+#[derive(Clone)]
 pub enum GameInstance {
     MinecraftInstance,
-}
-
-impl<'de> serde::Deserialize<'de> for GameInstanceKind {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        match s.to_lowercase().as_str() {
-            "minecraft" => Ok(GameInstanceKind::MinecraftInstance),
-            _ => Err(serde::de::Error::custom(format!(
-                "Unknown game type: {}",
-                s
-            ))),
-        }
-    }
-}
-impl serde::Serialize for GameInstanceKind {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            GameInstanceKind::MinecraftInstance => serializer.serialize_str("minecraft"),
-        }
-    }
-}
-
-impl ToString for GameInstanceKind {
-    fn to_string(&self) -> String {
-        match self {
-            GameInstanceKind::MinecraftInstance => "minecraft".to_string(),
-        }
-    }
 }

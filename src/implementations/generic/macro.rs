@@ -1,7 +1,4 @@
-use std::{rc::Rc};
-
-
-
+use std::rc::Rc;
 
 use crate::events::CausedBy;
 use crate::macro_executor::{self, MainWorkerGenerator};
@@ -23,7 +20,11 @@ impl GenericMainWorkerGenerator {
 }
 
 impl MainWorkerGenerator for GenericMainWorkerGenerator {
-    fn generate(&self, args: Vec<String>, _caused_by : CausedBy) -> deno_runtime::worker::MainWorker {
+    fn generate(
+        &self,
+        args: Vec<String>,
+        _caused_by: CausedBy,
+    ) -> deno_runtime::worker::MainWorker {
         let bootstrap_options = deno_runtime::BootstrapOptions {
             args,
             ..Default::default()
@@ -34,7 +35,7 @@ impl MainWorkerGenerator for GenericMainWorkerGenerator {
             ..Default::default()
         };
 
-        let ext = deno_core::Extension::builder()
+        let ext = deno_core::Extension::builder("generic_deno_extension_builder")
             .ops(vec![
                 on_procedure::decl(),
                 emit_result::decl(),
@@ -59,7 +60,7 @@ impl MainWorkerGenerator for GenericMainWorkerGenerator {
         let permissions = deno_runtime::permissions::Permissions::allow_all();
         deno_runtime::worker::MainWorker::bootstrap_from_options(
             main_module,
-            permissions,
+            deno_runtime::permissions::PermissionsContainer::new(permissions),
             worker_options,
         )
     }

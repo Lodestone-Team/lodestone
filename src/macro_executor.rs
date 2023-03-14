@@ -37,7 +37,9 @@ use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
+use deno_core::ResolutionKind;
 use deno_core::{anyhow, error::generic_error};
+
 use futures::FutureExt;
 
 pub trait MainWorkerGenerator: Send + Sync {
@@ -60,7 +62,7 @@ impl ModuleLoader for TypescriptModuleLoader {
         &self,
         specifier: &str,
         referrer: &str,
-        _is_main: bool,
+        _kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, anyhow::Error> {
         Ok(resolve_import(specifier, referrer)?)
     }
@@ -365,11 +367,11 @@ mod tests {
     use deno_core::error::generic_error;
     use deno_core::{anyhow, op, ModuleSpecifier};
     use deno_core::{resolve_import, ModuleLoader, ModuleSource, ModuleSourceFuture, ModuleType};
+    use deno_runtime::permissions::{Permissions, PermissionsContainer};
     use futures::FutureExt;
     use serde_json::{json, Value};
     use tokio::sync::broadcast;
     struct BasicMainWorkerGenerator;
-
 
     impl MainWorkerGenerator for BasicMainWorkerGenerator {
         fn generate(
@@ -390,7 +392,7 @@ mod tests {
             worker_options.module_loader = Rc::new(TypescriptModuleLoader::default());
             let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
                 deno_core::resolve_path(".").unwrap(),
-                deno_runtime::permissions::Permissions::allow_all(),
+                PermissionsContainer::new(Permissions::allow_all()),
                 worker_options,
             );
 
@@ -425,7 +427,8 @@ mod tests {
             r#"
             console.log("hello world");
             "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
@@ -441,7 +444,6 @@ mod tests {
             .unwrap();
         assert!(executor.wait_with_timeout(pid, None).await);
     }
-
 
     #[tokio::test]
     async fn test_http_url() {
@@ -462,7 +464,8 @@ mod tests {
             import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
             console.log("hello world");
             "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
