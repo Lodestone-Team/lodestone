@@ -80,6 +80,8 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
 
 ### Prerequisites
 
+These instructions apply to Ubuntu 20.04 LTS and later.
+
 * `build-essential` is required for the Rust toolchain.
   ```sh
   sudo apt-get install build-essential
@@ -90,7 +92,11 @@ Please make sure you have `cargo` and `rustc`, for instruction on how to install
   ```
 * `cpuidtool` is required to query CPU information
   ```sh
-  sudo apt-get install cpuidtool libcpuid14 libcpuid-dev
+  sudo apt-get install cpuidtool libcpuid-dev
+  ```
+  A few other packages are needed to compile Lodestone
+  ```sh
+  sudo apt-get install libffi-dev libmagic-dev file
   ```
 
 ### Installation
