@@ -7,7 +7,7 @@ WORKDIR /app
 COPY . ./
 
 # build app using 'release' profile
-RUN cargo build --release
+RUN cargo build --release --features "vendored-openssl"
 
 FROM debian:bullseye-slim as production
 
