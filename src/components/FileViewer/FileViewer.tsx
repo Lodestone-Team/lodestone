@@ -45,10 +45,14 @@ import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
+import ErrorGraphic from 'components/ErrorGraphic';
 import ConfirmDialog from '../Atoms/ConfirmDialog';
 import FileList from './FileList';
-import CreateFileForm from './CreateFileForm';
+import CreationModal from './CreationModal';
 import CreateFolderForm from './CreateFolderForm';
+import CreateFileForm from './CreateFileForm';
+import RenameFileForm from './RenameFileForm';
+
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
@@ -60,8 +64,10 @@ export default function FileViewer() {
   const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
   const queryClient = useQueryClient();
   const [path, setPath] = useQueryParam('path', '.');
+  const [modalPath, setModalPath] = useState<string>('');
   const [openedFile, setOpenedFile] = useState<ClientFile | null>(null);
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
+  const [renameFileModalOpen, setRenameFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
@@ -122,29 +128,32 @@ export default function FileViewer() {
     await uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
   };
 
+  const deleteSingleFile = async (file: ClientFile) => {
+    if (file.file_type === 'Directory') {
+      await deleteInstanceDirectory(
+        instance.uuid,
+        path,
+        file.path,
+        queryClient
+      );
+      tickFile(file, false);
+      if (openedFile?.path.startsWith(file.path)) {
+        setOpenedFile(null);
+        setFileContent('');
+      }
+    } else if (file.file_type === 'File') {
+      await deleteInstanceFile(instance.uuid, path, file, queryClient);
+      tickFile(file, false);
+      if (openedFile?.path === file.path) {
+        setOpenedFile(null);
+        setFileContent('');
+      }
+    }
+  }
   const deleteTickedFiles = async () => {
     if (!tickedFiles) return;
     for (const file of tickedFiles) {
-      if (file.file_type === 'Directory') {
-        await deleteInstanceDirectory(
-          instance.uuid,
-          path,
-          file.path,
-          queryClient
-        );
-        tickFile(file, false);
-        if (openedFile?.path.startsWith(file.path)) {
-          setOpenedFile(null);
-          setFileContent('');
-        }
-      } else if (file.file_type === 'File') {
-        await deleteInstanceFile(instance.uuid, path, file, queryClient);
-        tickFile(file, false);
-        if (openedFile?.path === file.path) {
-          setOpenedFile(null);
-          setFileContent('');
-        }
-      }
+      await deleteSingleFile(file);
     }
     setTickedFiles([]);
   };
@@ -195,9 +204,7 @@ export default function FileViewer() {
     }
   };
 
-  const unzipTickedFile = async () => {
-    if (!tickedFiles) return;
-    const file = tickedFiles[0];
+  const unzipFile = async (file: ClientFile)  => { 
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
@@ -218,6 +225,12 @@ export default function FileViewer() {
       queryClient,
       directorySeparator
     );
+  }
+
+  const unzipTickedFile = async () => {
+    if (!tickedFiles) return;
+    const file = tickedFiles[0];
+    await unzipFile(file);
     tickFile(file, false);
   };
 
@@ -243,52 +256,40 @@ export default function FileViewer() {
     </svg>
   );
 
-  const createFileModal = (
-    <Dialog
-      open={createFileModalOpen}
-      onClose={() => setCreateFileModalOpen(false)}
-    >
-      <div className="fixed inset-0 bg-[#000]/80" />
-      <div className="fixed inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-            <CreateFileForm
-              onCancel={() => setCreateFileModalOpen(false)}
-              onSuccess={() => setCreateFileModalOpen(false)}
-              path={path}
-              fileList={fileList}
-            />
-          </Dialog.Panel>
-        </div>
-      </div>
-    </Dialog>
-  );
-
-  const createFolderModal = (
-    <Dialog
-      open={createFolderModalOpen}
-      onClose={() => setCreateFolderModalOpen(false)}
-    >
-      <div className="fixed inset-0 bg-[#000]/80" />
-      <div className="fixed inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
-            <CreateFolderForm
-              onCancel={() => setCreateFolderModalOpen(false)}
-              onSuccess={() => setCreateFolderModalOpen(false)}
-              path={path}
-              fileList={fileList}
-            />
-          </Dialog.Panel>
-        </div>
-      </div>
-    </Dialog>
-  );
-
   return (
     <>
-      {createFileModal}
-      {createFolderModal}
+      <CreationModal 
+        setModalOpen={setCreateFolderModalOpen}
+        modalOpen={createFolderModalOpen}
+      >
+        <CreateFolderForm
+          onCancel={() => setCreateFolderModalOpen(false)}
+          onSuccess={() => setCreateFolderModalOpen(false)}
+          fileList={fileList}
+          path={modalPath}
+        />
+      </CreationModal>
+      <CreationModal 
+        setModalOpen={setCreateFileModalOpen}
+        modalOpen={createFileModalOpen}
+      >
+        <CreateFileForm
+          onCancel={() => setCreateFileModalOpen(false)}
+          onSuccess={() => setCreateFileModalOpen(false)}
+          path={modalPath}
+          fileList={fileList}
+        />
+      </CreationModal>
+      <CreationModal 
+        setModalOpen={setRenameFileModalOpen}
+        modalOpen={renameFileModalOpen}
+      >
+        <RenameFileForm
+          onCancel={() => setRenameFileModalOpen(false)}
+          onSuccess={() => setRenameFileModalOpen(false)}
+          path={modalPath}
+        />
+      </CreationModal>
       <ConfirmDialog
         isOpen={deleteFileModalOpen}
         onClose={() => setDeleteFileModalOpen(false)}
@@ -403,7 +404,10 @@ export default function FileViewer() {
                       <Button
                         label="New file"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => setCreateFileModalOpen(true)}
+                        onClick={() => {
+                          setModalPath(path);
+                          setCreateFileModalOpen(true)
+                        }}
                         iconComponent={fileCheckIcon}
                         variant="text"
                         align="start"
@@ -416,7 +420,11 @@ export default function FileViewer() {
                       <Button
                         label="New folder"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => setCreateFolderModalOpen(true)}
+                        onClick={() => {
+                          setModalPath(path);
+                          setCreateFolderModalOpen(true);
+                        }}
+
                         icon={faFolderPlus}
                         variant="text"
                         align="start"
@@ -431,7 +439,10 @@ export default function FileViewer() {
                       <Button
                         label="Delete selected"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => setDeleteFileModalOpen(true)}
+                        onClick={() => {
+                          setModalPath(path);
+                          setDeleteFileModalOpen(true);
+                        }}
                         icon={faTrashCan}
                         variant="text"
                         align="start"
@@ -525,6 +536,7 @@ export default function FileViewer() {
                 error={fileListError}
                 tickedFiles={tickedFiles}
                 tickFile={tickFile}
+                unzipFile={unzipFile}
                 openedFile={openedFile}
                 onParentClick={() =>
                   setPath(parentPath(path, directorySeparator), false)
@@ -540,6 +552,15 @@ export default function FileViewer() {
                     setOpenedFile(file);
                   }
                 }}
+                setCreateFileModalOpen={setCreateFileModalOpen}
+                setCreateFolderModalOpen={setCreateFolderModalOpen}
+                setRenameFileModalOpen={setRenameFileModalOpen}
+                setModalPath={setModalPath}
+                setClipboard={setClipboard}
+                setClipboardAction={setClipboardAction}
+                setTickedFiles={setTickedFiles}
+                deleteSingleFile={deleteSingleFile}
+                deleteTickedFiles={deleteTickedFiles}
               />
             </ResizePanel>
             {openedFile && (
@@ -558,43 +579,45 @@ export default function FileViewer() {
                       setFileContent={setFileContent}
                     />
                   ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-gray-800">
-                      <FontAwesomeIcon
-                        icon={faFilePen}
-                        className="text-title text-gray-500"
-                      />
-                      <p className="text-center text-h3 text-gray-400">
-                        File Editor
-                      </p>
-                      <p className="text-center text-h3 text-gray-400">
-                        {fileError
+                    <ErrorGraphic
+                      icon={faFilePen}
+                      message="File Editor"
+                      message2={
+                        fileError
                           ? fileError?.message ?? 'Unknown Error'
                           : isFileLoading
                           ? 'Loading...'
-                          : 'Select a file to view its contents'}
-                      </p>
-                    </div>
+                          : 'Select a file to view its contents'
+                      }
+                      className=""
+                      iconClassName="text-gray-500"
+                      messageClassName="text-gray-400"
+                    />
                   )}
                 </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex h-full w-full grow flex-col items-center justify-center gap-4 text-clip rounded-lg border border-gray-faded/30 bg-gray-800">
-            <FontAwesomeIcon
-              icon={faFolder}
-              className="text-title text-gray-400"
-            />
-            <p className="text-center text-h3 font-medium text-white/50">
-              You don&#39;t have permission to read this folder
-            </p>
-          </div>
+          <ErrorGraphic
+            icon={faFolder}
+            message="You don't have permission to read this folder"
+            className="text-clip rounded-lg border border-gray-faded/30"
+            iconClassName="text-gray-400"
+            messageClassName="text-white/50"
+          />
         )}
         <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length > 0 && (
+          {tickedFiles.length === 1 && (
+            <div>1 item selected</div>
+          )}
+          {tickedFiles.length > 1 && (
             <div>{tickedFiles.length} items selected</div>
           )}
-          {clipboard.length > 0 && (
+          {clipboard.length === 1 && (
+            <div>1 item in clipboard</div>
+          )}
+          {clipboard.length > 1 && (
             <div>{clipboard.length} items in clipboard</div>
           )}
         </div>

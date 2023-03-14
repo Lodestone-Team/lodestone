@@ -10,6 +10,7 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import {
   catchAsyncToString,
   DISABLE_AUTOFILL,
+  parseFloatStrict,
   parseintStrict,
 } from 'utils/util';
 
@@ -31,6 +32,7 @@ export default function InputBox({
   className,
   onSubmit: onSubmitProp,
   type = 'text',
+  isFloat = false,
   min,
   max,
   required,
@@ -51,8 +53,9 @@ export default function InputBox({
   value?: string;
   className?: string;
   type?: InputBoxType;
-  min?: number;
-  max?: number;
+  isFloat?: boolean;
+  min?: number | null;
+  max?: number | null;
   required?: boolean;
   maxLength?: number;
   error?: string;
@@ -77,20 +80,21 @@ export default function InputBox({
   const validate = useCallback(
     async (value: string, submit: boolean) => {
       if (required && !value && submit) throw new Error('Cannot be empty');
-      if (type === 'number') {
+      if (type === 'number' || isFloat) {
         if (!value && submit) {
           throw new Error('Cannot be empty');
         }
-        const numValue = parseintStrict(value);
+        const numValue = isFloat
+          ? parseFloatStrict(value)
+          : parseintStrict(value);
         if (isNaN(numValue)) throw new Error('Must be a number');
-        if (min !== undefined && numValue < min)
+        if (min && numValue < min)
           throw new Error(`Must be greater than ${min}`);
-        if (max !== undefined && numValue > max)
-          throw new Error(`Must be less than ${max}`);
+        if (max && numValue > max) throw new Error(`Must be less than ${max}`);
       }
       if (validateProp) await validateProp(value);
     },
-    [max, min, type, validateProp, required]
+    [max, min, type, validateProp, required, isFloat]
   );
 
   // we want to validate the input after the user stops typing for a while

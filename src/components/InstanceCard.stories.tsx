@@ -36,7 +36,7 @@ const worker = setupWorker(
 worker.start();
 
 export default {
-  title: 'Components/InstanceCard',
+  title: 'library/InstanceCard',
   component: InstanceCard,
   argTypes: {
     onClick: { table: { disable: true } },
@@ -47,14 +47,14 @@ export default {
   },
   parameters: {
     backgrounds: {
-      default: 'gray-700',
+      default: 'gray-850',
     },
   },
 } as ComponentMeta<typeof InstanceCard>;
 
 const Template: ComponentStory<typeof InstanceCard> = (args) => (
   <QueryClientProvider client={new QueryClient()}>
-    <div className="flex flex-col child:w-full w-60">
+    <div className="flex w-60 flex-col child:w-full">
       <InstanceCard {...args} />
     </div>
   </QueryClientProvider>
@@ -64,7 +64,7 @@ export const Default = Template.bind({});
 Default.args = {
   uuid: '1',
   name: 'Test Instance',
-  game_type: 'minecraft',
+  game_type: { MinecraftJava: { variant: 'Vanilla' } },
   state: 'Running',
   player_count: 1,
   max_player_count: 12,
@@ -76,7 +76,7 @@ export const InvestigatingCrash = Template.bind({});
 InvestigatingCrash.args = {
   uuid: '2',
   name: 'Crashed Instance',
-  game_type: 'minecraft',
+  game_type: { MinecraftJava: { variant: 'Vanilla' } },
   state: 'Error',
   player_count: 0,
   max_player_count: 12,

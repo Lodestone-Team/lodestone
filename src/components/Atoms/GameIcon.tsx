@@ -1,43 +1,36 @@
+import { GameType, Games, GameVariants } from 'bindings/InstanceInfo';
 import Tooltip from 'rc-tooltip';
-
-const game_icons: { [key: string]: { [key: string]: string } } = {
-  minecraft: {
-    vanilla: '/assets/minecraft-vanilla.png',
-    fabric: '/assets/minecraft-fabric.png',
-    forge: '/assets/minecraft-forge.png',
-    paper: '/assets/minecraft-paper.png',
-  },
-};
-
+import { gameIcons, spanMap } from 'data/GameTypeMappings';
 const unknown_icon = '/assets/minecraft-missing-texture.svg';
 
 export default function GameIcon({
   game_type,
-  game_flavour,
   className = 'h-8 w-8 rounded-sm',
 }: {
-  game_type: string;
-  game_flavour: string;
+  game_type: GameType;
   className?: string;
 }) {
   let icon = unknown_icon;
-  if (game_type in game_icons)
-    if (game_flavour in game_icons[game_type])
-      icon = game_icons[game_type][game_flavour];
+  let span = '';
+  const game = Object.keys(game_type)[0] as Games;
+  const variant = game_type[game]['variant'] as GameVariants;
+
+  if (game in gameIcons) {
+    if (variant in gameIcons[game]) {
+      icon = gameIcons[game][variant];
+      span = spanMap[game][variant];
+    }
+  }
+
   return (
     <Tooltip
       showArrow={false}
-      overlay={
-        <span>
-          {game_type.charAt(0).toUpperCase() + game_type.slice(1)} -{' '}
-          {game_flavour.charAt(0).toUpperCase() + game_flavour.slice(1)}
-        </span>
-      }
+      overlay={<span>{span}</span>}
       placement="bottom"
       trigger={['hover']}
       mouseEnterDelay={0.2}
     >
-      <img src={icon} alt={game_type} className={`${className}`} />
+      <img src={icon} alt={variant} className={`${className}`} />
     </Tooltip>
   );
 }

@@ -7,7 +7,6 @@ export type ProgressionStartValue =
       instance_uuid: InstanceUuid;
       instance_name: string;
       port: number;
-      flavour: string;
       game_type: string;
     }
   | { type: 'InstanceDelete'; instance_uuid: InstanceUuid };

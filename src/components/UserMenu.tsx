@@ -13,7 +13,7 @@ import {
   faCog,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import IconButton from './IconButton';
+import IconButton from './Atoms/IconButton';
 import { useLocation } from 'react-router-dom';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
@@ -48,6 +48,7 @@ const UserMenu = () => {
         <Menu.Button
           as={Button}
           align="start"
+          labelGrow={true}
           className="w-full"
           loading={userState === 'loading'}
           label={
@@ -87,7 +88,7 @@ const UserMenu = () => {
                       setSearchParam('instance', undefined);
                       setSearchParam('user', undefined);
                     }}
-                    align="end"
+                    align="between"
                     disabled={disabled}
                     variant="text"
                   />
@@ -100,7 +101,7 @@ const UserMenu = () => {
                     className="w-full flex-nowrap whitespace-nowrap"
                     label="Change core"
                     iconRight={faArrowRightArrowLeft}
-                    align="end"
+                    align="between"
                     disabled={disabled}
                     onClick={() => {
                       setSearchParam('instance', undefined);

@@ -18,9 +18,10 @@ export const InstanceViewLayout = () => {
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
   const { data: dataInstances, isFetched: instanceIsFetched } =
     useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | undefined>(
-    undefined
-  );
+  const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
+
+  const [showCreateInstance, setShowCreateInstance] = useState(false);
+
   const instances = userLoggedIn ? dataInstances : undefined;
 
   useEffect(() => {
@@ -28,23 +29,22 @@ export const InstanceViewLayout = () => {
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
       if (!location.pathname.startsWith('/dashboard'))
-        setPathname('/dashboard/console');
+        setPathname('/dashboard/overview');
     } else {
-      setInstanceState(undefined);
+      setInstanceState(null);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
     }
   }, [instances, queryInstanceId]);
 
-  function selectInstance(instance?: InstanceInfo) {
+  function selectInstance(instance: InstanceInfo | null) {
     console.log('selectInstance', instance);
-    if (instance === undefined) {
-      setInstanceState(undefined);
+    if (instance === null) {
+      setInstanceState(null);
       setQueryInstanceId('');
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
     } else {
       setInstanceState(instance);
       setQueryInstanceId(instance.uuid);
-      setPathname('/dashboard/console');
     }
   }
   /* End Instances */
@@ -56,6 +56,8 @@ export const InstanceViewLayout = () => {
         selectedInstance: instance,
         selectInstance: selectInstance,
         isReady: instanceIsFetched && userLoggedIn,
+        showCreateInstance: showCreateInstance,
+        setShowCreateInstance: setShowCreateInstance,
       }}
     >
       <ResizePanel

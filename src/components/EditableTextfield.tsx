@@ -1,5 +1,6 @@
 import { faFloppyDisk, faPenToSquare } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import clsx from 'clsx';
 import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
 import { catchAsyncToString } from 'utils/util';
@@ -49,7 +50,7 @@ export default function EditableTextfield({
     console.log(error);
     setError(error);
     setIsLoading(false);
-    setDisplayText(trimmed);
+    if (!error) setDisplayText(trimmed);
   };
 
   const onCancel = () => {
@@ -78,34 +79,37 @@ export default function EditableTextfield({
 
   const errorNode = error ? (
     <div
-      className={`absolute whitespace-nowrap text-right font-sans not-italic text-red ${
-        type === 'heading'
-          ? '-top-[1.5em] text-medium font-medium tracking-normal'
-          : '-bottom-[1.3em] text-caption'
-      }`}
+      className={clsx(
+        `absolute whitespace-nowrap text-right font-sans not-italic text-red-200`,
+        type === 'heading' &&
+          'top-[-1.5em] text-medium font-medium tracking-normal',
+        type === 'description' && 'bottom-[-1.3em] text-small'
+      )}
     >
       {error}
     </div>
   ) : null;
-
-  const iconSize = type === 'heading' ? 'w-6' : 'w-4';
 
   return (
     <div
       className={`group relative flex flex-row items-center justify-start gap-1 ${
         type === 'heading'
           ? 'dashboard-instance-heading'
-          : 'text-small font-medium italic tracking-tight'
+          : 'text-h3 font-medium italic tracking-tight'
       } ${containerClassName}`}
     >
       <div
-        className={`mr-[0.5ch] min-w-0 ${
-          error && `-my-0.5 -ml-0.5 border-2 border-red`
-        } ${type === 'heading' ? 'rounded-lg' : 'rounded'}`}
+        className={`mr-[0.5ch] min-w-0  ${
+          type === 'heading' ? 'rounded-lg' : 'rounded'
+        }`}
       >
         {isEditing ? (
           <AutoGrowInput
-            textClassName={`focus:outline-none bg-transparent text-gray-300 ${textClassName}`}
+            textClassName={clsx(
+              `bg-transparent focus:outline-none`,
+              error ? 'text-red-200' : 'text-gray-300',
+              textClassName
+            )}
             value={editText}
             onChange={onEdit}
             onBlur={onCancel}
@@ -148,7 +152,12 @@ export default function EditableTextfield({
         />
       ) : (
         <FontAwesomeIcon
-          className={`text-gray-faded/30 hover:cursor-pointer group-hover:text-gray-500 ${iconSize} ${iconClassName}`}
+          className={clsx(
+            `text-gray-faded/30 hover:cursor-pointer group-hover:text-gray-500`,
+            type === 'heading' && 'w-6',
+            type === 'description' && 'w-4',
+            iconClassName
+          )}
           icon={isEditing ? faFloppyDisk : faPenToSquare}
           onMouseDown={(e) => {
             if (isEditing) e.preventDefault();
