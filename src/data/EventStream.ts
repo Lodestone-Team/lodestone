@@ -394,7 +394,7 @@ export const useEventStream = () => {
     if (!token) return;
 
     const connectWebsocket = () => {
-      const wsAddress = `ws://${core.address}:${
+      const wsAddress = `${core.protocol === 'https' ? 'wss' : 'ws'}://${core.address}:${
         core.port ?? LODESTONE_PORT
       }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
         eventQuery
