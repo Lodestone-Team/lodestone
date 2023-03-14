@@ -1,4 +1,3 @@
-import jwt from 'jsonwebtoken';
 import { ClientError } from 'bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
