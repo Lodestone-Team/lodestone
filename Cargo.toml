@@ -83,7 +83,7 @@ ts-rs = "6.2.1"
 walkdir = "2.3.2"
 whoami = "1.2.3"
 zip = "0.6.2"
-openssl = { version = "0.10.45", features = ["vendored"] }
+openssl = { version = "0.10.45", features = ["vendored"], optional = true }
 flate2 = "1.0.24"
 tar = "0.4.38"
 unrar = "0.4.4"
@@ -95,3 +95,6 @@ features = [
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
+
+[features]
+vendored-openssl = ["dep:openssl"]

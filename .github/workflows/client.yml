@@ -97,7 +97,7 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: --release --target ${{ matrix.platform }}
+          args: --release --features "vendored-openssl" --target ${{ matrix.platform }}
 
       # on windows it's ./target/release/main.exe
       # on linux it's ./target/release/main
