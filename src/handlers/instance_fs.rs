@@ -428,7 +428,6 @@ async fn upload_instance_file(
     AuthBearer(token): AuthBearer,
     mut multipart: Multipart,
 ) -> Result<Json<()>, Error> {
-    dbg!("upload_instance_file");
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;

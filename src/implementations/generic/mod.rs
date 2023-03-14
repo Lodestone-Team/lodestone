@@ -99,8 +99,6 @@ impl GenericInstance {
             .await
             .unwrap();
 
-        dbg!("Waiting for setup to finish...");
-
         match procedure_bridge
             .call(bridge::procedure_call::ProcedureCallInner::SetupInstance {
                 config: config.clone(),

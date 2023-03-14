@@ -284,8 +284,6 @@ pub async fn unzip_file(
                 }
             }
         } else { // Direct child is a file
-            dbg!(list_dir(dest, None).await?);
-            dbg!(&entry_path);
             if !overwrite_old && entry_path.exists() {
                 let mut duplicate = 1;
                 let stem = entry_path
@@ -582,7 +580,6 @@ mod tests {
     async fn test_unzip_file_3() {
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
-        dbg!(&dest_path);
         let tar_gz = download_file(
             "http://file.fyicenter.com/a/sample.tgz",
             &dest_path,
@@ -592,9 +589,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        dbg!(&tar_gz);
-        dbg!(dest_path.join("sample"));
 
         let mut expected: HashSet<PathBuf> = HashSet::new();
         expected.insert(dest_path.join("sample"));
@@ -611,13 +605,5 @@ mod tests {
             unzip_file(&tar_gz, dest_path, false).await.unwrap(),
             expected
         );
-    }
-
-    #[tokio::test]
-    async fn test_unzip_file_4() {
-        let res = unzip_file("testunzip/jre.gz", "testunzip/output", false)
-            .await
-            .unwrap();
-        dbg!(&res);
     }
 }

@@ -50,7 +50,6 @@ mod test {
     #[tokio::test]
     async fn test_get_vanilla_minecraft_versions() {
         let versions = get_vanilla_minecraft_versions().await.unwrap();
-        dbg!(&versions);
         assert!(versions.contains(&"1.16.5".to_string()));
         assert!(versions.contains(&"1.16.4".to_string()));
         assert!(versions.contains(&"1.16.3".to_string()));
