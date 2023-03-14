@@ -34,7 +34,7 @@
     "clsx": "^1.2.1",
     "formik": "^2.2.9",
     "js-base64": "^3.7.3",
-    "jsonwebtoken": "^9.0.0",
+    "jsonwebtoken": "^8.5.1",
     "minecraft-motd-util": "^1.1.12",
     "monaco-editor": "^0.34.0",
     "msw": "^0.47.4",
@@ -64,7 +64,7 @@
   "devDependencies": {
     "@babel/core": "^7.18.10",
     "@storybook/addon-actions": "^6.5.16",
-    "@storybook/addon-essentials": "^6.4.22",
+    "@storybook/addon-essentials": "^6.5.16",
     "@storybook/addon-interactions": "^6.5.16",
     "@storybook/addon-links": "^6.5.16",
     "@storybook/addon-postcss": "^2.0.0",
