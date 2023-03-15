@@ -40,8 +40,8 @@ export const gameTypeInfoFromHandlerType: Record<HandlerGameType, any> = {
     game_type: { MinecraftJava: { variant: 'Vanilla' } },
   },
   MinecraftFabric: {
-    title: 'Paper (Minecraft)',
-    description: 'A high performance fork of the Spigot Minecraft Server.',
+    title: 'Fabric (Minecraft)',
+    description: 'A lightweight, experimental modding toolchain for Minecraft.',
     game_type: { MinecraftJava: { variant: 'Fabric' } },
   },
   MinecraftForge: {
@@ -51,8 +51,8 @@ export const gameTypeInfoFromHandlerType: Record<HandlerGameType, any> = {
     game_type: { MinecraftJava: { variant: 'Forge' } },
   },
   MinecraftPaper: {
-    title: 'Fabric (Minecraft)',
-    description: 'A lightweight, experimental modding toolchain for Minecraft.',
+    title: 'Paper (Minecraft)',
+    description: 'A high performance fork of the Spigot Minecraft Server.',
     game_type: { MinecraftJava: { variant: 'Paper' } },
   },
 };
