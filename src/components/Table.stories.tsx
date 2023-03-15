@@ -40,9 +40,15 @@ const Template: ComponentStory<typeof Table> = (args) =>
     )
 
 export const Primary = Template.bind({});
+export const Clip = Template.bind({});
 
 
 Primary.args = {
+    columns: mockTableColumns,
+    rows: mockTableRows.slice(0, 5),
+    className: "w-full",
+}
+Clip.args = {
     columns: mockTableColumns,
     rows: mockTableRows,
     className: "w-96 h-96",
