@@ -36,23 +36,23 @@ export const gameIcons: { [key: string]: { [key: string]: string } } = {
 export const gameTypeInfoFromHandlerType: Record<HandlerGameType, any> = {
   MinecraftJavaVanilla: {
     title: 'Minecraft',
-    description: 'A standard vanilla Minecraft server.',
+    description: 'Standard vanilla Minecraft server from Mojang.',
     game_type: { MinecraftJava: { variant: 'Vanilla' } },
   },
   MinecraftFabric: {
-    title: 'Paper (Minecraft)',
-    description: 'A high performance fork of the Spigot Minecraft Server.',
+    title: 'Fabric (Minecraft)',
+    description: 'Lightweight modding toolchain for Minecraft.',
     game_type: { MinecraftJava: { variant: 'Fabric' } },
   },
   MinecraftForge: {
     title: 'Forge (Minecraft)',
     description:
-      'Modifications to the Minecraft base files to assist in compatibility between mods.',
+      'Modding framework that allows you to install mods and customize your Minecraft experience.',
     game_type: { MinecraftJava: { variant: 'Forge' } },
   },
   MinecraftPaper: {
-    title: 'Fabric (Minecraft)',
-    description: 'A lightweight, experimental modding toolchain for Minecraft.',
+    title: 'Paper (Minecraft)',
+    description: 'High-performance Spigot fork that aims to fix gameplay and mechanics inconsistencies.',
     game_type: { MinecraftJava: { variant: 'Paper' } },
   },
 };
