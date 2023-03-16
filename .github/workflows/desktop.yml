@@ -72,5 +72,3 @@ jobs:
             ./src-tauri/target/release/Lodestone.exe
             ./src-tauri/target/release/bundle/deb/lodestone*.deb
             ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
-            ./src-tauri/target/release/ 
-      # ./src-tauri/target/release/ is a bit vague but we'll figure it out later
