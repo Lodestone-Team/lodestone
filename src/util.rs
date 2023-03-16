@@ -266,14 +266,16 @@ pub async fn unzip_file(
                     Err(_) => continue,
                 };
 
-                tokio::fs::create_dir_all(&child_path)
-                    .await
-                    .context(format!(
-                        "Failed to create directory {}",
-                        child_path.display()
-                    ))?;
+                if temp_child_path.is_dir() {
+                    tokio::fs::create_dir_all(&child_path)
+                        .await
+                        .context(format!(
+                            "Failed to create directory {}",
+                            child_path.display()
+                        ))?;
+                }
 
-                if child_path.is_file() {
+                if temp_child_path.is_file() {
                     tokio::fs::copy(&temp_child_path, &child_path)
                         .await
                         .context(format!(
@@ -597,13 +599,19 @@ mod tests {
             unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
             expected
         );
+        assert_eq!(dest_path.join("sample").join("sample.exe").is_file(), true);
+        assert_eq!(dest_path.join("sample").join("sample.c").is_file(), true);
+        assert_eq!(dest_path.join("sample").join("sample.obj").is_file(), true);
 
         let mut expected: HashSet<PathBuf> = HashSet::new();
         expected.insert(dest_path.join("sample_1"));
 
         assert_eq!(
-            unzip_file(&tar_gz, dest_path, false).await.unwrap(),
+            unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
             expected
         );
+        assert_eq!(dest_path.join("sample_1").join("sample.exe").is_file(), true);
+        assert_eq!(dest_path.join("sample_1").join("sample.c").is_file(), true);
+        assert_eq!(dest_path.join("sample_1").join("sample.obj").is_file(), true);
     }
 }
