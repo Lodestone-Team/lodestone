@@ -91,7 +91,7 @@ async fn list_instance_files(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::Directory(path),
         caused_by,
@@ -121,7 +121,7 @@ async fn read_instance_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::File(path),
         caused_by,
@@ -160,7 +160,7 @@ async fn write_instance_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Write,
         FSTarget::File(path),
         caused_by,
@@ -191,7 +191,7 @@ async fn make_instance_directory(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::Directory(path),
         caused_by,
@@ -237,7 +237,7 @@ async fn move_instance_file(
         user_name: requester.username,
     };
 
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Move {
             source: path_source.clone(),
         },
@@ -278,7 +278,7 @@ async fn remove_instance_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::File(path),
         caused_by,
@@ -337,7 +337,7 @@ async fn remove_instance_dir(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::Directory(path),
         caused_by,
@@ -375,7 +375,7 @@ async fn new_instance_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::File(path),
         caused_by,
@@ -413,7 +413,7 @@ async fn download_instance_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
         FSTarget::File(path),
         caused_by,
@@ -446,7 +446,7 @@ async fn upload_instance_file(
         .get(CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<f64>().ok());
-    let _ = state.event_broadcaster.send(Event {
+    state.event_broadcaster.send(Event {
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
             event_id,
             progression_event_inner: ProgressionEventInner::ProgressionStart {
@@ -501,7 +501,7 @@ async fn upload_instance_file(
 
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
-            let _ = state.event_broadcaster.send(Event {
+            state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -521,7 +521,7 @@ async fn upload_instance_file(
                 .context("Failed to read chunk")
                 .unwrap_err()
         })? {
-            let _ = state.event_broadcaster.send(Event {
+            state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -538,7 +538,7 @@ async fn upload_instance_file(
             });
             file.write_all(&chunk).await.map_err(|e| {
                 std::fs::remove_file(&path).ok();
-                let _ = state.event_broadcaster.send(Event {
+                state.event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                         event_id,
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -564,13 +564,13 @@ async fn upload_instance_file(
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),
         };
-        let _ = state.event_broadcaster.send(new_fs_event(
+        state.event_broadcaster.send(new_fs_event(
             FSOperation::Upload,
             FSTarget::File(path),
             caused_by,
         ));
     }
-    let _ = state.event_broadcaster.send(Event {
+    state.event_broadcaster.send(Event {
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
             event_id,
             progression_event_inner: ProgressionEventInner::ProgressionEnd {

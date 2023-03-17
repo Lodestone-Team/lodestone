@@ -111,7 +111,7 @@ async fn list_files(
             r
         })
         .collect();
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::Directory(path),
         caused_by,
@@ -147,7 +147,7 @@ async fn read_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::File(path),
         caused_by,
@@ -184,7 +184,7 @@ async fn write_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Write,
         FSTarget::File(path),
         caused_by,
@@ -222,7 +222,7 @@ async fn make_directory(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::Directory(path),
         caused_by,
@@ -262,7 +262,7 @@ async fn move_file(
         user_name: requester.username,
     };
 
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Move {
             source: PathBuf::from(&path_source),
         },
@@ -300,7 +300,7 @@ async fn remove_file(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::File(path),
         caused_by,
@@ -335,7 +335,7 @@ async fn remove_dir(
         user_id: requester.uid,
         user_name: requester.username,
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::Directory(path),
         caused_by,
@@ -371,7 +371,7 @@ async fn new_file(
         user_id: requester.uid,
         user_name: requester.username.clone(),
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::File(path),
         caused_by,
@@ -408,7 +408,7 @@ async fn download_file(
         user_id: requester.uid,
         user_name: requester.username.clone(),
     };
-    let _ = state.event_broadcaster.send(new_fs_event(
+    state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
         FSTarget::File(path),
         caused_by,
@@ -451,7 +451,7 @@ async fn upload_file(
         .and_then(|v| v.parse::<f64>().ok());
 
     let event_id = Snowflake::default();
-    let _ = state.event_broadcaster.send(Event {
+    state.event_broadcaster.send(Event {
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
             event_id,
             progression_event_inner: ProgressionEventInner::ProgressionStart {
@@ -504,7 +504,7 @@ async fn upload_file(
 
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
-            let _ = state.event_broadcaster.send(Event {
+            state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -525,7 +525,7 @@ async fn upload_file(
                 source: eyre!("Failed to read chunk: {}", e),
             }
         })? {
-            let _ = state.event_broadcaster.send(Event {
+            state.event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -550,13 +550,13 @@ async fn upload_file(
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),
         };
-        let _ = state.event_broadcaster.send(new_fs_event(
+        state.event_broadcaster.send(new_fs_event(
             FSOperation::Upload,
             FSTarget::File(path),
             caused_by,
         ));
     }
-    let _ = state.event_broadcaster.send(Event {
+    state.event_broadcaster.send(Event {
         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
             event_id,
             progression_event_inner: ProgressionEventInner::ProgressionEnd {

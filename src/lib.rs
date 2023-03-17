@@ -1,5 +1,6 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
+use crate::event_broadcaster::EventBroadcaster;
 use crate::traits::t_configurable::GameType;
 use crate::{
     db::write::write_event_to_db_task,
@@ -50,10 +51,7 @@ use tokio::{
     fs::create_dir_all,
     process::Command,
     select,
-    sync::{
-        broadcast::{self, error::RecvError, Receiver, Sender},
-        Mutex, RwLock,
-    },
+    sync::{broadcast::error::RecvError, Mutex, RwLock},
 };
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -71,6 +69,7 @@ use uuid::Uuid;
 pub mod auth;
 pub mod db;
 pub mod error;
+mod event_broadcaster;
 mod events;
 pub mod global_settings;
 mod handlers;
@@ -92,7 +91,7 @@ pub struct AppState {
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
     monitor_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<MonitorReport>>>>,
-    event_broadcaster: Sender<Event>,
+    event_broadcaster: EventBroadcaster,
     uuid: String,
     up_since: i64,
     global_settings: Arc<Mutex<GlobalSettings>>,
@@ -105,7 +104,7 @@ pub struct AppState {
 }
 async fn restore_instances(
     lodestone_path: &Path,
-    event_broadcaster: &Sender<Event>,
+    event_broadcaster: EventBroadcaster,
     macro_executor: MacroExecutor,
 ) -> HashMap<InstanceUuid, GameInstance> {
     let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
@@ -308,7 +307,7 @@ pub async fn run() -> (
 
     download_dependencies().await.unwrap();
 
-    let (tx, _rx): (Sender<Event>, Receiver<Event>) = broadcast::channel(256);
+    let (tx, _rx) = EventBroadcaster::new(512);
 
     let mut users_manager = UsersManager::new(
         tx.clone(),
@@ -342,7 +341,8 @@ pub async fn run() -> (
         None
     };
     let macro_executor = MacroExecutor::new(tx.clone());
-    let mut instances = restore_instances(&lodestone_path, &tx, macro_executor.clone()).await;
+    let mut instances =
+        restore_instances(&lodestone_path, tx.clone(), macro_executor.clone()).await;
     for (_, instance) in instances.iter_mut() {
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
@@ -511,7 +511,9 @@ pub async fn run() -> (
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    instance.stop(CausedBy::System, true).await;
+                    if let Err(e) = instance.stop(CausedBy::System, true).await {
+                        error!("Failed to stop instance : {}", e);
+                    }
                 }
             }
         },

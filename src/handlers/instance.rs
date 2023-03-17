@@ -126,7 +126,7 @@ pub async fn create_instance(
         };
         async move {
             let progression_event_id = Snowflake::default();
-            let _ = event_broadcaster.send(Event {
+            event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
@@ -157,7 +157,7 @@ pub async fn create_instance(
             .await
             {
                 Ok(v) => {
-                    let _ = event_broadcaster.send(Event {
+                    event_broadcaster.send(Event {
                         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                             event_id: progression_event_id,
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -175,7 +175,7 @@ pub async fn create_instance(
                     v
                 }
                 Err(e) => {
-                    let _ = event_broadcaster.send(Event {
+                    event_broadcaster.send(Event {
                         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                             event_id: progression_event_id,
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -228,7 +228,7 @@ pub async fn delete_instance(
         } else {
             let progression_id = Snowflake::default();
             let event_broadcaster = state.event_broadcaster.clone();
-            let _ = event_broadcaster.send(Event {
+            event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_id,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
@@ -245,7 +245,7 @@ pub async fn delete_instance(
             tokio::fs::remove_file(instance.path().await.join(".lodestone_config"))
                 .await
                 .map_err(|e| {
-                    let _ = event_broadcaster.send(Event {
+                    event_broadcaster.send(Event {
                         event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                             event_id: Snowflake::default(),
                             progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -276,7 +276,7 @@ pub async fn delete_instance(
             let res = crate::util::fs::remove_dir_all(instance_path).await;
 
             if res.is_ok() {
-                let _ = event_broadcaster.send(Event {
+                event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                         event_id: progression_id,
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
@@ -292,7 +292,7 @@ pub async fn delete_instance(
                     caused_by: caused_by.clone(),
                 });
             } else {
-                let _ = event_broadcaster.send(Event {
+                event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                         event_id: progression_id,
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {

@@ -256,13 +256,15 @@ impl TMacro for MinecraftInstance {
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
 
         let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
-        self.macro_executor.spawn(
-            path_to_macro,
-            args,
-            caused_by,
-            Box::new(main_worker_generator),
-            Some(self.uuid.clone()),
-        );
+        self.macro_executor
+            .spawn(
+                path_to_macro,
+                args,
+                caused_by,
+                Box::new(main_worker_generator),
+                Some(self.uuid.clone()),
+            )
+            .await?;
         // self.macro_executor.spawn(exec_instruction).await?;
 
         Ok(())

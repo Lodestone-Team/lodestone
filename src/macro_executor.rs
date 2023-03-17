@@ -12,14 +12,15 @@ use std::{
 use color_eyre::eyre::Context;
 use tokio::{
     runtime::Builder,
-    sync::{broadcast, oneshot, Mutex},
+    sync::{oneshot, Mutex},
     task::LocalSet,
 };
 use tracing::{debug, error};
 
 use crate::{
     error::{Error, ErrorKind},
-    events::{CausedBy, Event, EventInner, MacroEvent, MacroEventInner},
+    event_broadcaster::EventBroadcaster,
+    events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
     types::InstanceUuid,
 };
 
@@ -172,12 +173,12 @@ impl ModuleLoader for TypescriptModuleLoader {
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<usize, deno_core::v8::IsolateHandle>>>,
-    event_broadcaster: broadcast::Sender<Event>,
+    event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
 }
 
 impl MacroExecutor {
-    pub fn new(event_broadcaster: broadcast::Sender<Event>) -> MacroExecutor {
+    pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
         let process_table = Arc::new(Mutex::new(HashMap::new()));
         let process_id = Arc::new(AtomicUsize::new(0));
         MacroExecutor {
@@ -218,7 +219,7 @@ impl MacroExecutor {
                         };
                     process_table.lock().await.insert(pid, isolate_handle);
 
-                    let _ = event_broadcaster.send(
+                    event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
                             macro_event_inner: MacroEventInner::MacroStarted,
@@ -240,7 +241,7 @@ impl MacroExecutor {
                         println!("Error while running event loop: {}", e);
                     });
 
-                    let _ = event_broadcaster.send(
+                    event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
                             macro_event_inner: MacroEventInner::MacroStopped,
@@ -354,23 +355,16 @@ impl MacroExecutor {
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use std::pin::Pin;
-    use std::{path::PathBuf, rc::Rc};
+    use std::rc::Rc;
 
     use super::{MainWorkerGenerator, TypescriptModuleLoader};
-    use crate::error::Error;
+
+    use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
-    use crate::types::InstanceUuid;
-    use deno_core::error::generic_error;
-    use deno_core::{anyhow, op, ModuleSpecifier};
-    use deno_core::{resolve_import, ModuleLoader, ModuleSource, ModuleSourceFuture, ModuleType};
+
     use deno_runtime::permissions::{Permissions, PermissionsContainer};
-    use futures::FutureExt;
-    use serde_json::{json, Value};
-    use tokio::sync::broadcast;
     struct BasicMainWorkerGenerator;
 
     impl MainWorkerGenerator for BasicMainWorkerGenerator {
@@ -411,7 +405,7 @@ mod tests {
     }
     #[tokio::test]
     async fn basic_execution() {
-        let (event_broadcaster, _) = broadcast::channel(10);
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
 
@@ -447,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_url() {
-        let (event_broadcaster, _) = broadcast::channel(10);
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
 

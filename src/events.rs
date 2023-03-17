@@ -1,3 +1,5 @@
+#![allow(clippy::enum_variant_names)]
+
 use std::{collections::HashSet, path::PathBuf};
 
 use serde::{Deserialize, Serialize};

@@ -39,6 +39,7 @@ pub async fn migrate(path_to_instance: &Path) -> Result<(), Error> {
     )
     .context("Failed to deserialize config from string. Was the config file modified manually?")?;
 
+    #[allow(clippy::single_match)]
     match dot_lodestone_config.get("lodestone_version") {
         None => {
             // Version 0.4.2 did not have a version field in the config

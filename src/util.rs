@@ -228,7 +228,8 @@ pub async fn unzip_file(
             Err(_) => continue,
         };
 
-        if temp_entry_path.is_dir() { // Direct child is a directory
+        if temp_entry_path.is_dir() {
+            // Direct child is a directory
             if !overwrite_old && entry_path.exists() {
                 let mut duplicate = 1;
                 let name = entry_path
@@ -285,7 +286,8 @@ pub async fn unzip_file(
                         ))?;
                 }
             }
-        } else { // Direct child is a file
+        } else {
+            // Direct child is a file
             if !overwrite_old && entry_path.exists() {
                 let mut duplicate = 1;
                 let stem = entry_path
@@ -301,14 +303,14 @@ pub async fn unzip_file(
                     name.push(format!("_{}", duplicate).as_str());
                     entry_path.set_file_name(&name);
                     entry_path.set_extension(&extension);
-    
+
                     if !entry_path.exists() {
                         break;
                     }
                     duplicate += 1;
                 }
             }
-    
+
             // Copy direct child file
             tokio::fs::copy(&temp_entry_path, &entry_path)
                 .await
@@ -599,9 +601,9 @@ mod tests {
             unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
             expected
         );
-        assert_eq!(dest_path.join("sample").join("sample.exe").is_file(), true);
-        assert_eq!(dest_path.join("sample").join("sample.c").is_file(), true);
-        assert_eq!(dest_path.join("sample").join("sample.obj").is_file(), true);
+        assert!(dest_path.join("sample").join("sample.exe").is_file());
+        assert!(dest_path.join("sample").join("sample.c").is_file());
+        assert!(dest_path.join("sample").join("sample.obj").is_file());
 
         let mut expected: HashSet<PathBuf> = HashSet::new();
         expected.insert(dest_path.join("sample_1"));
@@ -610,8 +612,8 @@ mod tests {
             unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
             expected
         );
-        assert_eq!(dest_path.join("sample_1").join("sample.exe").is_file(), true);
-        assert_eq!(dest_path.join("sample_1").join("sample.c").is_file(), true);
-        assert_eq!(dest_path.join("sample_1").join("sample.obj").is_file(), true);
+        assert!(dest_path.join("sample_1").join("sample.exe").is_file());
+        assert!(dest_path.join("sample_1").join("sample.c").is_file());
+        assert!(dest_path.join("sample_1").join("sample.obj").is_file(),);
     }
 }

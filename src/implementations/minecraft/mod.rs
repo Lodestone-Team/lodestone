@@ -27,7 +27,7 @@ use tokio::sync::Mutex;
 
 use ::serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
-use tokio::sync::broadcast::Sender;
+
 use tracing::{debug, error, info};
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -35,6 +35,7 @@ use tokio::{self};
 use ts_rs::TS;
 
 use crate::error::Error;
+use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
@@ -161,7 +162,7 @@ pub struct MinecraftInstance {
     uuid: InstanceUuid,
     creation_time: i64,
     state: Arc<Mutex<State>>,
-    event_broadcaster: Sender<Event>,
+    event_broadcaster: EventBroadcaster,
     // file paths
     path_to_instance: PathBuf,
     path_to_config: PathBuf,
@@ -471,7 +472,7 @@ impl MinecraftInstance {
         dot_lodestone_config: DotLodestoneConfig,
         path_to_instance: PathBuf,
         progression_event_id: Snowflake,
-        event_broadcaster: Sender<Event>,
+        event_broadcaster: EventBroadcaster,
         macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
@@ -484,7 +485,7 @@ impl MinecraftInstance {
         let uuid = dot_lodestone_config.uuid().to_owned();
 
         // Step 1: Create Directories
-        let _ = event_broadcaster.send(Event {
+        event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id,
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -532,7 +533,7 @@ impl MinecraftInstance {
                     let progression_event_id = progression_event_id;
                     &move |dl| {
                         if let Some(total) = dl.total {
-                            let _ = event_broadcaster.send(Event {
+                            event_broadcaster.send(Event {
                                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                     event_id: progression_event_id,
                                     progression_event_inner:
@@ -582,7 +583,7 @@ impl MinecraftInstance {
                 unzipped_content.iter().last().unwrap().display()
             ))?;
         } else {
-            let _ = event_broadcaster.send(Event {
+            event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -623,7 +624,7 @@ impl MinecraftInstance {
                 let progression_event_id = progression_event_id;
                 &move |dl| {
                     if let Some(total) = dl.total {
-                        let _ = event_broadcaster.send(Event {
+                        event_broadcaster.send(Event {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
                                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -641,7 +642,7 @@ impl MinecraftInstance {
                             caused_by: CausedBy::Unknown,
                         });
                     } else {
-                        let _ = event_broadcaster.send(Event {
+                        event_broadcaster.send(Event {
                             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                                 event_id: progression_event_id,
                                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -675,7 +676,7 @@ impl MinecraftInstance {
             .join("java");
         // Step 3 (part 2): Forge Setup
         if let Flavour::Forge { .. } = flavour.clone() {
-            let _ = event_broadcaster.send(Event {
+            event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id: progression_event_id,
                     progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -718,7 +719,7 @@ impl MinecraftInstance {
         }
 
         // Step 4: Finishing Up
-        let _ = event_broadcaster.send(Event {
+        event_broadcaster.send(Event {
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                 event_id: progression_event_id,
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
@@ -773,7 +774,7 @@ impl MinecraftInstance {
         path_to_instance: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         instance_uuid: InstanceUuid,
-        event_broadcaster: Sender<Event>,
+        event_broadcaster: EventBroadcaster,
         _macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");

@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 
-use tokio::sync::broadcast::Sender;
-
 use crate::{
+    event_broadcaster::EventBroadcaster,
     events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner},
     traits::t_player::Player,
     types::{InstanceUuid, Snowflake},
@@ -13,12 +12,12 @@ use super::player::MinecraftPlayer;
 #[derive(Clone)]
 pub struct PlayersManager {
     players: HashSet<MinecraftPlayer>,
-    event_broadcaster: Sender<Event>,
+    event_broadcaster: EventBroadcaster,
     instance_uuid: InstanceUuid,
 }
 
 impl PlayersManager {
-    pub fn new(event_broadcaster: Sender<Event>, instance_uuid: InstanceUuid) -> Self {
+    pub fn new(event_broadcaster: EventBroadcaster, instance_uuid: InstanceUuid) -> Self {
         Self {
             players: HashSet::new(),
             event_broadcaster,
@@ -28,7 +27,7 @@ impl PlayersManager {
 
     pub fn add_player(&mut self, player: MinecraftPlayer, instance_name: String) {
         self.players.insert(player.clone());
-        let _ = self.event_broadcaster.send(Event {
+        self.event_broadcaster.send(Event {
             event_inner: EventInner::InstanceEvent(InstanceEvent {
                 instance_uuid: self.instance_uuid.clone(),
                 instance_name,
@@ -48,7 +47,7 @@ impl PlayersManager {
 
     pub fn remove_player(&mut self, player: MinecraftPlayer, instance_name: String) {
         if self.players.remove(&player) {
-            let _ = self.event_broadcaster.send(Event {
+            self.event_broadcaster.send(Event {
                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                     instance_uuid: self.instance_uuid.clone(),
                     instance_name,
@@ -83,7 +82,7 @@ impl PlayersManager {
     }
 
     pub fn clear(&mut self, instance_name: String) {
-        let _ = self.event_broadcaster.send(Event {
+        self.event_broadcaster.send(Event {
             event_inner: EventInner::InstanceEvent(InstanceEvent {
                 instance_uuid: self.instance_uuid.clone(),
                 instance_name,
@@ -118,20 +117,22 @@ impl From<PlayersManager> for HashSet<Player> {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     use tokio;
+
+    use crate::event_broadcaster::EventBroadcaster;
 
     #[tokio::test]
     async fn test_players_manager() {
         use crate::types::InstanceUuid;
         use crate::{events::InstanceEventInner, traits::t_player::Player};
         use std::collections::HashSet;
-        use tokio::sync::broadcast::channel;
 
         let mock_instance = (InstanceUuid::default(), "mock_instance".to_string());
 
-        let (tx, mut rx) = channel(10);
+        let (tx, mut rx) = EventBroadcaster::new(10);
         let mut players_manager = super::PlayersManager::new(tx, mock_instance.0.clone());
 
         players_manager.add_player(

@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use color_eyre::eyre::Context;
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncWriteExt, sync::broadcast::Sender};
+use tokio::io::AsyncWriteExt;
 use ts_rs::TS;
 
-use crate::{error::Error, events::Event};
+use crate::{error::Error, event_broadcaster::EventBroadcaster};
 
 #[derive(Serialize, Deserialize, Clone, TS)]
 #[ts(export)]
@@ -27,14 +27,14 @@ impl Default for GlobalSettingsData {
 
 pub struct GlobalSettings {
     path_to_global_settings: PathBuf,
-    _event_broadcaster: Sender<Event>,
+    _event_broadcaster: EventBroadcaster,
     global_settings_data: GlobalSettingsData,
 }
 
 impl GlobalSettings {
     pub fn new(
         path_to_global_settings: PathBuf,
-        _event_broadcaster: Sender<Event>,
+        _event_broadcaster: EventBroadcaster,
         global_settings_data: GlobalSettingsData,
     ) -> Self {
         Self {
@@ -154,19 +154,19 @@ impl AsRef<GlobalSettingsData> for GlobalSettings {
     }
 }
 
+#[cfg(test)]
 mod tests {
     #[tokio::test]
     async fn test_global_settings() {
         use super::*;
         use std::path::PathBuf;
-        use tokio::sync::broadcast::channel;
 
         // create a temporary directory
         let temp_dir = tempdir::TempDir::new("test_global_settings").unwrap();
 
         // create a global settings object
 
-        let (event_broadcaster, _) = channel(10);
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
 
         let mut global_settings = GlobalSettings::new(
             PathBuf::from(temp_dir.path()).join("global_settings.json"),
@@ -197,7 +197,7 @@ mod tests {
 
         // create a new global settings object
 
-        let (event_broadcaster, _) = channel(10);
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
 
         let mut global_settings = GlobalSettings::new(
             PathBuf::from(temp_dir.path()).join("global_settings.json"),
