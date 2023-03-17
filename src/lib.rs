@@ -487,13 +487,26 @@ pub async fn run() -> (
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);
-                let addr = SocketAddr::from(([0, 0, 0, 0], 16_662));
+                #[allow(unused_variables)]
+                let port = 16_662_u16;
+                #[cfg(not(debug_assertions))]
+                if port_scanner::scan_port(port) {
+                    error!("Port {port} is already in use, exiting");
+                    std::process::exit(1);
+                }
+                #[cfg(debug_assertions)]
+                let mut port = 16_662;
+                while port_scanner::scan_port(port) {
+                    debug!("Port {port} is already in use, trying next port");
+                    port += 1;
+                }
+                let addr = SocketAddr::from(([0, 0, 0, 0], port));
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = {
-                        info!("Web server live on {}", addr);
+                        info!("Web server live on {addr}");
                         async {
                             match tls_config_result {
                                 Ok(config) => {
@@ -511,9 +524,7 @@ pub async fn run() -> (
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    if let Err(e) = instance.stop(CausedBy::System, true).await {
-                        error!("Failed to stop instance : {}", e);
-                    }
+                    let _ = instance.stop(CausedBy::System, true);
                 }
             }
         },
