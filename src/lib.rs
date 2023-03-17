@@ -487,15 +487,14 @@ pub async fn run() -> (
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);
-                #[allow(unused_variables)]
-                let port = 16_662_u16;
+                #[allow(unused_variables, unused_mut)]
+                let mut port = 16_662_u16;
                 #[cfg(not(debug_assertions))]
                 if port_scanner::scan_port(port) {
                     error!("Port {port} is already in use, exiting");
                     std::process::exit(1);
                 }
                 #[cfg(debug_assertions)]
-                let mut port = 16_662;
                 while port_scanner::scan_port(port) {
                     debug!("Port {port} is already in use, trying next port");
                     port += 1;
