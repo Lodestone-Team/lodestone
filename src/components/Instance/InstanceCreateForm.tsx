@@ -36,7 +36,7 @@ function _renderStepContent(
   return (
     <>
       {step == 0 ? (
-        <GameTypeSelectForm gameType={gameType} setGameType={setGameType} />
+        <GameTypeSelectForm selectedGameType={gameType} setGameType={setGameType} />
       ) : (
         forms[step - 1]
       )}

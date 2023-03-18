@@ -1,4 +1,5 @@
 import {
+  axiosWrapper,
   capitalizeFirstLetter,
   errorToString,
   stateToLabelColor,
@@ -27,6 +28,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
 import Avatar from 'boring-avatars';
 import Button from './Atoms/Button';
+import { PortStatus } from 'bindings/PortStatus';
 
 // // for the css style of the double border when focused
 // const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -101,14 +103,16 @@ export default function InstanceCard({
   const stateToMenuInfo = () => {
     switch (state) {
       case 'Starting':
-        return [{ label: 'Kill', icon: faPlug, onClick: buttonOnClick }];
+        return [{ label: 'Kill', icon: faPlug, onClick: powerButtonOnClick }];
       case 'Stopping':
-        return [{ label: 'Kill', icon: faPlug, onClick: buttonOnClick }];
+        return [{ label: 'Kill', icon: faPlug, onClick: powerButtonOnClick }];
       case 'Stopped':
-        return [{ label: 'Start', icon: faPowerOff, onClick: buttonOnClick }];
+        return [
+          { label: 'Start', icon: faPowerOff, onClick: powerButtonOnClick },
+        ];
       case 'Running':
         return [
-          { label: 'Stop', icon: faPowerOff, onClick: buttonOnClick },
+          { label: 'Stop', icon: faPowerOff, onClick: powerButtonOnClick },
           {
             label: 'Restart',
             icon: faArrowRotateBackward,
@@ -150,7 +154,7 @@ export default function InstanceCard({
       });
   };
 
-  const buttonOnClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const powerButtonOnClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
 
     if (loading) return;
@@ -159,6 +163,20 @@ export default function InstanceCard({
     setLoading(true);
 
     gaEventTracker('Change Instance State', stateToActionMessageMap[state]);
+
+    if (stateToApiEndpointMap[state] === '/start') {
+      const result = await axiosWrapper<PortStatus>({
+        method: 'get',
+        url: `/check/port/${port}`,
+      });
+      if (result.is_in_use) {
+        toast.error(
+          `Port ${port} is not available, please change the port in the instance settings`
+        );
+        setLoading(false);
+        return;
+      }
+    }
 
     axios
       .put(`/instance/${uuid}${stateToApiEndpointMap[state]}`)

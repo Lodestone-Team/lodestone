@@ -1,7 +1,7 @@
 import GameIcon from 'components/Atoms/GameIcon';
 import React from 'react';
 import clsx from 'clsx';
-import { GameType } from 'bindings/InstanceInfo';
+import { Game } from 'bindings/Game';
 const SelectGameCard = ({
   title,
   description,
@@ -11,7 +11,7 @@ const SelectGameCard = ({
 }: {
   title: string;
   description: string;
-  game_type: GameType;
+  game_type: Game;
   className?: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) => {

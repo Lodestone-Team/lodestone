@@ -6,9 +6,9 @@ import useAnalyticsEventTracker from 'utils/hooks';
 import clsx from 'clsx';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import InstanceCard from 'components/InstanceCard';
-import { InstanceTabListMap } from '../../data/GameTypeMappings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpand } from '@fortawesome/free-solid-svg-icons';
+import { tabs } from 'pages/InstanceTabs/InstanceTabs';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -74,40 +74,38 @@ export const SelectedInstanceInfo = ({
       <InstanceCard {...selectedInstance} />
 
       {selectedInstance &&
-        InstanceTabListMap[Object.keys(selectedInstance.game_type)[0]].map(
-          (tab) => (
-            <RadioGroup.Option
-              key={tab.path}
-              value={`/dashboard/${tab.path}`}
-              className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+        tabs.map((tab) => (
+          <RadioGroup.Option
+            key={tab.path}
+            value={`/dashboard/${tab.path}`}
+            className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+          >
+            <button
+              className={clsx(
+                'flex flex-row items-center gap-x-1.5',
+                'cursor-pointer rounded-md py-1 px-2',
+                'text-medium font-medium leading-5 tracking-normal',
+                'hover:bg-gray-800',
+                'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                setActive === tab.path
+                  ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                  : ''
+              )}
+              onClick={() => setPathname(`/dashboard/${tab.path}`)}
             >
-              <button
+              <div
                 className={clsx(
-                  'flex flex-row items-center gap-x-1.5',
-                  'cursor-pointer rounded-md py-1 px-2',
-                  'text-medium font-medium leading-5 tracking-normal',
-                  'hover:bg-gray-800',
-                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                   setActive === tab.path
-                    ? 'bg-gray-800 outline outline-1 outline-fade-700'
-                    : ''
+                    ? 'text-white/50'
+                    : 'text-gray-faded/30'
                 )}
-                onClick={() => setPathname(`/dashboard/${tab.path}`)}
               >
-                <div
-                  className={clsx(
-                    setActive === tab.path
-                      ? 'text-white/50'
-                      : 'text-gray-faded/30'
-                  )}
-                >
-                  {tab.icon}
-                </div>
-                <div className="text-gray-300">{tab.title}</div>
-              </button>
-            </RadioGroup.Option>
-          )
-        )}
+                {tab.icon}
+              </div>
+              <div className="text-gray-300">{tab.title}</div>
+            </button>
+          </RadioGroup.Option>
+        ))}
       {children}
     </RadioGroup>
   );

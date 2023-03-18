@@ -1,15 +1,12 @@
-import { Tab } from '@headlessui/react';
 import ClipboardTextfield from 'components/ClipboardTextfield';
-import DashboardCard from 'components/DashboardCard';
 import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useState } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
 import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
-import FileViewer from 'components/FileViewer/FileViewer';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
@@ -26,7 +23,6 @@ const InstanceOverview = () => {
   const domain = (globalSettings?.domain ?? address) || 'localhost';
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
-  const [selectedTabIndex, setSelectedTabIndex] = useState(0);
 
   if (!instance || !uuid) {
     return (
@@ -89,6 +85,9 @@ const InstanceOverview = () => {
             <GameIcon game_type={instance.game_type} className="h-6 w-6" />
             <Label size="large" color={labelColor}>
               {instance.state}
+            </Label>
+            <Label size="large" color={'blue'}>
+              Version {instance.version}
             </Label>
             <Label size="large" color={'blue'}>
               Player Count {instance.player_count}/{instance.max_player_count}
