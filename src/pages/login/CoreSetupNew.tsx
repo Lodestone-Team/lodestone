@@ -46,6 +46,7 @@ const CoreSetupNew = () => {
   const { core_name } = coreInfo ?? {};
   const tauri = useTauri();
   const socket = `${address}:${port}`;
+  const keyPrefilled = !!(tauri && setupKey);
 
   useEffectOnce(() => {
     if (!tauri) return;
@@ -111,11 +112,12 @@ const CoreSetupNew = () => {
         <h2 className="text-medium font-medium tracking-medium text-white/50">
           {core_name} ({socket})
         </h2>
-        <h2 className="text-medium font-medium tracking-medium text-white/50">
-          {tauri && setupKey
-            ? "Setup key is automatically filled in because you're using the desktop app"
-            : 'Check the console output of the core to find the "First time setup key"'}
-        </h2>
+        {keyPrefilled ? null : (
+          <h2 className="text-medium font-medium tracking-medium text-white/50">
+            Check the console output of the core to find the &quot;First time
+            setup key&quot;
+          </h2>
+        )}
       </div>
       <Formik
         initialValues={initialValues}
@@ -142,10 +144,10 @@ const CoreSetupNew = () => {
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <InputField type="text" name="username" label="Username" />
               <InputField
-                type="text"
+                type="password"
                 name="setupKey"
-                label="Setup Key"
-                disabled={!!(tauri && setupKey)}
+                label={keyPrefilled ? 'Setup key (prefilled)' : 'Setup key'}
+                disabled={keyPrefilled}
               />
               <InputField type="password" name="password" label="Password" />
               <InputField
