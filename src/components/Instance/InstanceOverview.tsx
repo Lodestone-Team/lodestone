@@ -87,6 +87,9 @@ const InstanceOverview = () => {
               {instance.state}
             </Label>
             <Label size="large" color={'blue'}>
+              Version {instance.version}
+            </Label>
+            <Label size="large" color={'blue'}>
               Player Count {instance.player_count}/{instance.max_player_count}
             </Label>
             <Label size="large" color={'blue'}>
