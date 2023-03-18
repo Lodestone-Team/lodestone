@@ -3,13 +3,17 @@ import clsx from 'clsx';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { InstanceGameTypes } from 'data/InstanceGameTypes';
 import SelectGameCard from './SelectGameCard';
-import { gameTypeInfoFromHandlerType } from 'data/GameTypeMappings';
+import {
+  game_to_description,
+  game_to_game_title,
+  HandlerGameType_to_Game,
+} from 'data/GameTypeMappings';
 export default function GameTypeSelectForm({
-  gameType,
+  selectedGameType,
   setGameType,
   className,
 }: {
-  gameType: HandlerGameType;
+  selectedGameType: HandlerGameType;
   setGameType: (gameType: HandlerGameType) => void;
   className?: string;
 }) {
@@ -27,23 +31,20 @@ export default function GameTypeSelectForm({
         What will your instance be used for?
       </p>
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
-        {game_types.map((game) => {
-          const { title, description, game_type } =
-            gameTypeInfoFromHandlerType[game];
+        {game_types.map((game_type) => {
+          const game = HandlerGameType_to_Game[game_type];
           return (
-            <>
-              <SelectGameCard
-                key={game}
-                title={title}
-                description={description}
-                game_type={game_type}
-                className={clsx(
-                  game === gameType &&
-                    'enabled:border-gray-faded/50 enabled:bg-gray-700 enabled:outline-white/50'
-                )}
-                onClick={() => setGameType(game)}
-              />
-            </>
+            <SelectGameCard
+              key={game_type}
+              title={game_to_game_title(game)}
+              description={game_to_description(game)}
+              game_type={game}
+              className={clsx(
+                game_type === selectedGameType &&
+                  'enabled:border-gray-faded/50 enabled:bg-gray-700 enabled:outline-white/50'
+              )}
+              onClick={() => setGameType(game_type)}
+            />
           );
         })}
       </div>

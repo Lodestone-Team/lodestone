@@ -4,6 +4,9 @@ import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InstanceOverview from 'components/Instance/InstanceOverview';
+import { match, otherwise } from 'variant';
+
+const unknown_icon = '/assets/minecraft-missing-texture.svg';
 
 import {
   faChartLine,
@@ -14,6 +17,7 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 import { HandlerGameType } from 'bindings/HandlerGameType';
+import { Game } from 'bindings/Game';
 
 type InstanceTab = {
   title: string;
@@ -24,125 +28,78 @@ type InstanceTab = {
   content: JSX.Element;
 };
 
-export const gameIcons: { [key: string]: { [key: string]: string } } = {
-  MinecraftJava: {
-    Vanilla: '/assets/minecraft-vanilla.png',
-    Fabric: '/assets/minecraft-fabric.png',
-    Forge: '/assets/minecraft-forge.png',
-    Paper: '/assets/minecraft-paper.png',
-  },
-};
+export const game_to_game_icon = (game: Game) =>
+  match(game, {
+    MinecraftJava: ({ variant }) =>
+      match(
+        variant,
+        otherwise(
+          {
+            Vanilla: () => '/assets/minecraft-vanilla.png',
+            Fabric: () => '/assets/minecraft-fabric.png',
+            Forge: () => '/assets/minecraft-forge.png',
+            Paper: () => '/assets/minecraft-paper.png',
+          },
+          () => unknown_icon
+        )
+      ),
+    Generic: () => unknown_icon,
+  });
 
-export const gameTypeInfoFromHandlerType: Record<HandlerGameType, any> = {
+export const game_to_game_title = (game: Game) =>
+  match(game, {
+    MinecraftJava: ({ variant }) =>
+      match(variant, {
+        Vanilla: () => 'Minecraft',
+        Forge: () => 'Forge (Minecraft)',
+        Fabric: () => 'Fabric (Minecraft)',
+        Paper: () => 'Paper (Minecraft)',
+        Spigot: () => 'Spigot (Minecraft)',
+        Other: ({ name }) => `${name} (Minecraft)`,
+      }),
+    Generic: ({ game_name }) => `${game_name} (Generic)`,
+  });
+
+export const game_to_description = (game: Game) =>
+  match(game, {
+    MinecraftJava: ({ variant }) =>
+      match(variant, {
+        Vanilla: () => 'Standard vanilla Minecraft server from Mojang.',
+        Forge: () =>
+          'Modding framework that allows you to install mods and customize your Minecraft experience.',
+        Fabric: () => 'Lightweight modding toolchain for Minecraft.',
+        Paper: () =>
+          'High-performance Spigot fork that aims to fix gameplay and mechanics inconsistencies.',
+        Spigot: () =>
+          'Modified Minecraft server software that supports plugins, offering enhanced performance and customization options.',
+        Other: ({ name }) => `Unknown Minecraft variant: ${name}`,
+      }),
+    Generic: ({ game_name }) => `Unknown game: ${game_name}`,
+  });
+
+export const HandlerGameType_to_Game: Record<HandlerGameType, Game> = {
   MinecraftJavaVanilla: {
-    title: 'Minecraft',
-    description: 'Standard vanilla Minecraft server from Mojang.',
-    game_type: { MinecraftJava: { variant: 'Vanilla' } },
+    type: 'MinecraftJava',
+    variant: {
+      type: 'Vanilla',
+    },
   },
   MinecraftFabric: {
-    title: 'Fabric (Minecraft)',
-    description: 'Lightweight modding toolchain for Minecraft.',
-    game_type: { MinecraftJava: { variant: 'Fabric' } },
+    type: 'MinecraftJava',
+    variant: {
+      type: 'Fabric',
+    },
   },
   MinecraftForge: {
-    title: 'Forge (Minecraft)',
-    description:
-      'Modding framework that allows you to install mods and customize your Minecraft experience.',
-    game_type: { MinecraftJava: { variant: 'Forge' } },
+    type: 'MinecraftJava',
+    variant: {
+      type: 'Forge',
+    },
   },
   MinecraftPaper: {
-    title: 'Paper (Minecraft)',
-    description: 'High-performance Spigot fork that aims to fix gameplay and mechanics inconsistencies.',
-    game_type: { MinecraftJava: { variant: 'Paper' } },
+    type: 'MinecraftJava',
+    variant: {
+      type: 'Paper',
+    },
   },
-};
-
-export const spanMap: { [key: string]: { [key: string]: string } } = {
-  MinecraftJava: {
-    Vanilla: 'Minecraft Vanilla',
-    Fabric: 'Minecraft Fabric',
-    Forge: 'Minecraft Forge',
-    Paper: 'Minecraft Paper',
-  },
-};
-
-export const InstanceTabListMap: Record<string, InstanceTab[]> = {
-  MinecraftJava: [
-    {
-      title: 'Overview',
-      displayTitle: null,
-      path: 'overview',
-      width: 'max-w-4xl',
-      icon: <FontAwesomeIcon icon={faChartLine} />,
-      content: <InstanceOverview />,
-    },
-    {
-      title: 'Settings',
-      displayTitle: 'Settings',
-      path: 'settings',
-      width: 'max-w-2xl',
-      icon: <FontAwesomeIcon icon={faCog} />,
-      content: (
-        <div className="flex flex-col gap-8">
-          <InstanceSettingCard />
-        </div>
-      ),
-    },
-    {
-      title: 'Console',
-      displayTitle: 'Console',
-      path: 'console',
-      width: 'max-w-6xl',
-      icon: <FontAwesomeIcon icon={faServer} />,
-      content: <GameConsole />,
-    },
-    {
-      title: 'Files',
-      displayTitle: 'Files',
-      path: 'files',
-      width: 'max-w-6xl',
-      icon: <FontAwesomeIcon icon={faFolder} />,
-      content: <FileViewer />,
-    },
-    {
-      title: 'Tasks',
-      displayTitle: 'Tasks',
-      path: 'tasks',
-      width: 'max-w-4xl',
-      icon: <FontAwesomeIcon icon={faCodeCompare} />,
-      content: (
-        <DashboardCard className="grow justify-center gap-4">
-          <img
-            src="/assets/placeholder-cube.png"
-            alt="placeholder"
-            className="mx-auto w-20"
-            style={{ imageRendering: 'pixelated' }}
-          />
-          <p className="text-center font-medium text-white/50">
-            Coming soon to a dashboard near you!
-          </p>
-        </DashboardCard>
-      ),
-    },
-    {
-      title: 'Event Logs',
-      displayTitle: 'Event Logs',
-      path: 'logs',
-      width: 'max-w-4xl',
-      icon: <FontAwesomeIcon icon={faInbox} />,
-      content: (
-        <DashboardCard className="grow justify-center gap-4">
-          <img
-            src="/assets/placeholder-cube.png"
-            alt="placeholder"
-            className="mx-auto w-20"
-            style={{ imageRendering: 'pixelated' }}
-          />
-          <p className="text-center font-medium text-white/50">
-            Coming soon to a dashboard near you!
-          </p>
-        </DashboardCard>
-      ),
-    },
-  ],
 };
