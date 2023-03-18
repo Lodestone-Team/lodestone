@@ -72,19 +72,7 @@ const CoreConnect = () => {
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>
-        <h2 className="text-medium font-medium tracking-medium text-white/75">
-          You may need to adjust your network and browser settings.{' '}
-          <a
-            href="https://github.com/Lodestone-Team/dashboard/wiki/Known-Issues#networking"
-            target="_blank"
-            rel="noreferrer"
-            className="text-blue-200 underline hover:text-blue-300"
-          >
-            Learn more.
-          </a>
-        </h2>
-      </div>
-      <WarningAlert>
+        <WarningAlert>
         <p>
           You may need to adjust your network and browser settings.{' '}
           <a
@@ -97,6 +85,8 @@ const CoreConnect = () => {
           </a>
         </p>
       </WarningAlert>
+      </div>
+      
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}
