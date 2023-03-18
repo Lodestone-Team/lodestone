@@ -31,6 +31,11 @@ impl TConfigurable for MinecraftInstance {
     async fn game_type(&self) -> Game {
         self.config.lock().await.flavour.clone().into()
     }
+
+    async fn version(&self) -> String {
+        self.config.lock().await.version.clone()
+    }
+
     async fn flavour(&self) -> String {
         self.config.lock().await.flavour.to_string()
     }

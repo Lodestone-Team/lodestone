@@ -69,6 +69,7 @@ pub trait TConfigurable {
     async fn name(&self) -> String;
     async fn flavour(&self) -> String;
     async fn game_type(&self) -> Game;
+    async fn version(&self) -> String;
     async fn description(&self) -> String;
     async fn port(&self) -> u32;
     async fn creation_time(&self) -> i64;
