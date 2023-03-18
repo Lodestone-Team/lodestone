@@ -82,7 +82,7 @@ tracing-subscriber = { version = "0.3.16", features = [
     "time",
 ] }
 tracing-error = "0.2.0"
-ts-rs = "6.2.1"
+ts-rs = { version = "6.2.1", features = ["indexmap-impl"] }
 walkdir = "2.3.2"
 whoami = "1.2.3"
 zip = "0.6.2"

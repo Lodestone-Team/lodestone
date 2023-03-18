@@ -123,6 +123,18 @@ impl ToString for Flavour {
     }
 }
 
+impl ToString for FlavourKind {
+    fn to_string(&self) -> String {
+        match self {
+            FlavourKind::Vanilla => "vanilla".to_string(),
+            FlavourKind::Fabric => "fabric".to_string(),
+            FlavourKind::Paper => "paper".to_string(),
+            FlavourKind::Spigot => "spigot".to_string(),
+            FlavourKind::Forge => "forge".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetupConfig {
     pub name: String,
@@ -326,7 +338,13 @@ impl MinecraftInstance {
         sections.insert("section_1".to_string(), section_1);
         sections.insert("section_2".to_string(), section_2);
 
-        Ok(ConfigurableManifest::new(false, false, false, sections))
+        Ok(ConfigurableManifest::new(
+            format!("{} Server", flavour.to_string()),
+            None,
+            false,
+            false,
+            sections,
+        ))
     }
 
     pub async fn validate_section(
@@ -464,7 +482,13 @@ impl MinecraftInstance {
             server_properties_section_manifest,
         );
 
-        ConfigurableManifest::new(false, false, false, setting_sections)
+        ConfigurableManifest::new(
+            restore_config.name.clone(),
+            Some(restore_config.description.clone()),
+            false,
+            false,
+            setting_sections,
+        )
     }
 
     pub async fn new(

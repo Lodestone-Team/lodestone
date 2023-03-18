@@ -443,7 +443,8 @@ impl SettingManifest {
 
 // A Setting section contains a name and a description (for UI)
 // A Setting section contains a list of InstanceSetting
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SectionManifest {
     pub(super) section_id: String,
     pub(super) name: String,
@@ -515,25 +516,29 @@ impl SectionManifest {
 
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ConfigurableManifest {
+    instance_name: String,
+    instance_description: Option<String>,
     auto_start: bool,
     restart_on_crash: bool,
-    start_on_connection: bool,
     setting_sections: IndexMap<String, SectionManifest>,
 }
 
 impl ConfigurableManifest {
     pub fn new(
+        instance_name: String,
+        instance_description: Option<String>,
         auto_start: bool,
         restart_on_crash: bool,
-        start_on_connection: bool,
         setting_sections: IndexMap<String, SectionManifest>,
     ) -> Self {
         Self {
+            instance_name,
+            instance_description,
             auto_start,
             restart_on_crash,
-            start_on_connection,
             setting_sections,
         }
     }

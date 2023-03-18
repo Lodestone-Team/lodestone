@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -71,16 +72,19 @@ impl TServer for MinecraftInstance {
             );
         }
 
-        let jre = self
-            .path_to_runtimes
-            .join("java")
-            .join(format!("jre{}", config.jre_major_version))
-            .join(if std::env::consts::OS == "macos" {
-                "Contents/Home/bin"
-            } else {
-                "bin"
-            })
-            .join("java");
+        let jre = if let Some(jre) = &config.java_cmd {
+            PathBuf::from(jre)
+        } else {
+            self.path_to_runtimes
+                .join("java")
+                .join(format!("jre{}", config.jre_major_version))
+                .join(if std::env::consts::OS == "macos" {
+                    "Contents/Home/bin"
+                } else {
+                    "bin"
+                })
+                .join("java")
+        };
 
         let mut server_start_command = Command::new(&jre);
         let server_start_command = server_start_command
