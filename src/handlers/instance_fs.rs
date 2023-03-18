@@ -629,13 +629,6 @@ pub async fn unzip_instance_file(
         });
     }
 
-    if !path_to_dest.is_dir() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Destination is not a directory"),
-        });
-    }
-
     if !requester.can_perform_action(&UserAction::WriteGlobalFile)
         && is_path_protected(&path_to_dest)
     {
