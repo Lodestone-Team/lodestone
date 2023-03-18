@@ -44,26 +44,22 @@ jobs:
           target: release/
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # https://stackoverflow.com/questions/73402042/github-action-expressions-split-string
       -
-        name: build and push
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          platforms: linux/amd64
-          file: ./githubactions.Dockerfile
-          build-args: |
-            binpath=./release/lodestone_core_${{ steps.release_asset.outputs.version }}
-          push: true
-          tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_asset.outputs.version }}
+        name: set version string
+        env:
+          VERSION: ${{ steps.release_asset.outputs.version }}
+        id: substring
+        run: echo "::set-output name=version::${VERSION:1}"
 
       -
         name: build and push
         uses: docker/build-push-action@v3
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           file: ./githubactions.Dockerfile
           build-args: |
-            binpath=./release/lodestone_core_arm_${{ steps.release_asset.outputs.version }}
+            lodestone_version=${{ steps.release_asset.outputs.version }}
           push: true
-          tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_asset.outputs.version }}
+          tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.substring.outputs.version }}
