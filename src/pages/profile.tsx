@@ -1,8 +1,5 @@
-import { Tab } from '@headlessui/react';
-import { useContext, useEffect, useState } from 'react';
-import CoreSettings from 'components/Settings/CoreSettings';
-import UserSettings from 'components/Settings/UserSettings';
-import { SettingsContext } from 'data/SettingsContext';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment, useContext, useEffect, useState } from 'react';
 import { useDocumentTitle } from 'usehooks-ts';
 import { UserState } from 'components/UserMenu';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
@@ -10,17 +7,21 @@ import { LodestoneContext } from 'data/LodestoneContext';
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { useLocation } from 'react-router-dom';
 import InputBox from 'components/Atoms/Config/InputBox';
+import Spinner from 'components/DashboardLayout/Spinner';
+import { axiosPutSingleValue } from 'utils/util';
+import Button from 'components/Atoms/Button';
+import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
+import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
   useDocumentTitle('Profile - Lodestone');
-  const { token, setToken, core } = useContext(LodestoneContext);
-  const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
-  const location = useLocation();
+  const { token } = useContext(LodestoneContext);
   const uid = useUid();
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
-  const { address, port } = core;
-  const socket = `${address}:${port}`;
+
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [stopLoading, setStopLoading] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -36,63 +37,84 @@ const ProfilePage = () => {
     }
   }, [token, isLoading, isError, user]);
 
+  useEffect(() => {
+    //give time for user to load
+    setTimeout(() => {
+      setStopLoading(true);
+    }, 1000);
+  }, []);
+
+  if (stopLoading && userState !== 'logged-in')
+    toast.warn("You're not logged in! Please log in to access this page.");
+
+  if (isLoading && !stopLoading) {
+    return <Spinner />;
+  }
+
   return (
     // used to possibly center the content
     <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
       <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
         <div className="flex min-w-0 flex-row items-center gap-4">
           <h1 className="dashboard-instance-heading text-gray-300">Profile</h1>
+          <p className="text-medium font-mediumbold"></p>
         </div>
-        <InputBox
-          label={'Username'}
-          value={user?.username ?? ''}
-          type="text"
-          // isLoading={isLoading}
-          onSubmit={async (value) => {
-            console.log('hey');
-          }}
-        />
+        <Transition
+          appear
+          show={showChangePassword}
+          as={Fragment}
+          enter="ease-out duration-200"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-150"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <Dialog
+            onClose={() => setShowChangePassword(false)}
+            className="relative z-10"
+          >
+            <div className="fixed inset-0 bg-gray-900/60" />
+            <div className="fixed inset-0 overflow-y-auto">
+              <div className="flex min-h-full items-center justify-center p-4">
+                <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
+                  <div className="text-h2 font-extrabold tracking-tight text-gray-300">
+                    Change Password
+                  </div>
+                  <ChangeSelfPasswordForm
+                    onSuccess={() => setShowChangePassword(false)}
+                    onCancel={() => setShowChangePassword(false)}
+                  />
+                </Dialog.Panel>
+              </div>
+            </div>
+          </Dialog>
+        </Transition>
+        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+          <InputBox
+            label={'Username'}
+            value={
+              userState === 'logged-in' && user ? `${user.username}` : 'Guest'
+            }
+            type="text"
+            isLoading={isLoading}
+            onSubmit={async (value) => {
+              await axiosPutSingleValue(`/user/${uid}/rename`, value);
+            }}
+            disabled={userState !== 'logged-in' || !user}
+          />
+        </div>
 
-        <div className="mt-4 flex w-full flex-row items-center text-h3 font-extrabold text-gray-300">
+        <div className="mt-4 text-h3 font-extrabold text-gray-300">
           Password and Authentication
         </div>
-
-        {/* <Tab.Group
-          selectedIndex={tabIndex}
-          onChange={(i) => {
-            setTabIndex(i);
-            if (i !== 1) {
-              selectUser(undefined);
-            }
-          }}
-        >
-          <Tab.List className="flex w-full flex-row flex-wrap items-center gap-4 border-b-2 border-gray-700">
-            {tabList.map((tab) => (
-              <Tab
-                key={tab.title}
-                className={({ selected }) =>
-                  `text-h3 font-bold tracking-medium focus-visible:outline-none ${
-                    selected
-                      ? 'border-b-2 border-blue-200 text-blue-200'
-                      : 'mb-0.5 text-gray-500'
-                  }`
-                }
-              >
-                {tab.title}
-              </Tab>
-            ))}
-          </Tab.List>
-          <Tab.Panels className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2">
-            {tabList.map((tab) => (
-              <Tab.Panel
-                className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-none"
-                key={tab.title}
-              >
-                {tab.content}
-              </Tab.Panel>
-            ))}
-          </Tab.Panels>
-        </Tab.Group> */}
+        <div>
+          <Button
+            label={'Change Password'}
+            size={'medium'}
+            onClick={() => setShowChangePassword(true)}
+          />
+        </div>
       </div>
     </div>
   );
