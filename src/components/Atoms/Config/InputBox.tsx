@@ -145,6 +145,7 @@ export default function InputBox({
     const submitError = await catchAsyncToString(onSubmitProp(trimmed));
     setError(submitError);
     setIsLoading(false);
+    setTypeModified(type);
   };
 
   const onReset = (e: React.FormEvent<HTMLFormElement>) => {
