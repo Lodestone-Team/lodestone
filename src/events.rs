@@ -67,6 +67,9 @@ pub enum UserEventInner {
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
+    UsernameChanged {
+        new_username: String,
+    },
     PermissionChanged {
         new_permissions: Box<UserPermission>,
     },
