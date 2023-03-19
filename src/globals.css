@@ -274,3 +274,7 @@ main {
 .Toastify--animate {
   animation-duration: 0.1s !important;
 }
+
+::-ms-reveal {
+  display: none;
+}
