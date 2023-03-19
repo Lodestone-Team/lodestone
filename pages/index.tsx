@@ -43,6 +43,7 @@ import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
+import ProfilePage from 'pages/profile';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -301,6 +302,7 @@ export default function App() {
               </Route>
               <Route element={<SettingsLayout />}>
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />

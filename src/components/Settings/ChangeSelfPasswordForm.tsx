@@ -67,31 +67,36 @@ export const ChangeSelfPasswordForm = ({
         <Form
           id="change-self-password-form"
           autoComplete={DISABLE_AUTOFILL}
-          className="mt-10 flex flex-col gap-16 text-left"
+          className="my-2 text-left"
         >
           {status && (
             <WarningAlert>
               <p>{status.error}</p>
             </WarningAlert>
           )}
-          <InputField
-            name="old_password"
-            label="Old Password"
-            type="password"
-          />
-          <InputField name="password" label="Password" type="password" />
-          <InputField
-            name="password_confirm"
-            label="Confirm Password"
-            type="password"
-          />
-          <div className="flex flex-row justify-between">
-            <Button onClick={onCancel} label="Cancel" />
-            <Button
-              type="submit"
-              label="Change Password"
-              loading={isSubmitting}
-            />
+          <div className="mt-10 flex flex-col gap-10">
+            <div className="flex flex-col gap-14">
+              <InputField
+                name="old_password"
+                label="Old Password"
+                type="password"
+              />
+              <InputField name="password" label="Password" type="password" />
+              <InputField
+                name="password_confirm"
+                label="Confirm Password"
+                type="password"
+              />
+            </div>
+            <div className="flex justify-end gap-6">
+              <Button onClick={onCancel} label="Cancel" />
+              <Button
+                type="submit"
+                label="Change Password"
+                loading={isSubmitting}
+                intention="primary"
+              />
+            </div>
           </div>
         </Form>
       )}
