@@ -45,7 +45,7 @@ const ProfilePage = () => {
     //give time for user to load
     setTimeout(() => {
       setStopLoading(true);
-    }, 1000);
+    }, 5000);
   }, []);
 
   if (stopLoading && userState !== 'logged-in')
