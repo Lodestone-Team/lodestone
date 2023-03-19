@@ -146,6 +146,7 @@ export default function InputBox({
     setError(submitError);
     setIsLoading(false);
     setTypeModified(type);
+    setTouched(false);
   };
 
   const onReset = (e: React.FormEvent<HTMLFormElement>) => {

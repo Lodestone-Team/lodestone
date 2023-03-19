@@ -20,6 +20,9 @@ const ProfilePage = () => {
   const { isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
 
+  const [username, setUsername] = useState(
+    userState === 'logged-in' && user ? `${user.username}` : 'Guest'
+  );
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [stopLoading, setStopLoading] = useState(false);
 
@@ -34,6 +37,7 @@ const ProfilePage = () => {
       return;
     } else {
       setUserState('logged-in');
+      setUsername(user.username);
     }
   }, [token, isLoading, isError, user]);
 
@@ -54,61 +58,63 @@ const ProfilePage = () => {
   return (
     // used to possibly center the content
     <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
-      <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
-        <div className="flex min-w-0 flex-row items-center gap-4">
-          <h1 className="dashboard-instance-heading text-gray-300">Profile</h1>
-          <p className="text-medium font-mediumbold"></p>
-        </div>
-        <Transition
-          appear
-          show={showChangePassword}
-          as={Fragment}
-          enter="ease-out duration-200"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-150"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
+      <Transition
+        appear
+        show={showChangePassword}
+        as={Fragment}
+        enter="ease-out duration-200"
+        enterFrom="opacity-0"
+        enterTo="opacity-100"
+        leave="ease-in duration-150"
+        leaveFrom="opacity-100"
+        leaveTo="opacity-0"
+      >
+        <Dialog
+          onClose={() => setShowChangePassword(false)}
+          className="relative z-10"
         >
-          <Dialog
-            onClose={() => setShowChangePassword(false)}
-            className="relative z-10"
-          >
-            <div className="fixed inset-0 bg-gray-900/60" />
-            <div className="fixed inset-0 overflow-y-auto">
-              <div className="flex min-h-full items-center justify-center p-4">
-                <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
-                  <div className="text-h2 font-extrabold tracking-tight text-gray-300">
-                    Change Password
-                  </div>
-                  <ChangeSelfPasswordForm
-                    onSuccess={() => setShowChangePassword(false)}
-                    onCancel={() => setShowChangePassword(false)}
-                  />
-                </Dialog.Panel>
-              </div>
+          <div className="fixed inset-0 bg-gray-900/60" />
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4">
+              <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
+                <div className="text-h2 font-extrabold tracking-tight text-gray-300">
+                  Change Password
+                </div>
+                <ChangeSelfPasswordForm
+                  onSuccess={() => setShowChangePassword(false)}
+                  onCancel={() => setShowChangePassword(false)}
+                />
+              </Dialog.Panel>
             </div>
-          </Dialog>
-        </Transition>
-        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+          </div>
+        </Dialog>
+      </Transition>
+      <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
+        <div>
+          <h1 className="dashboard-instance-heading text-gray-300">Profile</h1>
+          <p className="mt-1 text-medium font-mediumbold">
+            Profile preferences for {username}
+          </p>
+        </div>
+
+        <div className="mt-8 w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
           <InputBox
             label={'Username'}
-            value={
-              userState === 'logged-in' && user ? `${user.username}` : 'Guest'
-            }
+            value={username}
             type="text"
             isLoading={isLoading}
             onSubmit={async (value) => {
               await axiosPutSingleValue(`/user/${uid}/rename`, value);
+              setUsername(value);
             }}
             disabled={userState !== 'logged-in' || !user}
           />
         </div>
 
-        <div className="mt-4 text-h3 font-extrabold text-gray-300">
+        <div className="mt-8 text-h3 font-extrabold text-gray-300">
           Password and Authentication
         </div>
-        <div>
+        <div className="mt-4">
           <Button
             label={'Change Password'}
             size={'medium'}

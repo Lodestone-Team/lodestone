@@ -67,14 +67,14 @@ export const ChangeSelfPasswordForm = ({
         <Form
           id="change-self-password-form"
           autoComplete={DISABLE_AUTOFILL}
-          className="mt-2 text-left"
+          className="my-2 text-left"
         >
-          <div className="flex flex-col gap-10">
-            {status && (
-              <WarningAlert>
-                <p>{status.error}</p>
-              </WarningAlert>
-            )}
+          {status && (
+            <WarningAlert>
+              <p>{status.error}</p>
+            </WarningAlert>
+          )}
+          <div className="mt-10 flex flex-col gap-10">
             <div className="flex flex-col gap-14">
               <InputField
                 name="old_password"
