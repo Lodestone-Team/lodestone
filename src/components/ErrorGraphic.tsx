@@ -27,5 +27,5 @@ export default function ErrorGraphic({ className, icon, iconClassName, message, 
           </p>
         )}
       </div>
-    )
+    );
 }

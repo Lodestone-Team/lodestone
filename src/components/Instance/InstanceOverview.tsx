@@ -14,6 +14,18 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
 
+import { Table } from 'components/Table';
+
+export interface TableColumn {
+  field: string;
+  headerName: string;
+  className?: string;
+}
+
+export interface TableRow {
+  [key: string]: React.ReactNode;
+} 
+
 const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
   const { core } = useContext(LodestoneContext);
@@ -64,6 +76,18 @@ const InstanceOverview = () => {
     }));
   };
 
+  const columns: TableColumn[] = [
+    { field: 'name', headerName: 'Name' },
+    { field: 'age', headerName: 'Age' },
+    { field: 'city', headerName: 'City', className: 'column-city' },
+  ];
+
+  const rows: TableRow[] = [
+    { id: 1, name: 'John', age: 30, city: 'New York' },
+    { id: 2, name: 'Jane', age: 25, city: 'Los Angeles' },
+    { id: 3, name: 'Bob', age: 45, city: 'Chicago' },
+  ];
+
   return (
     <>
       <div
@@ -112,6 +136,7 @@ const InstanceOverview = () => {
         </div>
       </div>
       <InstancePerformanceCard />
+      <Table rows={rows} columns={columns} />
       <InstancePlayerList />
     </>
   );
