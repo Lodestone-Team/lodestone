@@ -1,12 +1,31 @@
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import Button from 'components/Atoms/Button';
-import { faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faXmark, faServer, faRightToBracket } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { RadioGroup } from '@headlessui/react';
 import { SettingsContext } from 'data/SettingsContext';
 import Avatar from 'components/Atoms/Avatar';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
+import CoreSettings from 'components/Settings/CoreSettings';
+import UserSettings from 'components/Settings/UserSettings';
+
+
+export const tabList = [
+    {
+    title: 'General',
+      path: 'general',
+      content: <CoreSettings />,
+    },
+    {
+      title: 'Users',
+      path: 'users',
+      content: <UserSettings />,
+    },
+];
+
+// const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);
 
 export default function SettingsLeftNav({ className }: { className?: string }) {
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
@@ -16,7 +35,59 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
   return (
     <div className={`flex w-full flex-col items-center px-4 ${className}`}>
       <div className="flex h-full w-full grow flex-col items-start gap-4 pt-12 pb-4">
-        {selectedUser ? (
+      <button
+                className={clsx(
+                  'flex flex-row items-center gap-x-1.5',
+                  'cursor-pointer rounded-md py-1 px-2',
+                  'text-medium font-medium leading-5 tracking-normal',
+                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                )}
+                onClick={() => {
+              setSearchParam('user', undefined);
+              const returnRoute = localStorage.getItem('lastVisitedRoute');
+              setPathname(returnRoute || '/');
+            }}
+        >
+        <div className='text-gray-faded/30'>
+          <FontAwesomeIcon icon={faRightToBracket} rotation={180} size='xl' />
+        </div>
+        <h1 className="dashboard-instance-heading">Settings</h1>
+      </button>
+
+        <RadioGroup
+          className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full w-full`}
+          // value={selectedInstance}
+          // onChange={selectInstance}
+        >
+          <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 flex flex-row items-center gap-x-1.5">
+            <FontAwesomeIcon icon={faServer} />
+            CORE
+          </RadioGroup.Label>
+          {tabList.map((setting) => (
+          <RadioGroup.Option
+              key={setting.path}
+              value={`/dashboard/${setting.path}`}
+              className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+            >
+              <button
+                className={clsx(
+                  'flex flex-row items-center gap-x-1.5',
+                  'cursor-pointer rounded-md py-1 px-2',
+                  'text-medium font-medium leading-5 tracking-normal',
+                  'hover:bg-gray-800',
+                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                  // setActive === setting.path
+                    // ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                    // : ''
+                )}
+                onClick={() => setPathname(`/dashboard/${setting.path}`)}
+              >
+                <div className="text-gray-300">{setting.title}</div>
+              </button>
+            </RadioGroup.Option>
+        )) }
+        </RadioGroup>
+          {(
           <Button
             label="Unselect User"
             icon={faXmark}
@@ -25,19 +96,8 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
             }}
             className="ml-2"
           />
-        ) : (
-          <Button
-            label="Close Settings"
-            icon={faXmark}
-            onClick={() => {
-              setSearchParam('user', undefined);
-              const returnRoute = localStorage.getItem('lastVisitedRoute');
-              setPathname(returnRoute || '/');
-            }}
-            className="ml-2"
-          />
         )}
-        {selectedUser && (
+        {
           <RadioGroup
             value={selectedUser}
             onChange={selectUser}
@@ -75,7 +135,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                 </RadioGroup.Option>
               ))}
           </RadioGroup>
-        )}
+        }
       </div>
     </div>
   );
