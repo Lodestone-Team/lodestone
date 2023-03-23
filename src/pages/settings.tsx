@@ -33,7 +33,7 @@ const SettingsPage = () => {
           onChange={(i) => {
             setTabIndex(i);
             if (i !== 1) {
-              selectUser(undefined);
+              selectUser(null);
             }
           }}
         >
