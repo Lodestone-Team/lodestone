@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::events::CausedBy;
@@ -48,14 +49,14 @@ impl MainWorkerGenerator for GenericMainWorkerGenerator {
                 move |state| {
                     state.put(brige.clone());
                     state.put(instance.clone());
-                    Ok(())
                 }
             })
             .build();
         worker_options.extensions.push(ext);
         worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader::default());
 
-        let main_module = deno_core::resolve_path(".").expect("Failed to resolve path");
+        let main_module =
+            deno_core::resolve_path(".", &PathBuf::from(".")).expect("Failed to resolve path");
         // todo(CheatCod3) : limit the permissions
         let permissions = deno_runtime::permissions::Permissions::allow_all();
         deno_runtime::worker::MainWorker::bootstrap_from_options(

@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use color_eyre::eyre::eyre;
+use color_eyre::eyre::{eyre, Context};
 use deno_core::{
     anyhow::{self},
     op, OpState,
@@ -14,9 +14,11 @@ use deno_core::{
 use crate::{
     error::Error,
     events::{CausedBy, EventInner},
-    macro_executor::{self, MainWorkerGenerator},
-    traits::{t_macro::TMacro, t_server::TServer},
-    util::list_dir,
+    macro_executor::{self, MacroPID, MainWorkerGenerator},
+    traits::{
+        t_macro::{MacroEntry, TMacro, TaskEntry},
+        t_server::TServer,
+    },
 };
 
 use super::MinecraftInstance;
@@ -171,11 +173,6 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
             ..Default::default()
         };
 
-        let mut worker_options = deno_runtime::worker::WorkerOptions {
-            bootstrap: bootstrap_options,
-            ..Default::default()
-        };
-
         let ext = deno_core::Extension::builder("minecraft_deno_extension_builder")
             .ops(vec![
                 send_stdin::decl(),
@@ -185,15 +182,20 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
             .state({
                 let instance = self.instance.clone();
                 move |state| {
-                    state.put(instance.clone());
-                    Ok(())
+                    state.put(instance);
                 }
             })
+            .force_op_registration()
             .build();
-        worker_options.extensions.push(ext);
-        worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader::default());
+        let worker_options = deno_runtime::worker::WorkerOptions {
+            bootstrap: bootstrap_options,
+            extensions: vec![ext],
+            module_loader: Rc::new(macro_executor::TypescriptModuleLoader::default()),
+            ..Default::default()
+        };
 
-        let main_module = deno_core::resolve_path(".").expect("Failed to resolve path");
+        let main_module = deno_core::resolve_path(".", &std::env::current_dir().unwrap())
+            .expect("Failed to resolve path");
         // todo(CheatCod3) : limit the permissions
         let permissions = deno_runtime::permissions::Permissions::allow_all();
         let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
@@ -211,8 +213,7 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
                 format!(
                     "const caused_by = {};",
                     serde_json::to_string(&caused_by).unwrap()
-                )
-                .as_str(),
+                ),
             )
             .expect("Failed to inject executor");
         worker
@@ -221,13 +222,49 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
 
 #[async_trait]
 impl TMacro for MinecraftInstance {
-    async fn get_macro_list(&self) -> Vec<String> {
-        list_dir(&self.path_to_macros, Some(true))
-            .await
-            .expect("Failed to list macros")
-            .iter()
-            .map(|s| s.file_name().unwrap().to_str().unwrap().to_string())
-            .collect()
+    async fn get_macro_list(&self) -> Result<Vec<MacroEntry>, Error> {
+        let mut ret = Vec::new();
+        for entry in
+            (std::fs::read_dir(&self.path_to_macros).context("Failed to read macro dir")?).flatten()
+        {
+            // if the entry is a file, check if it has the .ts or .js extension
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "ts" || ext == "js" {
+                        ret.push(MacroEntry {
+                            last_run: self.macro_name_to_last_run.lock().await.get(&name).cloned(),
+                            name,
+                            path,
+                        })
+                    }
+                }
+            } else if path.is_dir() {
+                // check if index.ts or index.js exists
+                let index_ts = path.join("index.ts");
+                let index_js = path.join("index.js");
+                if index_ts.exists() || index_js.exists() {
+                    ret.push(MacroEntry {
+                        last_run: self.macro_name_to_last_run.lock().await.get(&name).cloned(),
+                        name,
+                        path,
+                    })
+                }
+            }
+        }
+        ret.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(ret)
+    }
+
+    async fn get_task_list(&self) -> Result<Vec<TaskEntry>, Error> {
+        let mut ret = Vec::new();
+        for (pid, task_entry) in self.pid_to_task_entry.lock().await.iter() {
+            if let Ok(true) = self.macro_executor.get_macro_status(*pid).await {
+                ret.push(task_entry.clone());
+            }
+        }
+        Ok(ret)
     }
 
     async fn delete_macro(&mut self, name: &str) -> Result<(), Error> {
@@ -236,11 +273,6 @@ impl TMacro for MinecraftInstance {
     }
 
     async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), Error> {
-        // if macro already exists, return error
-        if self.get_macro_list().await.contains(&name.to_string()) {
-            return Err(eyre!("Macro {} already exists", name).into());
-        }
-
         crate::util::fs::write_all(self.path_to_macros.join(name), content.as_bytes().to_vec())
             .await
     }
@@ -251,12 +283,13 @@ impl TMacro for MinecraftInstance {
         args: Vec<String>,
         caused_by: CausedBy,
         is_in_game: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<MacroPID, Error> {
         let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name, is_in_game)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
 
         let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
-        self.macro_executor
+        let pid = self
+            .macro_executor
             .spawn(
                 path_to_macro,
                 args,
@@ -265,8 +298,15 @@ impl TMacro for MinecraftInstance {
                 Some(self.uuid.clone()),
             )
             .await?;
-        // self.macro_executor.spawn(exec_instruction).await?;
+        self.pid_to_task_entry.lock().await.insert(
+            pid,
+            TaskEntry {
+                pid,
+                name: name.to_string(),
+                creation_time: chrono::Utc::now().timestamp(),
+            },
+        );
 
-        Ok(())
+        Ok(pid)
     }
 }

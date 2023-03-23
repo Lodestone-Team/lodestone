@@ -11,8 +11,9 @@ use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
+use crate::macro_executor::MacroPID;
 use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_macro::TMacro;
+use crate::traits::t_macro::{TMacro, TaskEntry};
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::types::Snowflake;
@@ -49,22 +50,59 @@ impl TServer for MinecraftInstance {
             });
         }
 
-        let prelaunch = resolve_macro_invocation(&self.path_to_macros, "prelaunch", false);
+        let prelaunch = resolve_macro_invocation(&self.path_to_instance, "prelaunch", false);
         if let Some(prelaunch) = prelaunch {
-            let _ = self
+            // read prelaunch script
+            let content = std::fs::read_to_string(&prelaunch)
+                .map_err(|e| {
+                    error!("Failed to read prelaunch script: {}", e);
+                    e
+                })
+                .unwrap_or_default();
+
+            let is_long_running = content.contains("LODESTONE_LONG_RUNNING_MACRO");
+
+            let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
+            let pid = self
                 .macro_executor
                 .spawn(
                     prelaunch,
                     Vec::new(),
-                    cause_by.clone(),
-                    Box::new(MinecraftMainWorkerGenerator::new(self.clone())),
+                    CausedBy::System,
+                    Box::new(main_worker_generator),
                     Some(self.uuid.clone()),
                 )
-                .await
-                .map_err(|e| {
-                    error!("Failed to spawn prelaunch script: {}", e);
-                    e
-                })?;
+                .await;
+
+            if let Ok(pid) = pid {
+                self.pid_to_task_entry.lock().await.insert(
+                    pid,
+                    TaskEntry {
+                        pid,
+                        name: "prelaunch".to_string(),
+                        creation_time: chrono::Utc::now().timestamp(),
+                    },
+                );
+                if !is_long_running {
+                    info!(
+                        "[{}] Waiting for prelaunch script to finish (5 seconds timeout)",
+                        config.name.clone()
+                    );
+                    if !self.macro_executor.wait_with_timeout(pid, Some(5.0)).await {
+                        // kill the prelaunch script
+                        info!(
+                            "[{}] prelaunch script timed out, killing it",
+                            config.name.clone()
+                        );
+                        let _ = self.macro_executor.abort_macro(pid).await;
+                    }
+                } else {
+                    info!(
+                        "[{}] Long running prelaunch script detected, skipping wait",
+                        config.name.clone()
+                    );
+                }
+            }
         } else {
             info!(
                 "[{}] No prelaunch script found, skipping",
@@ -512,7 +550,9 @@ impl TServer for MinecraftInstance {
                                 if let Some(macro_instruction) = parse_macro_invocation(&line) {
                                     match macro_instruction {
                                         MacroInstruction::Abort(macro_id) => {
-                                            let _ = macro_executor.abort_macro(&macro_id).await;
+                                            let _ = macro_executor
+                                                .abort_macro(MacroPID(macro_id))
+                                                .await;
                                         }
                                         MacroInstruction::Spawn {
                                             player_name: _,

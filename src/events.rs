@@ -7,6 +7,7 @@ use ts_rs::TS;
 
 use crate::{
     auth::{permission::UserPermission, user_id::UserId},
+    macro_executor::MacroPID,
     output_types::ClientEvent,
     traits::{t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake},
@@ -101,7 +102,7 @@ pub enum MacroEventInner {
 #[ts(export)]
 pub struct MacroEvent {
     pub instance_uuid: Option<InstanceUuid>,
-    pub macro_pid: usize,
+    pub macro_pid: MacroPID,
     pub macro_event_inner: MacroEventInner,
 }
 
@@ -237,7 +238,7 @@ fn event_type_export() {
 pub enum CausedBy {
     User { user_id: UserId, user_name: String },
     Instance { instance_uuid: InstanceUuid },
-    Macro { macro_pid: usize },
+    Macro { macro_pid: MacroPID },
     System,
     Unknown,
 }

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt::Debug,
+    fmt::{Debug, Display},
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -10,12 +10,14 @@ use std::{
 };
 
 use color_eyre::eyre::Context;
+use serde::{Deserialize, Serialize};
 use tokio::{
     runtime::Builder,
     sync::{oneshot, Mutex},
     task::LocalSet,
 };
-use tracing::{debug, error};
+use tracing::{debug, error, log::warn};
+use ts_rs::TS;
 
 use crate::{
     error::{Error, ErrorKind},
@@ -32,7 +34,6 @@ use anyhow::bail;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceTextInfo;
-use deno_core::resolve_import;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
@@ -40,6 +41,7 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use deno_core::{anyhow, error::generic_error};
+use deno_core::{resolve_import, ModuleCode};
 
 use futures::FutureExt;
 
@@ -48,6 +50,34 @@ pub trait MainWorkerGenerator: Send + Sync {
 }
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash, TS)]
+#[serde(transparent)]
+pub struct MacroPID(pub usize); // todo remove pub
+
+impl From<MacroPID> for usize {
+    fn from(uid: MacroPID) -> Self {
+        uid.0
+    }
+}
+
+impl From<&MacroPID> for usize {
+    fn from(uid: &MacroPID) -> Self {
+        uid.0
+    }
+}
+
+impl AsRef<usize> for MacroPID {
+    fn as_ref(&self) -> &usize {
+        &self.0
+    }
+}
+
+impl Display for MacroPID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MacroPID({})", self.0)
+    }
 }
 
 impl Default for TypescriptModuleLoader {
@@ -81,7 +111,7 @@ impl ModuleLoader for TypescriptModuleLoader {
                 .to_file_path()
             {
                 Ok(path) => {
-                    let media_type = MediaType::from(&path);
+                    let media_type = MediaType::from_path(&path);
                     let (module_type, should_transpile) = match media_type {
                         MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
                             (ModuleType::JavaScript, false)
@@ -156,10 +186,11 @@ impl ModuleLoader for TypescriptModuleLoader {
                     .into_boxed_slice()
             } else {
                 code.into_bytes().into_boxed_slice()
-            };
+            }
+            .to_vec();
 
             let module = ModuleSource {
-                code,
+                code: ModuleCode::Owned(code),
                 module_type,
                 module_url_specified: module_specifier.to_string(),
                 module_url_found: module_specifier.to_string(),
@@ -172,7 +203,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
-    macro_process_table: Arc<Mutex<HashMap<usize, deno_core::v8::IsolateHandle>>>,
+    macro_process_table: Arc<Mutex<HashMap<MacroPID, deno_core::v8::IsolateHandle>>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
 }
@@ -195,8 +226,8 @@ impl MacroExecutor {
         caused_by: CausedBy,
         main_worker_generator: Box<dyn MainWorkerGenerator>,
         instance_uuid: Option<InstanceUuid>,
-    ) -> Result<usize, Error> {
-        let pid = self.next_process_id.fetch_add(1, Ordering::SeqCst);
+    ) -> Result<MacroPID, Error> {
+        let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
 
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
@@ -209,14 +240,16 @@ impl MacroExecutor {
 
                     let isolate_handle = runtime.js_runtime.v8_isolate().thread_safe_handle();
 
-                    let main_module =
-                        match deno_core::resolve_path(&path_to_main_module.to_string_lossy()) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                error!("Error resolving main module: {}", e);
-                                return;
-                            }
-                        };
+                    let main_module = match deno_core::resolve_path(
+                        &path_to_main_module.to_string_lossy(),
+                        &std::env::current_dir().unwrap(),
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("Error resolving main module: {}", e);
+                            return;
+                        }
+                    };
                     process_table.lock().await.insert(pid, isolate_handle);
 
                     event_broadcaster.send(
@@ -228,18 +261,32 @@ impl MacroExecutor {
                         .into(),
                     );
 
-                    let _ = runtime
-                        .execute_main_module(&main_module)
-                        .await
-                        .map_err(|e| {
-                            println!("Error executing main module: {}", e);
-                            e
-                        });
+                    if let Err(e) = runtime.execute_main_module(&main_module).await {
+                        if e.to_string() == "Uncaught Error: execution terminated" {
+                            warn!("User terminated macro execution");
+                        } else {
+                            error!("Error executing main module {main_module}: {}", e);
+                        }
+                        event_broadcaster.send(
+                            MacroEvent {
+                                macro_pid: pid,
+                                macro_event_inner: MacroEventInner::MacroStopped,
+                                instance_uuid,
+                            }
+                            .into(),
+                        );
+                        return;
+                    }
+
                     let event_broadcaster = event_broadcaster.clone();
 
-                    let _ = runtime.run_event_loop(false).await.map_err(|e| {
-                        println!("Error while running event loop: {}", e);
-                    });
+                    if let Err(e) = runtime.run_event_loop(false).await {
+                        if e.to_string() == "Uncaught Error: execution terminated" {
+                            warn!("User terminated macro execution");
+                        } else {
+                            error!("Error running event loops: {}", e);
+                        }
+                    }
 
                     event_broadcaster.send(
                         MacroEvent {
@@ -249,6 +296,7 @@ impl MacroExecutor {
                         }
                         .into(),
                     );
+                    dbg!("sending macro stopped event");
 
                     // If the while loop returns, then all the LocalSpawner
                     // objects have been dropped.
@@ -293,11 +341,11 @@ impl MacroExecutor {
     }
 
     /// abort a macro execution
-    pub async fn abort_macro(&self, pid: &usize) -> Result<(), Error> {
+    pub async fn abort_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_process_table
             .lock()
             .await
-            .get(pid)
+            .get(&pid)
             .ok_or_else(|| Error {
                 kind: ErrorKind::NotFound,
                 source: eyre!("Macro with pid {} not found", pid),
@@ -312,7 +360,7 @@ impl MacroExecutor {
     /// if timeout is Some, wait for the specified amount of time
     ///
     /// returns true if the macro finished, false if the timeout was reached
-    pub async fn wait_with_timeout(&self, taget_macro_pid: usize, timeout: Option<f64>) -> bool {
+    pub async fn wait_with_timeout(&self, taget_macro_pid: MacroPID, timeout: Option<f64>) -> bool {
         let mut rx = self.event_broadcaster.subscribe();
         tokio::select! {
             _ = async {
@@ -345,7 +393,7 @@ impl MacroExecutor {
         }
     }
 
-    pub async fn get_macro_status(&self, pid: usize) -> Result<bool, Error> {
+    pub async fn get_macro_status(&self, pid: MacroPID) -> Result<bool, Error> {
         let table = self.macro_process_table.lock().await;
         let handle = table.get(&pid).ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
@@ -385,7 +433,7 @@ mod tests {
 
             worker_options.module_loader = Rc::new(TypescriptModuleLoader::default());
             let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-                deno_core::resolve_path(".").unwrap(),
+                deno_core::resolve_path(".", &std::env::current_dir().unwrap()).unwrap(),
                 PermissionsContainer::new(Permissions::allow_all()),
                 worker_options,
             );
@@ -396,8 +444,7 @@ mod tests {
                     format!(
                         "const caused_by = {};",
                         serde_json::to_string(&caused_by).unwrap()
-                    )
-                    .as_str(),
+                    ),
                 )
                 .unwrap();
             worker
@@ -419,7 +466,7 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            console.log("hello world");
+            console.log(Deno[Deno.internal].core)
             "#,
         )
         .unwrap();
@@ -456,7 +503,7 @@ mod tests {
             &path_to_macro,
             r#"
             import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
-            console.log("hello world");
+            console.log(readLines);
             "#,
         )
         .unwrap();

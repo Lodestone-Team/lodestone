@@ -15,6 +15,7 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;
 use indexmap::IndexMap;
 
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -37,7 +38,7 @@ use ts_rs::TS;
 use crate::error::Error;
 use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
-use crate::macro_executor::MacroExecutor;
+use crate::macro_executor::{MacroExecutor, MacroPID};
 use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
@@ -46,6 +47,7 @@ use crate::traits::t_configurable::manifest::{
     SectionManifestValue, SettingManifest,
 };
 
+use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
@@ -197,6 +199,8 @@ pub struct MinecraftInstance {
     macro_executor: MacroExecutor,
     backup_sender: UnboundedSender<BackupInstruction>,
     rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+    macro_name_to_last_run: Arc<Mutex<HashMap<String, i64>>>,
+    pid_to_task_entry: Arc<Mutex<IndexMap<MacroPID, TaskEntry>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -951,6 +955,8 @@ impl MinecraftInstance {
             backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
             configurable_manifest,
+            macro_name_to_last_run: Arc::new(Mutex::new(HashMap::new())),
+            pid_to_task_entry: Arc::new(Mutex::new(IndexMap::new())),
         };
         instance
             .read_properties()
