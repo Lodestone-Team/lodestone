@@ -5,7 +5,7 @@ import CoreSettings from 'components/Settings/CoreSettings';
 import UserSettings from 'components/Settings/UserSettings';
 import { SettingsContext } from 'data/SettingsContext';
 import { useDocumentTitle } from 'usehooks-ts';
-
+//------------------------------!!!!!! NO LONGER IN USE !!!!!!!-------------------------------------
 const SettingsPage = () => {
   useDocumentTitle('Core Settings - Lodestone');
   const { tabIndex, setTabIndex, selectUser } = useContext(SettingsContext);

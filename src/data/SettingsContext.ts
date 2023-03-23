@@ -3,8 +3,8 @@ import { PublicUser } from '../bindings/PublicUser';
 
 interface SettingsContextType {
   userList: { [uuid: string]: PublicUser };
-  selectedUser?: PublicUser;
-  selectUser: (user?: PublicUser) => void;
+  selectedUser?: PublicUser | null;
+  selectUser: (user: PublicUser|null) => void;
   tabIndex: number;
   setTabIndex: (index: number) => void;
 }

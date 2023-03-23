@@ -1,4 +1,4 @@
-import { useContext, useState } from 'react';
+import { useContext, useState, useEffect } from 'react';
 import Button from 'components/Atoms/Button';
 import { faXmark, faServer, faRightToBracket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -25,13 +25,17 @@ export const tabList = [
     },
 ];
 
-// const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);
-
 export default function SettingsLeftNav({ className }: { className?: string }) {
+  const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
-  const { userList, selectedUser, selectUser, tabIndex } =
-    useContext(SettingsContext);
+  const { userList, selectedUser, selectUser} =
+  useContext(SettingsContext);
   const uid = useUid();
+
+  useEffect(() => {
+    setActiveTab(location.pathname.split('/')[2]);
+  }, [location.pathname]);
+
   return (
     <div className={`flex w-full flex-col items-center px-4 ${className}`}>
       <div className="flex h-full w-full grow flex-col items-start gap-4 pt-12 pb-4">
@@ -55,9 +59,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
       </button>
 
         <RadioGroup
-          className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 child:w-full w-full`}
-          // value={selectedInstance}
-          // onChange={selectInstance}
+          className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 py-1 child:w-full w-full`}
         >
           <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 flex flex-row items-center gap-x-1.5">
             <FontAwesomeIcon icon={faServer} />
@@ -66,7 +68,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
           {tabList.map((setting) => (
           <RadioGroup.Option
               key={setting.path}
-              value={`/dashboard/${setting.path}`}
+              value={`/settings/${setting.path}`}
               className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
             >
               <button
@@ -76,11 +78,11 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                   'text-medium font-medium leading-5 tracking-normal',
                   'hover:bg-gray-800',
                   'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
-                  // setActive === setting.path
-                    // ? 'bg-gray-800 outline outline-1 outline-fade-700'
-                    // : ''
+                  setActive === setting.path
+                    ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                    : ''
                 )}
-                onClick={() => setPathname(`/dashboard/${setting.path}`)}
+                onClick={() => setPathname(`/settings/${setting.path}`)}
               >
                 <div className="text-gray-300">{setting.title}</div>
               </button>
@@ -92,7 +94,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
             label="Unselect User"
             icon={faXmark}
             onClick={() => {
-              selectUser(undefined);
+              selectUser(null);
             }}
             className="ml-2"
           />
@@ -103,9 +105,6 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
             onChange={selectUser}
             className="-mx-1.5 flex min-h-0 w-full flex-col items-stretch gap-1 overflow-y-auto px-3 py-1"
           >
-            <RadioGroup.Label className="sr-only">
-              Select a user
-            </RadioGroup.Label>
             {Object.values(userList)
               .sort((a, b) =>
                 a.uid === uid

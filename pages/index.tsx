@@ -44,6 +44,7 @@ import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
 import ProfilePage from 'pages/profile';
+import { tabList } from 'components/DashboardLayout/SettingsLeftNav';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -303,6 +304,14 @@ export default function App() {
               <Route element={<SettingsLayout />}>
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                {/* <Route path="/settings" element={<SettingsPage />} /> */}
+                {tabList.map((tab, i) => (
+                  <Route
+                    path={`/settings/${tab.path}`}
+                    element={tab.content}
+                    key={i}
+                  />
+                ))}
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />
