@@ -29,9 +29,9 @@ axum-server = { version = "0.4.4", features = ["tls-rustls"] }
 base64 = "0.20.0"
 chrono = "0.4.22"
 color-eyre = "0.6.2"
-deno_ast = { version = "0.24.0", features = ["transpiling"] }
-deno_core = "0.171.0"
-deno_runtime = "0.97.0"
+deno_ast = { version = "0.25.0", features = ["transpiling"] }
+deno_core = "0.176.0"
+deno_runtime = "0.102.0"
 dotenvy = { version = "0.15" }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.8"
