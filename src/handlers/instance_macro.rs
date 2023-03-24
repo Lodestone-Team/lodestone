@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::get, Json, Router};
+use axum::{extract::Path, routing::{get, put}, Json, Router};
 
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
@@ -73,7 +73,7 @@ pub async fn run_macro(
 
 pub fn get_instance_macro_routes(state: AppState) -> Router {
     Router::new()
-        .route("/instance/:uuid/macro/run/:macro_name", get(run_macro))
+        .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
         .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
         .route("/instance/:uuid/task/list", get(get_instance_task_list))
         .with_state(state)
