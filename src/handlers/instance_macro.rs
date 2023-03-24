@@ -1,4 +1,8 @@
-use axum::{extract::Path, routing::{get, put}, Json, Router};
+use axum::{
+    extract::Path,
+    routing::{get, put},
+    Json, Router,
+};
 
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
@@ -7,7 +11,7 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::CausedBy,
-    traits::t_macro::{MacroEntry, TMacro, TaskEntry},
+    traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
     types::InstanceUuid,
     AppState,
 };
@@ -44,6 +48,22 @@ pub async fn get_instance_macro_list(
     Ok(Json(macros))
 }
 
+pub async fn get_instance_history_list(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<Vec<HistoryEntry>>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    let instances = state.instances.lock().await;
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    let history = instance.get_history_list().await?;
+    Ok(Json(history))
+}
+
 pub async fn run_macro(
     Path((uuid, macro_name)): Path<(InstanceUuid, String)>,
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -76,5 +96,9 @@ pub fn get_instance_macro_routes(state: AppState) -> Router {
         .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
         .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
         .route("/instance/:uuid/task/list", get(get_instance_task_list))
+        .route(
+            "/instance/:uuid/history/list",
+            get(get_instance_history_list),
+        )
         .with_state(state)
 }

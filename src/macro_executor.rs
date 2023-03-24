@@ -23,6 +23,7 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
+    traits::t_macro::ExitStatus,
     types::InstanceUuid,
 };
 
@@ -205,6 +206,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<MacroPID, deno_core::v8::IsolateHandle>>>,
+    exit_status_table: Arc<Mutex<HashMap<MacroPID, ExitStatus>>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
 }
@@ -213,9 +215,33 @@ impl MacroExecutor {
     pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
         let process_table = Arc::new(Mutex::new(HashMap::new()));
         let process_id = Arc::new(AtomicUsize::new(0));
+        let exit_status_table = Arc::new(Mutex::new(HashMap::new()));
+
+        // spawn a task to listen for exit events and update the exit status table
+        tokio::task::spawn({
+            let exit_status_table = exit_status_table.clone();
+            let mut rx = event_broadcaster.subscribe();
+            async move {
+                loop {
+                    if let Ok(event) = rx.recv().await {
+                        if let Some(MacroEvent {
+                            macro_pid,
+                            macro_event_inner: MacroEventInner::Stopped { exit_status },
+                            ..
+                        }) = event.try_macro_event()
+                        {
+                            let mut exit_status_table = exit_status_table.lock().await;
+                            exit_status_table.insert(*macro_pid, exit_status.clone());
+                        }
+                    }
+                }
+            }
+        });
+
         MacroExecutor {
             macro_process_table: process_table,
             event_broadcaster,
+            exit_status_table,
             next_process_id: process_id,
         }
     }
@@ -256,7 +282,7 @@ impl MacroExecutor {
                     event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
-                            macro_event_inner: MacroEventInner::MacroStarted,
+                            macro_event_inner: MacroEventInner::Started,
                             instance_uuid: instance_uuid.clone(),
                         }
                         .into(),
@@ -265,17 +291,35 @@ impl MacroExecutor {
                     if let Err(e) = runtime.execute_main_module(&main_module).await {
                         if e.to_string() == "Uncaught Error: execution terminated" {
                             warn!("User terminated macro execution");
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Killed {
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid,
+                                }
+                                .into(),
+                            );
                         } else {
                             error!("Error executing main module {main_module}: {}", e);
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Error {
+                                            error_msg: e.to_string(),
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid,
+                                }
+                                .into(),
+                            );
                         }
-                        event_broadcaster.send(
-                            MacroEvent {
-                                macro_pid: pid,
-                                macro_event_inner: MacroEventInner::MacroStopped,
-                                instance_uuid,
-                            }
-                            .into(),
-                        );
+
                         return;
                     }
 
@@ -284,15 +328,44 @@ impl MacroExecutor {
                     if let Err(e) = runtime.run_event_loop(false).await {
                         if e.to_string() == "Uncaught Error: execution terminated" {
                             warn!("User terminated macro execution");
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Killed {
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid: instance_uuid.clone(),
+                                }
+                                .into(),
+                            );
                         } else {
                             error!("Error running event loops: {}", e);
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Error {
+                                            error_msg: e.to_string(),
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid: instance_uuid.clone(),
+                                }
+                                .into(),
+                            );
                         }
                     }
 
                     event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
-                            macro_event_inner: MacroEventInner::MacroStopped,
+                            macro_event_inner: MacroEventInner::Stopped {
+                                exit_status: ExitStatus::Success {
+                                    time: chrono::Utc::now().timestamp(),
+                                },
+                            },
                             instance_uuid,
                         }
                         .into(),
@@ -321,7 +394,7 @@ impl MacroExecutor {
                 if let Ok(event) = rx.recv().await {
                     if let EventInner::MacroEvent(MacroEvent {
                         macro_pid,
-                        macro_event_inner: MacroEventInner::MacroStarted,
+                        macro_event_inner: MacroEventInner::Started,
                         ..
                     }) = event.event_inner
                     {
@@ -382,7 +455,7 @@ impl MacroExecutor {
                     let event = rx.recv().await.unwrap();
                     if let EventInner::MacroEvent(MacroEvent { macro_pid, macro_event_inner, .. }) = event.event_inner {
                         if taget_macro_pid == macro_pid {
-                           if let MacroEventInner::MacroStopped = macro_event_inner {
+                           if let MacroEventInner::Stopped{..} = macro_event_inner {
                                break;
                            }
                         }
@@ -394,13 +467,9 @@ impl MacroExecutor {
         }
     }
 
-    pub async fn get_macro_status(&self, pid: MacroPID) -> Result<bool, Error> {
-        let table = self.macro_process_table.lock().await;
-        let handle = table.get(&pid).ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Macro with pid {} not found", pid),
-        })?;
-        Ok(!handle.is_execution_terminating())
+    pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
+        let table = self.exit_status_table.lock().await;
+        table.get(&pid).cloned()
     }
 }
 

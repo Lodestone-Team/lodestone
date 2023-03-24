@@ -9,7 +9,7 @@ use crate::{
     auth::{permission::UserPermission, user_id::UserId},
     macro_executor::MacroPID,
     output_types::ClientEvent,
-    traits::{t_player::Player, t_server::State, InstanceInfo},
+    traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake},
 };
 
@@ -88,15 +88,15 @@ pub struct UserEvent {
     pub user_id: UserId,
     pub user_event_inner: UserEventInner,
 }
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 #[derive(enum_kinds::EnumKind)]
 #[enum_kind(MacroEventKind, derive(Serialize, Deserialize, TS))]
 pub enum MacroEventInner {
-    MacroStarted,
-    MacroStopped,
-    MacroErrored { error_msg: String },
+    Started,
+    Stopped { exit_status: ExitStatus },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
@@ -321,6 +321,13 @@ impl Event {
     pub fn get_instance_uuid(&self) -> Option<InstanceUuid> {
         match &self.event_inner {
             EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn try_macro_event(&self) -> Option<&MacroEvent> {
+        match &self.event_inner {
+            EventInner::MacroEvent(macro_event) => Some(macro_event),
             _ => None,
         }
     }

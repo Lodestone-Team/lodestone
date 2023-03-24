@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use ts_rs::TS;
 use std::path::PathBuf;
+use ts_rs::TS;
 
 use crate::{
     error::{Error, ErrorKind},
@@ -9,6 +9,9 @@ use crate::{
     macro_executor::MacroPID,
     traits::GameInstance,
 };
+
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
 #[ts(export)]
@@ -27,11 +30,34 @@ pub struct TaskEntry {
     pub pid: MacroPID,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
+pub struct HistoryEntry {
+    pub task: TaskEntry,
+    pub exit_status: ExitStatus,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum ExitStatus {
+    Success { time: i64 },
+    Killed { time: i64 },
+    Error { time: i64, error_msg: String },
+}
+
+impl ExitStatus {
+    pub fn is_success(&self) -> bool {
+        matches!(self, ExitStatus::Success { .. })
+    }
+}
+
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TMacro {
     async fn get_macro_list(&self) -> Result<Vec<MacroEntry>, Error>;
     async fn get_task_list(&self) -> Result<Vec<TaskEntry>, Error>;
+    async fn get_history_list(&self) -> Result<Vec<HistoryEntry>, Error>;
     async fn delete_macro(&mut self, name: &str) -> Result<(), Error>;
     async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), Error>;
     async fn run_macro(

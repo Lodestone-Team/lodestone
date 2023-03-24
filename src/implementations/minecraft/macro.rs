@@ -6,17 +6,14 @@ use std::{
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context};
-use deno_core::{
-    anyhow::{self},
-    op, OpState,
-};
+use deno_core::{anyhow, op, OpState};
 
 use crate::{
     error::Error,
     events::{CausedBy, EventInner},
-    macro_executor::{self, MacroPID, MainWorkerGenerator},
+    macro_executor::{self, MainWorkerGenerator},
     traits::{
-        t_macro::{MacroEntry, TMacro, TaskEntry},
+        t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
         t_server::TServer,
     },
 };
@@ -260,8 +257,21 @@ impl TMacro for MinecraftInstance {
     async fn get_task_list(&self) -> Result<Vec<TaskEntry>, Error> {
         let mut ret = Vec::new();
         for (pid, task_entry) in self.pid_to_task_entry.lock().await.iter() {
-            if let Ok(true) = self.macro_executor.get_macro_status(*pid).await {
+            if self.macro_executor.get_macro_status(*pid).await.is_none() {
                 ret.push(task_entry.clone());
+            }
+        }
+        Ok(ret)
+    }
+
+    async fn get_history_list(&self) -> Result<Vec<HistoryEntry>, Error> {
+        let mut ret = Vec::new();
+        for (pid, task_entry) in self.pid_to_task_entry.lock().await.iter() {
+            if let Some(exit_status) = self.macro_executor.get_macro_status(*pid).await {
+                ret.push(HistoryEntry {
+                    task: task_entry.clone(),
+                    exit_status,
+                });
             }
         }
         Ok(ret)
