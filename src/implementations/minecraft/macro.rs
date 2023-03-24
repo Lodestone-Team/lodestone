@@ -283,7 +283,7 @@ impl TMacro for MinecraftInstance {
         args: Vec<String>,
         caused_by: CausedBy,
         is_in_game: bool,
-    ) -> Result<MacroPID, Error> {
+    ) -> Result<TaskEntry, Error> {
         let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name, is_in_game)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
 
@@ -298,15 +298,16 @@ impl TMacro for MinecraftInstance {
                 Some(self.uuid.clone()),
             )
             .await?;
-        self.pid_to_task_entry.lock().await.insert(
+        let entry = TaskEntry {
             pid,
-            TaskEntry {
-                pid,
-                name: name.to_string(),
-                creation_time: chrono::Utc::now().timestamp(),
-            },
-        );
+            name: name.to_string(),
+            creation_time: chrono::Utc::now().timestamp(),
+        };
+        self.pid_to_task_entry
+            .lock()
+            .await
+            .insert(pid, entry.clone());
 
-        Ok(pid)
+        Ok(entry)
     }
 }

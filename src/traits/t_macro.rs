@@ -40,7 +40,7 @@ pub trait TMacro {
         _args: Vec<String>,
         _caused_by: CausedBy,
         _is_in_game: bool,
-    ) -> Result<MacroPID, Error> {
+    ) -> Result<TaskEntry, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support running macro"),
