@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
+use ts_rs::TS;
 use std::path::PathBuf;
 
 use crate::{
@@ -9,7 +10,8 @@ use crate::{
     traits::GameInstance,
 };
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct MacroEntry {
     pub name: String,
     pub last_run: Option<i64>,
@@ -17,7 +19,8 @@ pub struct MacroEntry {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct TaskEntry {
     pub name: String,
     pub creation_time: i64,

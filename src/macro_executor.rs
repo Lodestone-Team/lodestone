@@ -54,6 +54,7 @@ pub struct TypescriptModuleLoader {
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash, TS)]
 #[serde(transparent)]
+#[ts(export)]
 pub struct MacroPID(pub usize); // todo remove pub
 
 impl From<MacroPID> for usize {
