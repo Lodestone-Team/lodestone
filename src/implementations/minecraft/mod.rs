@@ -10,6 +10,7 @@ pub mod server;
 pub mod util;
 mod vanilla;
 pub mod versions;
+mod line_parser;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;

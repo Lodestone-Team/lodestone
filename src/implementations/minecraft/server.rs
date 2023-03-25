@@ -9,11 +9,14 @@ use tokio::process::Command;
 
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::implementations::minecraft::line_parser::{
+    parse_player_joined, parse_player_left, parse_player_msg, parse_server_started,
+    parse_system_msg, PlayerMessage,
+};
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
-use crate::macro_executor::MacroPID;
 use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_macro::{TMacro, TaskEntry};
+use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::types::Snowflake;
@@ -21,7 +24,7 @@ use crate::util::{dont_spawn_terminal, list_dir};
 
 use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
 use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
@@ -246,150 +249,12 @@ impl TServer for MinecraftInstance {
                 })?;
                 *self.process.lock().await = Some(proc);
                 tokio::task::spawn({
-                    use fancy_regex::Regex;
-                    use lazy_static::lazy_static;
-
                     let event_broadcaster = self.event_broadcaster.clone();
                     let uuid = self.uuid.clone();
                     let name = config.name.clone();
                     let players_manager = self.players_manager.clone();
-                    let macro_executor = self.macro_executor.clone();
                     let mut __self = self.clone();
                     async move {
-                        fn parse_system_msg(msg: &str) -> Option<String> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"\[.+\]+: (?!<)(.+)").unwrap();
-                            }
-                            if RE.is_match(msg).ok()? {
-                                RE.captures(msg)
-                                    .ok()?
-                                    .map(|caps| caps.get(1).unwrap().as_str().to_string())
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_player_msg(msg: &str) -> Option<(String, String)> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"\[.+\]+: <(.+)> (.+)").unwrap();
-                            }
-                            if RE.is_match(msg).unwrap() {
-                                if let Some(cap) = RE.captures(msg).ok()? {
-                                    Some((
-                                        cap.get(1)?.as_str().to_string(),
-                                        cap.get(2)?.as_str().to_string(),
-                                    ))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_player_joined(system_msg: &str) -> Option<String> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"(.+) joined the game").unwrap();
-                            }
-                            if RE.is_match(system_msg).unwrap() {
-                                if let Some(cap) = RE.captures(system_msg).ok()? {
-                                    Some(cap.get(1)?.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_player_left(system_msg: &str) -> Option<String> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"(.+) left the game").unwrap();
-                            }
-                            if RE.is_match(system_msg).unwrap() {
-                                if let Some(cap) = RE.captures(system_msg).ok()? {
-                                    Some(cap.get(1)?.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        enum MacroInstruction {
-                            Abort(usize),
-                            Spawn {
-                                player_name: String,
-                                macro_name: String,
-                                args: Vec<String>,
-                            },
-                        }
-
-                        fn parse_macro_invocation(msg: &str) -> Option<MacroInstruction> {
-                            if let Some((player, msg)) = parse_player_msg(msg) {
-                                lazy_static! {
-                                    static ref RE: Regex =
-                                        Regex::new(r"\.macro abort (.+)").unwrap();
-                                }
-                                if RE.is_match(&msg).unwrap() {
-                                    if let Some(cap) = RE.captures(&msg).ok()? {
-                                        Some(MacroInstruction::Abort(
-                                            cap.get(1)?.as_str().parse().ok()?,
-                                        ))
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    lazy_static! {
-                                        static ref RE: Regex =
-                                            Regex::new(r"\.macro spawn (.+)").unwrap();
-                                    }
-                                    if RE.is_match(&msg).unwrap() {
-                                        if let Some(cap) = RE.captures(&msg).ok()? {
-                                            // the first capture is the whole string
-                                            // the first word is the macro name
-                                            // the rest are the arguments
-                                            // read the first word as the macro name
-                                            let macro_name = cap
-                                                .get(1)?
-                                                .as_str()
-                                                .to_string()
-                                                .split_whitespace()
-                                                .next()?
-                                                .to_string();
-                                            let args = cap
-                                                .get(1)?
-                                                .as_str()
-                                                .split_whitespace()
-                                                .skip(1)
-                                                .map(|s| s.to_string())
-                                                .collect::<Vec<String>>();
-
-                                            Some(MacroInstruction::Spawn {
-                                                player_name: player,
-                                                macro_name,
-                                                args,
-                                            })
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_server_started(system_msg: &str) -> bool {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r#"Done \(.+\)!"#).unwrap();
-                            }
-                            RE.is_match(system_msg).unwrap()
-                        }
-
                         let mut did_start = false;
 
                         let mut stdout_lines = BufReader::new(stdout).lines();
@@ -408,7 +273,7 @@ impl TServer for MinecraftInstance {
                             } else {
                                 warn!("[{}] {}", name, line);
                             }
-                            let _ = event_broadcaster.send(Event {
+                            event_broadcaster.send(Event {
                                 event_inner: EventInner::InstanceEvent(InstanceEvent {
                                     instance_uuid: uuid.clone(),
                                     instance_event_inner: InstanceEventInner::InstanceOutput {
@@ -533,13 +398,15 @@ impl TServer for MinecraftInstance {
                                         .await
                                         .remove_by_name(&player_name, self.name().await);
                                 }
-                            } else if let Some((player, msg)) = parse_player_msg(&line) {
+                            } else if let Some(PlayerMessage { player, message }) =
+                                parse_player_msg(&line)
+                            {
                                 let _ = event_broadcaster.send(Event {
                                     event_inner: EventInner::InstanceEvent(InstanceEvent {
                                         instance_uuid: uuid.clone(),
                                         instance_event_inner: InstanceEventInner::PlayerMessage {
                                             player,
-                                            player_message: msg,
+                                            player_message: message,
                                         },
                                         instance_name: name.clone(),
                                     }),
@@ -547,37 +414,6 @@ impl TServer for MinecraftInstance {
                                     snowflake: Snowflake::default(),
                                     caused_by: CausedBy::System,
                                 });
-                                if let Some(macro_instruction) = parse_macro_invocation(&line) {
-                                    match macro_instruction {
-                                        MacroInstruction::Abort(macro_id) => {
-                                            let _ = macro_executor
-                                                .abort_macro(MacroPID(macro_id))
-                                                .await;
-                                        }
-                                        MacroInstruction::Spawn {
-                                            player_name: _,
-                                            macro_name,
-                                            args,
-                                        } => {
-                                            debug!(
-                                                "Invoking macro {} with args {:?}",
-                                                macro_name, args
-                                            );
-                                            let _ = self
-                                                .run_macro(
-                                                    &macro_name,
-                                                    args,
-                                                    CausedBy::Unknown,
-                                                    true,
-                                                )
-                                                .await
-                                                .map_err(|e| {
-                                                    warn!("Failed to run macro: {}", e);
-                                                    e
-                                                });
-                                        }
-                                    }
-                                }
                             }
                         }
                         info!("Instance {} process shutdown", name);
