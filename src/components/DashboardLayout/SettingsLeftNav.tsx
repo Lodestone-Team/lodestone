@@ -52,10 +52,10 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
               setPathname(returnRoute || '/');
             }}
         >
-        <div className='text-gray-faded/30'>
+        <div className='text-gray-faded/30 pr-1'>
           <FontAwesomeIcon icon={faRightToBracket} rotation={180} size='xl' />
         </div>
-        <h1 className="dashboard-instance-heading">Settings</h1>
+        <h2 className="text-h2 font-extrabold tracking-medium">Settings</h2>
       </button>
 
         <RadioGroup
