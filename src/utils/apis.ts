@@ -378,37 +378,31 @@ export const openPort = async (port: number) => {
  * Start Tasks/Macro API
  ***********************/
 
-export const getTasks = async (
-  queryClient: QueryClient,
-  uuid: string,
-  ) => {
+export const getTasks = async (uuid: string,) => {
   const taskList = axiosWrapper<TaskEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/task/list`,
   });
-  queryClient.setQueryData(['instance', uuid, 'taskList'], taskList);
+
+  return taskList;
 };
 
-export const getMacros = async (
-  queryClient: QueryClient,
-  uuid: string,
-  ) => {
+export const getMacros = async (uuid: string,) => {
   const macroList = await axiosWrapper<MacroEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/macro/list`,
   });
-  queryClient.setQueryData(['instance', uuid, 'macroList'], macroList);
+
+  return macroList;
 };
 
-export const getInstanceHistory = async (
-  queryClient: QueryClient,
-  uuid: string,
-  ) => {
+export const getInstanceHistory = async (uuid: string,) => {
   const historyList = await axiosWrapper<HistoryEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/history/list`,
   });
-  queryClient.setQueryData(['instance', uuid, 'instanceHistory'], historyList);
+
+  return historyList;
 };
 
 export const createTask = async (
@@ -426,7 +420,6 @@ export const createTask = async (
     })
   );
 };
-
 
 /***********************
  * End Tasks/Macro API
