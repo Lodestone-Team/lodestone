@@ -16,6 +16,9 @@ import InstancePlayerList from './InstancePlayerList';
 
 import { Table } from 'components/Table';
 
+import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import { MenuItemProps } from 'components/ButtonMenu';
+
 export interface TableColumn {
   field: string;
   headerName: string;
@@ -25,6 +28,17 @@ export interface TableColumn {
 export interface TableRow {
   [key: string]: React.ReactNode;
 } 
+
+interface FilmCameraRow {
+  id: number;
+  make: string;
+  model: string;
+  lens: string;
+  aperture: string;
+  shutterSpeed: string;
+  format: string;
+  year: number;
+}
 
 const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -88,6 +102,54 @@ const InstanceOverview = () => {
     { id: 3, name: 'Bob', age: 45, city: 'Chicago' },
   ];
 
+  const columnsAnalog: TableColumn[] = [
+    { field: 'make', headerName: 'Make' },
+    { field: 'model', headerName: 'Model' },
+    { field: 'lens', headerName: 'Lens' },
+    { field: 'format', headerName: 'Format' },
+    { field: 'year', headerName: 'Year' },
+  ];
+  
+  const rowsAnalog1: TableRow[] = [
+    { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
+    { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
+    { id: 3, make: 'Pentax', model: 'K1000', lens: '50mm f/2.0', format: '35mm', year: 1976 },
+    { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
+    { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
+  ];
+  
+  const rowsAnalog2: TableRow[] = [
+    { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
+    { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
+    { id: 3, make: 'Pentax', model: 'K1000', lens: '50mm f/2.0', format: '35mm', year: 1976 },
+    { id: 4, make: 'Mamiya', model: 'RB67', lens: '127mm f/3.8', format: '120', year: 1970 },
+    { id: 5, make: 'Hasselblad', model: '500CM', lens: '80mm f/2.8', format: '120', year: 1957 },
+    { id: 6, make: 'Leica', model: 'M6', lens: '35mm f/2.0', format: '35mm', year: 1984 },
+    { id: 7, make: 'Fuji', model: 'GW690III', lens: '90mm f/3.5', format: '120', year: 1980 },
+    { id: 8, make: 'Minolta', model: 'X-700', lens: '50mm f/1.7', format: '35mm', year: 1981 },
+  ];
+
+  const menuItems1: MenuItemProps = {
+    menuItems: [
+      {
+        label: 'Edit in file viewer',
+        icon: faEllipsisVertical,
+        variant: 'text',
+        intention: 'info',
+        disabled: false,
+        onClick: () => console.log('Button 1 clicked'),
+      },
+      {
+        label: 'Delete',
+        icon: faEllipsisVertical,
+        variant: 'text',
+        intention: 'danger',
+        disabled: false,
+        onClick: () => console.log('Button 2 clicked'),
+      },
+    ]
+  };
+
   return (
     <>
       <div
@@ -136,7 +198,7 @@ const InstanceOverview = () => {
         </div>
       </div>
       <InstancePerformanceCard />
-      <Table rows={rows} columns={columns} />
+      <Table rows={rowsAnalog1} columns={columnsAnalog} menuOptions={menuItems1} />
       <InstancePlayerList />
     </>
   );

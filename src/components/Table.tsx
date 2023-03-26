@@ -1,9 +1,8 @@
 import * as React from 'react';
-import {cn} from "../utils/util";
 import clsx from "clsx";
 
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import Menu from './ButtonMenu';
+import { MenuItemProps } from './ButtonMenu';
 
 export interface TableColumn {
   field: string;
@@ -15,15 +14,18 @@ export interface TableRow {
   [key: string]: React.ReactNode;
 }
 
-interface CardProps {
+interface TableProps {
   rows: TableRow[];
   columns: TableColumn[];
+  menuOptions?: MenuItemProps;
   className?: string;
 }
 
-export function Table({rows, columns, className}: CardProps) {
+export function Table({rows, columns, menuOptions, className}: TableProps) {
+  
+
   return (
-    <table className={cn("table-auto whitespace-nowrap bg-gray-875 text-left tracking-medium", className)}>
+    <table className={clsx("table-auto whitespace-nowrap bg-gray-875 text-left tracking-medium", className)}>
       <thead className="h-6 border-b border-b-fade-700 bg-gray-875">
       <tr>
         {columns.map((column, cIndex) => (
@@ -36,26 +38,29 @@ export function Table({rows, columns, className}: CardProps) {
       </tr>
       </thead>
       <tbody>
-      {rows.map((row, index) => {
-        return (
-          <tr
-            className={clsx("h-10 border-b border-b-fade-700", index % 2 === 1 && "bg-gray-850")}
-            key={index}
-          >
-            {columns.map((column, cIndex) => (
-              <td key={cIndex}
-              className={cn("px-3 text-left text-white/50", column.className)}>
-                {row[column.field]}
-              </td>
-            ))}
-            <td>
-              <button>
-                <FontAwesomeIcon icon={faEllipsisVertical}/>
-              </button>
+        {rows.map((row, index) => {
+          return (
+            <tr
+              className={clsx("h-12 border-b border-b-fade-700", index % 2 === 1 && "bg-gray-850")}
+              key={index}
+            >
+              {columns.map((column, cIndex) => (
+                <td key={cIndex}
+                className={clsx("px-3 text-left text-white/50", column.className)}>
+                  {row[column.field]}
+                </td>
+              ))}
+              <td>
+              {menuOptions ? (
+                <Menu
+                  menuItems={menuOptions.menuItems}
+                />
+              ) : null}
             </td>
-          </tr>
-        )
-      })}
+            </tr>
+          )
+        })}
+        
       </tbody>
     </table>
   );
