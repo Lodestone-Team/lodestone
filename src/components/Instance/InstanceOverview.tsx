@@ -16,7 +16,7 @@ import InstancePlayerList from './InstancePlayerList';
 
 import { Table } from 'components/Table';
 
-import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import { faTrashCan, faEdit, faSkull } from '@fortawesome/free-solid-svg-icons';
 import { MenuItemProps } from 'components/ButtonMenu';
 
 export interface TableColumn {
@@ -114,8 +114,9 @@ const InstanceOverview = () => {
     { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
     { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
     { id: 3, make: 'Pentax', model: 'K1000', lens: '50mm f/2.0', format: '35mm', year: 1976 },
-    { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
-    { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
+    { id: 4, make: 'Mamiya', model: 'RB67', lens: '127mm f/3.8', format: '120', year: 1970 },
+    { id: 5, make: 'Hasselblad', model: '500CM', lens: '80mm f/2.8', format: '120', year: 1957 },
+    { id: 6, make: 'Leica', model: 'M6', lens: '35mm f/2.0', format: '35mm', year: 1984 },
   ];
   
   const rowsAnalog2: TableRow[] = [
@@ -133,15 +134,23 @@ const InstanceOverview = () => {
     menuItems: [
       {
         label: 'Edit in file viewer',
-        icon: faEllipsisVertical,
+        icon: faEdit,
         variant: 'text',
         intention: 'info',
         disabled: false,
         onClick: () => console.log('Button 1 clicked'),
       },
       {
-        label: 'Delete',
-        icon: faEllipsisVertical,
+        label: 'why the fuck is this justified start',
+        icon: faSkull,
+        variant: 'text',
+        intention: 'info',
+        disabled: false,
+        onClick: () => console.log('Button 1 clicked'),
+      },
+      {
+        label: 'Obliterate',
+        icon: faTrashCan,
         variant: 'text',
         intention: 'danger',
         disabled: false,

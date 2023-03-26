@@ -20,7 +20,6 @@ export interface MenuItemProps {
 }
 
 export default function ButtonMenu({ menuItems }: MenuItemProps) {
-
   return (
     <Menu as="div" className="relative inline-block text-right">
       <Menu.Button
