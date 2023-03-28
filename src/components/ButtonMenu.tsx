@@ -16,14 +16,15 @@ interface MenuItemProperty {
 
 export interface MenuItemProps {
   menuItems: MenuItemProperty[];
+  buttonIcon?: IconDefinition;
 }
 
-export default function ButtonMenu({ menuItems }: MenuItemProps) {
+export default function ButtonMenu({ menuItems, buttonIcon = faEllipsisVertical }: MenuItemProps) {
   return (
     <Menu as="div" className="relative inline-block text-right">
       <Menu.Button
         as={FontAwesomeIcon}
-        icon={faEllipsisVertical}
+        icon={buttonIcon}
         className="h-4 w-4 select-none text-h2 text-white/50 hover:cursor-pointer hover:text-white/75"
       />
       <Menu.Items
@@ -39,7 +40,7 @@ export default function ButtonMenu({ menuItems }: MenuItemProps) {
                 iconRight={menuItem.icon}
                 variant={menuItem.variant}
                 intention={menuItem.intention}
-                align="end"
+                align="between"
                 disabled={menuItem.disabled}
                 onClick={menuItem.onClick}
               />

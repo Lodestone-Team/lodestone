@@ -1,7 +1,7 @@
 import * as React from 'react';
 import clsx from "clsx";
 
-import Menu from './ButtonMenu';
+import ButtonMenu from './ButtonMenu';
 import { MenuItemProps } from './ButtonMenu';
 
 export interface TableColumn {
@@ -27,7 +27,7 @@ export function Table({rows, columns, menuOptions, className}: TableProps) {
   const modifiedColumns = menuOptions ? [...columns, {
     field: 'menu',
     headerName: '',
-    element: () => <Menu menuItems={menuOptions.menuItems} />,
+    element: () => <ButtonMenu menuItems={menuOptions.menuItems} />,
     className: 'text-end',
   }] : columns;
   
