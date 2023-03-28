@@ -14,20 +14,9 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
 
-import { Table } from 'components/Table';
-
+import { Table, TableColumn, TableRow } from 'components/Table';
 import { faTrashCan, faEdit, faSkull } from '@fortawesome/free-solid-svg-icons';
 import { MenuItemProps } from 'components/ButtonMenu';
-
-export interface TableColumn {
-  field: string;
-  headerName: string;
-  className?: string;
-}
-
-export interface TableRow {
-  [key: string]: React.ReactNode;
-} 
 
 interface FilmCameraRow {
   id: number;
