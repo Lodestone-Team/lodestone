@@ -379,7 +379,7 @@ export const openPort = async (port: number) => {
  ***********************/
 
 export const getTasks = async (uuid: string,) => {
-  const taskList = axiosWrapper<TaskEntry[]>({
+  const taskList = await axiosWrapper<TaskEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/task/list`,
   });
