@@ -85,11 +85,7 @@ impl TConfigurable for GenericInstance {
     async fn set_name(&mut self, name: String) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetName { new_name: name })
-            .await
-            .map_err(|e| Error {
-                kind: ErrorKind::ProcedureCall,
-                source: eyre!(e),
-            })?;
+            .await?;
         Ok(())
     }
     async fn set_description(&mut self, description: String) -> Result<(), Error> {
@@ -97,21 +93,13 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::SetDescription {
                 new_description: description,
             })
-            .await
-            .map_err(|e| Error {
-                kind: ErrorKind::ProcedureCall,
-                source: eyre!(e),
-            })?;
+            .await?;
         Ok(())
     }
     async fn set_port(&mut self, port: u32) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetPort { new_port: port })
-            .await
-            .map_err(|e| Error {
-                kind: ErrorKind::ProcedureCall,
-                source: eyre!(e),
-            })?;
+            .await?;
         Ok(())
     }
     async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), Error> {
@@ -119,11 +107,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::SetAutoStart {
                 new_auto_start: auto_start,
             })
-            .await
-            .map_err(|e| Error {
-                kind: ErrorKind::ProcedureCall,
-                source: eyre!(e),
-            })?;
+            .await?;
         Ok(())
     }
     async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), Error> {
@@ -131,11 +115,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::SetRestartOnCrash {
                 new_restart_on_crash: restart_on_crash,
             })
-            .await
-            .map_err(|e| Error {
-                kind: ErrorKind::ProcedureCall,
-                source: eyre!(e),
-            })?;
+            .await?;
         Ok(())
     }
     async fn set_backup_period(&mut self, _backup_period: Option<u32>) -> Result<(), Error> {
@@ -174,11 +154,7 @@ impl TConfigurable for GenericInstance {
                 setting_id: setting_id.to_string(),
                 new_value: value,
             })
-            .await
-            .map_err(|e| Error {
-                kind: ErrorKind::ProcedureCall,
-                source: eyre!(e),
-            })?;
+            .await?;
         Ok(())
     }
 }
