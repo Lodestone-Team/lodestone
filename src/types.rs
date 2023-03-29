@@ -119,7 +119,8 @@ impl Display for InstanceUuid {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DotLodestoneConfig {
     game_type: GameType,
     uuid: InstanceUuid,
