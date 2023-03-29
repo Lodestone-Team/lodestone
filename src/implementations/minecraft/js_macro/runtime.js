@@ -1,24 +1,26 @@
-((globalThis) => {
-    const { core } = Deno;
-    const { ops } = core;
+const core = Deno[Deno.internal].core;
+const { ops } = core;
 
-    // core.initializeAsyncOps();
-    globalThis.Lodestone = {
-        instance: {
-            sendStdin(cmd) {
-                ops.send_stdin(cmd.toString());
-            },
-            sendRcon(cmd) {
-                return ops.send_rcon(cmd.toString());
-            },
-            getConfig() {
-                return JSON.parse(ops.config());
-            },
-            async onEvent(event) {
-                return JSON.parse(await ops.on_event(event));
-            }
+const Lodestone = {
+    instance: {
+        sendStdin(cmd) {
+            return ops.send_stdin(cmd.toString());
+        },
+        sendRcon(cmd) {
+            return ops.send_rcon(cmd.toString());
+        },
+        getConfig() {
+            return core.JSON.parse(ops.config());
+        },
+        async onEvent(event) {
+            return core.JSON.parse(await core.opAsync("on_event", event));
+        },
+        async asyncHello() {
+            return await core.opAsync("async_hello");
         }
+    }
 
 
-    };
-})(globalThis);
+};
+
+globalThis.Lodestone = Lodestone;
