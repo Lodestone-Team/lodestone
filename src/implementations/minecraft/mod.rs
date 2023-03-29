@@ -551,14 +551,12 @@ impl MinecraftInstance {
             .join(format!("jre{}", jre_major_version))
             .exists()
         {
-            let _progression_parent_id = progression_event_id;
             let downloaded = download_file(
                 &url,
                 &path_to_runtimes.join("java"),
                 None,
                 {
                     let event_broadcaster = event_broadcaster.clone();
-                    let _uuid = uuid.clone();
                     let progression_event_id = progression_event_id;
                     &move |dl| {
                         if let Some(total) = dl.total {
