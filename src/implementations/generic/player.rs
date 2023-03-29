@@ -1,7 +1,15 @@
+use std::collections::HashSet;
+
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::traits::t_player::TPlayer;
+use crate::{
+    error::Error,
+    traits::t_player::{Player, TPlayer, TPlayerManagement},
+};
+
+use super::{bridge::procedure_call::ProcedureCallInner, GenericInstance};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, TS, Clone, Hash)]
 #[ts(export)]
@@ -17,5 +25,33 @@ impl TPlayer for GenericPlayer {
 
     fn get_name(&self) -> String {
         self.name.clone()
+    }
+}
+
+#[async_trait]
+impl TPlayerManagement for GenericInstance {
+    async fn get_player_count(&self) -> Result<u32, Error> {
+        Ok(self
+            .procedure_bridge
+            .call(ProcedureCallInner::GetPlayerCount)
+            .await?
+            .try_into_u32()
+            .unwrap())
+    }
+    async fn get_max_player_count(&self) -> Result<u32, Error> {
+        Ok(self
+            .procedure_bridge
+            .call(ProcedureCallInner::GetMaxPlayerCount)
+            .await?
+            .try_into_u32()
+            .unwrap())
+    }
+    async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
+        Ok(self
+            .procedure_bridge
+            .call(ProcedureCallInner::GetPlayerList)
+            .await?
+            .try_into_player_list()
+            .unwrap())
     }
 }

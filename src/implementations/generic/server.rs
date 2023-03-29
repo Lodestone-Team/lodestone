@@ -4,28 +4,25 @@ use crate::{
     traits::t_server::{MonitorReport, State, TServer},
 };
 
-use super::{
-    bridge::procedure_call::{ProcedureCallInner, ProcedureCallResultInner},
-    GenericInstance,
-};
+use super::{bridge::procedure_call::ProcedureCallInner, GenericInstance};
 
 #[async_trait::async_trait]
 impl TServer for GenericInstance {
-    async fn start(&mut self, caused_by: CausedBy, _block: bool) -> Result<(), Error> {
+    async fn start(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         self.procedure_bridge
-            .call(ProcedureCallInner::StartInstance { caused_by })
+            .call(ProcedureCallInner::StartInstance { caused_by, block })
             .await?;
         Ok(())
     }
-    async fn stop(&mut self, caused_by: CausedBy, _block: bool) -> Result<(), Error> {
+    async fn stop(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         self.procedure_bridge
-            .call(ProcedureCallInner::StopInstance { caused_by })
+            .call(ProcedureCallInner::StopInstance { caused_by, block })
             .await?;
         Ok(())
     }
-    async fn restart(&mut self, caused_by: CausedBy, _block: bool) -> Result<(), Error> {
+    async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         self.procedure_bridge
-            .call(ProcedureCallInner::RestartInstance { caused_by })
+            .call(ProcedureCallInner::RestartInstance { caused_by, block })
             .await?;
         Ok(())
     }
@@ -36,16 +33,12 @@ impl TServer for GenericInstance {
         Ok(())
     }
     async fn state(&self) -> State {
-        if let ProcedureCallResultInner::State(state) = self
-            .procedure_bridge
+        self.procedure_bridge
             .call(ProcedureCallInner::GetState)
             .await
             .unwrap()
-        {
-            state
-        } else {
-            unreachable!()
-        }
+            .try_into_state()
+            .unwrap()
     }
     async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error> {
         self.procedure_bridge
@@ -57,15 +50,11 @@ impl TServer for GenericInstance {
         Ok(())
     }
     async fn monitor(&self) -> MonitorReport {
-        if let ProcedureCallResultInner::Monitor(report) = self
-            .procedure_bridge
+        self.procedure_bridge
             .call(ProcedureCallInner::Monitor)
             .await
             .unwrap()
-        {
-            report
-        } else {
-            unreachable!()
-        }
+            .try_into_monitor()
+            .unwrap()
     }
 }

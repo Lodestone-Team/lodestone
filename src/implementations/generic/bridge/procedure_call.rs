@@ -17,28 +17,75 @@ use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event};
 
 use crate::implementations::generic::player::GenericPlayer;
-use crate::implementations::generic::{GenericInstance, SetupConfig};
+use crate::implementations::generic::GenericInstance;
 
+use crate::traits::t_configurable::manifest::{
+    ConfigurableManifest, ConfigurableValue, ManifestValue,
+};
+use crate::traits::t_configurable::{Game, TConfigurable};
+use crate::traits::t_player::Player;
 use crate::traits::t_server::State;
+use crate::types::DotLodestoneConfig;
 use crate::MonitorReport;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, EnumKind)]
 #[serde(tag = "type")]
-#[ts(export)]
+// #[ts(export_to = "src/implementations/generic/js/main/libs/bindings/ProcedureCallInner.ts")]
+// #[ts(export)]
 #[enum_kind(ProcedureCallKind, derive(Serialize, Deserialize, TS))]
 pub enum ProcedureCallInner {
     SetupInstance {
-        config: SetupConfig,
+        dot_lodestone_config: DotLodestoneConfig,
+        setup_value: ManifestValue,
         path: PathBuf,
     },
+    RestoreInstance {
+        dot_lodestone_config: DotLodestoneConfig,
+        path: PathBuf,
+    },
+    GetSetupManifest,
+    // start of TConfigurable
+    GetName,
+    GetDescription,
+    GetVersion,
+    GetGame,
+    GetPort,
+    GetAutoStart,
+    GetRestartOnCrash,
+    SetName {
+        new_name: String,
+    },
+    SetDescription {
+        new_description: String,
+    },
+    SetPort {
+        new_port: u32,
+    },
+    SetAutoStart {
+        new_auto_start: bool,
+    },
+    SetRestartOnCrash {
+        new_restart_on_crash: bool,
+    },
+    GetConfigurableManifest,
+    UpdateConfigurable {
+        section_id: String,
+        setting_id: String,
+        new_value: ConfigurableValue,
+    },
+    // end of TConfigurable
+    // start of TServer
     StartInstance {
         caused_by: CausedBy,
+        block: bool,
     },
     StopInstance {
         caused_by: CausedBy,
+        block: bool,
     },
     RestartInstance {
         caused_by: CausedBy,
+        block: bool,
     },
     KillInstance {
         caused_by: CausedBy,
@@ -49,8 +96,28 @@ pub enum ProcedureCallInner {
         caused_by: CausedBy,
     },
     Monitor,
+    // end of TServer
+    // start of TPlayerManagement
     GetPlayerCount,
+    GetMaxPlayerCount,
     GetPlayerList,
+    // end of TPlayerManagement
+    // start of TMacro
+    GetMacroList,
+    GetTaskList,
+    GetHistoryList,
+    DeleteMacro {
+        name: String,
+    },
+    CreateMacro {
+        name: String,
+        content: String,
+    },
+    RunMacro {
+        name: String,
+        args: Vec<String>,
+        caused_by: CausedBy,
+    }, // end of TMacro
 }
 
 #[test]
@@ -67,18 +134,77 @@ pub struct ProcedureCall {
 }
 
 #[derive(Debug, Clone, TS, Deserialize)]
-#[ts(export)]
+// #[ts(export_to = "src/implementations/generic/js/main/libs/bindings/ProcedureCallResultInner.ts")]
+// #[ts(export)]
 pub enum ProcedureCallResultInner {
     String(String),
     Monitor(MonitorReport),
     State(State),
     Num(u32),
+    Game(Game),
+    Bool(bool),
+    ConfigurableManifest(ConfigurableManifest),
     Player(HashSet<GenericPlayer>),
     Void,
 }
 
+impl ProcedureCallResultInner {
+    pub fn try_into_string(self) -> Option<String> {
+        match self {
+            Self::String(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn try_into_u32(self) -> Option<u32> {
+        match self {
+            Self::Num(n) => Some(n),
+            _ => None,
+        }
+    }
+    pub fn try_into_bool(self) -> Option<bool> {
+        match self {
+            Self::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+    pub fn try_into_configurable_manifest(self) -> Option<ConfigurableManifest> {
+        match self {
+            Self::ConfigurableManifest(m) => Some(m),
+            _ => None,
+        }
+    }
+    pub fn try_into_monitor(self) -> Option<MonitorReport> {
+        match self {
+            Self::Monitor(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn try_into_state(self) -> Option<State> {
+        match self {
+            Self::State(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn try_into_game(self) -> Option<Game> {
+        match self {
+            Self::Game(g) => Some(g),
+            _ => None,
+        }
+    }
+
+    pub fn try_into_player_list(self) -> Option<HashSet<Player>> {
+        match self {
+            Self::Player(p) => Some(p.into_iter().map(|p| p.into()).collect()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, TS, Deserialize)]
-#[ts(export)]
+// #[ts(export_to = "src/implementations/generic/js/main/libs/bindings/ErrorKindIR.ts")]
+// #[ts(export)]
 pub enum ErrorKindIR {
     NotFound,
     UnsupportedOperation,
@@ -98,7 +224,8 @@ impl From<ErrorKindIR> for ErrorKind {
 }
 
 #[derive(Debug, Clone, TS, Deserialize)]
-#[ts(export)]
+// #[ts(export_to = "src/implementation/generic/js/main/libs")]
+// #[ts(export)]
 pub struct ErrorIR {
     kind: ErrorKindIR,
     source: String,
@@ -114,34 +241,18 @@ impl From<ErrorIR> for Error {
 }
 
 #[derive(Debug, Clone, TS, Deserialize)]
-#[ts(export)]
+// #[ts(export_to = "src/implementation/generic/js/main/libs")]
+// #[ts(export)]
 pub struct ProcedureCallResultIR {
     id: u64,
     success: bool,
-    procedure_call_kind: ProcedureCallKind,
+    _procedure_call_kind: ProcedureCallKind,
     /// MUST be None if success is false
     /// MUST be Some if success is true
     inner: Option<ProcedureCallResultInner>,
     /// MUST be None if success is true
     /// MUST be Some if success is false
     error: Option<ErrorIR>,
-}
-
-pub struct ProcedureCallResult {
-    id: u64,
-    result: Result<ProcedureCallResultInner, Error>,
-}
-
-impl From<ProcedureCallResultIR> for ProcedureCallResult {
-    fn from(ir: ProcedureCallResultIR) -> Self {
-        Self {
-            id: ir.id,
-            result: match ir.success {
-                true => Ok(ir.inner.unwrap()),
-                false => Err(ir.error.unwrap().into()),
-            },
-        }
-    }
 }
 
 #[op]
@@ -180,13 +291,13 @@ fn emit_result(
 }
 
 #[op]
-fn emit_console_out(state: Rc<RefCell<OpState>>, out: String) -> Result<(), anyhow::Error> {
+async fn emit_console_out(state: Rc<RefCell<OpState>>, out: String) -> Result<(), anyhow::Error> {
     let instance = state.borrow().borrow::<GenericInstance>().clone();
     instance
         .global_event_broadcaster
-        .send(crate::events::Event::new_instance_output(
-            instance.config.uuid,
-            instance.config.name,
+        .send(Event::new_instance_output(
+            instance.dot_lodestone_config.uuid().clone(),
+            instance.name().await,
             out,
         ))
         .map_err(|_| {
@@ -198,17 +309,15 @@ fn emit_console_out(state: Rc<RefCell<OpState>>, out: String) -> Result<(), anyh
 #[derive(Debug, Clone)]
 pub struct ProcedureBridge {
     ready: Arc<AtomicBool>,
-    global_event_broadcast_tx: tokio::sync::broadcast::Sender<Event>,
     procedure_call_id: Arc<AtomicU64>,
     pub procedure_tx: Arc<Mutex<tokio::sync::broadcast::Sender<ProcedureCall>>>,
     pub procedure_result_tx: tokio::sync::broadcast::Sender<ProcedureCallResultIR>,
 }
 
 impl ProcedureBridge {
-    pub fn new(global_event_broadcast_tx: tokio::sync::broadcast::Sender<Event>) -> Self {
+    pub fn new() -> Self {
         Self {
             ready: Arc::new(AtomicBool::new(false)),
-            global_event_broadcast_tx,
             procedure_call_id: Arc::new(AtomicU64::new(0)),
             procedure_tx: Arc::new(Mutex::new(tokio::sync::broadcast::channel(100).0)),
             procedure_result_tx: tokio::sync::broadcast::channel(100).0,

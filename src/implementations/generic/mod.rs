@@ -1,53 +1,26 @@
 use std::path::PathBuf;
 
 use color_eyre::eyre::Context;
-use ts_rs::TS;
+use url::Url;
 
 use self::r#macro::GenericMainWorkerGenerator;
 use crate::{
     error::Error,
     events::{CausedBy, Event},
     macro_executor::MacroExecutor,
-    types::InstanceUuid,
+    traits::t_configurable::{manifest::ConfigurableManifest, TConfigurable},
+    types::DotLodestoneConfig,
 };
 
 mod bridge;
+pub mod configurable;
 mod r#macro;
 pub mod player;
 pub mod server;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
-#[serde(rename = "GenericSetupConfig")]
-#[ts(export)]
-pub struct SetupConfig {
-    pub game_type: String,
-    pub uuid: InstanceUuid,
-    pub name: String,
-    pub description: String,
-    pub port: u32,
-    pub auto_start: bool,
-    pub restart_on_crash: bool,
-    pub started_count: u32,
-}
-
-// impl From<GenericSetupConfigPrimitive> for SetupConfig {
-//     fn from(val: GenericSetupConfigPrimitive) -> Self {
-//         SetupConfig {
-//             game_type: "generic".to_string(),
-//             uuid: InstanceUuid::default(),
-//             name: val.name,
-//             description: val.description.unwrap_or_default(),
-//             port: val.port,
-//             auto_start: val.auto_start.unwrap_or(false),
-//             restart_on_crash: val.restart_on_crash.unwrap_or(false),
-//             started_count: 0,
-//         }
-//     }
-// }
-
 #[derive(Clone)]
 pub struct GenericInstance {
-    config: SetupConfig,
+    dot_lodestone_config: DotLodestoneConfig,
     global_event_broadcaster: tokio::sync::broadcast::Sender<Event>,
     procedure_bridge: bridge::procedure_call::ProcedureBridge,
     core_macro_executor: MacroExecutor,
@@ -56,16 +29,38 @@ pub struct GenericInstance {
 
 impl GenericInstance {
     pub async fn new(
-        config: SetupConfig,
+        link_to_source: String,
+        path: PathBuf,
+        dot_lodestone_config: DotLodestoneConfig,
         global_event_broadcaster: tokio::sync::broadcast::Sender<Event>,
         core_macro_executor: MacroExecutor,
-        path: PathBuf,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, ConfigurableManifest), Error> {
+        tokio::fs::create_dir_all(&path).await.context(format!(
+            "Failed to create directory for instance at {}",
+            &path.display()
+        ))?;
         let path_to_config = path.join(".lodestone_config");
-        let path_to_boostrap = path.join("run.ts");
+        let run_ts_content = format!(
+            r#"import {{ run }} from "{}";
+                run();
+            "#,
+            Url::parse(&link_to_source)
+                .context("Invalid URL")?
+                .join("mod.ts")
+                .context("Invalid URL")?
+                .as_str()
+        );
+
+        let path_to_bootstrap = path.join("run.ts");
+        tokio::fs::write(&path_to_bootstrap, run_ts_content)
+            .await
+            .context(format!(
+                "Failed to write bootstrap to {}",
+                &path_to_bootstrap.display()
+            ))?;
         std::fs::write(
             &path_to_config,
-            serde_json::to_string_pretty(&config).context(
+            serde_json::to_string_pretty(&dot_lodestone_config).context(
                 "Failed to serialize config to string. This is a bug, please report it.",
             )?,
         )
@@ -74,12 +69,11 @@ impl GenericInstance {
             &path_to_config.display()
         ))?;
 
-        let procedure_bridge =
-            bridge::procedure_call::ProcedureBridge::new(global_event_broadcaster.clone());
+        let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
 
         let __self = GenericInstance {
+            dot_lodestone_config: dot_lodestone_config.clone(),
             procedure_bridge: procedure_bridge.clone(),
-            config: config.clone(),
             global_event_broadcaster,
             core_macro_executor: core_macro_executor.clone(),
             path: path.clone(),
@@ -87,34 +81,19 @@ impl GenericInstance {
 
         core_macro_executor
             .spawn(
-                path_to_boostrap,
+                path_to_bootstrap,
                 Vec::new(),
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(
                     procedure_bridge.clone(),
                     __self.clone(),
                 )),
-                Some(config.uuid.clone()),
+                Some(dot_lodestone_config.uuid().clone()),
             )
             .await
             .unwrap();
-
-        match procedure_bridge
-            .call(bridge::procedure_call::ProcedureCallInner::SetupInstance {
-                config: config.clone(),
-                path: path.clone(),
-            })
-            .await
-        {
-            Ok(_) => {
-                println!("[RUST] set up successfully")
-            }
-            Err(e) => {
-                println!("[RUST] set up failed: {}", e);
-            }
-        };
-
-        Ok(__self)
+        let configurable_manifest = __self.configurable_manifest().await;
+        Ok((__self, configurable_manifest))
     }
 }
 

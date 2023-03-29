@@ -48,9 +48,10 @@ impl MainWorkerGenerator for GenericMainWorkerGenerator {
                 let instance = self.instance.clone();
                 move |state| {
                     state.put(brige.clone());
-                    state.put(instance.clone());
+                    state.put(instance);
                 }
             })
+            .force_op_registration()
             .build();
         worker_options.extensions.push(ext);
         worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader::default());
