@@ -11,9 +11,10 @@ use std::{
 
 use color_eyre::eyre::Context;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::{
     runtime::Builder,
-    sync::{oneshot, Mutex},
+    sync::{mpsc, oneshot, Mutex},
     task::LocalSet,
 };
 use tracing::{debug, error, log::warn};
@@ -207,6 +208,8 @@ impl ModuleLoader for TypescriptModuleLoader {
 pub struct MacroExecutor {
     macro_process_table: Arc<Mutex<HashMap<MacroPID, deno_core::v8::IsolateHandle>>>,
     exit_status_table: Arc<Mutex<HashMap<MacroPID, ExitStatus>>>,
+    channel_table:
+        Arc<Mutex<HashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
 }
@@ -241,6 +244,7 @@ impl MacroExecutor {
         MacroExecutor {
             macro_process_table: process_table,
             event_broadcaster,
+            channel_table: Arc::new(Mutex::new(HashMap::new())),
             exit_status_table,
             next_process_id: process_id,
         }
