@@ -8,22 +8,10 @@ import { SettingsContext } from 'data/SettingsContext';
 import Avatar from 'components/Atoms/Avatar';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
-import CoreSettings from 'components/Settings/CoreSettings';
-import UserSettings from 'components/Settings/UserSettings';
+import { tabList } from '../../../pages';
 
 
-export const tabList = [
-    {
-    title: 'General',
-      path: 'general',
-      content: <CoreSettings />,
-    },
-    {
-      title: 'Users',
-      path: 'users',
-      content: <UserSettings />,
-    },
-];
+
 
 export default function SettingsLeftNav({ className }: { className?: string }) {
   const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);

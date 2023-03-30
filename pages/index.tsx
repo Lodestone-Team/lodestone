@@ -44,7 +44,9 @@ import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
 import ProfilePage from 'pages/profile';
-import { tabList } from 'components/DashboardLayout/SettingsLeftNav';
+import CoreSettings from 'components/Settings/CoreSettings';
+import UserSettings from 'components/Settings/UserSettings';
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,6 +64,19 @@ const InstanceTabList = [
   'files',
   'tasks',
   'logs',
+];
+
+export const tabList = [
+    {
+    title: 'General',
+      path: 'general',
+      content: <CoreSettings />,
+    },
+    {
+      title: 'Users',
+      path: 'users',
+      content: <UserSettings />,
+    },
 ];
 
 export default function App() {
