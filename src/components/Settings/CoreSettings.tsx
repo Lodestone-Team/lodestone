@@ -212,9 +212,9 @@ export const CoreSettings = () => {
         closeButtonText="Cancel"
         type={'info'}
       >
-        Are you sure you want to turn off safe mode? This will allow all you to
+        Are you sure you want to turn off safe mode? This will allow you to
         give users other than yourself the ability to run potentially dangerous
-        commands. Make sure you trust all users you give these permissions to
+        commands. Make sure you trust all the users you give these permissions to.
       </ConfirmDialog>
       {openPortModal}
       <div className="flex w-full flex-col gap-4 @4xl:flex-row">
