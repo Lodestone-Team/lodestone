@@ -218,7 +218,7 @@ export const CoreSettings = () => {
       </ConfirmDialog>
       {openPortModal}
 
-      <div className="flex w-full flex-col gap-4 @4xl:flex-row px-6">
+      <div className="flex w-full max-w-6xl flex-col gap-4 @4xl:flex-row px-6">
         <div className="flex w-full flex-col gap-2 px-4 pt-8">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading">Core Settings</h1>
