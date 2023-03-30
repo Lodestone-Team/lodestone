@@ -1,6 +1,6 @@
 import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { DOMAttributes, forwardRef } from 'react';
+import { forwardRef } from 'react';
 import clsx from 'clsx';
 import { BeatLoader } from 'react-spinners';
 import { cva, VariantProps } from 'class-variance-authority';
@@ -70,7 +70,7 @@ export interface ButtonProps extends VariantProps<typeof buttonClasses> {
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   type?: 'button' | 'submit' | 'reset';
   iconComponent?: React.ReactNode;
-  icon?: IconDefinition;
+  iconLeft?: IconDefinition;
   iconRight?: IconDefinition;
   labelGrow?: boolean;
   form?: string;
@@ -90,7 +90,7 @@ const Button = forwardRef(
       variant,
       className,
       iconComponent,
-      icon,
+      iconLeft,
       iconRight,
       labelGrow = false,
       type = 'button',
@@ -110,7 +110,7 @@ const Button = forwardRef(
         {...props}
       >
         {iconComponent}
-        {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
+        {iconLeft && <FontAwesomeIcon icon={iconLeft} className="w-4 pr-2 opacity-50" />}
         <div
           className={cn('flex items-center truncate', labelGrow && 'grow')}
           style={{ justifyContent: 'inherit' }}
@@ -126,9 +126,8 @@ const Button = forwardRef(
             <span className={clsx(loading && 'opacity-0')}>{label}</span>
           </div>
         </div>
-
         {iconRight && (
-          <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />
+          <FontAwesomeIcon icon={iconRight} className="w-4 pl-2 opacity-50" />
         )}
       </button>
     );

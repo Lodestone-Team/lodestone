@@ -68,41 +68,32 @@ const InstanceOverview = () => {
     }));
   };
 
-  const columns: TableColumn[] = [
-    { field: 'name', headerName: 'Name' },
-    { field: 'age', headerName: 'Age' },
-    { field: 'city', headerName: 'City', className: 'column-city' },
+  const columnsBasic: TableColumn[] = [
+    { field: 'name', headerName: 'NAME' },
+    { field: 'age', headerName: 'AGE' },
+    { field: 'city', headerName: 'CITY' },
   ];
 
-  const rows: TableRow[] = [
+  const rowsBasic: TableRow[] = [
     { id: 1, name: 'John', age: 30, city: 'New York' },
     { id: 2, name: 'Jane', age: 25, city: 'Los Angeles' },
     { id: 3, name: 'Bob', age: 45, city: 'Chicago' },
   ];
 
   const columnsAnalog: TableColumn[] = [
-    { field: 'make', headerName: 'Make' },
-    { field: 'model', headerName: 'Model' },
-    { field: 'lens', headerName: 'Lens' },
-    { field: 'format', headerName: 'Format' },
-    { field: 'year', headerName: 'Year' },
+    { field: 'make', headerName: 'MAKE' },
+    { field: 'model', headerName: 'MODEL' },
+    { field: 'lens', headerName: 'LENS' },
+    { field: 'format', headerName: 'FORMAT' },
+    { field: 'year', headerName: 'YEAR' },
   ];
   
-  const rowsAnalog1: TableRow[] = [
+  const rowsAnalog: TableRow[] = [
     { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
     { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
     { id: 3, make: 'Pentax', model: 'K1000', lens: '50mm f/2.0', format: '35mm', year: 1976 },
     { id: 4, make: 'Mamiya', model: 'RB67', lens: '127mm f/3.8', format: '120', year: 1970 },
-    { id: 5, make: 'Hasselblad', model: '500CM', lens: '80mm f/2.8', format: '120', year: 1957 },
-    { id: 6, make: 'Leica', model: 'M6', lens: '35mm f/2.0', format: '35mm', year: 1984 },
-  ];
-  
-  const rowsAnalog2: TableRow[] = [
-    { id: 1, make: 'Nikon', model: 'FM2', lens: '50mm f/1.8', format: '35mm', year: 1982 },
-    { id: 2, make: 'Canon', model: 'AE-1', lens: '50mm f/1.4', format: '35mm', year: 1976 },
-    { id: 3, make: 'Pentax', model: 'K1000', lens: '50mm f/2.0', format: '35mm', year: 1976 },
-    { id: 4, make: 'Mamiya', model: 'RB67', lens: '127mm f/3.8', format: '120', year: 1970 },
-    { id: 5, make: 'Hasselblad', model: '500CM', lens: '80mm f/2.8', format: '120', year: 1957 },
+    { id: 5, make: 'Hasselblad Hasselblad Hasselblad', model: '500CM', lens: '80mm f/2.8', format: '120', year: 1957 },
     { id: 6, make: 'Leica', model: 'M6', lens: '35mm f/2.0', format: '35mm', year: 1984 },
     { id: 7, make: 'Fuji', model: 'GW690III', lens: '90mm f/3.5', format: '120', year: 1980 },
     { id: 8, make: 'Minolta', model: 'X-700', lens: '50mm f/1.7', format: '35mm', year: 1981 },
@@ -119,7 +110,7 @@ const InstanceOverview = () => {
         onClick: () => console.log('Button 1 clicked'),
       },
       {
-        label: 'why the fuck is this justified start',
+        label: 'another one',
         icon: faSkull,
         variant: 'text',
         intention: 'info',
@@ -185,7 +176,7 @@ const InstanceOverview = () => {
         </div>
       </div>
       <InstancePerformanceCard />
-      <Table rows={rowsAnalog1} columns={columnsAnalog} menuOptions={menuItems1} />
+      <Table rows={rowsBasic} columns={columnsBasic} menuOptions={menuItems1} alignment='auto' />
       <InstancePlayerList />
     </>
   );
