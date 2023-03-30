@@ -2,7 +2,7 @@ import * as React from 'react';
 import clsx from "clsx";
 
 import ButtonMenu from './ButtonMenu';
-import { MenuItemProps } from './ButtonMenu';
+import { ButtonMenuProps } from './ButtonMenu';
 
 export interface TableColumn {
   field: string;
@@ -18,7 +18,7 @@ export interface TableRow {
 interface TableProps {
   rows: TableRow[];
   columns: TableColumn[];
-  menuOptions?: MenuItemProps;
+  menuOptions?: ButtonMenuProps;
   className?: string;
 }
 
@@ -30,9 +30,9 @@ export function Table({rows, columns, menuOptions, className}: TableProps) {
     element: () => <ButtonMenu menuItems={menuOptions.menuItems} />,
     className: 'text-end',
   }] : columns;
-  
+
   return (
-    <table className={clsx("table-auto whitespace-nowrap bg-gray-875 text-left tracking-medium", className)}>
+    <table className={clsx("table-fixed whitespace-nowrap bg-gray-875 text-left tracking-medium", className)}>
       <thead className="h-6 border-b border-b-fade-700 bg-gray-875">
       <tr>
         {modifiedColumns.map((column, cIndex) => (
@@ -47,23 +47,21 @@ export function Table({rows, columns, menuOptions, className}: TableProps) {
       </tr>
       </thead>
       <tbody>
-        {rows.map((row, indexRow) => {
-          return (
-            <tr
-              key={indexRow}
-              className={clsx("h-12 border-b border-b-fade-700", indexRow % 2 === 1 && "bg-gray-850")}
-            >
-              {modifiedColumns.map((column, indexColumn) => (
-                <td
-                  key={indexColumn}
-                  className={clsx("px-4 text-left text-white/50", column.className)}
-                >
-                  {column.element ? column.element(row) : row[column.field]}
-                </td>
-              ))}
-            </tr>
-          )
-        })}
+        {rows.map((row, indexRow) => (
+          <tr
+            key={indexRow}
+            className={clsx("h-12 border-b border-b-fade-700", indexRow % 2 === 1 && "bg-gray-850")}
+          >
+            {modifiedColumns.map((column, indexColumn) => (
+              <td
+                key={indexColumn}
+                className={clsx("px-4 text-left text-white/50", column.className)}
+              >
+                {column.element ? column.element(row) : row[column.field]}
+              </td>
+            ))}
+          </tr>
+        ))}
       </tbody>
     </table>
   );

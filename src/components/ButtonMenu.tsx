@@ -14,12 +14,12 @@ interface MenuItemProperty {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-export interface MenuItemProps {
+export interface ButtonMenuProps {
   menuItems: MenuItemProperty[];
   buttonIcon?: IconDefinition;
 }
 
-export default function ButtonMenu({ menuItems, buttonIcon = faEllipsisVertical }: MenuItemProps) {
+export default function ButtonMenu({ menuItems, buttonIcon = faEllipsisVertical }: ButtonMenuProps) {
   return (
     <Menu as="div" className="relative inline-block text-right">
       <Menu.Button

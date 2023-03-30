@@ -16,18 +16,7 @@ import InstancePlayerList from './InstancePlayerList';
 
 import { Table, TableColumn, TableRow } from 'components/Table';
 import { faTrashCan, faEdit, faSkull } from '@fortawesome/free-solid-svg-icons';
-import { MenuItemProps } from 'components/ButtonMenu';
-
-interface FilmCameraRow {
-  id: number;
-  make: string;
-  model: string;
-  lens: string;
-  aperture: string;
-  shutterSpeed: string;
-  format: string;
-  year: number;
-}
+import { ButtonMenuProps } from 'components/ButtonMenu';
 
 const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -119,7 +108,7 @@ const InstanceOverview = () => {
     { id: 8, make: 'Minolta', model: 'X-700', lens: '50mm f/1.7', format: '35mm', year: 1981 },
   ];
 
-  const menuItems1: MenuItemProps = {
+  const menuItems1: ButtonMenuProps = {
     menuItems: [
       {
         label: 'Edit in file viewer',
