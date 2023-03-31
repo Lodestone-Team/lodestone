@@ -24,7 +24,7 @@ import { ProcedureCallResultInner } from "./bindings/ProcedureCallResultInner.ts
 import { getAutoStart, getConfigurableManifest, getDescription, getGame, getName, getPort, getRestartOnCrash, getVersion, setAutoStart, setDescription, setName, setPort, setRestartOnCrash, updateConfigurable } from "../implementation/configurable.ts";
 import { getMaxPlayerCount, getPlayerCount, getPlayerList } from "../implementation/players.ts";
 import { isTConfig, isTMacro, isTPlayer, isTServer } from "./utils.ts";
-import { restoreInstance, setupInstance } from "../implementation/setup.ts";
+import { restoreInstance, setupInstance, setupManifest } from "../implementation/setup.ts";
 
 const emit_result = (result: ProcedureCallResultIR) =>
     ops.emit_result(result);
@@ -234,16 +234,22 @@ export async function procedure_bridge() {
     // This function will throw if it's called more than once.
     ops.proc_bridge_ready();
     while (true) {
-        const procedure: ProcedureCall = await ops.op_async("on_procedure");
+        const procedure: ProcedureCall = await core.opAsync("on_procedure");
         const inner = procedure.inner;
+        let ret: ProcedureCallResultInner = "Void";
         if (isTConfig(inner)) {
-            tConfigHandle(procedure);
+            await tConfigHandle(procedure);
         } else if (isTServer(inner)) {
-            tServerHandle(procedure);
+            await tServerHandle(procedure);
         } else if (isTPlayer(inner)) {
-            tPlayerHandle(procedure);
+            await tPlayerHandle(procedure);
         } else
             try {
+                if (inner.type === "GetSetupManifest") {
+                    ret = {
+                        SetupManifest: await setupManifest()
+                    }
+                }
                 if (inner.type === "SetupInstance") {
                     await setupInstance(inner.setup_value, inner.dot_lodestone_config, inner.path)
 
@@ -283,7 +289,7 @@ export async function procedure_bridge() {
                 id: procedure.id,
                 success: true,
                 procedure_call_kind: inner.type,
-                inner: "Void",
+                inner: ret,
                 error: null,
             },
         );

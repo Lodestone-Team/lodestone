@@ -2,8 +2,9 @@
 import type { SectionManifest } from "./SectionManifest.ts";
 
 export interface ConfigurableManifest {
+    instance_name: string;
+    instance_description: string | null;
     auto_start: boolean;
     restart_on_crash: boolean;
-    start_on_connection: boolean;
     setting_sections: Record<string, SectionManifest>;
 }
