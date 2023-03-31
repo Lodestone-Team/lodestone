@@ -136,6 +136,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                           ? 'bg-gray-800 outline outline-1 outline-white/50'
                           : ''
                       )}
+                      onClick={() => setPathname(`/settings/profile`)}
                     >
                       <Avatar name={user.uid} />
                       <span className="truncate">

@@ -1,8 +1,8 @@
 import { Tab } from '@headlessui/react';
 import { useContext, useState } from 'react';
 import { useUserInfo } from 'data/UserInfo';
-import CoreSettings from 'components/Settings/CoreSettings';
-import UserSettings from 'components/Settings/UserSettings';
+import CoreSettings from 'pages/settings/CoreSettings';
+import UserSettings from 'pages/settings/UserSettings';
 import { SettingsContext } from 'data/SettingsContext';
 import { useDocumentTitle } from 'usehooks-ts';
 //------------------------------!!!!!! NO LONGER IN USE !!!!!!!-------------------------------------

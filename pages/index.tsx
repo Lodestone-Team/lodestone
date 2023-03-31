@@ -43,9 +43,9 @@ import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
-import ProfilePage from 'pages/profile';
-import CoreSettings from 'components/Settings/CoreSettings';
-import UserSettings from 'components/Settings/UserSettings';
+import ProfilePage from 'pages/settings/profile';
+import CoreSettings from 'pages/settings/CoreSettings';
+import UserSettings from 'pages/settings/UserSettings';
 
 
 const queryClient = new QueryClient({
