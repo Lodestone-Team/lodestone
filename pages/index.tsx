@@ -66,7 +66,7 @@ const InstanceTabList = [
   'logs',
 ];
 
-export const tabList = [
+export const CoreSettingsTabList = [
     {
     title: 'General',
       path: 'general',
@@ -320,7 +320,7 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 {/* <Route path="/settings" element={<SettingsPage />} /> */}
-                {tabList.map((tab, i) => (
+                {CoreSettingsTabList.map((tab, i) => (
                   <Route
                     path={`/settings/${tab.path}`}
                     element={tab.content}

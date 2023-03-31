@@ -1,6 +1,6 @@
 import { useContext, useState, useEffect } from 'react';
 import Button from 'components/Atoms/Button';
-import { faXmark, faServer, faRightToBracket } from '@fortawesome/free-solid-svg-icons';
+import { faXmark, faServer, faRightToBracket, faUser } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { RadioGroup } from '@headlessui/react';
@@ -8,7 +8,7 @@ import { SettingsContext } from 'data/SettingsContext';
 import Avatar from 'components/Atoms/Avatar';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
-import { tabList } from '../../../pages';
+import { CoreSettingsTabList } from '../../../pages';
 
 
 
@@ -53,7 +53,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
             <FontAwesomeIcon icon={faServer} />
             CORE
           </RadioGroup.Label>
-          {tabList.map((setting) => (
+          {CoreSettingsTabList.map((setting) => (
           <RadioGroup.Option
               key={setting.path}
               value={`/settings/${setting.path}`}
@@ -75,7 +75,11 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                 <div className="text-gray-300">{setting.title}</div>
               </button>
             </RadioGroup.Option>
-        )) }
+          ))}
+          <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 flex flex-row items-center gap-x-1.5 mt-2">
+            <FontAwesomeIcon icon={faUser} />
+            ACCOUNT
+          </RadioGroup.Label>
         </RadioGroup>
           {(
           <Button
