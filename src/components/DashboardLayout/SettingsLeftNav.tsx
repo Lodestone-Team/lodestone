@@ -8,7 +8,7 @@ import { SettingsContext } from 'data/SettingsContext';
 import Avatar from 'components/Atoms/Avatar';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
-import { CoreSettingsTabList } from '../../../pages';
+import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
 
 
 
@@ -80,6 +80,30 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
             <FontAwesomeIcon icon={faUser} />
             ACCOUNT
           </RadioGroup.Label>
+          {AccountSettingsTabList.map((setting) => (
+          <RadioGroup.Option
+              key={setting.path}
+              value={`/settings/${setting.path}`}
+              className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+            >
+              <button
+                className={clsx(
+                  'flex flex-row items-center gap-x-1.5',
+                  'cursor-pointer rounded-md py-1 px-2',
+                  'text-medium font-medium leading-5 tracking-normal',
+                  'hover:bg-gray-800',
+                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                  setActive === setting.path
+                    ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                    : ''
+                )}
+                onClick={() => setPathname(`/settings/${setting.path}`)}
+              >
+                <div className="text-gray-300">{setting.title}</div>
+              </button>
+            </RadioGroup.Option>
+          ))}
+
         </RadioGroup>
           {(
           <Button

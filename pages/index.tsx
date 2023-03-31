@@ -79,6 +79,14 @@ export const CoreSettingsTabList = [
     },
 ];
 
+export const AccountSettingsTabList = [
+    {
+    title: 'Profile',
+      path: 'profile',
+      content: <ProfilePage />,
+    },
+];
+
 export default function App() {
   const { location, setSearchParam } = useContext(BrowserLocationContext);
 
@@ -317,10 +325,14 @@ export default function App() {
                 <Route path="/" element={<Home />} />
               </Route>
               <Route element={<SettingsLayout />}>
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
-                {/* <Route path="/settings" element={<SettingsPage />} /> */}
                 {CoreSettingsTabList.map((tab, i) => (
+                  <Route
+                    path={`/settings/${tab.path}`}
+                    element={tab.content}
+                    key={i}
+                  />
+                ))}
+                {AccountSettingsTabList.map((tab, i) => (
                   <Route
                     path={`/settings/${tab.path}`}
                     element={tab.content}
