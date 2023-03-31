@@ -67,6 +67,7 @@ sqlx = { version = "0.6.2", git = "https://github.com/Lodestone-Team/sqlx", feat
 ] }
 sysinfo = "0.26.5"
 tempdir = "0.3.7"
+tempfile = "3.5.0"
 thiserror = "1.0.38"
 time = { version = "0.3.17", features = ["macros"] }
 tokio = { version = "1.21.1", features = ["full"] }
