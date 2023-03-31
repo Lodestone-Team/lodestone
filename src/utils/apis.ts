@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { ClientFile } from 'bindings/ClientFile';
+import { MacroEntry } from 'bindings/MacroEntry';
 import { LoginReply } from 'bindings/LoginReply';
 import { UserPermission } from 'bindings/UserPermission';
 import { Base64 } from 'js-base64';
@@ -15,6 +16,8 @@ import {
   isAxiosError,
   parentPath,
 } from './util';
+import { TaskEntry } from 'bindings/TaskEntry';
+import { HistoryEntry } from 'bindings/HistoryEntry';
 
 /***********************
  * Start Files API
@@ -370,3 +373,54 @@ export const openPort = async (port: number) => {
     })
   );
 };
+
+/***********************
+ * Start Tasks/Macro API
+ ***********************/
+
+export const getTasks = async (uuid: string,) => {
+  const taskList = await axiosWrapper<TaskEntry[]>({
+    method: 'get',
+    url: `/instance/${uuid}/task/list`,
+  });
+
+  return taskList;
+};
+
+export const getMacros = async (uuid: string,) => {
+  const macroList = await axiosWrapper<MacroEntry[]>({
+    method: 'get',
+    url: `/instance/${uuid}/macro/list`,
+  });
+
+  return macroList;
+};
+
+export const getInstanceHistory = async (uuid: string,) => {
+  const historyList = await axiosWrapper<HistoryEntry[]>({
+    method: 'get',
+    url: `/instance/${uuid}/history/list`,
+  });
+
+  return historyList;
+};
+
+export const createTask = async (
+  queryClient: QueryClient,
+  uuid: string,
+  macro_name: string,
+  args: string[],
+  ) => {
+  queryClient.invalidateQueries(['instance', uuid, 'taskList']);
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/macro/run/${macro_name}`,
+      data: args,
+    })
+  );
+};
+
+/***********************
+ * End Tasks/Macro API
+ ***********************/
