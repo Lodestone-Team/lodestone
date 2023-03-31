@@ -13,6 +13,7 @@ use crate::traits::t_configurable::{Game, TConfigurable};
 use crate::InstanceUuid;
 
 #[async_trait]
+
 impl TConfigurable for GenericInstance {
     async fn uuid(&self) -> InstanceUuid {
         self.dot_lodestone_config.uuid().clone()
@@ -22,7 +23,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetName)
             .await
             .unwrap_or(ProcedureCallResultInner::String("Unknown".to_string()))
-            .try_into_string()
+            .try_into()
             .unwrap_or("Unknown".to_string())
     }
 
@@ -31,7 +32,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetGame)
             .await
             .unwrap()
-            .try_into_game()
+            .try_into()
             .unwrap()
     }
     async fn version(&self) -> String {
@@ -39,7 +40,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetVersion)
             .await
             .unwrap_or(ProcedureCallResultInner::String("Unknown".to_string()))
-            .try_into_string()
+            .try_into()
             .unwrap_or("Unknown".to_string())
     }
     async fn description(&self) -> String {
@@ -47,7 +48,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetDescription)
             .await
             .unwrap_or(ProcedureCallResultInner::String("Unknown".to_string()))
-            .try_into_string()
+            .try_into()
             .unwrap_or("Unknown".to_string())
     }
     async fn port(&self) -> u32 {
@@ -55,7 +56,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetPort)
             .await
             .unwrap_or(ProcedureCallResultInner::Num(0))
-            .try_into_u32()
+            .try_into()
             .unwrap_or(0)
     }
     async fn creation_time(&self) -> i64 {
@@ -70,7 +71,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetAutoStart)
             .await
             .unwrap_or(ProcedureCallResultInner::Bool(false))
-            .try_into_bool()
+            .try_into()
             .unwrap_or(false)
     }
     async fn restart_on_crash(&self) -> bool {
@@ -78,7 +79,7 @@ impl TConfigurable for GenericInstance {
             .call(ProcedureCallInner::GetRestartOnCrash)
             .await
             .unwrap_or(ProcedureCallResultInner::Bool(false))
-            .try_into_bool()
+            .try_into()
             .unwrap_or(false)
     }
     // setters
@@ -136,9 +137,8 @@ impl TConfigurable for GenericInstance {
         self.procedure_bridge
             .call(ProcedureCallInner::GetConfigurableManifest)
             .await
-            // TS side must not throw
             .unwrap()
-            .try_into_configurable_manifest()
+            .try_into()
             .unwrap()
     }
 

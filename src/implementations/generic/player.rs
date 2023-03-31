@@ -31,27 +31,21 @@ impl TPlayer for GenericPlayer {
 #[async_trait]
 impl TPlayerManagement for GenericInstance {
     async fn get_player_count(&self) -> Result<u32, Error> {
-        Ok(self
-            .procedure_bridge
+        self.procedure_bridge
             .call(ProcedureCallInner::GetPlayerCount)
             .await?
-            .try_into_u32()
-            .unwrap())
+            .try_into()
     }
     async fn get_max_player_count(&self) -> Result<u32, Error> {
-        Ok(self
-            .procedure_bridge
+        self.procedure_bridge
             .call(ProcedureCallInner::GetMaxPlayerCount)
             .await?
-            .try_into_u32()
-            .unwrap())
+            .try_into()
     }
     async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
-        Ok(self
-            .procedure_bridge
+        self.procedure_bridge
             .call(ProcedureCallInner::GetPlayerList)
             .await?
-            .try_into_player_list()
-            .unwrap())
+            .try_into()
     }
 }

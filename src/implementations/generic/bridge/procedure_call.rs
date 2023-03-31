@@ -11,6 +11,7 @@ use deno_core::{anyhow, op, OpState};
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use tracing::info;
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
@@ -20,7 +21,7 @@ use crate::implementations::generic::player::GenericPlayer;
 use crate::implementations::generic::GenericInstance;
 
 use crate::traits::t_configurable::manifest::{
-    ConfigurableManifest, ConfigurableValue, ManifestValue,
+    ConfigurableManifest, ConfigurableValue, ManifestValue, SetupManifest,
 };
 use crate::traits::t_configurable::{Game, TConfigurable};
 use crate::traits::t_player::Player;
@@ -145,63 +146,148 @@ pub enum ProcedureCallResultInner {
     Bool(bool),
     ConfigurableManifest(ConfigurableManifest),
     Player(HashSet<GenericPlayer>),
+    SetupManifest(SetupManifest),
     Void,
 }
 
-impl ProcedureCallResultInner {
-    pub fn try_into_string(self) -> Option<String> {
-        match self {
-            Self::String(s) => Some(s),
-            _ => None,
-        }
-    }
-    pub fn try_into_u32(self) -> Option<u32> {
-        match self {
-            Self::Num(n) => Some(n),
-            _ => None,
-        }
-    }
-    pub fn try_into_bool(self) -> Option<bool> {
-        match self {
-            Self::Bool(b) => Some(b),
-            _ => None,
-        }
-    }
-    pub fn try_into_configurable_manifest(self) -> Option<ConfigurableManifest> {
-        match self {
-            Self::ConfigurableManifest(m) => Some(m),
-            _ => None,
-        }
-    }
-    pub fn try_into_monitor(self) -> Option<MonitorReport> {
-        match self {
-            Self::Monitor(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    pub fn try_into_state(self) -> Option<State> {
-        match self {
-            Self::State(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    pub fn try_into_game(self) -> Option<Game> {
-        match self {
-            Self::Game(g) => Some(g),
-            _ => None,
-        }
-    }
-
-    pub fn try_into_player_list(self) -> Option<HashSet<Player>> {
-        match self {
-            Self::Player(p) => Some(p.into_iter().map(|p| p.into()).collect()),
-            _ => None,
+impl TryFrom<ProcedureCallResultInner> for String {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::String(s) => Ok(s),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::String expected, got {:?}", value),
+            }),
         }
     }
 }
 
+impl TryFrom<ProcedureCallResultInner> for u32 {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::Num(n) => Ok(n),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::Num expected, got {:?}", value),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for bool {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::Bool(b) => Ok(b),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::Bool expected, got {:?}", value),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for ConfigurableManifest {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::ConfigurableManifest(m) => Ok(m),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "ProcedureCallResultInner::ConfigurableManifest expected, got {:?}",
+                    value
+                ),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for MonitorReport {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::Monitor(m) => Ok(m),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "ProcedureCallResultInner::Monitor expected, got {:?}",
+                    value
+                ),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for State {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Error> {
+        match value {
+            ProcedureCallResultInner::State(s) => Ok(s),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::State expected, got {:?}", value),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for Game {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::Game(g) => Ok(g),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::Game expected, got {:?}", value),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for HashSet<Player> {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::Player(p) => Ok(p.into_iter().map(|p| p.into()).collect()),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::Player expected, got {:?}", value),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for SetupManifest {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::SetupManifest(m) => Ok(m),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "ProcedureCallResultInner::SetupManifest expected, got {:?}",
+                    value
+                ),
+            }),
+        }
+    }
+}
+
+impl TryFrom<ProcedureCallResultInner> for () {
+    type Error = Error;
+    fn try_from(value: ProcedureCallResultInner) -> Result<Self, Self::Error> {
+        match value {
+            ProcedureCallResultInner::Void => Ok(()),
+            _ => Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("ProcedureCallResultInner::Void expected, got {:?}", value),
+            }),
+        }
+    }
+}
 #[derive(Debug, Clone, TS, Deserialize)]
 // #[ts(export_to = "src/implementations/generic/js/main/libs/bindings/ErrorKindIR.ts")]
 // #[ts(export)]
@@ -246,7 +332,7 @@ impl From<ErrorIR> for Error {
 pub struct ProcedureCallResultIR {
     id: u64,
     success: bool,
-    _procedure_call_kind: ProcedureCallKind,
+    procedure_call_kind: ProcedureCallKind,
     /// MUST be None if success is false
     /// MUST be Some if success is true
     inner: Option<ProcedureCallResultInner>,
@@ -294,7 +380,8 @@ fn emit_result(
 async fn emit_console_out(state: Rc<RefCell<OpState>>, out: String) -> Result<(), anyhow::Error> {
     let instance = state.borrow().borrow::<GenericInstance>().clone();
     instance
-        .global_event_broadcaster
+        .event_broadcaster
+        .as_ref()
         .send(Event::new_instance_output(
             instance.dot_lodestone_config.uuid().clone(),
             instance.name().await,
@@ -325,14 +412,32 @@ impl ProcedureBridge {
     }
 
     pub async fn call(&self, inner: ProcedureCallInner) -> Result<ProcedureCallResultInner, Error> {
+        // wait until TS side is ready
+        if !self.ready.load(std::sync::atomic::Ordering::SeqCst) {
+            // 5 retries with exponential backoff
+            let mut flag = false;
+            for i in 0..5 {
+                info!(
+                    "ProcedureBridge::call: TS side not ready, retrying in {}ms",
+                    2u64.pow(i) * 100
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(2u64.pow(i) * 100)).await;
+                if self.ready.load(std::sync::atomic::Ordering::SeqCst) {
+                    flag = true;
+                    break;
+                }
+            }
+            if !flag {
+                return Err(eyre!(
+                    "ProcedureBridge::call: TS side not ready, macro most likely crashed"
+                )
+                .into());
+            }
+        }
+
         let id = self
             .procedure_call_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-        // wait until TS side is ready
-        while !self.ready.load(std::sync::atomic::Ordering::SeqCst) {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
 
         let mut rx = self.procedure_result_tx.subscribe();
         self.procedure_tx

@@ -29,7 +29,7 @@ use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
-use implementations::minecraft;
+use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
 use port_manager::PortManager;
 use prelude::GameInstance;

@@ -37,7 +37,7 @@ impl TServer for GenericInstance {
             .call(ProcedureCallInner::GetState)
             .await
             .unwrap()
-            .try_into_state()
+            .try_into()
             .unwrap()
     }
     async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error> {
@@ -54,7 +54,7 @@ impl TServer for GenericInstance {
             .call(ProcedureCallInner::Monitor)
             .await
             .unwrap()
-            .try_into_monitor()
+            .try_into()
             .unwrap()
     }
 }

@@ -4,6 +4,7 @@ use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
 use color_eyre::eyre::{eyre, Context};
+use serde::Deserialize;
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -11,6 +12,9 @@ use crate::events::{
     CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
     ProgressionStartValue,
 };
+
+use crate::implementations::generic;
+use crate::traits::t_configurable::GameType;
 
 use minecraft::FlavourKind;
 
@@ -61,7 +65,7 @@ pub async fn get_instance_info(
     Ok(Json(instance.get_instance_info().await))
 }
 
-pub async fn create_instance(
+pub async fn create_minecraft_instance(
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Path(game_type): Path<HandlerGameType>,
@@ -207,6 +211,71 @@ pub async fn create_instance(
     Ok(Json(instance_uuid))
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct GenericSetupConfig {
+    url: String,
+    setup_value: ManifestValue,
+}
+
+pub async fn create_generic_instance(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+    Json(setup_config): Json<GenericSetupConfig>,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::CreateInstance)?;
+    let mut instance_uuid = InstanceUuid::default();
+    for uuid in state.instances.lock().await.keys() {
+        if let Some(uuid) = uuid.as_ref().get(0..8) {
+            if uuid == &instance_uuid.no_prefix()[0..8] {
+                instance_uuid = InstanceUuid::default();
+            }
+        }
+    }
+
+    let instance_uuid = instance_uuid;
+
+    let setup_path = PATH_TO_INSTANCES.with(|path| {
+        path.join(format!(
+            "{}-{}",
+            "generic",
+            &instance_uuid.no_prefix()[0..8]
+        ))
+    });
+
+    tokio::fs::create_dir_all(&setup_path)
+        .await
+        .context("Failed to create instance directory")?;
+
+    let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), GameType::Generic);
+
+    // write dot lodestone config
+
+    tokio::fs::write(
+        setup_path.join(".lodestone_config"),
+        serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
+    )
+    .await
+    .context("Failed to write .lodestone_config file")?;
+
+    let instance = generic::GenericInstance::new(
+        setup_config.url,
+        setup_path,
+        dot_lodestone_config,
+        setup_config.setup_value,
+        state.event_broadcaster.clone(),
+        state.macro_executor.clone(),
+    )
+    .await?;
+
+    state
+        .instances
+        .lock()
+        .await
+        .insert(instance_uuid.clone(), instance.into());
+    Ok(Json(()))
+}
+
 pub async fn delete_instance(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(uuid): Path<InstanceUuid>,
@@ -321,7 +390,11 @@ pub async fn delete_instance(
 pub fn get_instance_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/list", get(get_instance_list))
-        .route("/instance/create/:game_type", post(create_instance))
+        .route(
+            "/instance/create/:game_type",
+            post(create_minecraft_instance),
+        )
+        .route("/instance/create_generic/", post(create_generic_instance))
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))
         .with_state(state)

@@ -14,7 +14,9 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::implementations::minecraft::Flavour;
 use crate::traits::GameInstance;
+use crate::traits::GenericInstance;
 use crate::traits::MinecraftInstance;
+
 use crate::types::InstanceUuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
