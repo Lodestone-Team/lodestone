@@ -394,7 +394,7 @@ pub fn get_instance_routes(state: AppState) -> Router {
             "/instance/create/:game_type",
             post(create_minecraft_instance),
         )
-        .route("/instance/create_generic/", post(create_generic_instance))
+        .route("/instance/create_generic", post(create_generic_instance))
         .route("/instance/:uuid", delete(delete_instance))
         .route("/instance/:uuid/info", get(get_instance_info))
         .with_state(state)
