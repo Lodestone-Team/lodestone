@@ -1,4 +1,4 @@
-import { useContext, useState, useEffect } from 'react';
+import { useContext, useMemo } from 'react';
 import Button from 'components/Atoms/Button';
 import { faXmark, faServer, faRightToBracket, faUser } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -14,15 +14,11 @@ import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
 
 
 export default function SettingsLeftNav({ className }: { className?: string }) {
-  const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const { userList, selectedUser, selectUser} =
   useContext(SettingsContext);
+  const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
   const uid = useUid();
-
-  useEffect(() => {
-    setActiveTab(location.pathname.split('/')[2]);
-  }, [location.pathname]);
 
   return (
     <div className={`flex w-full flex-col items-center px-4 ${className}`}>
