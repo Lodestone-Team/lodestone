@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { RadioGroup } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext, useEffect } from 'react';
@@ -25,7 +25,7 @@ export const SelectedInstanceInfo = ({
 
   const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const { setPathname } = useContext(BrowserLocationContext);
-  const [setActive, setActiveTab] = useState(location.pathname.split('/')[2]);
+  const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -37,9 +37,6 @@ export const SelectedInstanceInfo = ({
     );
   }, [isReady, instances]);
 
-  useEffect(() => {
-    setActiveTab(location.pathname.split('/')[2]);
-  }, [location.pathname]);
 
   const uuid = selectedInstance?.uuid;
   if (!selectedInstance || !uuid) {
