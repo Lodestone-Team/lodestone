@@ -514,6 +514,28 @@ impl SectionManifest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SetupManifest {
+    pub setting_sections: IndexMap<String, SectionManifest>,
+}
+
+impl SetupManifest {
+    pub fn validate_manifest_value(&self, value: &ManifestValue) -> Result<(), Error> {
+        for (section_id, section_value) in value.setting_sections.iter() {
+            if let Some(section) = self.setting_sections.get(section_id) {
+                section.validate_section(section_value)?;
+            } else {
+                return Err(Error {
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("Section not found"),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

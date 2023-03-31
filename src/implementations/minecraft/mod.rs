@@ -1,6 +1,7 @@
 pub mod configurable;
 pub mod fabric;
 mod forge;
+mod line_parser;
 pub mod r#macro;
 mod paper;
 pub mod player;
@@ -10,7 +11,6 @@ pub mod server;
 pub mod util;
 mod vanilla;
 pub mod versions;
-mod line_parser;
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;
@@ -45,7 +45,7 @@ use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, ManifestValue, SectionManifest,
-    SectionManifestValue, SettingManifest,
+    SectionManifestValue, SettingManifest, SetupManifest,
 };
 
 use crate::traits::t_macro::TaskEntry;
@@ -222,7 +222,7 @@ async fn test_setup_manifest() {
 }
 
 impl MinecraftInstance {
-    pub async fn setup_manifest(flavour: &FlavourKind) -> Result<ConfigurableManifest, Error> {
+    pub async fn setup_manifest(flavour: &FlavourKind) -> Result<SetupManifest, Error> {
         let versions = match flavour {
             FlavourKind::Vanilla => get_vanilla_minecraft_versions().await,
             FlavourKind::Fabric => get_fabric_minecraft_versions().await,
@@ -343,13 +343,9 @@ impl MinecraftInstance {
         sections.insert("section_1".to_string(), section_1);
         sections.insert("section_2".to_string(), section_2);
 
-        Ok(ConfigurableManifest::new(
-            format!("{} Server", flavour.to_string()),
-            None,
-            false,
-            false,
-            sections,
-        ))
+        Ok(SetupManifest {
+            setting_sections: sections,
+        })
     }
 
     pub async fn validate_section(
@@ -358,7 +354,7 @@ impl MinecraftInstance {
         section_value: &SectionManifestValue,
     ) -> Result<(), Error> {
         let manifest = Self::setup_manifest(flavour).await?;
-        if let Some(section) = manifest.get_section(section_id) {
+        if let Some(section) = manifest.setting_sections.get(section_id) {
             section.validate_section(section_value)?;
             Ok(())
         } else {
