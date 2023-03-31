@@ -74,10 +74,15 @@ impl TServer for MinecraftInstance {
                     CausedBy::System,
                     Box::new(main_worker_generator),
                     Some(self.uuid.clone()),
+                    if is_long_running {
+                        None
+                    } else {
+                        Some(Duration::from_secs(5))
+                    },
                 )
                 .await;
 
-            if let Ok(pid) = pid {
+            if let Ok((pid, handle)) = pid {
                 self.pid_to_task_entry.lock().await.insert(
                     pid,
                     TaskEntry {
@@ -91,7 +96,7 @@ impl TServer for MinecraftInstance {
                         "[{}] Waiting for prelaunch script to finish (5 seconds timeout)",
                         config.name.clone()
                     );
-                    if !self.macro_executor.wait_with_timeout(pid, Some(5.0)).await {
+                    if handle.await.unwrap().is_err() {
                         // kill the prelaunch script
                         info!(
                             "[{}] prelaunch script timed out, killing it",
