@@ -468,7 +468,7 @@ pub async fn run() -> (
 
                 let api_routes = Router::new()
                     .merge(get_events_routes(shared_state.clone()))
-                    .merge(get_instance_setup_config_routes())
+                    .merge(get_instance_setup_config_routes(shared_state.clone()))
                     .merge(get_instance_server_routes(shared_state.clone()))
                     .merge(get_instance_config_routes(shared_state.clone()))
                     .merge(get_instance_players_routes(shared_state.clone()))
