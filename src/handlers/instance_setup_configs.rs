@@ -93,8 +93,8 @@ pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
         .route("/games", get(get_available_games))
         .route("/setup_manifest/:game_type", get(get_setup_manifest))
         .route(
-            "/generic_setup_manifest/generic",
-            put(get_generic_setup_manifest),
+            "/generic_setup_manifest",
+            get(get_generic_setup_manifest),
         )
         .route(
             "/setup_manifest/:game_type/:section_id",
