@@ -2,13 +2,11 @@ use crate::error::Error;
 use crate::implementations::generic;
 use crate::implementations::minecraft;
 use crate::minecraft::FlavourKind;
-use crate::traits::t_configurable::manifest::SectionManifestValue;
 use crate::traits::t_configurable::manifest::SetupManifest;
 use crate::traits::t_configurable::GameType;
 use crate::AppState;
 use axum::extract::Path;
 use axum::routing::get;
-use axum::routing::put;
 use axum::Json;
 use axum::Router;
 use serde::Deserialize;
@@ -78,15 +76,6 @@ pub async fn get_generic_setup_manifest(
         .map(Json)
 }
 
-pub async fn validate_section(
-    Path((game_type, section_id)): Path<(HandlerGameType, String)>,
-    Json(section): Json<SectionManifestValue>,
-) -> Result<Json<()>, Error> {
-    Ok(Json(
-        minecraft::MinecraftInstance::validate_section(&game_type.into(), &section_id, &section)
-            .await?,
-    ))
-}
 
 pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
     Router::new()
@@ -95,10 +84,6 @@ pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
         .route(
             "/generic_setup_manifest",
             get(get_generic_setup_manifest),
-        )
-        .route(
-            "/setup_manifest/:game_type/:section_id",
-            put(validate_section),
         )
         .with_state(appstate)
 }

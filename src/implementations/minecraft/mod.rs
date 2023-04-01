@@ -45,7 +45,7 @@ use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SectionManifest,
-    SectionManifestValue, SettingManifest, SetupManifest, SetupValue,
+    SettingManifest, SetupManifest, SetupValue,
 };
 
 use crate::traits::t_macro::TaskEntry;
@@ -231,27 +231,6 @@ impl MinecraftInstance {
         }
         .context("Failed to get minecraft versions")?;
 
-        let name_setting = SettingManifest::new_required_value(
-            "name".to_string(),
-            "Server Name".to_string(),
-            "The name of the server instance".to_string(),
-            ConfigurableValue::String("Minecraft Server".to_string()),
-            None,
-            false,
-            true,
-        );
-
-        let description_setting = SettingManifest::new_optional_value(
-            "description".to_string(),
-            "Description".to_string(),
-            "A description of the server instance".to_string(),
-            None,
-            ConfigurableValueType::String { regex: None },
-            None,
-            false,
-            true,
-        );
-
         let version_setting = SettingManifest::new_value_with_type(
             "version".to_string(),
             "Version".to_string(),
@@ -309,8 +288,6 @@ impl MinecraftInstance {
         );
 
         let mut section_1_map = IndexMap::new();
-        section_1_map.insert("name".to_string(), name_setting);
-        section_1_map.insert("description".to_string(), description_setting);
 
         section_1_map.insert("version".to_string(), version_setting);
         section_1_map.insert("port".to_string(), port_setting);
@@ -347,20 +324,6 @@ impl MinecraftInstance {
         })
     }
 
-    pub async fn validate_section(
-        flavour: &FlavourKind,
-        section_id: &str,
-        section_value: &SectionManifestValue,
-    ) -> Result<(), Error> {
-        let manifest = Self::setup_manifest(flavour).await?;
-        if let Some(section) = manifest.setting_sections.get(section_id) {
-            section.validate_section(section_value)?;
-            Ok(())
-        } else {
-            Err(eyre!("Section {} does not exist", section_id).into())
-        }
-    }
-
     pub async fn construct_setup_config(
         setup_value: SetupValue,
         flavour: FlavourKind,
@@ -370,19 +333,9 @@ impl MinecraftInstance {
             .validate_setup_value(&setup_value)?;
 
         // ALL of the following unwraps are safe because we just validated the manifest value
-        let description = setup_value
-            .get_unique_setting("description")
-            .unwrap()
-            .get_value()
-            .map(|v| v.try_as_string().unwrap());
+        let description = setup_value.description.clone();
 
-        let name = setup_value
-            .get_unique_setting("name")
-            .unwrap()
-            .get_value()
-            .unwrap()
-            .try_as_string()
-            .unwrap();
+        let name = setup_value.name.clone();
 
         let version = setup_value
             .get_unique_setting("version")
@@ -427,8 +380,8 @@ impl MinecraftInstance {
             .collect();
 
         Ok(SetupConfig {
-            name: name.clone(),
-            description: description.cloned(),
+            name,
+            description,
             version: version.clone(),
             port,
             min_ram: Some(min_ram),
