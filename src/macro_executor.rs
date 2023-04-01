@@ -605,7 +605,7 @@ mod tests {
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
-        let (pid, handle) = executor
+        let (_, handle) = executor
             .spawn(
                 path_to_macro,
                 Vec::new(),

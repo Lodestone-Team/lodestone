@@ -523,7 +523,7 @@ pub async fn run() -> (
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    let _ = instance.stop(CausedBy::System, true);
+                    let _ = instance.stop(CausedBy::System, false).await;
                 }
             }
         },
