@@ -10,33 +10,44 @@ import {
   ManifestValue,
   ConfigurableManifest,
   SectionManifestValue,
+  SetupManifest,
+  SetupValue,
 } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { createForm } from './Create/FormCreation';
 import GameTypeSelectForm from './Create/GameTypeSelectForm';
-import { SetupInstanceManifest } from 'data/InstanceGameTypes';
+import {
+  SetupGenericInstanceManifest,
+  SetupInstanceManifest,
+} from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
 import clsx from 'clsx';
+import * as yup from 'yup';
+
+export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 
 function _renderStepContent(
   step: number,
-  gameType: HandlerGameType,
-  setGameType: (gameType: HandlerGameType) => void,
-  setupManifest?: ConfigurableManifest | null
+  gameType: GenericHandlerGameType,
+  setGameType: (gameType: GenericHandlerGameType) => void,
+  setupManifest?: SetupManifest | null
 ) {
   const forms = useMemo(() => {
-    if (!setupManifest) return null;
+    if (!setupManifest) return [];
     return Object.keys(setupManifest['setting_sections']).map((key: string) => {
       return createForm(setupManifest['setting_sections'][key]);
     });
   }, [setupManifest]);
 
-  if (!forms) return <Spinner />;
+  if (forms.length == 0 && step != 0) return <Spinner />;
   return (
     <>
       {step == 0 ? (
-        <GameTypeSelectForm selectedGameType={gameType} setGameType={setGameType} />
+        <GameTypeSelectForm
+          selectedGameType={gameType}
+          setGameType={setGameType}
+        />
       ) : (
         forms[step - 1]
       )}
@@ -50,14 +61,18 @@ export default function CreateGameInstance({
   onComplete: () => void;
 }) {
   const [activeStep, setActiveStep] = useState(0);
-  const [gameType, setGameType] = useState<HandlerGameType>(
+  const [gameType, setGameType] = useState<GenericHandlerGameType>(
     'MinecraftJavaVanilla'
   );
+  // const ready = activeStep !== 0;
+  // console.log(ready);
   const {
     data: setup_manifest,
     isLoading,
     error,
-  } = SetupInstanceManifest(gameType);
+  } = gameType === 'Generic'
+    ? SetupGenericInstanceManifest(gameType, '', false)
+    : SetupInstanceManifest(gameType as HandlerGameType);
 
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const formikRef =
@@ -68,28 +83,49 @@ export default function CreateGameInstance({
   });
 
   useEffect(() => {
+    console.log(gameType);
+    console.log(setup_manifest);
     if (!isLoading && !error) {
+      setInitialValues(
+        generateInitialValues(setup_manifest['setting_sections'])
+      );
+      setValidationSchema(generateValidationSchema(setup_manifest));
       setSetupManifest(setup_manifest);
     }
   }, [gameType, isLoading, setup_manifest, error]);
 
-  const [setupManifest, setSetupManifest] =
-    useState<ConfigurableManifest | null>(null);
+  const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
+    null
+  );
 
-  if (setupManifest === null) return <Spinner />;
+  const [initialValues, setInitialValues] = useState<
+    Record<string, ConfigurableValue | null>
+  >({});
+  const [validationSchema, setValidationSchema] = useState<any[]>([
+    yup.object().shape({}),
+  ]);
 
-  const initialValue: Record<string, ConfigurableValue | null> =
-    generateInitialValues(setupManifest['setting_sections']);
-  const validationSchema = generateValidationSchema(setupManifest);
+  if (setupManifest === null && activeStep !== 0) return <Spinner />;
+
+  // console.log(setupManifest);
+  // const initialValues: Record<string, ConfigurableValue | null> = setupManifest
+  //   ? generateInitialValues(setupManifest['setting_sections'])
+  //   : {};
+  // const validationSchema: any[] = setupManifest
+  //   ? generateValidationSchema(setupManifest)
+  //   : [yup.object().shape({})];
   const currentValidationSchema = validationSchema[activeStep];
   const steps = [
     'Select Game',
-    Object.keys(setupManifest['setting_sections']).map(
-      (sectionId) => setupManifest['setting_sections'][sectionId]['name']
-    ),
+    'Basic Settings',
+    'Instance Settings',
+    'Auto Settings',
+    // Object.keys(setupManifest['setting_sections']).map(
+    //   (sectionId) => setupManifest['setting_sections'][sectionId]['name']
+    // ),
   ].flat();
   const formReady = activeStep === steps.length - 1;
-  const createInstance = async (value: ManifestValue) => {
+  const createInstance = async (value: SetupValue) => {
     await axiosWrapper<void>({
       method: 'post',
       url: `/instance/create/${gameType}`,
@@ -108,10 +144,11 @@ export default function CreateGameInstance({
       sectionValues[structure[1]] = structure[0];
     }
 
-    const parsedValues: ManifestValue = {
+    const parsedValues: SetupValue = {
+      name: values.name?.value as string,
+      description: values.description?.value as string,
       auto_start: values.auto_start?.value as boolean,
       restart_on_crash: values.restart_on_crash?.value as boolean,
-      start_on_connection: values.start_on_connection?.value as boolean,
       setting_sections: sectionValues,
     };
 
@@ -147,13 +184,30 @@ export default function CreateGameInstance({
     const sectionValidation = structure[0];
     const sectionKey = structure[1];
 
-    const result = await axiosWrapper<void>({
-      method: 'put',
-      url: `/setup_manifest/${gameType}/${sectionKey}`,
-      headers: { 'Content-Type': 'application/json' },
-      data: JSON.stringify(sectionValidation),
-    });
+    // const result = await axiosWrapper<void>({
+    //   method: 'put',
+    //   url: `/setup_manifest/${gameType}/${sectionKey}`,
+    //   headers: { 'Content-Type': 'application/json' },
+    //   data: JSON.stringify(sectionValidation),
+    // });
   }
+
+  // function _getSetupManifest(
+  //   values: Record<string, ConfigurableValue | null>,
+  //   actions: FormikHelpers<Record<string, ConfigurableValue | null>>
+  // ) {
+  //   if (!isLoading && !error && setupManifest) {
+  //     console.log(generateInitialValues(setupManifest['setting_sections']));
+  //     setInitialValues(
+  //       generateInitialValues(setupManifest['setting_sections'])
+  //     );
+  //     setValidationSchema(generateValidationSchema(setupManifest));
+  //     setActiveStep(activeStep + 1);
+
+  //     actions.setTouched({});
+  //     actions.setSubmitting(false);
+  //   }
+  // }
 
   function _handleSubmit(
     values: Record<string, ConfigurableValue | null>,
@@ -162,8 +216,10 @@ export default function CreateGameInstance({
     if (formReady) {
       _submitForm(values, actions);
     } else {
+      console.log(initialValues);
       _sectionValidation(values, activeStep);
       setActiveStep(activeStep + 1);
+      actions.setValues(initialValues);
       actions.setTouched({});
       actions.setSubmitting(false);
     }
@@ -175,17 +231,17 @@ export default function CreateGameInstance({
 
   return (
     <Formik
-      initialValues={initialValue}
+      initialValues={initialValues}
       validationSchema={currentValidationSchema}
       onSubmit={_handleSubmit}
       innerRef={formikRef}
       validateOnBlur={false}
       validateOnChange={false}
     >
-      {({ isSubmitting }) => (
+      {({ isSubmitting, setValues }) => (
         <Form
           id={formId}
-          className="flex h-fit min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
+          className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
         >
           <div className="w-[180px] border-r border-gray-700 pt-9 ">
             {steps.map((section, i) => (
