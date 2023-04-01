@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 pub use std::path::PathBuf;
 
 use color_eyre::eyre::eyre;
@@ -520,8 +519,9 @@ pub struct SetupManifest {
     pub setting_sections: IndexMap<String, SectionManifest>,
 }
 
+
 impl SetupManifest {
-    pub fn validate_manifest_value(&self, value: &ManifestValue) -> Result<(), Error> {
+    pub fn validate_setup_value(&self, value: &SetupValue) -> Result<(), Error> {
         for (section_id, section_value) in value.setting_sections.iter() {
             if let Some(section) = self.setting_sections.get(section_id) {
                 section.validate_section(section_value)?;
@@ -536,13 +536,34 @@ impl SetupManifest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SetupValue {
+    pub name: String,
+    pub description: Option<String>,
+    pub auto_start: bool,
+    pub restart_on_crash: bool,
+    pub setting_sections: IndexMap<String, SectionManifestValue>,
+}
+
+impl SetupValue {
+    pub fn get_unique_setting(&self, setting_id: &str) -> Option<&SettingManifestValue> {
+        for section in self.setting_sections.values() {
+            for (id, setting) in section.settings.iter() {
+                if id == setting_id {
+                    return Some(setting);
+                }
+            }
+        }
+        None
+    }
+}
+
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ConfigurableManifest {
-    instance_name: String,
-    instance_description: Option<String>,
     auto_start: bool,
     restart_on_crash: bool,
     setting_sections: IndexMap<String, SectionManifest>,
@@ -550,15 +571,11 @@ pub struct ConfigurableManifest {
 
 impl ConfigurableManifest {
     pub fn new(
-        instance_name: String,
-        instance_description: Option<String>,
         auto_start: bool,
         restart_on_crash: bool,
         setting_sections: IndexMap<String, SectionManifest>,
     ) -> Self {
         Self {
-            instance_name,
-            instance_description,
             auto_start,
             restart_on_crash,
             setting_sections,
@@ -701,7 +718,7 @@ impl SettingManifestValue {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SectionManifestValue {
-    pub(super) settings: BTreeMap<String, SettingManifestValue>,
+    pub(super) settings: IndexMap<String, SettingManifestValue>,
 }
 
 impl SectionManifestValue {
@@ -716,7 +733,7 @@ pub struct ManifestValue {
     auto_start: bool,
     restart_on_crash: bool,
     start_on_connection: bool,
-    pub(super) setting_sections: BTreeMap<String, SectionManifestValue>,
+    pub(super) setting_sections: IndexMap<String, SectionManifestValue>,
 }
 
 impl ManifestValue {
@@ -755,7 +772,7 @@ impl ManifestValue {
         self.setting_sections.get(section_id)
     }
 
-    pub fn get_all_sections(&self) -> BTreeMap<String, SectionManifestValue> {
+    pub fn get_all_sections(&self) -> IndexMap<String, SectionManifestValue> {
         self.setting_sections.clone()
     }
 }

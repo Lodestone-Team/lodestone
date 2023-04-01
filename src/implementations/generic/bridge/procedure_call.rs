@@ -21,7 +21,7 @@ use crate::implementations::generic::player::GenericPlayer;
 use crate::implementations::generic::GenericInstance;
 
 use crate::traits::t_configurable::manifest::{
-    ConfigurableManifest, ConfigurableValue, ManifestValue, SetupManifest,
+    ConfigurableManifest, ConfigurableValue, SetupManifest, SetupValue,
 };
 use crate::traits::t_configurable::{Game, TConfigurable};
 use crate::traits::t_player::Player;
@@ -37,7 +37,7 @@ use crate::MonitorReport;
 pub enum ProcedureCallInner {
     SetupInstance {
         dot_lodestone_config: DotLodestoneConfig,
-        setup_value: ManifestValue,
+        setup_value: SetupValue,
         path: PathBuf,
     },
     RestoreInstance {

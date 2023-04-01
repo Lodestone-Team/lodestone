@@ -20,7 +20,7 @@ use minecraft::FlavourKind;
 
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::PATH_TO_INSTANCES;
-use crate::traits::t_configurable::manifest::ManifestValue;
+use crate::traits::t_configurable::manifest::SetupValue;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
@@ -69,7 +69,7 @@ pub async fn create_minecraft_instance(
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
     Path(game_type): Path<HandlerGameType>,
-    Json(manifest_value): Json<ManifestValue>,
+    Json(manifest_value): Json<SetupValue>,
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::CreateInstance)?;
@@ -214,7 +214,7 @@ pub async fn create_minecraft_instance(
 #[derive(Debug, Clone, Deserialize)]
 pub struct GenericSetupConfig {
     url: String,
-    setup_value: ManifestValue,
+    setup_value: SetupValue,
 }
 
 pub async fn create_generic_instance(

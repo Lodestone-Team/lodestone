@@ -44,8 +44,8 @@ use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
-    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, ManifestValue, SectionManifest,
-    SectionManifestValue, SettingManifest, SetupManifest,
+    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SectionManifest,
+    SectionManifestValue, SettingManifest, SetupManifest, SetupValue,
 };
 
 use crate::traits::t_macro::TaskEntry;
@@ -150,7 +150,6 @@ pub struct SetupConfig {
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
     pub restart_on_crash: Option<bool>,
-    pub start_on_connection: Option<bool>,
     pub backup_period: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -363,21 +362,21 @@ impl MinecraftInstance {
     }
 
     pub async fn construct_setup_config(
-        manifest_value: ManifestValue,
+        setup_value: SetupValue,
         flavour: FlavourKind,
     ) -> Result<SetupConfig, Error> {
         Self::setup_manifest(&flavour)
             .await?
-            .validate_manifest_value(&manifest_value)?;
+            .validate_setup_value(&setup_value)?;
 
         // ALL of the following unwraps are safe because we just validated the manifest value
-        let description = manifest_value
+        let description = setup_value
             .get_unique_setting("description")
             .unwrap()
             .get_value()
             .map(|v| v.try_as_string().unwrap());
 
-        let name = manifest_value
+        let name = setup_value
             .get_unique_setting("name")
             .unwrap()
             .get_value()
@@ -385,7 +384,7 @@ impl MinecraftInstance {
             .try_as_string()
             .unwrap();
 
-        let version = manifest_value
+        let version = setup_value
             .get_unique_setting("version")
             .unwrap()
             .get_value()
@@ -393,7 +392,7 @@ impl MinecraftInstance {
             .try_as_enum()
             .unwrap();
 
-        let port = manifest_value
+        let port = setup_value
             .get_unique_setting("port")
             .unwrap()
             .get_value()
@@ -401,7 +400,7 @@ impl MinecraftInstance {
             .try_as_unsigned_integer()
             .unwrap();
 
-        let min_ram = manifest_value
+        let min_ram = setup_value
             .get_unique_setting("min_ram")
             .unwrap()
             .get_value()
@@ -409,7 +408,7 @@ impl MinecraftInstance {
             .try_as_unsigned_integer()
             .unwrap();
 
-        let max_ram = manifest_value
+        let max_ram = setup_value
             .get_unique_setting("max_ram")
             .unwrap()
             .get_value()
@@ -417,7 +416,7 @@ impl MinecraftInstance {
             .try_as_unsigned_integer()
             .unwrap();
 
-        let cmd_args: Vec<String> = manifest_value
+        let cmd_args: Vec<String> = setup_value
             .get_unique_setting("cmd_args")
             .unwrap()
             .get_value()
@@ -436,9 +435,8 @@ impl MinecraftInstance {
             max_ram: Some(max_ram),
             cmd_args,
             flavour: flavour.into(),
-            auto_start: Some(manifest_value.get_auto_start()),
-            restart_on_crash: Some(manifest_value.get_restart_on_crash()),
-            start_on_connection: Some(manifest_value.get_start_on_connection()),
+            auto_start: Some(setup_value.auto_start),
+            restart_on_crash: Some(setup_value.restart_on_crash),
             backup_period: None,
         })
     }
@@ -483,13 +481,7 @@ impl MinecraftInstance {
             server_properties_section_manifest,
         );
 
-        ConfigurableManifest::new(
-            restore_config.name.clone(),
-            Some(restore_config.description.clone()),
-            false,
-            false,
-            setting_sections,
-        )
+        ConfigurableManifest::new(false, false, setting_sections)
     }
 
     pub async fn new(

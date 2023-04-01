@@ -15,7 +15,7 @@ use crate::{
     macro_executor::{self, MacroExecutor, MainWorkerGenerator},
     traits::{
         t_configurable::{
-            manifest::{ManifestValue, SetupManifest},
+            manifest::{SetupManifest, SetupValue},
             TConfigurable,
         },
         t_player::TPlayerManagement,
@@ -96,7 +96,7 @@ impl GenericInstance {
         link_to_source: String,
         path: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
-        setup_value: ManifestValue,
+        setup_value: SetupValue,
         event_broadcaster: EventBroadcaster,
         core_macro_executor: MacroExecutor,
     ) -> Result<Self, Error> {
