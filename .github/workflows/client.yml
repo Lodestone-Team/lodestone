@@ -29,9 +29,23 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features --release
 
+  cargo_check:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+      - name: Cargo Test Backend
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -- --no-fail-fast
+
   build_windows:
     runs-on: windows-latest
-    needs: clippy_check
+    needs: [clippy_check, cargo_check]
     defaults:
       run:
         working-directory: ./
@@ -71,7 +85,7 @@ jobs:
         platform: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
 
     runs-on: ubuntu-latest
-    needs: clippy_check
+    needs: [clippy_check, cargo_check]
     defaults:
       run:
         working-directory: ./
