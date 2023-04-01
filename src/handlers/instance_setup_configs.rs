@@ -9,6 +9,7 @@ use axum::extract::Path;
 use axum::routing::get;
 use axum::Json;
 use axum::Router;
+use axum::routing::put;
 use serde::Deserialize;
 use serde::Serialize;
 use ts_rs::TS;
@@ -83,7 +84,7 @@ pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
         .route("/setup_manifest/:game_type", get(get_setup_manifest))
         .route(
             "/generic_setup_manifest",
-            get(get_generic_setup_manifest),
+            put(get_generic_setup_manifest),
         )
         .with_state(appstate)
 }
