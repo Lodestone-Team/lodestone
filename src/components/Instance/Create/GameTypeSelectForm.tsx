@@ -1,4 +1,3 @@
-import { HandlerGameType } from 'bindings/HandlerGameType';
 import clsx from 'clsx';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { InstanceGameTypes } from 'data/InstanceGameTypes';
@@ -8,22 +7,31 @@ import {
   game_to_game_title,
   HandlerGameType_to_Game,
 } from 'data/GameTypeMappings';
+import { GenericHandlerGameType } from '../InstanceCreateForm';
+import SelectGenericGameCard from './SelectGenericGameCard';
+import { Dispatch, SetStateAction } from 'react';
+
 export default function GameTypeSelectForm({
   selectedGameType,
   setGameType,
+  urlValid,
+  setUrlValid,
+  setUrl,
   className,
 }: {
-  selectedGameType: HandlerGameType;
-  setGameType: (gameType: HandlerGameType) => void;
+  selectedGameType: GenericHandlerGameType;
+  setGameType: (gameType: GenericHandlerGameType) => void;
+  urlValid: boolean;
+  setUrlValid: Dispatch<SetStateAction<boolean>>;
+  setUrl: (url: string) => void;
   className?: string;
 }) {
   const { data: game_types, isLoading, error } = InstanceGameTypes();
   if (!game_types || isLoading) {
     return <Spinner />;
   }
-
   return (
-    <div className={className}>
+    <div className={className + ' overflow-y-auto p-2'}>
       <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
         Select a game
       </p>
@@ -31,6 +39,25 @@ export default function GameTypeSelectForm({
         What will your instance be used for?
       </p>
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
+        <SelectGenericGameCard
+          key={'Generic'}
+          title={'Generic Instance'}
+          description={'Enter the URL for your instance below:'}
+          game_type={{
+            type: 'Generic',
+            game_name: 'Generic',
+            game_display_name: 'Generic',
+          }}
+          className={clsx(
+            'Generic' === selectedGameType &&
+              'enabled:border-gray-faded/50 enabled:bg-gray-700 enabled:outline-white/50'
+          )}
+          onClick={() => setGameType('Generic')}
+          setUrlValid={setUrlValid}
+          setUrl={setUrl}
+          selected={'Generic' === selectedGameType}
+          errorText={!urlValid ? 'Invalid URL' : ''}
+        />
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];
           return (

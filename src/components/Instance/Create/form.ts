@@ -2,10 +2,10 @@ import * as yup from 'yup';
 
 export const formId = 'minecraftCreateNewInstanceForm';
 
-export const instanceSettingPageObject: SectionManifest = {
-  section_id: 'instance_settings',
-  name: 'Instance Settings',
-  description: 'Instance configurations for your server.',
+export const autoSettingPageObject: SectionManifest = {
+  section_id: 'auto_settings',
+  name: 'Auto Settings',
+  description: 'Auto settings for your server.',
   settings: {
     auto_start: {
       setting_id: 'auto_start',
@@ -52,7 +52,8 @@ export const instanceSettingPageObject: SectionManifest = {
 export const generateValidationSchema = (instanceManifest: SetupManifest) => {
   const validationSchema: any[] = [];
   const setting_sections = instanceManifest['setting_sections'];
-  setting_sections['auto_settings'] = instanceSettingPageObject;
+  setting_sections['auto_settings'] = autoSettingPageObject;
+
   validationSchema.push(yup.object().shape({})); //for select game type
   const generateYupObject = (setting: SettingManifest) => {
     const settingType = setting.value_type.type;

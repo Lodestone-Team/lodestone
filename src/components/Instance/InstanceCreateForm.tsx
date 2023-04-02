@@ -1,6 +1,13 @@
 import Button from 'components/Atoms/Button';
 import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
-import { useRef, useState, useEffect, useMemo } from 'react';
+import {
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+  Dispatch,
+  SetStateAction,
+} from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { axiosWrapper } from 'utils/util';
@@ -12,6 +19,7 @@ import {
   SectionManifestValue,
   SetupManifest,
   SetupValue,
+  autoSettingPageObject,
 } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { createForm } from './Create/FormCreation';
@@ -31,10 +39,14 @@ function _renderStepContent(
   step: number,
   gameType: GenericHandlerGameType,
   setGameType: (gameType: GenericHandlerGameType) => void,
+  urlValid: boolean,
+  setUrlValid: Dispatch<SetStateAction<boolean>>,
+  setUrl: (url: string) => void,
   setupManifest?: SetupManifest | null
 ) {
   const forms = useMemo(() => {
     if (!setupManifest) return [];
+    console.log(Object.keys(setupManifest));
     return Object.keys(setupManifest['setting_sections']).map((key: string) => {
       return createForm(setupManifest['setting_sections'][key]);
     });
@@ -47,6 +59,9 @@ function _renderStepContent(
         <GameTypeSelectForm
           selectedGameType={gameType}
           setGameType={setGameType}
+          urlValid={urlValid}
+          setUrlValid={setUrlValid}
+          setUrl={setUrl}
         />
       ) : (
         forms[step - 1]
@@ -64,15 +79,70 @@ export default function CreateGameInstance({
   const [gameType, setGameType] = useState<GenericHandlerGameType>(
     'MinecraftJavaVanilla'
   );
-  // const ready = activeStep !== 0;
-  // console.log(ready);
+  const [urlIsReady, setUrlIsReady] = useState(false);
+  const [urlValid, setUrlValid] = useState(true);
+  const [url, setUrl] = useState<string>('');
   const {
     data: setup_manifest,
     isLoading,
     error,
   } = gameType === 'Generic'
-    ? SetupGenericInstanceManifest(gameType, '', false)
+    ? SetupGenericInstanceManifest(gameType, url, urlIsReady)
     : SetupInstanceManifest(gameType as HandlerGameType);
+
+  // const queryPromise = () => {
+  //   return new Promise((resolve, reject) => {
+  //     let isUnsubscribeRunning = false;
+  //     console.log('Promise started');
+  //     const unsubscribe = () => {
+  //       if (isUnsubscribeRunning) {
+  //         return;
+  //       }
+  //       isUnsubscribeRunning = true;
+  //       console.log('Checking isLoading:', isLoading);
+  //       if (!isLoading) {
+  //         if (error) {
+  //           console.log('Error occurred:', error);
+  //           reject('There was an error fetching the data.');
+  //         } else {
+  //           console.log('Data fetched:', setup_manifest);
+  //           resolve(setup_manifest);
+  //         }
+  //       } else {
+  //         console.log('Still loading, checking again in 1000ms...');
+  //         setTimeout(() => {
+  //           try {
+  //             unsubscribe();
+  //           } catch (e) {
+  //             console.log(e);
+  //           }
+  //         }, 1000); // check again in 1000ms
+  //       }
+  //     };
+  //     try {
+  //       setTimeout(unsubscribe, 0); // call unsubscribe asynchronously
+  //     } catch (e) {
+  //       console.log(e);
+  //     }
+  //   });
+  // };
+
+  // async function waitForBoolean(condition: () => boolean): Promise<void> {
+  //   return new Promise((resolve) => {
+  //     let timeoutId: ReturnType<typeof setTimeout>;
+  //     const checkCondition = () => {
+  //       console.log('hey');
+  //       if (condition()) {
+  //         console.log("condition's met!");
+  //         clearTimeout(timeoutId);
+  //         resolve();
+  //       } else {
+  //         timeoutId = setTimeout(checkCondition, 100); // check again in 100ms
+  //       }
+  //     };
+  //     checkCondition();
+  //   });
+  // }
 
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const formikRef =
@@ -83,13 +153,17 @@ export default function CreateGameInstance({
   });
 
   useEffect(() => {
-    console.log(gameType);
-    console.log(setup_manifest);
+    setUrlValid(!(gameType === 'Generic' && error));
+    if (gameType !== 'Generic') setUrlIsReady(false);
     if (!isLoading && !error) {
       setInitialValues(
         generateInitialValues(setup_manifest['setting_sections'])
       );
+      console.log(setup_manifest);
       setValidationSchema(generateValidationSchema(setup_manifest));
+      console.log(setup_manifest);
+      // setup_manifest['setting_sections']['auto_settings'] =
+      //   autoSettingPageObject;
       setSetupManifest(setup_manifest);
     }
   }, [gameType, isLoading, setup_manifest, error]);
@@ -98,6 +172,8 @@ export default function CreateGameInstance({
     null
   );
 
+  // console.log(setupManifest);
+
   const [initialValues, setInitialValues] = useState<
     Record<string, ConfigurableValue | null>
   >({});
@@ -105,25 +181,14 @@ export default function CreateGameInstance({
     yup.object().shape({}),
   ]);
 
-  if (setupManifest === null && activeStep !== 0) return <Spinner />;
-
-  // console.log(setupManifest);
-  // const initialValues: Record<string, ConfigurableValue | null> = setupManifest
-  //   ? generateInitialValues(setupManifest['setting_sections'])
-  //   : {};
-  // const validationSchema: any[] = setupManifest
-  //   ? generateValidationSchema(setupManifest)
-  //   : [yup.object().shape({})];
+  // if (setupManifest === null && activeStep !== 0) return <Spinner />;
   const currentValidationSchema = validationSchema[activeStep];
   const steps = [
     'Select Game',
     'Basic Settings',
     'Instance Settings',
     'Auto Settings',
-    // Object.keys(setupManifest['setting_sections']).map(
-    //   (sectionId) => setupManifest['setting_sections'][sectionId]['name']
-    // ),
-  ].flat();
+  ];
   const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: SetupValue) => {
     await axiosWrapper<void>({
@@ -144,9 +209,10 @@ export default function CreateGameInstance({
       sectionValues[structure[1]] = structure[0];
     }
 
+    console.log(sectionValues);
     const parsedValues: SetupValue = {
-      name: values.name?.value as string,
-      description: values.description?.value as string,
+      name: 'Minecraft Server',
+      description: 'Description',
       auto_start: values.auto_start?.value as boolean,
       restart_on_crash: values.restart_on_crash?.value as boolean,
       setting_sections: sectionValues,
@@ -163,10 +229,10 @@ export default function CreateGameInstance({
     values: Record<string, ConfigurableValue | null>,
     step: number
   ): [SectionManifestValue, string] {
-    if (!setupManifest || step == 0) return [{ settings: {} }, ''];
-    const sectionKeys = Object.keys(setupManifest['setting_sections']);
+    if (!setup_manifest || step == 0) return [{ settings: {} }, ''];
+    const sectionKeys = Object.keys(setup_manifest['setting_sections']);
     const settingKeys = Object.keys(
-      setupManifest['setting_sections'][sectionKeys[step - 1]]['settings']
+      setup_manifest['setting_sections'][sectionKeys[step - 1]]['settings']
     );
     const sectionValidation: SectionManifestValue = { settings: {} };
     for (const key of settingKeys) {
@@ -175,57 +241,26 @@ export default function CreateGameInstance({
     return [sectionValidation, sectionKeys[step - 1]];
   }
 
-  async function _sectionValidation(
-    values: Record<string, ConfigurableValue | null>,
-    step: number
-  ) {
-    const structure = getSectionValidationStructure(values, step);
-    if (!structure[1]) return; //if string is empty
-    const sectionValidation = structure[0];
-    const sectionKey = structure[1];
-
-    // const result = await axiosWrapper<void>({
-    //   method: 'put',
-    //   url: `/setup_manifest/${gameType}/${sectionKey}`,
-    //   headers: { 'Content-Type': 'application/json' },
-    //   data: JSON.stringify(sectionValidation),
-    // });
-  }
-
-  // function _getSetupManifest(
-  //   values: Record<string, ConfigurableValue | null>,
-  //   actions: FormikHelpers<Record<string, ConfigurableValue | null>>
-  // ) {
-  //   if (!isLoading && !error && setupManifest) {
-  //     console.log(generateInitialValues(setupManifest['setting_sections']));
-  //     setInitialValues(
-  //       generateInitialValues(setupManifest['setting_sections'])
-  //     );
-  //     setValidationSchema(generateValidationSchema(setupManifest));
-  //     setActiveStep(activeStep + 1);
-
-  //     actions.setTouched({});
-  //     actions.setSubmitting(false);
-  //   }
-  // }
-
-  function _handleSubmit(
+  async function _handleSubmit(
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     if (formReady) {
       _submitForm(values, actions);
     } else {
-      console.log(initialValues);
-      _sectionValidation(values, activeStep);
-      setActiveStep(activeStep + 1);
-      actions.setValues(initialValues);
+      if (activeStep == 0) setUrlIsReady(true);
+
+      if (setup_manifest) {
+        setActiveStep(activeStep + 1);
+        actions.setValues(initialValues);
+      }
       actions.setTouched({});
       actions.setSubmitting(false);
     }
   }
 
   function _handleBack() {
+    if (activeStep - 1 == 0) setUrlIsReady(false);
     setActiveStep(activeStep - 1);
   }
 
@@ -238,12 +273,12 @@ export default function CreateGameInstance({
       validateOnBlur={false}
       validateOnChange={false}
     >
-      {({ isSubmitting, setValues }) => (
+      {({ isSubmitting }) => (
         <Form
           id={formId}
           className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
         >
-          <div className="w-[180px] border-r border-gray-700 pt-9 ">
+          <div className="w-[180px] border-r border-gray-700 pt-8 ">
             {steps.map((section, i) => (
               <div
                 key={i}
@@ -256,14 +291,17 @@ export default function CreateGameInstance({
               </div>
             ))}
           </div>
-          <div className="flex w-[632px] flex-col p-9">
+          <div className="flex w-[632px] flex-col p-8">
             {_renderStepContent(
               activeStep,
               gameType,
               setGameType,
+              urlValid,
+              setUrlValid,
+              setUrl,
               setupManifest
             )}
-            <div className="flex flex-row justify-between pt-9">
+            <div className="flex flex-row justify-between pt-6">
               {activeStep !== 0 ? (
                 <Button onClick={_handleBack} label="Back" />
               ) : (
@@ -272,7 +310,7 @@ export default function CreateGameInstance({
               <Button
                 type="submit"
                 label={formReady ? 'Create Instance' : 'Next'}
-                loading={isSubmitting}
+                loading={isSubmitting || (urlIsReady && isLoading)}
               />
             </div>
           </div>

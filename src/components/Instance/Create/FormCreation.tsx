@@ -4,6 +4,7 @@ import FormComboField from './SetupFormFields/FormComboField';
 import { SectionManifest, SettingManifest } from './form';
 import { toast } from 'react-toastify';
 export const createForm = (section: SectionManifest) => {
+  console.log(section);
   const createField = (setting: SettingManifest, index: number) => {
     switch (setting.value_type.type) {
       case 'String':

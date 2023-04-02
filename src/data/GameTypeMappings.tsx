@@ -43,7 +43,7 @@ export const game_to_game_icon = (game: Game) =>
           () => unknown_icon
         )
       ),
-    Generic: () => unknown_icon,
+    Generic: () => '/assets/GenericIcon.svg',
   });
 
 export const game_to_game_title = (game: Game) =>
