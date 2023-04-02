@@ -70,7 +70,7 @@ export interface ButtonProps extends VariantProps<typeof buttonClasses> {
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   type?: 'button' | 'submit' | 'reset';
   iconComponent?: React.ReactNode;
-  iconLeft?: IconDefinition;
+  icon?: IconDefinition;
   iconRight?: IconDefinition;
   labelGrow?: boolean;
   form?: string;
@@ -90,7 +90,7 @@ const Button = forwardRef(
       variant,
       className,
       iconComponent,
-      iconLeft,
+      icon,
       iconRight,
       labelGrow = false,
       type = 'button',
@@ -110,7 +110,7 @@ const Button = forwardRef(
         {...props}
       >
         {iconComponent}
-        {iconLeft && <FontAwesomeIcon icon={iconLeft} className="w-4 pr-2 opacity-50" />}
+        {icon && <FontAwesomeIcon icon={icon} className="w-4 pr-2 opacity-50" />}
         <div
           className={cn('flex items-center truncate', labelGrow && 'grow')}
           style={{ justifyContent: 'inherit' }}

@@ -32,5 +32,5 @@ StartServer.args = {
   onClick: () => {
     console.log('Start Server');
   },
-  iconRight: faServer,
+  icon: faServer,
 };
