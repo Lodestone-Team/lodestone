@@ -18,29 +18,31 @@ export interface TableRow {
 interface TableProps {
   rows: TableRow[];
   columns: TableColumn[];
-  alignment?: 'auto' | 'left' | 'right';
+  alignment?: 'even' | 'left';
   menuOptions?: ButtonMenuProps;
   className?: string;
 }
 
-export function Table({rows, columns, alignment = 'auto', menuOptions, className}: TableProps) {
+export function Table({rows, columns, alignment = 'even', menuOptions, className}: TableProps) {
   
   // If menuOptions is truthy, add an extra column for the menu buttons
+  // If alignment === 'left', add 'w-full' to className
   const modifiedColumns = menuOptions ? [...columns, {
     field: 'menu',
     headerName: '',
     element: () => <ButtonMenu menuItems={menuOptions.menuItems} />,
-    className: 'text-end',
+    className: `text-end ${alignment === 'left' ? 'w-full' : ''}`,
   }] : columns;
 
+  // Code currently uses arbitrary values for min and max width when alignment is set to left
   return (
-    <table className={clsx("w-full table-fixed bg-gray-875 text-left tracking-medium", className)}>
+    <table className={clsx("w-full bg-gray-875 text-left tracking-medium", alignment === 'even' ? "table-fixed" : "table-auto", className)}>
       <thead className="h-6 border-b border-b-fade-700 bg-gray-875">
         <tr>
           {modifiedColumns.map((column, cIndex) => (
             <th
               key={cIndex}
-              className="sticky top-0 bg-gray-875 px-4 py-2 text-medium font-bold"
+              className={clsx("sticky top-0 z-20 bg-gray-875 px-4 py-2 text-medium font-bold", alignment === 'left' && "min-w-[8rem] max-w-[12rem]")}
             >
               {column.headerName}
             </th>

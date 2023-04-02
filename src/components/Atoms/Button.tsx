@@ -102,7 +102,7 @@ const Button = forwardRef(
       <button
         className={myTwMerge(
           buttonClasses({ align, intention, size, variant }),
-          className
+          className, 'w-full'
         )}
         disabled={disabled || loading}
         ref={ref}
