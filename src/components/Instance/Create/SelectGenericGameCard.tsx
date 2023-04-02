@@ -33,7 +33,6 @@ const SelectGameCard = ({
         'relative col-span-2 flex flex-col items-start text-left align-top font-sans tracking-medium',
         'h-36 w-full border-2 border-solid border-transparent p-4 outline outline-1',
         'text-gray-faded/30 enabled:hover:text-white/50 disabled:text-gray-900',
-        '',
         'outline-gray-faded/30 enabled:hover:outline-white/50',
         'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
         className
@@ -58,7 +57,7 @@ const SelectGameCard = ({
         {description}
       </div>
       <input
-        className={`input-shape input-background input-outlines input-text-style mt-2 w-full ${
+        className={`input-shape input-background input-outlines input-text-style mt-1 w-full ${
           errorText ? 'input-border-error' : 'input-border-normal'
         }`}
         // value={url}

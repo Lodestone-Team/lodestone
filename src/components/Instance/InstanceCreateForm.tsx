@@ -14,12 +14,9 @@ import { axiosWrapper } from 'utils/util';
 import {
   ConfigurableValue,
   formId,
-  ManifestValue,
-  ConfigurableManifest,
   SectionManifestValue,
   SetupManifest,
   SetupValue,
-  autoSettingPageObject,
 } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { createForm } from './Create/FormCreation';
@@ -90,60 +87,6 @@ export default function CreateGameInstance({
     ? SetupGenericInstanceManifest(gameType, url, urlIsReady)
     : SetupInstanceManifest(gameType as HandlerGameType);
 
-  // const queryPromise = () => {
-  //   return new Promise((resolve, reject) => {
-  //     let isUnsubscribeRunning = false;
-  //     console.log('Promise started');
-  //     const unsubscribe = () => {
-  //       if (isUnsubscribeRunning) {
-  //         return;
-  //       }
-  //       isUnsubscribeRunning = true;
-  //       console.log('Checking isLoading:', isLoading);
-  //       if (!isLoading) {
-  //         if (error) {
-  //           console.log('Error occurred:', error);
-  //           reject('There was an error fetching the data.');
-  //         } else {
-  //           console.log('Data fetched:', setup_manifest);
-  //           resolve(setup_manifest);
-  //         }
-  //       } else {
-  //         console.log('Still loading, checking again in 1000ms...');
-  //         setTimeout(() => {
-  //           try {
-  //             unsubscribe();
-  //           } catch (e) {
-  //             console.log(e);
-  //           }
-  //         }, 1000); // check again in 1000ms
-  //       }
-  //     };
-  //     try {
-  //       setTimeout(unsubscribe, 0); // call unsubscribe asynchronously
-  //     } catch (e) {
-  //       console.log(e);
-  //     }
-  //   });
-  // };
-
-  // async function waitForBoolean(condition: () => boolean): Promise<void> {
-  //   return new Promise((resolve) => {
-  //     let timeoutId: ReturnType<typeof setTimeout>;
-  //     const checkCondition = () => {
-  //       console.log('hey');
-  //       if (condition()) {
-  //         console.log("condition's met!");
-  //         clearTimeout(timeoutId);
-  //         resolve();
-  //       } else {
-  //         timeoutId = setTimeout(checkCondition, 100); // check again in 100ms
-  //       }
-  //     };
-  //     checkCondition();
-  //   });
-  // }
-
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const formikRef =
     useRef<FormikProps<Record<string, ConfigurableValue | null>>>(null);
@@ -159,9 +102,7 @@ export default function CreateGameInstance({
       setInitialValues(
         generateInitialValues(setup_manifest['setting_sections'])
       );
-      console.log(setup_manifest);
       setValidationSchema(generateValidationSchema(setup_manifest));
-      console.log(setup_manifest);
       // setup_manifest['setting_sections']['auto_settings'] =
       //   autoSettingPageObject;
       setSetupManifest(setup_manifest);
@@ -171,8 +112,6 @@ export default function CreateGameInstance({
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
-
-  // console.log(setupManifest);
 
   const [initialValues, setInitialValues] = useState<
     Record<string, ConfigurableValue | null>
