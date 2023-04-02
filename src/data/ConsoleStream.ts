@@ -75,7 +75,7 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
  */
 export const useConsoleStream = (uuid: string) => {
   const { core, token } = useContext(LodestoneContext);
-  const { address, port, apiVersion } = core;
+  const { address, port, apiVersion, protocol } = core;
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
@@ -118,7 +118,7 @@ export const useConsoleStream = (uuid: string) => {
 
     try {
       const websocket = new WebSocket(
-        `ws://${address}:${
+        `${protocol === 'https' ? 'wss' : 'ws'}://${address}:${
           port ?? LODESTONE_PORT
         }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
       );
