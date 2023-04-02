@@ -1,6 +1,6 @@
 import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { forwardRef } from 'react';
+import { DOMAttributes, forwardRef } from 'react';
 import clsx from 'clsx';
 import { BeatLoader } from 'react-spinners';
 import { cva, VariantProps } from 'class-variance-authority';
@@ -102,7 +102,7 @@ const Button = forwardRef(
       <button
         className={myTwMerge(
           buttonClasses({ align, intention, size, variant }),
-          className, 'w-full'
+          className
         )}
         disabled={disabled || loading}
         ref={ref}
@@ -110,7 +110,7 @@ const Button = forwardRef(
         {...props}
       >
         {iconComponent}
-        {icon && <FontAwesomeIcon icon={icon} className="w-4 pr-2 opacity-50" />}
+        {icon && <FontAwesomeIcon icon={icon} className="w-4 opacity-50" />}
         <div
           className={cn('flex items-center truncate', labelGrow && 'grow')}
           style={{ justifyContent: 'inherit' }}
@@ -127,7 +127,7 @@ const Button = forwardRef(
           </div>
         </div>
         {iconRight && (
-          <FontAwesomeIcon icon={iconRight} className="w-4 pl-2 opacity-50" />
+          <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />
         )}
       </button>
     );

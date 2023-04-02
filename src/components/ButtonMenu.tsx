@@ -3,6 +3,7 @@ import Button from './Atoms/Button';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import clsx from 'clsx';
 
 interface MenuItemProperty {
   className?: string;
@@ -35,7 +36,7 @@ export default function ButtonMenu({ menuItems, buttonIcon = faEllipsisVertical 
           {menuItems.map((menuItem, index) => (
             <Menu.Item key={index}>
               <Button
-                className={menuItem.className}
+                className={clsx(menuItem.className, "w-full gap-2.5")}
                 label={menuItem.label}
                 iconRight={menuItem.icon}
                 variant={menuItem.variant}
