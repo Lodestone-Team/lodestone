@@ -2,6 +2,54 @@ import * as yup from 'yup';
 
 export const formId = 'minecraftCreateNewInstanceForm';
 
+export const basicSettingsPageObject: SectionManifest = {
+  section_id: 'basic_settings',
+  name: 'Basic Settings',
+  description: 'Basic settings for your server.',
+  settings: {
+    name: {
+      setting_id: 'name',
+      name: 'Name',
+      description: 'The name of the instance',
+      value: {
+        type: 'String',
+        value: '',
+      },
+      value_type: {
+        type: 'String',
+        regex: null,
+      },
+      default_value: {
+        type: 'String',
+        value: 'My Server',
+      },
+      is_secret: false,
+      is_required: true,
+      is_mutable: true,
+    },
+    description: {
+      setting_id: 'description',
+      name: 'Description',
+      description: 'The description of the instance',
+      value: {
+        type: 'String',
+        value: '',
+      },
+      value_type: {
+        type: 'String',
+        regex: null,
+      },
+      default_value: {
+        type: 'String',
+        value: '',
+      },
+      is_secret: false,
+      is_required: false,
+      is_mutable: true,
+    },
+  },
+};
+
 export const autoSettingPageObject: SectionManifest = {
   section_id: 'auto_settings',
   name: 'Auto Settings',
@@ -51,8 +99,10 @@ export const autoSettingPageObject: SectionManifest = {
 
 export const generateValidationSchema = (instanceManifest: SetupManifest) => {
   const validationSchema: any[] = [];
+  // instanceManifest['setting_sections']['basic_settings'] =
+  //   basicSettingsPageObject;
   const setting_sections = instanceManifest['setting_sections'];
-  setting_sections['auto_settings'] = autoSettingPageObject;
+  // setting_sections['auto_settings'] = autoSettingPageObject;
 
   validationSchema.push(yup.object().shape({})); //for select game type
   const generateYupObject = (setting: SettingManifest) => {
@@ -100,17 +150,46 @@ export const generateValidationSchema = (instanceManifest: SetupManifest) => {
       throw Error('Invalid Setting Type');
     }
   };
+  const instanceSettingsValidationSchemaSection: Record<string, any> = {};
   Object.keys(setting_sections).forEach((sectionId: string) => {
-    const validationSchemaSection: Record<string, any> = {};
     const settings = setting_sections[sectionId]['settings'];
     Object.keys(settings).forEach((settingId: string) => {
       const setting = settings[settingId];
-      validationSchemaSection[setting.setting_id] = yup
+      instanceSettingsValidationSchemaSection[setting.setting_id] = yup
         .object()
         .shape({ value: generateYupObject(setting) });
     });
-    validationSchema.push(yup.object().shape(validationSchemaSection));
   });
+
+  const basicSettingsValidationSchemaSection: Record<string, any> = {};
+  Object.keys(basicSettingsPageObject['settings']).forEach(
+    (settingId: string) => {
+      const setting = basicSettingsPageObject['settings'][settingId];
+      basicSettingsValidationSchemaSection[setting.setting_id] = yup
+        .object()
+        .shape({ value: generateYupObject(setting) });
+    }
+  );
+
+  const autoSettingsValidationSchemaSection: Record<string, any> = {};
+  Object.keys(autoSettingPageObject['settings']).forEach(
+    (settingId: string) => {
+      const setting = autoSettingPageObject['settings'][settingId];
+      autoSettingsValidationSchemaSection[setting.setting_id] = yup
+        .object()
+        .shape({ value: generateYupObject(setting) });
+    }
+  );
+
+  validationSchema.push(
+    yup.object().shape(basicSettingsValidationSchemaSection)
+  );
+  validationSchema.push(
+    yup.object().shape(instanceSettingsValidationSchemaSection)
+  );
+  validationSchema.push(
+    yup.object().shape(autoSettingsValidationSchemaSection)
+  );
   return validationSchema;
 };
 
@@ -118,9 +197,11 @@ export const generateInitialValues = (
   settingSections: Record<string, SectionManifest>
 ) => {
   const initialValues: Record<string, ConfigurableValue | null> = {};
-
-  Object.keys(settingSections).forEach((sectionId: string) => {
-    const setting = settingSections[sectionId]['settings'];
+  const copySettingSections = { ...settingSections }; //don't modify original
+  copySettingSections['basic_settings'] = basicSettingsPageObject;
+  copySettingSections['auto_settings'] = autoSettingPageObject;
+  const getInitialValue = (sectionId: string) => {
+    const setting = copySettingSections[sectionId]['settings'];
     Object.keys(setting).forEach((settingId: string) => {
       const settingValue = setting[settingId];
       initialValues[settingId] =
@@ -138,6 +219,9 @@ export const generateInitialValues = (
           initialValues[settingId] = { type: 'String', value: '' };
       }
     });
+  };
+  Object.keys(copySettingSections).forEach((sectionId: string) => {
+    getInitialValue(sectionId);
   });
   console.log(initialValues);
   return initialValues;

@@ -12,6 +12,8 @@ import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { axiosWrapper } from 'utils/util';
 import {
+  autoSettingPageObject,
+  basicSettingsPageObject,
   ConfigurableValue,
   formId,
   SectionManifestValue,
@@ -31,7 +33,11 @@ import clsx from 'clsx';
 import * as yup from 'yup';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
-
+export type FormPage = {
+  name: string;
+  description: string;
+  page: SetupManifest;
+};
 function _renderStepContent(
   step: number,
   gameType: GenericHandlerGameType,
@@ -43,9 +49,26 @@ function _renderStepContent(
 ) {
   const forms = useMemo(() => {
     if (!setupManifest) return [];
-    console.log(Object.keys(setupManifest));
-    return Object.keys(setupManifest['setting_sections']).map((key: string) => {
-      return createForm(setupManifest['setting_sections'][key]);
+    // console.log(Object.keys(setupManifest));
+    const pages: FormPage[] = [
+      {
+        name: 'Basic Settings',
+        description: 'Basic settings for your server.',
+        page: { setting_sections: { section_1: basicSettingsPageObject } },
+      },
+      {
+        name: 'Instance Settings',
+        description: 'Configure your server.',
+        page: setupManifest,
+      },
+      {
+        name: 'Auto Settings',
+        description: 'Automatically configure your server.',
+        page: { setting_sections: { section_1: autoSettingPageObject } },
+      },
+    ];
+    return pages.map((page) => {
+      return createForm(page);
     });
   }, [setupManifest]);
 
@@ -150,8 +173,8 @@ export default function CreateGameInstance({
 
     console.log(sectionValues);
     const parsedValues: SetupValue = {
-      name: 'Minecraft Server',
-      description: 'Description',
+      name: values.name?.value as string,
+      description: values.description?.value as string,
       auto_start: values.auto_start?.value as boolean,
       restart_on_crash: values.restart_on_crash?.value as boolean,
       setting_sections: sectionValues,
