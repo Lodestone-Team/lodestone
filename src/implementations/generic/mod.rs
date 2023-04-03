@@ -172,7 +172,10 @@ impl GenericInstance {
         macro_executor: MacroExecutor,
     ) -> Result<SetupManifest, Error> {
         // create a tempfile
-        let mut temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file")?;
+        let temp_dir = tempfile::TempDir::new().context("Failed to create temp dir")?;
+        let temp_file_path = temp_dir.path().join("temp.ts");
+        let mut temp_file =
+            std::fs::File::create(&temp_file_path).context("Failed to create temp file")?;
         let run_ts_content = format!(
             r#"import {{ run }} from "{}";
                 run();
@@ -187,7 +190,7 @@ impl GenericInstance {
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
         macro_executor
             .spawn(
-                temp_file.path().to_owned(),
+                temp_file_path,
                 Vec::new(),
                 CausedBy::System,
                 Box::new(InitWorkerGenerator {
@@ -246,23 +249,15 @@ impl TInstance for GenericInstance {
 //         let _ = tracing_subscriber::fmt::try_init();
 //         let (event_tx, mut rx) = EventBroadcaster::new(100);
 //         let core_macro_executor = MacroExecutor::new(event_tx.clone());
-//         let mut instance = GenericInstance::new(
-//             "file://home/peter/dev/backend/src/implementations/generic/js/main/".to_string(),
-//             PathBuf::from("./InstanceTest/instances/generic_instance_test"),
-//             DotLodestoneConfig::new(InstanceUuid::default(), GameType::Generic),
-//             event_tx,
+//         let manifest = GenericInstance::setup_manifest(
+//             "https://raw.githubusercontent.com/CheatCod/generic_instance_test/main/",
 //             core_macro_executor,
 //         )
 //         .await
 //         .unwrap();
 
-//         tokio::spawn(async move {
-//             loop {
-//                 let event = rx.recv().await.unwrap();
-//                 println!("Event on its way to WS: {:#?}", event);
-//             }
-//         });
+//         println!("{:?}", manifest);
 
-//         tokio::time::sleep(std::time::Duration::from_secs(100)).await;
+//         // tokio::time::sleep(std::time::Duration::from_secs(100)).await;
 //     }
 // }
