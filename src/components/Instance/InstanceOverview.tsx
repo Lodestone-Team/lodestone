@@ -2,7 +2,7 @@ import ClipboardTextfield from 'components/ClipboardTextfield';
 import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useContext, useState } from 'react';
+import { useContext } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,7 @@ import InstancePlayerList from './InstancePlayerList';
 
 import { Table, TableColumn, TableRow } from 'components/Table';
 import { faTrashCan, faEdit, faSkull } from '@fortawesome/free-solid-svg-icons';
-import { ButtonMenuProps } from 'components/ButtonMenu';
+import { ButtonMenuConfig } from 'components/ButtonMenu';
 
 const InstanceOverview = () => {
   useDocumentTitle('Dashboard - Lodestone');
@@ -121,7 +121,8 @@ const InstanceOverview = () => {
     { id: 30, make: 'Minox', model: '35 EL', lens: '35mm f/2.8', format: '35mm', year: 1974 },
   ];
 
-  const menuItems1: ButtonMenuProps = {
+  const menuItems1: ButtonMenuConfig = {
+    tableRows: rowsAnalog,
     menuItems: [
       {
         label: 'Edit in file viewer',
@@ -129,7 +130,7 @@ const InstanceOverview = () => {
         variant: 'text',
         intention: 'info',
         disabled: false,
-        onClick: () => console.log('Button 1 clicked'),
+        onClick: (row: TableRow) => console.log(`Edit on ${row.id}: ${row.make} ${row.model}`),
       },
       {
         label: 'another one',
@@ -137,7 +138,7 @@ const InstanceOverview = () => {
         variant: 'text',
         intention: 'info',
         disabled: false,
-        onClick: () => console.log('Button 1 clicked'),
+        onClick: (row: TableRow) => console.log(`Another on ${row.id}: ${row.make} ${row.model}`),
       },
       {
         label: 'Obliterate',
@@ -145,10 +146,11 @@ const InstanceOverview = () => {
         variant: 'text',
         intention: 'danger',
         disabled: false,
-        onClick: () => console.log('Button 2 clicked'),
+        onClick: (row: TableRow) => console.log(`Obliterate on ${row.id}: ${row.make} ${row.model}`),
       },
-    ]
+    ],
   };
+  
 
   return (
     <>
@@ -198,8 +200,8 @@ const InstanceOverview = () => {
         </div>
       </div>
       <InstancePerformanceCard />
-      <Table rows={rowsBasic} columns={columnsBasic} menuOptions={menuItems1} alignment='even' />
-      <Table rows={rowsAnalog} columns={columnsAnalog} alignment='left' />
+      {/* <Table rows={rowsBasic} columns={columnsBasic} menuOptions={menuItems1} alignment='even' /> */}
+      <Table rows={rowsAnalog} columns={columnsAnalog} menuOptions={menuItems1} alignment='left' />
       <InstancePlayerList />
     </>
   );
