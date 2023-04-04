@@ -28,7 +28,6 @@ export function Table({rows, columns, alignment = 'even', menuOptions, className
   // Add a unique index for each ButtonMenu created to control respective rows
   // If alignment === 'left', add 'w-full' to className of last column
   const modifiedColumns = menuOptions
-    // ? [...columns, {
     ? [...columns, {
         field: 'menu',
         headerName: '',
