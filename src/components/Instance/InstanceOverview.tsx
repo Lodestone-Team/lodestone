@@ -199,7 +199,7 @@ const InstanceOverview = () => {
       </div>
       <InstancePerformanceCard />
       <Table rows={rowsBasic} columns={columnsBasic} menuOptions={menuItems1} alignment='even' />
-      <Table rows={rowsAnalog} columns={columnsAnalog} menuOptions={menuItems1} alignment='even' />
+      <Table rows={rowsAnalog} columns={columnsAnalog} alignment='left' />
       <InstancePlayerList />
     </>
   );

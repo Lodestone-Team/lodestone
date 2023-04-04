@@ -26,13 +26,19 @@ interface TableProps {
 export function Table({rows, columns, alignment = 'even', menuOptions, className}: TableProps) {
   
   // If menuOptions is truthy, add an extra column for the menu buttons
-  // If alignment === 'left', add 'w-full' to className
-  const modifiedColumns = menuOptions ? [...columns, {
-    field: 'menu',
-    headerName: '',
-    element: () => <ButtonMenu menuItems={menuOptions.menuItems} />,
-    className: `text-end ${alignment === 'left' ? 'w-full' : ''}`,
-  }] : columns;
+  // If alignment === 'left', add 'w-full' to className of last column
+  const modifiedColumns = menuOptions
+    ? [...columns, {
+        field: 'menu',
+        headerName: '',
+        element: () => <ButtonMenu menuItems={menuOptions.menuItems} />,
+        className: `text-end ${alignment === 'left' ? 'w-full' : ''}`,
+      }]
+    : alignment == 'left'
+    ? columns.map((column, index, array) =>
+      index === array.length - 1 ? { ...column, className: 'w-full' } : column
+      )
+    : columns;
 
   // Code currently uses arbitrary values for min and max width when alignment is set to left
   return (
