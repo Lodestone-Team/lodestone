@@ -20,6 +20,7 @@ export default function GameTypeSelectForm({
   genericFetchReady,
   setGenericFetchReady,
   manifestLoading,
+  manifestError,
   className,
 }: {
   selectedGameType: GenericHandlerGameType;
@@ -30,6 +31,7 @@ export default function GameTypeSelectForm({
   genericFetchReady: boolean;
   setGenericFetchReady: Dispatch<SetStateAction<boolean>>;
   manifestLoading: boolean;
+  manifestError: boolean;
   className?: string;
 }) {
   console.log(selectedGameType);
@@ -67,11 +69,7 @@ export default function GameTypeSelectForm({
           genericFetchReady={genericFetchReady}
           setGenericFetchReady={setGenericFetchReady}
           manifestLoading={manifestLoading}
-          errorText={
-            !manifestLoading && genericFetchReady && !urlValid
-              ? 'Error fetching the instance'
-              : ''
-          }
+          errorText={manifestError ? 'Error fetching the instance' : ''}
         />
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];

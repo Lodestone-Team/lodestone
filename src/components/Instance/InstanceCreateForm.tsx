@@ -45,6 +45,7 @@ function _renderStepContent(
   genericFetchReady: boolean,
   setGenericFetchReady: Dispatch<SetStateAction<boolean>>,
   isLoading: boolean,
+  error: boolean,
   urlValid: boolean,
   setUrlValid: Dispatch<SetStateAction<boolean>>,
   setUrl: (url: string) => void,
@@ -88,6 +89,7 @@ function _renderStepContent(
           genericFetchReady={genericFetchReady}
           setGenericFetchReady={setGenericFetchReady}
           manifestLoading={isLoading}
+          manifestError={error}
         />
       ) : (
         forms[step - 1]
@@ -127,7 +129,11 @@ export default function CreateGameInstance({
 
   console.log(urlValid);
   useEffect(() => {
-    if (gameType !== 'Generic') setGenericFetchReady(false);
+    if (gameType !== 'Generic') {
+      setGenericFetchReady(false);
+      setUrlValid(false);
+    }
+
     if (!isLoading && !error) {
       setInitialValues(
         generateInitialValues(setup_manifest['setting_sections'])
@@ -139,8 +145,12 @@ export default function CreateGameInstance({
       if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
       // console.log(gameType === 'Generic' && url !== '');
     }
+    console.log(isLoading);
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
+  useEffect(() => {
+    setGameType('Generic');
+  }, [url]);
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
@@ -271,6 +281,7 @@ export default function CreateGameInstance({
               genericFetchReady,
               setGenericFetchReady,
               isLoading,
+              error,
               urlValid,
               setUrlValid,
               setUrl,

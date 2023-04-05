@@ -34,6 +34,13 @@ const SelectGameCard = ({
   errorText: string;
 }) => {
   console.log(selectedGameType);
+  const buttonStatus = genericFetchReady
+    ? manifestLoading
+      ? 'Fetching...'
+      : urlValid
+      ? 'Loaded!'
+      : 'Load Instance'
+    : 'Load Instance';
   return (
     <button
       type={'button'}
@@ -68,30 +75,21 @@ const SelectGameCard = ({
           }}
           name={'Url'}
           placeholder={'Enter url'}
+          disabled={
+            buttonStatus === 'Loaded!' || buttonStatus === 'Fetching...'
+          }
         />
         <Button
           className="h-8"
-          label={
-            selectedGameType !== 'Generic'
-              ? 'Load Instance'
-              : genericFetchReady
-              ? manifestLoading
-                ? 'Fetching...'
-                : urlValid
-                ? 'Loaded!'
-                : 'Load again'
-              : 'Load Instance'
-            // game_type.type !== 'Generic'
-            //   ? 'Load Instance'
-            //   : manifestLoading
-            //   ? 'Fetching...'
-            //   : urlValid
-            //   ? 'Loaded!'
-            //   : 'Load Instance'
-          }
+          label={buttonStatus}
           onClick={() => {
             setGenericFetchReady(true);
           }}
+          disabled={
+            buttonStatus === 'Loaded!' ||
+            buttonStatus === 'Fetching...' ||
+            selectedGameType !== 'Generic'
+          }
         />
       </div>
       {errorText && (
