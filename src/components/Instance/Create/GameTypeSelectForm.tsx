@@ -17,6 +17,9 @@ export default function GameTypeSelectForm({
   urlValid,
   setUrlValid,
   setUrl,
+  genericFetchReady,
+  setGenericFetchReady,
+  manifestLoading,
   className,
 }: {
   selectedGameType: GenericHandlerGameType;
@@ -24,8 +27,12 @@ export default function GameTypeSelectForm({
   urlValid: boolean;
   setUrlValid: Dispatch<SetStateAction<boolean>>;
   setUrl: (url: string) => void;
+  genericFetchReady: boolean;
+  setGenericFetchReady: Dispatch<SetStateAction<boolean>>;
+  manifestLoading: boolean;
   className?: string;
 }) {
+  console.log(selectedGameType);
   const { data: game_types, isLoading, error } = InstanceGameTypes();
   if (!game_types || isLoading) {
     return <Spinner />;
@@ -50,13 +57,21 @@ export default function GameTypeSelectForm({
           }}
           className={clsx(
             'Generic' === selectedGameType &&
-              'enabled:border-gray-faded/50 enabled:bg-gray-700 enabled:outline-white/50'
+              'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected enabled:outline-white/50'
           )}
           onClick={() => setGameType('Generic')}
+          selectedGameType={selectedGameType}
+          urlValid={urlValid}
           setUrlValid={setUrlValid}
           setUrl={setUrl}
-          selected={'Generic' === selectedGameType}
-          errorText={!urlValid ? 'Invalid URL' : ''}
+          genericFetchReady={genericFetchReady}
+          setGenericFetchReady={setGenericFetchReady}
+          manifestLoading={manifestLoading}
+          errorText={
+            !manifestLoading && genericFetchReady && !urlValid
+              ? 'Error fetching the instance'
+              : ''
+          }
         />
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];

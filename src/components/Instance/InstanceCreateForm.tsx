@@ -42,6 +42,9 @@ function _renderStepContent(
   step: number,
   gameType: GenericHandlerGameType,
   setGameType: (gameType: GenericHandlerGameType) => void,
+  genericFetchReady: boolean,
+  setGenericFetchReady: Dispatch<SetStateAction<boolean>>,
+  isLoading: boolean,
   urlValid: boolean,
   setUrlValid: Dispatch<SetStateAction<boolean>>,
   setUrl: (url: string) => void,
@@ -82,6 +85,9 @@ function _renderStepContent(
           urlValid={urlValid}
           setUrlValid={setUrlValid}
           setUrl={setUrl}
+          genericFetchReady={genericFetchReady}
+          setGenericFetchReady={setGenericFetchReady}
+          manifestLoading={isLoading}
         />
       ) : (
         forms[step - 1]
@@ -99,15 +105,16 @@ export default function CreateGameInstance({
   const [gameType, setGameType] = useState<GenericHandlerGameType>(
     'MinecraftJavaVanilla'
   );
-  const [urlIsReady, setUrlIsReady] = useState(false);
-  const [urlValid, setUrlValid] = useState(true);
-  const [url, setUrl] = useState<string>('');
+  const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
+  const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
+  const [url, setUrl] = useState<string>(''); //the url the user enters
+
   const {
     data: setup_manifest,
     isLoading,
     error,
   } = gameType === 'Generic'
-    ? SetupGenericInstanceManifest(gameType, url, urlIsReady)
+    ? SetupGenericInstanceManifest(gameType, url, genericFetchReady)
     : SetupInstanceManifest(gameType as HandlerGameType);
 
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
@@ -118,9 +125,9 @@ export default function CreateGameInstance({
     gaEventTracker('Create Instance Start');
   });
 
+  console.log(urlValid);
   useEffect(() => {
-    setUrlValid(!(gameType === 'Generic' && error));
-    if (gameType !== 'Generic') setUrlIsReady(false);
+    if (gameType !== 'Generic') setGenericFetchReady(false);
     if (!isLoading && !error) {
       setInitialValues(
         generateInitialValues(setup_manifest['setting_sections'])
@@ -129,8 +136,10 @@ export default function CreateGameInstance({
       // setup_manifest['setting_sections']['auto_settings'] =
       //   autoSettingPageObject;
       setSetupManifest(setup_manifest);
+      if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
+      // console.log(gameType === 'Generic' && url !== '');
     }
-  }, [gameType, isLoading, setup_manifest, error]);
+  }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
@@ -168,6 +177,7 @@ export default function CreateGameInstance({
     const sectionValues: Record<string, SectionManifestValue> = {};
     for (let i = 1; i < steps.length - 1; i++) {
       const structure = getSectionValidationStructure(values, i);
+      console.log(structure);
       sectionValues[structure[1]] = structure[0];
     }
 
@@ -210,7 +220,7 @@ export default function CreateGameInstance({
     if (formReady) {
       _submitForm(values, actions);
     } else {
-      if (activeStep == 0) setUrlIsReady(true);
+      // if (activeStep == 0) setUrlIsReady(true);
 
       if (setup_manifest) {
         setActiveStep(activeStep + 1);
@@ -222,7 +232,7 @@ export default function CreateGameInstance({
   }
 
   function _handleBack() {
-    if (activeStep - 1 == 0) setUrlIsReady(false);
+    // if (activeStep - 1 == 0) setUrlIsReady(false);
     setActiveStep(activeStep - 1);
   }
 
@@ -258,6 +268,9 @@ export default function CreateGameInstance({
               activeStep,
               gameType,
               setGameType,
+              genericFetchReady,
+              setGenericFetchReady,
+              isLoading,
               urlValid,
               setUrlValid,
               setUrl,
@@ -272,7 +285,8 @@ export default function CreateGameInstance({
               <Button
                 type="submit"
                 label={formReady ? 'Create Instance' : 'Next'}
-                loading={isSubmitting || (urlIsReady && isLoading)}
+                loading={isSubmitting}
+                disabled={gameType === 'Generic' && !urlValid}
               />
             </div>
           </div>

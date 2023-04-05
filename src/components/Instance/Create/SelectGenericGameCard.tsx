@@ -2,15 +2,21 @@ import GameIcon from 'components/Atoms/GameIcon';
 import React, { Dispatch, SetStateAction } from 'react';
 import clsx from 'clsx';
 import { Game } from 'bindings/Game';
+import Button from 'components/Atoms/Button';
+import { GenericHandlerGameType } from '../InstanceCreateForm';
 const SelectGameCard = ({
   title,
   description,
   game_type,
   className,
   onClick,
+  selectedGameType,
+  urlValid,
   setUrlValid,
   setUrl,
-  selected,
+  genericFetchReady,
+  setGenericFetchReady,
+  manifestLoading,
   errorText,
 }: {
   title: string;
@@ -18,33 +24,27 @@ const SelectGameCard = ({
   game_type: Game;
   className?: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  selectedGameType: GenericHandlerGameType;
+  urlValid: boolean;
   setUrlValid: Dispatch<SetStateAction<boolean>>;
   setUrl: (url: string) => void;
-  selected: boolean;
+  genericFetchReady: boolean;
+  setGenericFetchReady: Dispatch<SetStateAction<boolean>>;
+  manifestLoading: boolean;
   errorText: string;
 }) => {
-  const backgroundImage = selected
-    ? 'linear-gradient(#303338, #303338), radial-gradient(circle at top left, #2AF588, #334675)'
-    : 'linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top left, #2AF588, #334675)';
+  console.log(selectedGameType);
   return (
     <button
       type={'button'}
       className={clsx(
         'relative col-span-2 flex flex-col items-start text-left align-top font-sans tracking-medium',
-        'h-36 w-full border-2 border-solid border-transparent p-4 outline outline-1',
-        'text-gray-faded/30 enabled:hover:text-white/50 disabled:text-gray-900',
+        'h-36 w-full border-solid p-4 outline outline-1',
+        'generic-gametype-unselected enabled:hover:generic-gametype-hover rounded-md border-gray-faded/30 text-gray-faded/30 disabled:text-gray-900',
         'outline-gray-faded/30 enabled:hover:outline-white/50',
         'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
         className
       )}
-      style={{
-        // borderImage: 'linear-gradient(to left, #2AF588, #334675) 50',
-        border: 'double 2px transparent',
-        borderRadius: '0.375rem',
-        backgroundImage: backgroundImage,
-        backgroundOrigin: 'border-box',
-        backgroundClip: 'padding-box, border-box',
-      }}
       onClick={onClick}
     >
       <div className="relative">
@@ -56,18 +56,44 @@ const SelectGameCard = ({
       <div className="mt-2 text-medium font-medium italic leading-5 text-white/50">
         {description}
       </div>
-      <input
-        className={`input-shape input-background input-outlines input-text-style mt-1 w-full ${
-          errorText ? 'input-border-error' : 'input-border-normal'
-        }`}
-        // value={url}
-        onChange={(e) => {
-          setUrl(e.target.value);
-          setUrlValid(true);
-        }}
-        name={'Url'}
-        placeholder={'Enter url'}
-      />
+      <div className="flex w-full items-center gap-3">
+        <input
+          className={`input-shape input-background input-outlines input-text-style mt-1 w-[70%] ${
+            errorText ? 'input-border-error' : 'input-border-normal'
+          }`}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setGenericFetchReady(false);
+            setUrlValid(false);
+          }}
+          name={'Url'}
+          placeholder={'Enter url'}
+        />
+        <Button
+          className="h-8"
+          label={
+            selectedGameType !== 'Generic'
+              ? 'Load Instance'
+              : genericFetchReady
+              ? manifestLoading
+                ? 'Fetching...'
+                : urlValid
+                ? 'Loaded!'
+                : 'Load again'
+              : 'Load Instance'
+            // game_type.type !== 'Generic'
+            //   ? 'Load Instance'
+            //   : manifestLoading
+            //   ? 'Fetching...'
+            //   : urlValid
+            //   ? 'Loaded!'
+            //   : 'Load Instance'
+          }
+          onClick={() => {
+            setGenericFetchReady(true);
+          }}
+        />
+      </div>
       {errorText && (
         <div
           className={`mt-1 whitespace-nowrap text-right font-sans text-small not-italic text-red
