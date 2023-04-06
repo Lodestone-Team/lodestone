@@ -58,12 +58,12 @@ const SelectGameCard = ({
           {title}
         </div>
       </div>
-      <div className="mt-2 text-medium font-medium italic leading-5 text-white/50">
+      <div className="mt-2 mb-1 text-medium font-medium italic leading-5 text-white/50">
         {description}
       </div>
       <div className="flex w-full items-center gap-3">
         <input
-          className={`input-shape input-background input-outlines input-text-style mt-1 w-[70%] ${
+          className={`input-shape input-background input-outlines input-text-style h-full w-[70%] ${
             errorText ? 'input-border-error' : 'input-border-normal'
           }`}
           onChange={(e) => {
@@ -78,7 +78,7 @@ const SelectGameCard = ({
           }
         />
         <Button
-          className="h-8"
+          className="h-full"
           label={buttonStatus}
           onClick={() => {
             setGenericFetchReady(true);
