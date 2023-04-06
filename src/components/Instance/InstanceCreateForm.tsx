@@ -88,9 +88,7 @@ export default function CreateGameInstance({
   onComplete: () => void;
 }) {
   const [activeStep, setActiveStep] = useState(0);
-  const [gameType, setGameType] = useState<GenericHandlerGameType>(
-    'MinecraftJavaVanilla'
-  );
+  const [gameType, setGameType] = useState<GenericHandlerGameType>('Generic');
   const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
   const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
   const [url, setUrl] = useState<string>(''); //the url the user enters
@@ -127,9 +125,6 @@ export default function CreateGameInstance({
     }
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
-  useEffect(() => {
-    setGameType('Generic');
-  }, [url]);
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
@@ -207,11 +202,9 @@ export default function CreateGameInstance({
     if (formReady) {
       _submitForm(values, actions);
     } else {
-      // if (activeStep == 0) setUrlIsReady(true);
-
       if (setup_manifest) {
+        if (activeStep === 0) actions.setValues(initialValues);
         setActiveStep(activeStep + 1);
-        actions.setValues(initialValues);
       }
       actions.setTouched({});
       actions.setSubmitting(false);
