@@ -9,8 +9,6 @@ import {
 } from 'data/GameTypeMappings';
 import { GenericHandlerGameType } from '../InstanceCreateForm';
 import SelectGenericGameCard from './SelectGenericGameCard';
-import { useContext } from 'react';
-import { GameInstanceContext } from 'data/GameInstanceContext';
 
 export default function GameTypeSelectForm({
   selectedGameType,
@@ -25,9 +23,7 @@ export default function GameTypeSelectForm({
   manifestError: boolean;
   className?: string;
 }) {
-  console.log(selectedGameType);
-
-  const { data: game_types, isLoading, error } = InstanceGameTypes();
+  const { data: game_types, isLoading } = InstanceGameTypes();
   if (!game_types || isLoading) {
     return <Spinner />;
   }

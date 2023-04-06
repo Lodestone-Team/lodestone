@@ -1,14 +1,6 @@
 import Button from 'components/Atoms/Button';
 import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
-import {
-  useRef,
-  useState,
-  useEffect,
-  useMemo,
-  Dispatch,
-  SetStateAction,
-  useContext,
-} from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { axiosWrapper } from 'utils/util';
@@ -51,7 +43,6 @@ function _renderStepContent(
 ) {
   const forms = useMemo(() => {
     if (!setupManifest) return [];
-    // console.log(Object.keys(setupManifest));
     const pages: FormPage[] = [
       {
         name: 'Basic Settings',
@@ -120,7 +111,6 @@ export default function CreateGameInstance({
     gaEventTracker('Create Instance Start');
   });
 
-  console.log(urlValid);
   useEffect(() => {
     if (gameType !== 'Generic') {
       setGenericFetchReady(false);
@@ -135,7 +125,6 @@ export default function CreateGameInstance({
       setSetupManifest(setup_manifest);
       if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
     }
-    console.log(isLoading);
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
   useEffect(() => {
@@ -177,11 +166,9 @@ export default function CreateGameInstance({
     const sectionValues: Record<string, SectionManifestValue> = {};
     for (let i = 1; i < steps.length - 1; i++) {
       const structure = getSectionValidationStructure(values, i);
-      console.log(structure);
       sectionValues[structure[1]] = structure[0];
     }
 
-    console.log(sectionValues);
     const parsedValues: SetupValue = {
       name: values.name?.value as string,
       description: values.description?.value as string,
@@ -232,7 +219,6 @@ export default function CreateGameInstance({
   }
 
   function _handleBack() {
-    // if (activeStep - 1 == 0) setUrlIsReady(false);
     setActiveStep(activeStep - 1);
   }
 
