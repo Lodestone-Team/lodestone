@@ -9,32 +9,24 @@ import {
 } from 'data/GameTypeMappings';
 import { GenericHandlerGameType } from '../InstanceCreateForm';
 import SelectGenericGameCard from './SelectGenericGameCard';
-import { Dispatch, SetStateAction } from 'react';
+import { useContext } from 'react';
+import { GameInstanceContext } from 'data/GameInstanceContext';
 
 export default function GameTypeSelectForm({
   selectedGameType,
   setGameType,
-  urlValid,
-  setUrlValid,
-  setUrl,
-  genericFetchReady,
-  setGenericFetchReady,
   manifestLoading,
   manifestError,
   className,
 }: {
   selectedGameType: GenericHandlerGameType;
   setGameType: (gameType: GenericHandlerGameType) => void;
-  urlValid: boolean;
-  setUrlValid: Dispatch<SetStateAction<boolean>>;
-  setUrl: (url: string) => void;
-  genericFetchReady: boolean;
-  setGenericFetchReady: Dispatch<SetStateAction<boolean>>;
   manifestLoading: boolean;
   manifestError: boolean;
   className?: string;
 }) {
   console.log(selectedGameType);
+
   const { data: game_types, isLoading, error } = InstanceGameTypes();
   if (!game_types || isLoading) {
     return <Spinner />;
@@ -63,11 +55,6 @@ export default function GameTypeSelectForm({
           )}
           onClick={() => setGameType('Generic')}
           selectedGameType={selectedGameType}
-          urlValid={urlValid}
-          setUrlValid={setUrlValid}
-          setUrl={setUrl}
-          genericFetchReady={genericFetchReady}
-          setGenericFetchReady={setGenericFetchReady}
           manifestLoading={manifestLoading}
           errorText={manifestError ? 'Error fetching the instance' : ''}
         />

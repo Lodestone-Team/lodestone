@@ -7,6 +7,7 @@ import {
   useMemo,
   Dispatch,
   SetStateAction,
+  useContext,
 } from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
@@ -31,6 +32,7 @@ import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
 import clsx from 'clsx';
 import * as yup from 'yup';
+import { GameInstanceContext } from 'data/GameInstanceContext';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 export type FormPage = {
@@ -38,17 +40,13 @@ export type FormPage = {
   description: string;
   page: SetupManifest;
 };
+
 function _renderStepContent(
   step: number,
   gameType: GenericHandlerGameType,
   setGameType: (gameType: GenericHandlerGameType) => void,
-  genericFetchReady: boolean,
-  setGenericFetchReady: Dispatch<SetStateAction<boolean>>,
   isLoading: boolean,
   error: boolean,
-  urlValid: boolean,
-  setUrlValid: Dispatch<SetStateAction<boolean>>,
-  setUrl: (url: string) => void,
   setupManifest?: SetupManifest | null
 ) {
   const forms = useMemo(() => {
@@ -83,11 +81,6 @@ function _renderStepContent(
         <GameTypeSelectForm
           selectedGameType={gameType}
           setGameType={setGameType}
-          urlValid={urlValid}
-          setUrlValid={setUrlValid}
-          setUrl={setUrl}
-          genericFetchReady={genericFetchReady}
-          setGenericFetchReady={setGenericFetchReady}
           manifestLoading={isLoading}
           manifestError={error}
         />
@@ -139,11 +132,8 @@ export default function CreateGameInstance({
         generateInitialValues(setup_manifest['setting_sections'])
       );
       setValidationSchema(generateValidationSchema(setup_manifest));
-      // setup_manifest['setting_sections']['auto_settings'] =
-      //   autoSettingPageObject;
       setSetupManifest(setup_manifest);
       if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
-      // console.log(gameType === 'Generic' && url !== '');
     }
     console.log(isLoading);
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
@@ -247,62 +237,68 @@ export default function CreateGameInstance({
   }
 
   return (
-    <Formik
-      initialValues={initialValues}
-      validationSchema={currentValidationSchema}
-      onSubmit={_handleSubmit}
-      innerRef={formikRef}
-      validateOnBlur={false}
-      validateOnChange={false}
+    <GameInstanceContext.Provider
+      value={{
+        url: url,
+        setUrl: setUrl,
+        urlValid: urlValid,
+        setUrlValid: setUrlValid,
+        genericFetchReady: genericFetchReady,
+        setGenericFetchReady: setGenericFetchReady,
+      }}
     >
-      {({ isSubmitting }) => (
-        <Form
-          id={formId}
-          className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
-        >
-          <div className="w-[180px] border-r border-gray-700 pt-8 ">
-            {steps.map((section, i) => (
-              <div
-                key={i}
-                className={clsx(
-                  'px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 ',
-                  activeStep === i && 'font-extrabold text-white'
-                )}
-              >
-                {section}
-              </div>
-            ))}
-          </div>
-          <div className="flex w-[632px] flex-col p-8">
-            {_renderStepContent(
-              activeStep,
-              gameType,
-              setGameType,
-              genericFetchReady,
-              setGenericFetchReady,
-              isLoading,
-              error,
-              urlValid,
-              setUrlValid,
-              setUrl,
-              setupManifest
-            )}
-            <div className="flex flex-row justify-between pt-6">
-              {activeStep !== 0 ? (
-                <Button onClick={_handleBack} label="Back" />
-              ) : (
-                <div></div>
-              )}
-              <Button
-                type="submit"
-                label={formReady ? 'Create Instance' : 'Next'}
-                loading={isSubmitting}
-                disabled={gameType === 'Generic' && !urlValid}
-              />
+      <Formik
+        initialValues={initialValues}
+        validationSchema={currentValidationSchema}
+        onSubmit={_handleSubmit}
+        innerRef={formikRef}
+        validateOnBlur={false}
+        validateOnChange={false}
+      >
+        {({ isSubmitting }) => (
+          <Form
+            id={formId}
+            className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
+          >
+            <div className="w-[180px] border-r border-gray-700 pt-8 ">
+              {steps.map((section, i) => (
+                <div
+                  key={i}
+                  className={clsx(
+                    'px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 ',
+                    activeStep === i && 'font-extrabold text-white'
+                  )}
+                >
+                  {section}
+                </div>
+              ))}
             </div>
-          </div>
-        </Form>
-      )}
-    </Formik>
+            <div className="flex w-[632px] flex-col p-8">
+              {_renderStepContent(
+                activeStep,
+                gameType,
+                setGameType,
+                isLoading,
+                error ? true : false,
+                setupManifest
+              )}
+              <div className="flex flex-row justify-between pt-6">
+                {activeStep !== 0 ? (
+                  <Button onClick={_handleBack} label="Back" />
+                ) : (
+                  <div></div>
+                )}
+                <Button
+                  type="submit"
+                  label={formReady ? 'Create Instance' : 'Next'}
+                  loading={isSubmitting}
+                  disabled={gameType === 'Generic' && !urlValid}
+                />
+              </div>
+            </div>
+          </Form>
+        )}
+      </Formik>
+    </GameInstanceContext.Provider>
   );
 }

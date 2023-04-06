@@ -1,9 +1,10 @@
 import GameIcon from 'components/Atoms/GameIcon';
-import React, { Dispatch, SetStateAction } from 'react';
+import React, { useContext } from 'react';
 import clsx from 'clsx';
 import { Game } from 'bindings/Game';
 import Button from 'components/Atoms/Button';
 import { GenericHandlerGameType } from '../InstanceCreateForm';
+import { GameInstanceContext } from 'data/GameInstanceContext';
 const SelectGameCard = ({
   title,
   description,
@@ -11,11 +12,6 @@ const SelectGameCard = ({
   className,
   onClick,
   selectedGameType,
-  urlValid,
-  setUrlValid,
-  setUrl,
-  genericFetchReady,
-  setGenericFetchReady,
   manifestLoading,
   errorText,
 }: {
@@ -25,15 +21,17 @@ const SelectGameCard = ({
   className?: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   selectedGameType: GenericHandlerGameType;
-  urlValid: boolean;
-  setUrlValid: Dispatch<SetStateAction<boolean>>;
-  setUrl: (url: string) => void;
-  genericFetchReady: boolean;
-  setGenericFetchReady: Dispatch<SetStateAction<boolean>>;
   manifestLoading: boolean;
   errorText: string;
 }) => {
-  console.log(selectedGameType);
+  const {
+    setUrl,
+    urlValid,
+    setUrlValid,
+    genericFetchReady,
+    setGenericFetchReady,
+  } = useContext(GameInstanceContext);
+
   const buttonStatus = genericFetchReady
     ? manifestLoading
       ? 'Fetching...'
