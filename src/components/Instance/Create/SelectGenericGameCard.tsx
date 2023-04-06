@@ -5,7 +5,7 @@ import { Game } from 'bindings/Game';
 import Button from 'components/Atoms/Button';
 import { GenericHandlerGameType } from '../InstanceCreateForm';
 import { GameInstanceContext } from 'data/GameInstanceContext';
-const SelectGameCard = ({
+const SelectGenericGameCard = ({
   title,
   description,
   game_type,
@@ -102,4 +102,4 @@ const SelectGameCard = ({
   );
 };
 
-export default SelectGameCard;
+export default SelectGenericGameCard;
