@@ -27,7 +27,7 @@ export const usePerformanceStream = (uuid: string) => {
   const [latency_s, setLatency_s] = useState(0);
   const [counter, setCounter] = useState(-1);
   const { core } = useContext(LodestoneContext);
-  const { address, port, apiVersion } = core;
+  const { address, port, apiVersion, protocol } = core;
 
   useInterval(() => {
     setLatency_s((Date.now() - lastPing) / 1000);
@@ -36,7 +36,7 @@ export const usePerformanceStream = (uuid: string) => {
   useEffect(() => {
     try {
       const websocket = new WebSocket(
-        `ws://${address}:${
+        `${protocol === 'https' ? 'wss' : 'ws'}://${address}:${
           port ?? LODESTONE_PORT
         }/api/${apiVersion}/monitor/${uuid}`
       );

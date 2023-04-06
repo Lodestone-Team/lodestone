@@ -16,7 +16,7 @@ import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useState } from 'react';
 import { toast } from 'react-toastify';
 import { changeUserPermissions } from 'utils/apis';
-import CreateUserForm from './CreateUserForm';
+import CreateUserForm from '../../components/Settings/CreateUserForm';
 
 const NormalPermissions: {
   permission: keyof UserPermission;
@@ -327,6 +327,11 @@ export const UserSettings = () => {
           </div>
         </Dialog>
       </Transition>
+      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
+        <div className="flex w-full flex-col gap-2 px-4 pt-8">
+          <div className="flex min-w-0 flex-row items-center gap-4">
+            <h1 className="dashboard-instance-heading">User Settings</h1>
+          </div>
       {UserBoxes}
       {UserPermissions(NormalPermissions, false)}
       {selectedUser && (
@@ -349,6 +354,8 @@ export const UserSettings = () => {
           </div>
         </>
       )}
+      </div>
+      </div>
       {/* TODO: your own section */}
     </>
   );

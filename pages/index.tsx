@@ -43,7 +43,10 @@ import { SettingsLayout } from 'components/DashboardLayout/SettingsLayout';
 import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
-import ProfilePage from 'pages/profile';
+import ProfilePage from 'pages/settings/profile';
+import CoreSettings from 'pages/settings/CoreSettings';
+import UserSettings from 'pages/settings/UserSettings';
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -61,6 +64,27 @@ const InstanceTabList = [
   'files',
   'tasks',
   'logs',
+];
+
+export const CoreSettingsTabList = [
+    {
+    title: 'General',
+      path: 'general',
+      content: <CoreSettings />,
+    },
+    {
+      title: 'Users',
+      path: 'users',
+      content: <UserSettings />,
+    },
+];
+
+export const AccountSettingsTabList = [
+    {
+    title: 'Profile',
+      path: 'profile',
+      content: <ProfilePage />,
+    },
 ];
 
 export default function App() {
@@ -301,8 +325,20 @@ export default function App() {
                 <Route path="/" element={<Home />} />
               </Route>
               <Route element={<SettingsLayout />}>
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
+                {CoreSettingsTabList.map((tab, i) => (
+                  <Route
+                    path={`/settings/${tab.path}`}
+                    element={tab.content}
+                    key={i}
+                  />
+                ))}
+                {AccountSettingsTabList.map((tab, i) => (
+                  <Route
+                    path={`/settings/${tab.path}`}
+                    element={tab.content}
+                    key={i}
+                  />
+                ))}
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />
