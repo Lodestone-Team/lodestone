@@ -103,10 +103,7 @@ export const autoSettingPageObject: SectionManifest = {
 
 export const generateValidationSchema = (instanceManifest: SetupManifest) => {
   const validationSchema: any[] = [];
-  // instanceManifest['setting_sections']['basic_settings'] =
-  //   basicSettingsPageObject;
   const setting_sections = instanceManifest['setting_sections'];
-  // setting_sections['auto_settings'] = autoSettingPageObject;
 
   validationSchema.push(yup.object().shape({})); //for select game type
   const generateYupObject = (setting: SettingManifest) => {
