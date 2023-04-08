@@ -62,7 +62,7 @@ const InstanceOverview = () => {
       ...oldData,
       description,
     }));
-  };  
+  };
 
   return (
     <>
