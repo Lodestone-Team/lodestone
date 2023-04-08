@@ -1,7 +1,7 @@
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { SetupManifest } from 'components/Instance/Create/form';
+import { SetupManifest } from 'bindings/SetupManifest';
 import { GenericHandlerGameType } from 'components/Instance/InstanceCreateForm';
 export const InstanceGameTypes = () =>
   useQuery<HandlerGameType[], AxiosError>(['games'], async () => {
