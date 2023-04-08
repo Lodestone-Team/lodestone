@@ -25,6 +25,7 @@ import { ConfigurableValue } from 'bindings/ConfigurableValue';
 import { SetupManifest } from 'bindings/SetupManifest';
 import { SetupValue } from 'bindings/SetupValue';
 import { SectionManifestValue } from 'bindings/SectionManifestValue';
+import { toast } from 'react-toastify';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 export type FormPage = {
@@ -116,12 +117,12 @@ export default function CreateGameInstance({
     }
 
     if (!isLoading && !error) {
+      if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
       setInitialValues(
         generateInitialValues(setup_manifest['setting_sections'])
       );
       setValidationSchema(generateValidationSchema(setup_manifest));
       setSetupManifest(setup_manifest);
-      if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
     }
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
@@ -146,12 +147,16 @@ export default function CreateGameInstance({
   ];
   const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: SetupValue) => {
-    await axiosWrapper<void>({
-      method: 'post',
-      url: `/instance/create/${gameType}`,
-      headers: { 'Content-Type': 'application/json' },
-      data: JSON.stringify(value),
-    });
+    try {
+      await axiosWrapper<void>({
+        method: 'post',
+        url: `/instance/create/${gameType}`,
+        headers: { 'Content-Type': 'application/json' },
+        data: JSON.stringify(value),
+      });
+    } catch (e) {
+      toast.error('Error creating instance: ' + e);
+    }
   };
 
   async function _submitForm(
