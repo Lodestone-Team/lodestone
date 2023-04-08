@@ -11,7 +11,6 @@ const SelectGenericGameCard = ({
   game_type,
   className,
   onClick,
-  selectedGameType,
   manifestLoading,
   errorText,
 }: {
@@ -20,11 +19,12 @@ const SelectGenericGameCard = ({
   game_type: Game;
   className?: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  selectedGameType: GenericHandlerGameType;
   manifestLoading: boolean;
   errorText: string;
 }) => {
   const {
+    gameType: selectedGameType,
+    setGameType,
     setUrl,
     urlValid,
     setUrlValid,
@@ -67,6 +67,7 @@ const SelectGenericGameCard = ({
             errorText ? 'input-border-error' : 'input-border-normal'
           }`}
           onChange={(e) => {
+            if (selectedGameType !== 'Generic') setGameType('Generic');
             setUrl(e.target.value);
             setGenericFetchReady(false);
             setUrlValid(false);

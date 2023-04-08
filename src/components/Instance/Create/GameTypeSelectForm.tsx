@@ -7,22 +7,20 @@ import {
   game_to_game_title,
   HandlerGameType_to_Game,
 } from 'data/GameTypeMappings';
-import { GenericHandlerGameType } from '../InstanceCreateForm';
 import SelectGenericGameCard from './SelectGenericGameCard';
-
+import { GameInstanceContext } from 'data/GameInstanceContext';
+import { useContext } from 'react';
 export default function GameTypeSelectForm({
-  selectedGameType,
-  setGameType,
   manifestLoading,
   manifestError,
   className,
 }: {
-  selectedGameType: GenericHandlerGameType;
-  setGameType: (gameType: GenericHandlerGameType) => void;
   manifestLoading: boolean;
   manifestError: boolean;
   className?: string;
 }) {
+  const { gameType: selectedGameType, setGameType } =
+    useContext(GameInstanceContext);
   const { data: game_types, isLoading } = InstanceGameTypes();
   if (!game_types || isLoading) {
     return <Spinner />;
@@ -50,7 +48,6 @@ export default function GameTypeSelectForm({
               'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected enabled:outline-white/50'
           )}
           onClick={() => setGameType('Generic')}
-          selectedGameType={selectedGameType}
           manifestLoading={manifestLoading}
           errorText={manifestError ? 'Error fetching the instance' : ''}
         />

@@ -1,6 +1,9 @@
+import { GenericHandlerGameType } from 'components/Instance/InstanceCreateForm';
 import { createContext } from 'react';
 
 type GameInstanceContextValue = {
+  gameType: GenericHandlerGameType;
+  setGameType: (gameType: GenericHandlerGameType) => void;
   urlValid: boolean;
   setUrlValid: (value: boolean) => void;
   url: string;
@@ -10,6 +13,10 @@ type GameInstanceContextValue = {
 };
 
 export const GameInstanceContext = createContext<GameInstanceContextValue>({
+  gameType: 'Generic',
+  setGameType: () => {
+    throw new Error('CreateGameInstanceContext not initialized');
+  },
   urlValid: false,
   setUrlValid: () => {
     throw new Error('CreateGameInstanceContext not initialized');

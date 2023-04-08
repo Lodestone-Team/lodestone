@@ -36,8 +36,6 @@ export type FormPage = {
 
 function _renderStepContent(
   step: number,
-  gameType: GenericHandlerGameType,
-  setGameType: (gameType: GenericHandlerGameType) => void,
   isLoading: boolean,
   error: boolean,
   setupManifest?: SetupManifest | null
@@ -70,12 +68,7 @@ function _renderStepContent(
   return (
     <>
       {step == 0 ? (
-        <GameTypeSelectForm
-          selectedGameType={gameType}
-          setGameType={setGameType}
-          manifestLoading={isLoading}
-          manifestError={error}
-        />
+        <GameTypeSelectForm manifestLoading={isLoading} manifestError={error} />
       ) : (
         forms[step - 1]
       )}
@@ -115,7 +108,6 @@ export default function CreateGameInstance({
       setGenericFetchReady(false);
       setUrlValid(false);
     }
-
     if (!isLoading && !error) {
       if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
       setInitialValues(
@@ -148,12 +140,21 @@ export default function CreateGameInstance({
   const formReady = activeStep === steps.length - 1;
   const createInstance = async (value: SetupValue) => {
     try {
-      await axiosWrapper<void>({
-        method: 'post',
-        url: `/instance/create/${gameType}`,
-        headers: { 'Content-Type': 'application/json' },
-        data: JSON.stringify(value),
-      });
+      if (gameType === 'Generic') {
+        await axiosWrapper<void>({
+          method: 'post',
+          url: `/instance/create_generic`,
+          headers: { 'Content-Type': 'application/json' },
+          data: JSON.stringify({ url: url, setup_value: value }),
+        });
+      } else {
+        await axiosWrapper<void>({
+          method: 'post',
+          url: `/instance/create/${gameType}`,
+          headers: { 'Content-Type': 'application/json' },
+          data: JSON.stringify(value),
+        });
+      }
     } catch (e) {
       toast.error('Error creating instance: ' + e);
     }
@@ -206,6 +207,7 @@ export default function CreateGameInstance({
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
+    console.log('hey');
     if (formReady) {
       _submitForm(values, actions);
     } else {
@@ -219,12 +221,16 @@ export default function CreateGameInstance({
   }
 
   function _handleBack() {
+    setGenericFetchReady(false);
+    setUrlValid(false);
     setActiveStep(activeStep - 1);
   }
 
   return (
     <GameInstanceContext.Provider
       value={{
+        gameType: gameType,
+        setGameType: setGameType,
         url: url,
         setUrl: setUrl,
         urlValid: urlValid,
@@ -262,8 +268,6 @@ export default function CreateGameInstance({
             <div className="flex w-[632px] flex-col p-8">
               {_renderStepContent(
                 activeStep,
-                gameType,
-                setGameType,
                 isLoading,
                 error ? true : false,
                 setupManifest
