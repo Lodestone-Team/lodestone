@@ -1,5 +1,5 @@
 import GameIcon from 'components/Atoms/GameIcon';
-import React, { useContext } from 'react';
+import React, { useContext, useEffect, KeyboardEvent } from 'react';
 import clsx from 'clsx';
 import { Game } from 'bindings/Game';
 import Button from 'components/Atoms/Button';
@@ -31,6 +31,12 @@ const SelectGenericGameCard = ({
     genericFetchReady,
     setGenericFetchReady,
   } = useContext(GameInstanceContext);
+
+  const handleKeyPress = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      setGenericFetchReady(true);
+    }
+  };
 
   const buttonStatus = genericFetchReady
     ? manifestLoading
@@ -77,6 +83,7 @@ const SelectGenericGameCard = ({
           disabled={
             buttonStatus === 'Loaded!' || buttonStatus === 'Fetching...'
           }
+          onKeyDown={handleKeyPress}
         />
         <Button
           className="h-full"
