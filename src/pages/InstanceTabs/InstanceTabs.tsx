@@ -20,6 +20,7 @@ import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
+import Macros from 'pages/macros';
 
 export const tabs = [
   {
@@ -59,24 +60,12 @@ export const tabs = [
     content: <FileViewer />,
   },
   {
-    title: 'Tasks',
-    displayTitle: 'Tasks',
-    path: 'tasks',
+    title: 'Macros',
+    displayTitle: 'Macros',
+    path: 'macros',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faCodeCompare} />,
-    content: (
-      <DashboardCard className="grow justify-center gap-4">
-        <img
-          src="/assets/placeholder-cube.png"
-          alt="placeholder"
-          className="mx-auto w-20"
-          style={{ imageRendering: 'pixelated' }}
-        />
-        <p className="text-center font-medium text-white/50">
-          Coming soon to a dashboard near you!
-        </p>
-      </DashboardCard>
-    ),
+    content: <Macros />,
   },
   {
     title: 'Event Logs',
