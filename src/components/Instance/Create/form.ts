@@ -1,3 +1,7 @@
+import { ConfigurableValue } from 'bindings/ConfigurableValue';
+import { SectionManifest } from 'bindings/SectionManifest';
+import { SettingManifest } from 'bindings/SettingManifest';
+import { SetupManifest } from 'bindings/SetupManifest';
 import * as yup from 'yup';
 
 export const formId = 'minecraftCreateNewInstanceForm';
@@ -223,68 +227,5 @@ export const generateInitialValues = (
   Object.keys(copySettingSections).forEach((sectionId: string) => {
     getInitialValue(sectionId);
   });
-  console.log(initialValues);
   return initialValues;
 };
-
-// export interface ConfigurableManifest { auto_start: boolean, restart_on_crash: boolean, start_on_connection: boolean, setting_sections: Record<string, SectionManifest>, }
-export interface ManifestValue {
-  auto_start: boolean;
-  restart_on_crash: boolean;
-  start_on_connection: boolean;
-  setting_sections: Record<string, SectionManifestValue>;
-}
-export interface SectionManifest {
-  section_id: string;
-  name: string;
-  description: string;
-  settings: Record<string, SettingManifest>;
-}
-export interface SectionManifestValue {
-  settings: Record<string, SettingManifestValue>;
-}
-export interface SettingManifest {
-  setting_id: string;
-  name: string;
-  description: string;
-  value: ConfigurableValue | null;
-  value_type: ConfigurableValueType;
-  default_value: ConfigurableValue | null;
-  is_secret: boolean;
-  is_required: boolean;
-  is_mutable: boolean;
-}
-export interface SettingManifestValue {
-  value: ConfigurableValue | null;
-}
-export type ConfigurableValueType =
-  | { type: 'String'; regex: string | null }
-  | { type: 'Integer'; min: number | null; max: number | null }
-  | { type: 'UnsignedInteger'; min: number | null; max: number | null }
-  | { type: 'Float'; min: number | null; max: number | null }
-  | { type: 'Boolean' }
-  | { type: 'Enum'; options: Array<string> };
-export type ConfigurableValue =
-  | { type: 'String'; value: string }
-  | { type: 'Integer'; value: number }
-  | { type: 'UnsignedInteger'; value: number }
-  | { type: 'Float'; value: number }
-  | { type: 'Boolean'; value: boolean }
-  | { type: 'Enum'; value: string };
-export interface SetupManifest {
-  setting_sections: Record<string, SectionManifest>;
-}
-export interface SetupValue {
-  name: string;
-  description: string | null;
-  auto_start: boolean;
-  restart_on_crash: boolean;
-  setting_sections: Record<string, SectionManifestValue>;
-}
-export interface ConfigurableManifest {
-  instance_name: string;
-  instance_description: string | null;
-  auto_start: boolean;
-  restart_on_crash: boolean;
-  setting_sections: Record<string, SectionManifest>;
-}

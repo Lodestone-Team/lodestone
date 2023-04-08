@@ -1,13 +1,12 @@
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
 import FormComboField from './SetupFormFields/FormComboField';
-import { SettingManifest } from './form';
 import { toast } from 'react-toastify';
 import { FormPage } from '../InstanceCreateForm';
+import { SettingManifest } from 'bindings/SettingManifest';
 
 export const createForm = (page: FormPage) => {
   const createField = (setting: SettingManifest, index: number) => {
-    console.log(setting);
     switch (setting.value_type.type) {
       case 'String':
         return (

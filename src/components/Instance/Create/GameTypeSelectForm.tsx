@@ -28,7 +28,7 @@ export default function GameTypeSelectForm({
     return <Spinner />;
   }
   return (
-    <div className={className + ' overflow-y-auto p-2'}>
+    <div className={clsx(className, ' overflow-y-auto p-2')}>
       <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
         Select a game
       </p>

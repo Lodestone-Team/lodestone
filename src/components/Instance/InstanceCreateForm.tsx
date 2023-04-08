@@ -7,11 +7,7 @@ import { axiosWrapper } from 'utils/util';
 import {
   autoSettingPageObject,
   basicSettingsPageObject,
-  ConfigurableValue,
   formId,
-  SectionManifestValue,
-  SetupManifest,
-  SetupValue,
 } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { createForm } from './Create/FormCreation';
@@ -25,6 +21,10 @@ import Spinner from 'components/DashboardLayout/Spinner';
 import clsx from 'clsx';
 import * as yup from 'yup';
 import { GameInstanceContext } from 'data/GameInstanceContext';
+import { ConfigurableValue } from 'bindings/ConfigurableValue';
+import { SetupManifest } from 'bindings/SetupManifest';
+import { SetupValue } from 'bindings/SetupValue';
+import { SectionManifestValue } from 'bindings/SectionManifestValue';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 export type FormPage = {
@@ -158,11 +158,7 @@ export default function CreateGameInstance({
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
-    const sectionValues: Record<string, SectionManifestValue> = {};
-    for (let i = 1; i < steps.length - 1; i++) {
-      const structure = getSectionValidationStructure(values, i);
-      sectionValues[structure[1]] = structure[0];
-    }
+    const sectionValues = getSectionValidationStructure(values);
 
     const parsedValues: SetupValue = {
       name: values.name?.value as string,
@@ -180,19 +176,25 @@ export default function CreateGameInstance({
   }
 
   function getSectionValidationStructure(
-    values: Record<string, ConfigurableValue | null>,
-    step: number
-  ): [SectionManifestValue, string] {
-    if (!setup_manifest || step == 0) return [{ settings: {} }, ''];
+    values: Record<string, ConfigurableValue | null>
+  ): Record<string, SectionManifestValue> {
+    if (!setup_manifest) return {};
     const sectionKeys = Object.keys(setup_manifest['setting_sections']);
-    const settingKeys = Object.keys(
-      setup_manifest['setting_sections'][sectionKeys[step - 1]]['settings']
-    );
-    const sectionValidation: SectionManifestValue = { settings: {} };
-    for (const key of settingKeys) {
-      sectionValidation['settings'][key] = { value: values[key] };
+
+    const sectionValues: Record<string, SectionManifestValue> = {};
+
+    for (const sectionKey of sectionKeys) {
+      const sectionValidation: SectionManifestValue = { settings: {} };
+      const settingKeys = Object.keys(
+        setup_manifest['setting_sections'][sectionKey]['settings']
+      );
+      for (const key of settingKeys) {
+        sectionValidation['settings'][key] = { value: values[key] };
+      }
+      sectionValues[sectionKey] = sectionValidation;
     }
-    return [sectionValidation, sectionKeys[step - 1]];
+
+    return sectionValues;
   }
 
   async function _handleSubmit(
