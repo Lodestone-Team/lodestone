@@ -54,17 +54,6 @@ const Macros = () => {
   const queryClient = useQueryClient();
   console.log(selectedInstance);
 
-  //   const createNewMacro = useCallback(
-  //     (name, description, uuid) => {
-  //       const newMacro = {
-  //         name,
-  //         description,
-  //         uuid,
-  //       };
-  //       setMacros((prevMacros) => [...prevMacros, newMacro]);
-  //     },
-  //     [setMacros]
-  //   );
   const fetchMacros = async (instanceUuid: string) => {
     const response: MacroEntry[] = await getMacros(instanceUuid);
     setMacros(
@@ -124,66 +113,6 @@ const Macros = () => {
 
     fetchAll();
   }, [selectedInstance]);
-
-  const columnsAnalog: TableColumn[] = [
-    { field: 'make', headerName: 'MAKE' },
-    { field: 'model', headerName: 'MODEL' },
-    { field: 'lens', headerName: 'LENS' },
-    { field: 'format', headerName: 'FORMAT' },
-    { field: 'year', headerName: 'YEAR' },
-  ];
-
-  const rowsAnalog: TableRow[] = [
-    {
-      id: 1,
-      make: 'Nikon',
-      model: 'FM2',
-      lens: '50mm f/1.8',
-      format: '35mm',
-      year: 1982,
-    },
-    {
-      id: 2,
-      make: 'Canon',
-      model: 'AE-1',
-      lens: '50mm f/1.4',
-      format: '35mm',
-      year: 1976,
-    },
-  ];
-
-  const menuItems1: ButtonMenuConfig = {
-    tableRows: rowsAnalog,
-    menuItems: [
-      {
-        label: 'Edit in file viewer',
-        icon: faEdit,
-        variant: 'text',
-        intention: 'info',
-        disabled: false,
-        onClick: (row: TableRow) =>
-          console.log(`Edit on ${row.id}: ${row.make} ${row.model}`),
-      },
-      {
-        label: 'another one',
-        icon: faSkull,
-        variant: 'text',
-        intention: 'info',
-        disabled: false,
-        onClick: (row: TableRow) =>
-          console.log(`Another on ${row.id}: ${row.make} ${row.model}`),
-      },
-      {
-        label: 'Obliterate',
-        icon: faTrashCan,
-        variant: 'text',
-        intention: 'danger',
-        disabled: false,
-        onClick: (row: TableRow) =>
-          console.log(`Obliterate on ${row.id}: ${row.make} ${row.model}`),
-      },
-    ],
-  };
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
@@ -293,24 +222,6 @@ const Macros = () => {
       },
     };
   }, [macros, tasks, history, selectedInstance, queryClient]);
-
-  // const MacrosPageMap = {
-  //   'All Macros': {
-  //     rows: rowsAnalog,
-  //     columns: columnsAnalog,
-  //     menuOptions: menuItems1,
-  //   },
-  //   'Running Tasks': {
-  //     rows: rowsAnalog,
-  //     columns: columnsAnalog,
-  //     menuOptions: menuItems1,
-  //   },
-  //   History: {
-  //     rows: rowsAnalog,
-  //     columns: columnsAnalog,
-  //     menuOptions: menuItems1,
-  //   },
-  // };
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
   const Navbar = ({ pages }: { pages: MacrosPage[] }) => {
