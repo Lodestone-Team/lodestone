@@ -1,15 +1,22 @@
 import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { Table, TableColumn, TableRow } from 'components/Table';
-import { faEdit, faSkull, faTrashCan } from '@fortawesome/free-solid-svg-icons';
+import {
+  faEdit,
+  faPlay,
+  faPlayCircle,
+  faSkull,
+  faTrashCan,
+} from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
   getMacros,
   getTasks,
   getInstanceHistory,
   createTask,
+  killTask,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useEffect, useState } from 'react';
+import { Fragment, useContext, useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { MacroEntry } from 'bindings/MacroEntry';
 import { TaskEntry } from 'bindings/TaskEntry';
@@ -18,15 +25,33 @@ import Button from 'components/Atoms/Button';
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
+import MacroCreateForm from 'components/DashboardLayout/MacroCreateForm';
+import { Transition, Dialog } from '@headlessui/react';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
   useDocumentTitle('Macros');
   const { selectedInstance } = useContext(InstanceContext);
-  const [macros, setMacros] = useState<MacroEntry[]>([]);
-  const [tasks, setTasks] = useState<TaskEntry[]>([]);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [macros, setMacros] = useState<TableRow[]>([]);
+  const [tasks, setTasks] = useState<TableRow[]>([]);
+  const [history, setHistory] = useState<TableRow[]>([]);
 
+  console.log(macros);
+  // const createNewMacro = async (macro_name: string, macro_args: string[]) => {
+  //   if (!selectedInstance) {
+  //     toast.error('Error creating new macro: No instance selected');
+  //     return;
+  //   }
+  //   await createTask(
+  //     queryClient,
+  //     selectedInstance.uuid,
+  //     macro_name,
+  //     macro_args
+  //   );
+  // };
+  // const [showCreateMacro, setShowCreateMacro] = useState(false);
+
+  const queryClient = useQueryClient();
   console.log(selectedInstance);
 
   //   const createNewMacro = useCallback(
@@ -40,38 +65,65 @@ const Macros = () => {
   //     },
   //     [setMacros]
   //   );
+  const fetchMacros = async (instanceUuid: string) => {
+    const response: MacroEntry[] = await getMacros(instanceUuid);
+    setMacros(
+      response.map(
+        (macro, i) =>
+          ({
+            id: i + 1,
+            name: macro.name,
+            last_run: macro.last_run?.toString() ?? 'Never',
+            path: macro.path,
+          } as TableRow)
+      )
+    );
+  };
 
-  //   const createNewMacro = async () => {
-  //     if (!selectedInstance) {
-  //       toast.error('Error creating new macro: No instance selected');
-  //       return;
-  //     }
-  //     await createTask(queryClient, selectedInstance.uuid, 'New Macro', []);
-  //   };
+  const fetchTasks = async (instanceUuid: string) => {
+    const response = await getTasks(instanceUuid);
+    console.log(response);
+    setTasks(
+      response.map(
+        (task, i) =>
+          ({
+            id: i + 1,
+            name: task.name,
+            creation_time: task.creation_time.toString(),
+            pid: task.pid,
+          } as TableRow)
+      )
+    );
+  };
+
+  const fetchHistory = async (instanceUuid: string) => {
+    const response = await getInstanceHistory(instanceUuid);
+    setHistory(
+      response.map(
+        (entry, i) =>
+          ({
+            id: i + 1,
+            name: entry.task.name,
+            creation_time: entry.task.creation_time.toString(),
+            finished: entry.exit_status.time.toString(),
+            process_id: entry.task.pid,
+          } as TableRow)
+      )
+    );
+  };
 
   useEffect(() => {
     if (!selectedInstance) return;
-    const fetchMacros = async (instanceUuid: string) => {
-      const response: MacroEntry[] = await getMacros(instanceUuid);
-      setMacros(response);
+
+    const fetchAll = async () => {
+      if (!selectedInstance) return;
+      fetchMacros(selectedInstance.uuid);
+      fetchTasks(selectedInstance.uuid);
+      fetchHistory(selectedInstance.uuid);
     };
 
-    const fetchTasks = async (instanceUuid: string) => {
-      const response = await getTasks(instanceUuid);
-      setTasks(response);
-    };
-
-    const fetchHistory = async (instanceUuid: string) => {
-      const response = await getInstanceHistory(instanceUuid);
-      setHistory(response);
-    };
-
-    fetchMacros(selectedInstance.uuid);
-    fetchTasks(selectedInstance.uuid);
-    fetchHistory(selectedInstance.uuid);
+    fetchAll();
   }, [selectedInstance]);
-
-  const queryClient = useQueryClient();
 
   const columnsAnalog: TableColumn[] = [
     { field: 'make', headerName: 'MAKE' },
@@ -97,230 +149,6 @@ const Macros = () => {
       lens: '50mm f/1.4',
       format: '35mm',
       year: 1976,
-    },
-    {
-      id: 3,
-      make: 'Pentax',
-      model: 'K1000',
-      lens: '50mm f/2.0',
-      format: '35mm',
-      year: 1976,
-    },
-    {
-      id: 4,
-      make: 'Mamiya',
-      model: 'RB67',
-      lens: '127mm f/3.8',
-      format: '120',
-      year: 1970,
-    },
-    {
-      id: 5,
-      make: 'Hasselblad',
-      model: '500CM',
-      lens: '80mm f/2.8',
-      format: '120',
-      year: 1957,
-    },
-    {
-      id: 6,
-      make: 'Leica',
-      model: 'M6',
-      lens: '35mm f/2.0',
-      format: '35mm',
-      year: 1984,
-    },
-    {
-      id: 7,
-      make: 'Fuji',
-      model: 'GW690III',
-      lens: '90mm f/3.5',
-      format: '120',
-      year: 1980,
-    },
-    {
-      id: 8,
-      make: 'Minolta',
-      model: 'X-700',
-      lens: '50mm f/1.7',
-      format: '35mm',
-      year: 1981,
-    },
-    {
-      id: 9,
-      make: 'Rollei',
-      model: '35T',
-      lens: '40mm f/3.5',
-      format: '35mm',
-      year: 1960,
-    },
-    {
-      id: 10,
-      make: 'Kodak',
-      model: 'Retina IIc',
-      lens: '50mm f/2.8',
-      format: '35mm',
-      year: 1954,
-    },
-    {
-      id: 11,
-      make: 'Yashica',
-      model: 'Mat-124G',
-      lens: '80mm f/3.5',
-      format: '120',
-      year: 1970,
-    },
-    {
-      id: 12,
-      make: 'Voigtlander',
-      model: 'Bessa R3A',
-      lens: '40mm f/1.4',
-      format: '35mm',
-      year: 2004,
-    },
-    {
-      id: 13,
-      make: 'Zenza Bronica',
-      model: 'SQ-Ai',
-      lens: '80mm f/2.8',
-      format: '120',
-      year: 1982,
-    },
-    {
-      id: 14,
-      make: 'Konica',
-      model: 'Hexar AF',
-      lens: '35mm f/2.0',
-      format: '35mm',
-      year: 1993,
-    },
-    {
-      id: 15,
-      make: 'Zeiss Ikon',
-      model: 'Contessa S310',
-      lens: '45mm f/2.8',
-      format: '35mm',
-      year: 1957,
-    },
-    {
-      id: 16,
-      make: 'Fujifilm',
-      model: 'Instax Mini 9',
-      lens: '60mm f/12.7',
-      format: 'Instant',
-      year: 2017,
-    },
-    {
-      id: 17,
-      make: 'Polaroid',
-      model: 'SX-70',
-      lens: '116mm f/8',
-      format: 'Polaroid',
-      year: 1972,
-    },
-    {
-      id: 18,
-      make: 'Fujifilm',
-      model: 'Instax Mini 90',
-      lens: '60mm f/12.7',
-      format: 'Instant',
-      year: 2013,
-    },
-    {
-      id: 19,
-      make: 'Yashica',
-      model: 'Mat-124G',
-      lens: '80mm f/3.5',
-      format: '120',
-      year: 1970,
-    },
-    {
-      id: 20,
-      make: 'Holga',
-      model: '120N',
-      lens: '60mm f/8',
-      format: '120',
-      year: 1982,
-    },
-    {
-      id: 21,
-      make: 'Kodak',
-      model: 'Brownie Hawkeye',
-      lens: '75mm f/14.5',
-      format: '620',
-      year: 1949,
-    },
-    {
-      id: 22,
-      make: 'Rollei',
-      model: '35',
-      lens: '40mm f/3.5',
-      format: '35mm',
-      year: 1966,
-    },
-    {
-      id: 23,
-      make: 'Agfa',
-      model: 'Clack',
-      lens: '95mm f/11',
-      format: '120',
-      year: 1954,
-    },
-    {
-      id: 24,
-      make: 'Lomography',
-      model: 'Diana F+',
-      lens: '75mm f/8',
-      format: '120',
-      year: 2007,
-    },
-    {
-      id: 25,
-      make: 'Pentax',
-      model: '645',
-      lens: '75mm f/2.8',
-      format: '120',
-      year: 1984,
-    },
-    {
-      id: 26,
-      make: 'Nimslo',
-      model: 'Nimslo 3D',
-      lens: '30mm f/5.6',
-      format: '35mm',
-      year: 1980,
-    },
-    {
-      id: 27,
-      make: 'Voigtlander',
-      model: 'Bessa R2A',
-      lens: '50mm f/1.5',
-      format: '35mm',
-      year: 2004,
-    },
-    {
-      id: 28,
-      make: 'Fujifilm',
-      model: 'GFX 50S',
-      lens: '63mm f/2.8',
-      format: 'Medium Format',
-      year: 2017,
-    },
-    {
-      id: 29,
-      make: 'Bronica',
-      model: 'SQ-A',
-      lens: '80mm f/2.8',
-      format: 'Medium Format',
-      year: 1980,
-    },
-    {
-      id: 30,
-      make: 'Minox',
-      model: '35 EL',
-      lens: '35mm f/2.8',
-      format: '35mm',
-      year: 1974,
     },
   ];
 
@@ -358,23 +186,131 @@ const Macros = () => {
   };
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
-  const MacrosPageMap = {
-    'All Macros': {
-      rows: rowsAnalog,
-      columns: columnsAnalog,
-      menuOptions: menuItems1,
-    },
-    'Running Tasks': {
-      rows: rowsAnalog,
-      columns: columnsAnalog,
-      menuOptions: menuItems1,
-    },
-    History: {
-      rows: [],
-      columns: [],
-      menuOptions: menuItems1,
-    },
-  };
+
+  const MacrosPageMap: Record<
+    MacrosPage,
+    { rows: TableRow[]; columns: TableColumn[]; menuOptions?: ButtonMenuConfig }
+  > = useMemo(() => {
+    return {
+      'All Macros': {
+        rows: macros,
+        columns: [
+          { field: 'name', headerName: 'TASK NAME' },
+          { field: 'last_run', headerName: 'LAST RUN' },
+        ],
+        menuOptions: {
+          tableRows: macros,
+          menuItems: [
+            {
+              label: 'Run Macro',
+              icon: faPlayCircle,
+              variant: 'text',
+              intention: 'info',
+              disabled: false,
+              onClick: async (row: TableRow) => {
+                if (!selectedInstance) {
+                  toast.error('Error running macro: No instance selected');
+                  return;
+                }
+                await createTask(
+                  queryClient,
+                  selectedInstance.uuid,
+                  row.name as string,
+                  []
+                );
+                fetchTasks(selectedInstance.uuid);
+                fetchHistory(selectedInstance.uuid);
+              },
+            },
+          ],
+        },
+      },
+      'Running Tasks': {
+        rows: tasks,
+        columns: [
+          {
+            field: 'name',
+            headerName: 'TASK NAME',
+          },
+          {
+            field: 'creation_time',
+            headerName: 'CREATED',
+          },
+          {
+            field: 'pid',
+            headerName: 'PROCESS ID',
+          },
+        ],
+        menuOptions: {
+          tableRows: tasks,
+          menuItems: [
+            {
+              label: 'Kill Task',
+              icon: faSkull,
+              variant: 'text',
+              intention: 'danger',
+              disabled: false,
+              onClick: async (row: TableRow) => {
+                if (!selectedInstance) {
+                  toast.error('Error killing task: No instance selected');
+                  return;
+                }
+                await killTask(
+                  queryClient,
+                  selectedInstance.uuid,
+                  row.pid as string
+                );
+                console.log('hey');
+                console.log(tasks.filter((task) => task.id !== row.id));
+                setTasks(tasks.filter((task) => task.id !== row.id));
+                fetchTasks(selectedInstance.uuid);
+                fetchHistory(selectedInstance.uuid);
+              },
+            },
+          ],
+        },
+      },
+      History: {
+        rows: history,
+        columns: [
+          {
+            field: 'name',
+            headerName: 'TASK NAME',
+          },
+          {
+            field: 'creation_time',
+            headerName: 'CREATED',
+          },
+          {
+            field: 'finished',
+            headerName: 'FINISHED',
+          },
+          {
+            field: 'process_id',
+            headerName: 'PROCESS ID',
+          },
+        ],
+      },
+    };
+  }, [macros, tasks, history, selectedInstance, queryClient]);
+
+  // const MacrosPageMap = {
+  //   'All Macros': {
+  //     rows: rowsAnalog,
+  //     columns: columnsAnalog,
+  //     menuOptions: menuItems1,
+  //   },
+  //   'Running Tasks': {
+  //     rows: rowsAnalog,
+  //     columns: columnsAnalog,
+  //     menuOptions: menuItems1,
+  //   },
+  //   History: {
+  //     rows: rowsAnalog,
+  //     columns: columnsAnalog,
+  //     menuOptions: menuItems1,
+  //   },
+  // };
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
   const Navbar = ({ pages }: { pages: MacrosPage[] }) => {
@@ -405,15 +341,40 @@ const Macros = () => {
   return (
     // used to possibly center the content
     <div className="relative">
-      <div className="absolute right-0 top-[-5rem]">
+      {/* <Transition
+        appear
+        show={showCreateMacro}
+        as={Fragment}
+        enter="ease-out duration-200"
+        enterFrom="opacity-0"
+        enterTo="opacity-100"
+        leave="ease-in duration-150"
+        leaveFrom="opacity-100"
+        leaveTo="opacity-0"
+      >
+        <Dialog onClose={() => setShowCreateMacro(false)} className="z-10">
+          <div className="fixed inset-0 bg-gray-900/60" />
+          <div className="fixed inset-0">
+            <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
+              <Dialog.Panel>
+                <MacroCreateForm
+                  onComplete={() => setShowCreateMacro(false)}
+                  createNewMacro={createNewMacro}
+                />
+              </Dialog.Panel>
+            </div>
+          </div>
+        </Dialog>
+      </Transition> */}
+      {/* <div className="absolute right-0 top-[-5rem]">
         <Button
           label="Create Macro"
           variant="text"
           intention="primary"
           className="float-right"
-          onClick={() => console.log('Create Macro')}
+          onClick={() => setShowCreateMacro(true)}
         />
-      </div>
+      </div> */}
       <div className="mt-[-3rem] mb-4">All macros for your instance</div>
       <Navbar pages={pages} />
       <div className="relative mx-auto mt-9 flex h-full w-full flex-row justify-center">

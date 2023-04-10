@@ -378,7 +378,7 @@ export const openPort = async (port: number) => {
  * Start Tasks/Macro API
  ***********************/
 
-export const getTasks = async (uuid: string,) => {
+export const getTasks = async (uuid: string) => {
   const taskList = await axiosWrapper<TaskEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/task/list`,
@@ -387,7 +387,7 @@ export const getTasks = async (uuid: string,) => {
   return taskList;
 };
 
-export const getMacros = async (uuid: string,) => {
+export const getMacros = async (uuid: string) => {
   const macroList = await axiosWrapper<MacroEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/macro/list`,
@@ -396,7 +396,7 @@ export const getMacros = async (uuid: string,) => {
   return macroList;
 };
 
-export const getInstanceHistory = async (uuid: string,) => {
+export const getInstanceHistory = async (uuid: string) => {
   const historyList = await axiosWrapper<HistoryEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/history/list`,
@@ -405,12 +405,13 @@ export const getInstanceHistory = async (uuid: string,) => {
   return historyList;
 };
 
+//run macro
 export const createTask = async (
   queryClient: QueryClient,
   uuid: string,
   macro_name: string,
-  args: string[],
-  ) => {
+  args: string[]
+) => {
   queryClient.invalidateQueries(['instance', uuid, 'taskList']);
   return await catchAsyncToString(
     axiosWrapper<null>({
@@ -421,6 +422,19 @@ export const createTask = async (
   );
 };
 
+//run macro
+export const killTask = async (
+  queryClient: QueryClient,
+  uuid: string,
+  pid: string
+) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/macro/kill/${pid}`,
+    })
+  );
+};
 /***********************
  * End Tasks/Macro API
  ***********************/

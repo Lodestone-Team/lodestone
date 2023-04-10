@@ -89,7 +89,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fcb51a0695d8f838b1ee009b3fbf66bda078cd64590202a864a8f3e8c4315c47"
 dependencies = [
- "getrandom 0.2.8",
+ "getrandom 0.2.9",
  "once_cell",
  "version_check",
 ]
@@ -958,9 +958,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.7"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf2b3e8478797446514c91ef04bafcb59faba183e621ad488df88983cc14128c"
+checksum = "a33c2bf77f2df06183c3aa30d1e96c0695a313d4f9c453cc3762a6db39f99200"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -1259,7 +1259,7 @@ dependencies = [
  "async-trait",
  "deno_core",
  "tokio",
- "uuid 1.3.0",
+ "uuid 1.3.1",
 ]
 
 [[package]]
@@ -1343,7 +1343,7 @@ dependencies = [
  "signature",
  "spki",
  "tokio",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "x25519-dalek",
 ]
 
@@ -1597,7 +1597,7 @@ dependencies = [
  "signal-hook-registry",
  "termcolor",
  "tokio",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "winapi",
  "winres",
 ]
@@ -1643,7 +1643,7 @@ dependencies = [
  "flate2",
  "serde",
  "tokio",
- "uuid 1.3.0",
+ "uuid 1.3.1",
 ]
 
 [[package]]
@@ -1995,13 +1995,13 @@ dependencies = [
 
 [[package]]
 name = "errno"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50d6a0976c999d473fe89ad888d5a284e55366d9dc9038b1ba2aa15128c4afa0"
+checksum = "4bcfec3a70f97c962c307b2d2c56e358cf1d00b558d74262b5f929ee8cc7e73a"
 dependencies = [
  "errno-dragonfly",
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2462,9 +2462,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c05aeb6a22b8f62540c194aac980f2115af067bfe15a0734d7277a768d396b31"
+checksum = "c85e1d9ab2eadba7e5040d4e09cbd6d072b76a557ad64e797c2cb9d4da21d7e4"
 dependencies = [
  "cfg-if",
  "libc",
@@ -3512,7 +3512,7 @@ dependencies = [
 [[package]]
 name = "lodestone_core"
 version = "0.4.3"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=releases/0.5.0#d39c06155be6916a1950399476ae34a3e04129c4"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=releases/0.5.0#aa6d5218f8c1c811b3071839ec203c01d0162709"
 dependencies = [
  "ansi_term",
  "argon2",
@@ -3574,7 +3574,7 @@ dependencies = [
  "ts-rs",
  "unrar",
  "url",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "walkdir",
  "whoami",
  "zip",
@@ -4198,9 +4198,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.49"
+version = "0.10.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d2f106ab837a24e03672c59b1239669a0596406ff657c3c0835b6b7f0f35a33"
+checksum = "7e30d8bc91859781f0a943411186324d580f2bbeb71b452fe91ae344806af3f1"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -4230,9 +4230,9 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.84"
+version = "0.9.85"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a20eace9dc2d82904039cb76dcf50fb1a0bba071cfd1629720b5d6f1ddba0fa"
+checksum = "0d3d193fb1488ad46ffe3aaabc912cc931d02ee8518fe2959aea8ef52718b0c0"
 dependencies = [
  "cc",
  "libc",
@@ -4924,7 +4924,7 @@ version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
- "getrandom 0.2.8",
+ "getrandom 0.2.9",
 ]
 
 [[package]]
@@ -5078,7 +5078,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b033d837a7cf162d7993aded9304e30a83213c648b6e389db233191f891e5c2b"
 dependencies = [
- "getrandom 0.2.8",
+ "getrandom 0.2.9",
  "redox_syscall 0.2.16",
  "thiserror",
 ]
@@ -5321,9 +5321,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.8"
+version = "0.37.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aef160324be24d31a62147fae491c14d2204a3865c7ca8c3b0d7f7bcb3ea635"
+checksum = "85597d61f83914ddeba6a47b3b8ffe7365107221c2e557ed94426489fefb5f77"
 dependencies = [
  "bitflags",
  "errno",
@@ -6602,7 +6602,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "unicode-segmentation",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "windows 0.39.0",
  "windows-implement",
  "x11-dl",
@@ -6666,7 +6666,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "webkit2gtk",
  "webview2-com",
  "windows 0.39.0",
@@ -6710,7 +6710,7 @@ dependencies = [
  "tauri-utils",
  "thiserror",
  "time 0.3.20",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "walkdir",
 ]
 
@@ -6754,7 +6754,7 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "thiserror",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "webview2-com",
  "windows 0.39.0",
 ]
@@ -6772,7 +6772,7 @@ dependencies = [
  "raw-window-handle",
  "tauri-runtime",
  "tauri-utils",
- "uuid 1.3.0",
+ "uuid 1.3.1",
  "webkit2gtk",
  "webview2-com",
  "windows 0.39.0",
@@ -7613,11 +7613,11 @@ checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 
 [[package]]
 name = "uuid"
-version = "1.3.0"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1674845326ee10d37ca60470760d4288a6f80f304007d92e5c53bab78c9cfd79"
+checksum = "5b55a3fef2a1e3b3a00ce878640918820d3c51081576ac657d23af9fc7928fdb"
 dependencies = [
- "getrandom 0.2.8",
+ "getrandom 0.2.9",
  "rand 0.8.5",
  "serde",
  "uuid-macro-internal",
@@ -7625,13 +7625,13 @@ dependencies = [
 
 [[package]]
 name = "uuid-macro-internal"
-version = "1.3.0"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1b300a878652a387d2a0de915bdae8f1a548f0c6d45e072fe2688794b656cc9"
+checksum = "20e8a505384e9309dc842520c6c9348f4b141dee06aaa845522727b1b99ca235"
 dependencies = [
  "proc-macro2 1.0.56",
  "quote 1.0.26",
- "syn 1.0.109",
+ "syn 2.0.13",
 ]
 
 [[package]]
