@@ -11,6 +11,7 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::CausedBy,
+    macro_executor::MacroPID,
     traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
     types::InstanceUuid,
     AppState,
@@ -91,9 +92,26 @@ pub async fn run_macro(
     Ok(Json(()))
 }
 
+pub async fn kill_macro(
+    Path((uuid, pid)): Path<(InstanceUuid, MacroPID)>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    let mut instances = state.instances.lock().await;
+    let instance = instances.get_mut(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    instance.kill_macro(pid).await?;
+    Ok(Json(()))
+}
+
 pub fn get_instance_macro_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
+        .route("/instance/:uuid/macro/kill/:pid", put(kill_macro))
         .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
         .route("/instance/:uuid/task/list", get(get_instance_task_list))
         .route(

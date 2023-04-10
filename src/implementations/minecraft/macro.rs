@@ -11,7 +11,7 @@ use deno_core::{anyhow, op, OpState};
 use crate::{
     error::Error,
     events::{CausedBy, EventInner},
-    macro_executor::{self, MainWorkerGenerator},
+    macro_executor::{self, MacroPID, MainWorkerGenerator},
     traits::{
         t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
         t_server::TServer,
@@ -320,5 +320,10 @@ impl TMacro for MinecraftInstance {
             .insert(pid, entry.clone());
 
         Ok(entry)
+    }
+
+    async fn kill_macro(&mut self, pid: MacroPID) -> Result<(), Error> {
+        self.macro_executor.abort_macro(pid).await?;
+        Ok(())
     }
 }

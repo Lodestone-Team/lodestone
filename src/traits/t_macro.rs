@@ -72,4 +72,10 @@ pub trait TMacro {
             source: eyre!("This instance does not support running macro"),
         })
     }
+    async fn kill_macro(&mut self, _pid: MacroPID) -> Result<(), Error> {
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support killing macro"),
+        })
+    }
 }
