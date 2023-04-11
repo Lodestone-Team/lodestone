@@ -25,6 +25,7 @@ const SelectGenericGameCard = ({
   const {
     gameType: selectedGameType,
     setGameType,
+    url,
     setUrl,
     urlValid,
     setUrlValid,
@@ -52,7 +53,7 @@ const SelectGenericGameCard = ({
         'relative col-span-2 flex flex-col items-start text-left align-top font-sans tracking-medium',
         'h-36 w-full border-solid p-4 outline outline-1',
         'generic-gametype-unselected enabled:hover:generic-gametype-hover rounded-md border-gray-faded/30 text-gray-faded/30 disabled:text-gray-900',
-        'outline-gray-faded/30 enabled:hover:outline-white/50',
+        'outline-gray-faded/30',
         'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
         className
       )}
@@ -79,7 +80,7 @@ const SelectGenericGameCard = ({
             setUrlValid(false);
           }}
           name={'Url'}
-          placeholder={'Enter url'}
+          placeholder={'Enter URL'}
           disabled={
             buttonStatus === 'Loaded!' || buttonStatus === 'Fetching...'
           }
@@ -94,7 +95,8 @@ const SelectGenericGameCard = ({
           disabled={
             buttonStatus === 'Loaded!' ||
             buttonStatus === 'Fetching...' ||
-            selectedGameType !== 'Generic'
+            selectedGameType !== 'Generic' ||
+            url === ''
           }
         />
       </div>

@@ -45,7 +45,7 @@ export default function GameTypeSelectForm({
           }}
           className={clsx(
             'Generic' === selectedGameType &&
-              'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected enabled:outline-white/50'
+              'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected '
           )}
           onClick={() => setGameType('Generic')}
           manifestLoading={manifestLoading}

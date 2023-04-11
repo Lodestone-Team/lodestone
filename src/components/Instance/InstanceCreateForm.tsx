@@ -207,7 +207,6 @@ export default function CreateGameInstance({
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
-    console.log('hey');
     if (formReady) {
       _submitForm(values, actions);
     } else {
