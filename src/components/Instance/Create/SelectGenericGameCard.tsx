@@ -1,5 +1,11 @@
 import GameIcon from 'components/Atoms/GameIcon';
-import React, { useContext, useEffect, KeyboardEvent } from 'react';
+import React, {
+  useContext,
+  useEffect,
+  KeyboardEvent,
+  useState,
+  useMemo,
+} from 'react';
 import clsx from 'clsx';
 import { Game } from 'bindings/Game';
 import Button from 'components/Atoms/Button';
@@ -33,12 +39,6 @@ const SelectGenericGameCard = ({
     setGenericFetchReady,
   } = useContext(GameInstanceContext);
 
-  const handleKeyPress = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      setGenericFetchReady(true);
-    }
-  };
-
   const buttonStatus = genericFetchReady
     ? manifestLoading
       ? 'Fetching...'
@@ -46,6 +46,45 @@ const SelectGenericGameCard = ({
       ? 'Loaded!'
       : 'Load Instance'
     : 'Load Instance';
+
+  const handleKeyPress = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !disableLoadButton) {
+      loadInstanceFunc();
+    }
+  };
+
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const [urlErrorText, setUrlErrorText] = useState('');
+  const disableLoadButton = useMemo(() => {
+    return (
+      buttonStatus === 'Loaded!' ||
+      buttonStatus === 'Fetching...' ||
+      selectedGameType !== 'Generic' ||
+      url === ''
+    );
+  }, [buttonStatus, selectedGameType, url]);
+
+  useEffect(() => {
+    setUrlErrorText(errorText);
+  }, [errorText]);
+
+  const loadInstanceFunc = () => {
+    if (!isValidUrl(url)) {
+      setUrlErrorText('Invalid Url');
+      return;
+    }
+    setUrlErrorText('');
+    setGenericFetchReady(true);
+  };
+
   return (
     <button
       type={'button'}
@@ -71,7 +110,7 @@ const SelectGenericGameCard = ({
       <div className="flex w-full items-center gap-3">
         <input
           className={`input-shape input-background input-outlines input-text-style h-full w-[70%] ${
-            errorText ? 'input-border-error' : 'input-border-normal'
+            urlErrorText ? 'input-border-error' : 'input-border-normal'
           }`}
           onChange={(e) => {
             if (selectedGameType !== 'Generic') setGameType('Generic');
@@ -89,23 +128,16 @@ const SelectGenericGameCard = ({
         <Button
           className="h-full"
           label={buttonStatus}
-          onClick={() => {
-            setGenericFetchReady(true);
-          }}
-          disabled={
-            buttonStatus === 'Loaded!' ||
-            buttonStatus === 'Fetching...' ||
-            selectedGameType !== 'Generic' ||
-            url === ''
-          }
+          onClick={loadInstanceFunc}
+          disabled={disableLoadButton}
         />
       </div>
-      {errorText && (
+      {urlErrorText && (
         <div
           className={`mt-1 whitespace-nowrap text-right font-sans text-small not-italic text-red
         `}
         >
-          {errorText || 'Unknown error'}
+          {urlErrorText || 'Unknown error'}
         </div>
       )}
     </button>
