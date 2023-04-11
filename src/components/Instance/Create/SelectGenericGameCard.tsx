@@ -9,7 +9,6 @@ import React, {
 import clsx from 'clsx';
 import { Game } from 'bindings/Game';
 import Button from 'components/Atoms/Button';
-import { GenericHandlerGameType } from '../InstanceCreateForm';
 import { GameInstanceContext } from 'data/GameInstanceContext';
 const SelectGenericGameCard = ({
   title,
@@ -47,21 +46,6 @@ const SelectGenericGameCard = ({
       : 'Load Instance'
     : 'Load Instance';
 
-  const handleKeyPress = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' && !disableLoadButton) {
-      loadInstanceFunc();
-    }
-  };
-
-  const isValidUrl = (url: string) => {
-    try {
-      new URL(url);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  };
-
   const [urlErrorText, setUrlErrorText] = useState('');
   const disableLoadButton = useMemo(() => {
     return (
@@ -83,6 +67,21 @@ const SelectGenericGameCard = ({
     }
     setUrlErrorText('');
     setGenericFetchReady(true);
+  };
+
+  const handleKeyPress = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !disableLoadButton) {
+      loadInstanceFunc();
+    }
+  };
+
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url);
+      return true;
+    } catch (_) {
+      return false;
+    }
   };
 
   return (
@@ -110,7 +109,9 @@ const SelectGenericGameCard = ({
       <div className="flex w-full items-center gap-3">
         <input
           className={`input-shape input-background input-outlines input-text-style h-full w-[70%] ${
-            urlErrorText ? 'input-border-error' : 'input-border-normal'
+            urlErrorText && selectedGameType === 'Generic'
+              ? 'input-border-error'
+              : 'input-border-normal'
           }`}
           onChange={(e) => {
             if (selectedGameType !== 'Generic') setGameType('Generic');
@@ -132,7 +133,7 @@ const SelectGenericGameCard = ({
           disabled={disableLoadButton}
         />
       </div>
-      {urlErrorText && (
+      {urlErrorText && selectedGameType === 'Generic' && (
         <div
           className={`mt-1 whitespace-nowrap text-right font-sans text-small not-italic text-red
         `}
