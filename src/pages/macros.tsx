@@ -120,6 +120,7 @@ const Macros = () => {
     MacrosPage,
     { rows: TableRow[]; columns: TableColumn[]; menuOptions?: ButtonMenuConfig }
   > = useMemo(() => {
+    console.log('refresh');
     return {
       'All Macros': {
         rows: macros,
@@ -148,7 +149,6 @@ const Macros = () => {
                   []
                 );
                 fetchTasks(selectedInstance.uuid);
-                fetchHistory(selectedInstance.uuid);
               },
             },
           ],
@@ -189,11 +189,16 @@ const Macros = () => {
                   selectedInstance.uuid,
                   row.pid as string
                 );
-                console.log('hey');
-                console.log(tasks.filter((task) => task.id !== row.id));
-                setTasks(tasks.filter((task) => task.id !== row.id));
-                fetchTasks(selectedInstance.uuid);
-                fetchHistory(selectedInstance.uuid);
+                console.log(row);
+                setTasks(tasks.filter((task) => task.id !== row.id)); //rather than refetching, we just update the display
+                const newHistory = {
+                  id: row.id,
+                  name: row.name,
+                  creation_time: row.creation_time?.toString(),
+                  finished: Math.floor(Date.now() / 1000).toString(), //unix time in seconds
+                  process_id: row.pid,
+                };
+                setHistory([newHistory, ...history]);
               },
             },
           ],
