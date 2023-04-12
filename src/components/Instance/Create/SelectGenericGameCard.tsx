@@ -10,6 +10,8 @@ import clsx from 'clsx';
 import { Game } from 'bindings/Game';
 import Button from 'components/Atoms/Button';
 import { GameInstanceContext } from 'data/GameInstanceContext';
+import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 const SelectGenericGameCard = ({
   title,
   description,
@@ -97,6 +99,20 @@ const SelectGenericGameCard = ({
       )}
       onClick={onClick}
     >
+      <div className="absolute top-2 right-2">
+        <button
+          type="button"
+          onClick={() => {
+            window.open(
+              'https://github.com/Lodestone-Team/lodestone/wiki/Lodestone-Atom',
+              '_blank'
+            );
+          }}
+          className="w-6 rounded-full hover:text-white/50 focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50"
+        >
+          <FontAwesomeIcon icon={faCircleInfo} />
+        </button>
+      </div>
       <div className="relative">
         <GameIcon game_type={game_type} className="absolute h-6 w-6" />
         <div className="ml-8 text-h3 font-mediumbold leading-6 text-gray-300">
@@ -127,6 +143,7 @@ const SelectGenericGameCard = ({
           onKeyDown={handleKeyPress}
         />
         <Button
+          type="button"
           className="h-full"
           label={buttonStatus}
           onClick={loadInstanceFunc}

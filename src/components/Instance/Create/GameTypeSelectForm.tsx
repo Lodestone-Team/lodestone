@@ -36,8 +36,8 @@ export default function GameTypeSelectForm({
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
         <SelectGenericGameCard
           key={'Generic'}
-          title={'Generic Instance'}
-          description={'Enter the URL for your instance below:'}
+          title={'Lodestone Atom'}
+          description={'Enter the URL to the Lodestone Atom below:'}
           game_type={{
             type: 'Generic',
             game_name: 'Generic',
