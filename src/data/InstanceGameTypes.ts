@@ -35,6 +35,6 @@ export const SetupGenericInstanceManifest = (
       );
       return response.data;
     },
-    { enabled: url_is_ready, cacheTime: 0 }
+    { enabled: url_is_ready, cacheTime: 0, retry: false }
   );
 };
