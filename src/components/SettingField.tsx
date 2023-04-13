@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
 import ToggleBox from './Atoms/Config/ToggleBox';
-import { ConfigurableValue } from './Instance/Create/form';
+import { ConfigurableValue } from 'bindings/ConfigurableValue';
 import { AxiosError } from 'axios';
 import { toast } from 'react-toastify';
 import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';

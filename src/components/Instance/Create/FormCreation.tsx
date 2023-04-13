@@ -1,9 +1,11 @@
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
 import FormComboField from './SetupFormFields/FormComboField';
-import { SectionManifest, SettingManifest } from './form';
 import { toast } from 'react-toastify';
-export const createForm = (section: SectionManifest) => {
+import { FormPage } from '../InstanceCreateForm';
+import { SettingManifest } from 'bindings/SettingManifest';
+
+export const createForm = (page: FormPage) => {
   const createField = (setting: SettingManifest, index: number) => {
     switch (setting.value_type.type) {
       case 'String':
@@ -67,16 +69,29 @@ export const createForm = (section: SectionManifest) => {
   return (
     <>
       <div className="text-left text-h2 font-extrabold leading-7 tracking-medium text-white">
-        {section.name}
+        {page.name}
       </div>
       <div className="text-left text-medium font-mediumbold italic leading-4 text-white/50">
-        {section.description}
+        {page.description}
       </div>
-      <div className="mt-9 flex flex-col rounded-md border border-gray-faded/30 text-left child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-        {Object.keys(section['settings']).map((field: string, i: number) =>
-          createField(section['settings'][field], i)
-        )}
-      </div>
+
+      {Object.keys(page['page']['setting_sections']).map(
+        (section: string, i: number) => (
+          <div
+            key={i}
+            className="mt-9 flex flex-col rounded-md border border-gray-faded/30 text-left child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0"
+          >
+            {Object.keys(
+              page['page']['setting_sections'][section]['settings']
+            ).map((field: string, i: number) => {
+              return createField(
+                page['page']['setting_sections'][section]['settings'][field],
+                i
+              );
+            })}
+          </div>
+        )
+      )}
     </>
   );
 };
