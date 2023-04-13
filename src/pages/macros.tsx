@@ -16,17 +16,11 @@ import {
   killTask,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
-import { Fragment, useContext, useEffect, useState, useMemo } from 'react';
-import axios from 'axios';
+import { useContext, useEffect, useState, useMemo } from 'react';
 import { MacroEntry } from 'bindings/MacroEntry';
-import { TaskEntry } from 'bindings/TaskEntry';
-import { HistoryEntry } from 'bindings/HistoryEntry';
-import Button from 'components/Atoms/Button';
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
-import MacroCreateForm from 'components/DashboardLayout/MacroCreateForm';
-import { Transition, Dialog } from '@headlessui/react';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
@@ -51,18 +45,35 @@ const Macros = () => {
   // };
   // const [showCreateMacro, setShowCreateMacro] = useState(false);
 
+  const unixToFormattedTime = (unix: string | undefined) => {
+    if (!unix) return 'N/A';
+    const date = new Date(parseInt(unix) * 1000);
+    return `${date
+      .toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+      .replace(/,/, '')} at ${date.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })}`;
+  };
+
   const queryClient = useQueryClient();
   console.log(selectedInstance);
 
   const fetchMacros = async (instanceUuid: string) => {
     const response: MacroEntry[] = await getMacros(instanceUuid);
+    console.log(response);
     setMacros(
       response.map(
         (macro, i) =>
           ({
             id: i + 1,
             name: macro.name,
-            last_run: macro.last_run?.toString() ?? 'Never',
+            last_run: unixToFormattedTime(macro.last_run?.toString()),
             path: macro.path,
           } as TableRow)
       )
@@ -71,14 +82,13 @@ const Macros = () => {
 
   const fetchTasks = async (instanceUuid: string) => {
     const response = await getTasks(instanceUuid);
-    console.log(response);
     setTasks(
       response.map(
         (task, i) =>
           ({
             id: i + 1,
             name: task.name,
-            creation_time: task.creation_time.toString(),
+            creation_time: unixToFormattedTime(task.creation_time.toString()),
             pid: task.pid,
           } as TableRow)
       )
@@ -93,8 +103,10 @@ const Macros = () => {
           ({
             id: i + 1,
             name: entry.task.name,
-            creation_time: entry.task.creation_time.toString(),
-            finished: entry.exit_status.time.toString(),
+            creation_time: unixToFormattedTime(
+              entry.task.creation_time.toString()
+            ),
+            finished: unixToFormattedTime(entry.exit_status.time.toString()),
             process_id: entry.task.pid,
           } as TableRow)
       )
@@ -120,7 +132,6 @@ const Macros = () => {
     MacrosPage,
     { rows: TableRow[]; columns: TableColumn[]; menuOptions?: ButtonMenuConfig }
   > = useMemo(() => {
-    console.log('refresh');
     return {
       'All Macros': {
         rows: macros,
@@ -148,6 +159,17 @@ const Macros = () => {
                   row.name as string,
                   []
                 );
+                const newMacros = macros.map((macro) => {
+                  if (macro.name !== row.name) {
+                    return macro;
+                  }
+                  const newMacro = { ...macro };
+                  newMacro.last_run = unixToFormattedTime(
+                    Math.floor(Date.now() / 1000).toString()
+                  );
+                  return newMacro;
+                });
+                setMacros(newMacros);
                 fetchTasks(selectedInstance.uuid);
               },
             },
@@ -194,8 +216,12 @@ const Macros = () => {
                 const newHistory = {
                   id: row.id,
                   name: row.name,
-                  creation_time: row.creation_time?.toString(),
-                  finished: Math.floor(Date.now() / 1000).toString(), //unix time in seconds
+                  creation_time: unixToFormattedTime(
+                    row.creation_time?.toString()
+                  ),
+                  finished: unixToFormattedTime(
+                    Math.floor(Date.now() / 1000).toString()
+                  ), //unix time in seconds
                   process_id: row.pid,
                 };
                 setHistory([newHistory, ...history]);
@@ -298,7 +324,7 @@ const Macros = () => {
           rows={MacrosPageMap[selectedPage].rows}
           columns={MacrosPageMap[selectedPage].columns}
           menuOptions={MacrosPageMap[selectedPage].menuOptions}
-          alignment="left"
+          alignment="even"
         />
       </div>
     </div>
