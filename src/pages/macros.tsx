@@ -30,21 +30,6 @@ const Macros = () => {
   const [tasks, setTasks] = useState<TableRow[]>([]);
   const [history, setHistory] = useState<TableRow[]>([]);
 
-  console.log(macros);
-  // const createNewMacro = async (macro_name: string, macro_args: string[]) => {
-  //   if (!selectedInstance) {
-  //     toast.error('Error creating new macro: No instance selected');
-  //     return;
-  //   }
-  //   await createTask(
-  //     queryClient,
-  //     selectedInstance.uuid,
-  //     macro_name,
-  //     macro_args
-  //   );
-  // };
-  // const [showCreateMacro, setShowCreateMacro] = useState(false);
-
   const unixToFormattedTime = (unix: string | undefined) => {
     if (!unix) return 'N/A';
     const date = new Date(parseInt(unix) * 1000);
@@ -62,11 +47,9 @@ const Macros = () => {
   };
 
   const queryClient = useQueryClient();
-  console.log(selectedInstance);
 
   const fetchMacros = async (instanceUuid: string) => {
     const response: MacroEntry[] = await getMacros(instanceUuid);
-    console.log(response);
     setMacros(
       response.map(
         (macro, i) =>
@@ -211,14 +194,11 @@ const Macros = () => {
                   selectedInstance.uuid,
                   row.pid as string
                 );
-                console.log(row);
                 setTasks(tasks.filter((task) => task.id !== row.id)); //rather than refetching, we just update the display
                 const newHistory = {
                   id: row.id,
                   name: row.name,
-                  creation_time: unixToFormattedTime(
-                    row.creation_time?.toString()
-                  ),
+                  creation_time: row.creation_time,
                   finished: unixToFormattedTime(
                     Math.floor(Date.now() / 1000).toString()
                   ), //unix time in seconds
@@ -265,7 +245,8 @@ const Macros = () => {
               className={clsx(
                 selectedPage === page &&
                   'border-b-2 border-blue-200 text-blue-200',
-                'mr-4 font-mediumbold hover:cursor-pointer'
+                'mr-4 font-mediumbold hover:cursor-pointer',
+                'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
               )}
               onClick={() => setSelectedPage(page)}
             >
@@ -281,33 +262,7 @@ const Macros = () => {
   };
 
   return (
-    // used to possibly center the content
     <div className="relative">
-      {/* <Transition
-        appear
-        show={showCreateMacro}
-        as={Fragment}
-        enter="ease-out duration-200"
-        enterFrom="opacity-0"
-        enterTo="opacity-100"
-        leave="ease-in duration-150"
-        leaveFrom="opacity-100"
-        leaveTo="opacity-0"
-      >
-        <Dialog onClose={() => setShowCreateMacro(false)} className="z-10">
-          <div className="fixed inset-0 bg-gray-900/60" />
-          <div className="fixed inset-0">
-            <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
-              <Dialog.Panel>
-                <MacroCreateForm
-                  onComplete={() => setShowCreateMacro(false)}
-                  createNewMacro={createNewMacro}
-                />
-              </Dialog.Panel>
-            </div>
-          </div>
-        </Dialog>
-      </Transition> */}
       {/* <div className="absolute right-0 top-[-5rem]">
         <Button
           label="Create Macro"
