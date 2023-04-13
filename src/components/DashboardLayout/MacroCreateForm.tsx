@@ -1,16 +1,11 @@
+//NOT USED CURRENTLY, FOR FUTURE USE
+
 import Button from 'components/Atoms/Button';
 import { Field, Form, Formik, FormikHelpers, FormikProps } from 'formik';
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef } from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
-import { axiosWrapper } from 'utils/util';
-
-import { SetupInstanceManifest } from 'data/InstanceGameTypes';
-import { HandlerGameType } from 'bindings/HandlerGameType';
-import Spinner from 'components/DashboardLayout/Spinner';
-import clsx from 'clsx';
 import * as yup from 'yup';
-import { ConfigurableValue } from 'components/Instance/Create/form';
 
 export default function CreateMacro({
   onComplete,
