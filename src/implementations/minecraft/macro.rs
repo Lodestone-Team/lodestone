@@ -261,6 +261,7 @@ impl TMacro for MinecraftInstance {
                 ret.push(task_entry.clone());
             }
         }
+        ret.reverse();
         Ok(ret)
     }
 
@@ -318,6 +319,10 @@ impl TMacro for MinecraftInstance {
             .lock()
             .await
             .insert(pid, entry.clone());
+        self.macro_name_to_last_run
+            .lock()
+            .await
+            .insert(name.to_string(), chrono::Utc::now().timestamp());
 
         Ok(entry)
     }
