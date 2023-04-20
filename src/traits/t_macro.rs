@@ -47,6 +47,16 @@ pub enum ExitStatus {
 }
 
 impl ExitStatus {
+    pub fn time(&self) -> i64 {
+        match self {
+            ExitStatus::Success { time } => *time,
+            ExitStatus::Killed { time } => *time,
+            ExitStatus::Error { time, .. } => *time,
+        }
+    }
+}
+
+impl ExitStatus {
     pub fn is_success(&self) -> bool {
         matches!(self, ExitStatus::Success { .. })
     }

@@ -275,6 +275,7 @@ impl TMacro for MinecraftInstance {
                 });
             }
         }
+        ret.sort_by(|a, b| a.exit_status.time().cmp(&b.exit_status.time()));
         Ok(ret)
     }
 
