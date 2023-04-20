@@ -261,7 +261,7 @@ impl TMacro for MinecraftInstance {
                 ret.push(task_entry.clone());
             }
         }
-        ret.reverse();
+        ret.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
         Ok(ret)
     }
 
