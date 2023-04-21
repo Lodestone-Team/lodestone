@@ -1,12 +1,6 @@
-import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle } from 'usehooks-ts';
 import { Table, TableColumn, TableRow } from 'components/Table';
-import {
-  faEdit,
-  faPlay,
-  faPlayCircle,
-  faSkull,
-  faTrashCan,
-} from '@fortawesome/free-solid-svg-icons';
+import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
   getMacros,
