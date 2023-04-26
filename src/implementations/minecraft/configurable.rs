@@ -1991,7 +1991,7 @@ mod test {
     #[test]
     fn test_exhausiveness() {
         let properties_file = std::io::BufReader::new(
-            std::fs::File::open("src/testdata/sample_server.properties")
+            std::fs::File::open("testdata/sample_server.properties")
                 .expect("Failed to open server.properties"),
         );
         let mut config_section = SectionManifest::new(
