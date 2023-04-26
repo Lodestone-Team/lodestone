@@ -10,6 +10,7 @@ use std::{
 };
 
 use color_eyre::eyre::Context;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{
@@ -206,19 +207,19 @@ impl ModuleLoader for TypescriptModuleLoader {
 
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
-    macro_process_table: Arc<Mutex<HashMap<MacroPID, deno_core::v8::IsolateHandle>>>,
-    exit_status_table: Arc<Mutex<HashMap<MacroPID, ExitStatus>>>,
+    macro_process_table: Arc<DashMap<MacroPID, deno_core::v8::IsolateHandle>>,
+    exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
     channel_table:
-        Arc<Mutex<HashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>>,
+        Arc<DashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
 }
 
 impl MacroExecutor {
     pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
-        let process_table = Arc::new(Mutex::new(HashMap::new()));
+        let process_table = Arc::new(DashMap::new());
         let process_id = Arc::new(AtomicUsize::new(0));
-        let exit_status_table = Arc::new(Mutex::new(HashMap::new()));
+        let exit_status_table = Arc::new(DashMap::new());
 
         // spawn a task to listen for exit events and update the exit status table
         tokio::task::spawn({
@@ -233,7 +234,6 @@ impl MacroExecutor {
                             ..
                         }) = event.try_macro_event()
                         {
-                            let mut exit_status_table = exit_status_table.lock().await;
                             exit_status_table.insert(*macro_pid, exit_status.clone());
                         }
                     }
@@ -244,7 +244,7 @@ impl MacroExecutor {
         MacroExecutor {
             macro_process_table: process_table,
             event_broadcaster,
-            channel_table: Arc::new(Mutex::new(HashMap::new())),
+            channel_table: Arc::new(DashMap::new()),
             exit_status_table,
             next_process_id: process_id,
         }
@@ -281,9 +281,9 @@ impl MacroExecutor {
             move || {
                 let local = LocalSet::new();
                 local.spawn_local(async move {
-                    let mut runtime = main_worker_generator.generate(args, caused_by);
+                    let mut main_worker = main_worker_generator.generate(args, caused_by);
 
-                    let isolate_handle = runtime.js_runtime.v8_isolate().thread_safe_handle();
+                    let isolate_handle = main_worker.js_runtime.v8_isolate().thread_safe_handle();
 
                     let main_module = match deno_core::resolve_path(
                         &path_to_main_module.to_string_lossy(),
@@ -295,7 +295,7 @@ impl MacroExecutor {
                             return;
                         }
                     };
-                    process_table.lock().await.insert(pid, isolate_handle);
+                    process_table.insert(pid, isolate_handle);
 
                     event_broadcaster.send(
                         MacroEvent {
@@ -306,7 +306,7 @@ impl MacroExecutor {
                         .into(),
                     );
 
-                    if let Err(e) = runtime.execute_main_module(&main_module).await {
+                    if let Err(e) = main_worker.execute_main_module(&main_module).await {
                         if e.to_string() == "Uncaught Error: execution terminated" {
                             warn!("User terminated macro execution");
                             event_broadcaster.send(
@@ -343,7 +343,7 @@ impl MacroExecutor {
 
                     let event_broadcaster = event_broadcaster.clone();
 
-                    if let Err(e) = runtime.run_event_loop(false).await {
+                    if let Err(e) = main_worker.run_event_loop(false).await {
                         if e.to_string() == "Uncaught Error: execution terminated" {
                             warn!("User terminated macro execution");
                             event_broadcaster.send(
@@ -432,10 +432,8 @@ impl MacroExecutor {
     }
 
     /// abort a macro execution
-    pub async fn abort_macro(&self, pid: MacroPID) -> Result<(), Error> {
+    pub fn abort_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_process_table
-            .lock()
-            .await
             .get(&pid)
             .ok_or_else(|| Error {
                 kind: ErrorKind::NotFound,
@@ -490,8 +488,7 @@ impl MacroExecutor {
     }
 
     pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
-        let table = self.exit_status_table.lock().await;
-        table.get(&pid).cloned()
+        self.exit_status_table.get(&pid).map(|v| v.clone())
     }
 }
 
@@ -560,7 +557,11 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            console.log(Deno[Deno.internal].core)
+            let a = Deno[Deno.internal].core;
+            // assert a is not undefined
+            if (a === undefined) {
+                throw new Error("Deno.core is undefined");
+            }
             "#,
         )
         .unwrap();

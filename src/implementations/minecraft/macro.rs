@@ -118,17 +118,7 @@ async fn on_event(
     todo!()
 }
 
-pub fn resolve_macro_invocation(
-    path_to_macro: &Path,
-    macro_name: &str,
-    is_in_game: bool,
-) -> Option<PathBuf> {
-    let path_to_macro = if is_in_game {
-        path_to_macro.join("in_game")
-    } else {
-        path_to_macro.to_owned()
-    };
-
+pub fn resolve_macro_invocation(path_to_macro: &Path, macro_name: &str) -> Option<PathBuf> {
     let ts_macro = path_to_macro.join(macro_name).with_extension("ts");
     let js_macro = path_to_macro.join(macro_name).with_extension("js");
 
@@ -147,9 +137,7 @@ pub fn resolve_macro_invocation(
         } else if index_js.exists() {
             return Some(index_js);
         }
-    } else if !is_in_game {
-        return resolve_macro_invocation(&path_to_macro.join("in_game"), macro_name, true);
-    };
+    }
     None
 }
 
@@ -294,9 +282,8 @@ impl TMacro for MinecraftInstance {
         name: &str,
         args: Vec<String>,
         caused_by: CausedBy,
-        is_in_game: bool,
     ) -> Result<TaskEntry, Error> {
-        let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name, is_in_game)
+        let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
 
         let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
@@ -329,7 +316,7 @@ impl TMacro for MinecraftInstance {
     }
 
     async fn kill_macro(&mut self, pid: MacroPID) -> Result<(), Error> {
-        self.macro_executor.abort_macro(pid).await?;
+        self.macro_executor.abort_macro(pid)?;
         Ok(())
     }
 }

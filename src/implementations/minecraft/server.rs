@@ -53,7 +53,7 @@ impl TServer for MinecraftInstance {
             });
         }
 
-        let prelaunch = resolve_macro_invocation(&self.path_to_instance, "prelaunch", false);
+        let prelaunch = resolve_macro_invocation(&self.path_to_instance, "prelaunch");
         if let Some(prelaunch) = prelaunch {
             // read prelaunch script
             let content = std::fs::read_to_string(&prelaunch)
@@ -102,7 +102,7 @@ impl TServer for MinecraftInstance {
                             "[{}] prelaunch script timed out, killing it",
                             config.name.clone()
                         );
-                        let _ = self.macro_executor.abort_macro(pid).await;
+                        let _ = self.macro_executor.abort_macro(pid);
                     }
                 } else {
                     info!(

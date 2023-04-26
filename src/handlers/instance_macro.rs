@@ -86,7 +86,6 @@ pub async fn run_macro(
                 user_id: requester.uid,
                 user_name: requester.username,
             },
-            false,
         )
         .await?;
     Ok(Json(()))
