@@ -2731,6 +2731,7 @@ dependencies = [
  "base64 0.20.0",
  "chrono",
  "color-eyre",
+ "dashmap",
  "deno_ast",
  "deno_core",
  "deno_runtime",
