@@ -5,7 +5,7 @@
 
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
-const core = Deno[Deno.internal].core;
+const { core } = Deno;
 const { ops } = core;
 import { ProcedureCallResultIR } from "./bindings/ProcedureCallResultIR.ts";
 import { ProcedureCall } from "./bindings/ProcedureCall.ts";

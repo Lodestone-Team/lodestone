@@ -5,7 +5,28 @@ import { SetupManifest } from "../libs/bindings/SetupManifest.ts";
 
 
 export async function setupManifest(): Promise<SetupManifest> {
-    throw new Error("Not implemented");
+    return {
+        setting_sections: {
+            "test": {
+                section_id: "section_id1",
+                name: "section_name1",
+                description: "section_description1",
+                settings: {
+                    "setting_id1": {
+                        setting_id: "setting_id1",
+                        name: "setting_name1",
+                        description: "setting_description1",
+                        value: null,
+                        value_type: { type: "String", regex: null },
+                        default_value: null,
+                        is_secret: false,
+                        is_required: true,
+                        is_mutable: true,
+                    }
+                },
+            }
+        }
+    };
 }
 
 // deno-lint-ignore require-await

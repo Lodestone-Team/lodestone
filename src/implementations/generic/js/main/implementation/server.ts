@@ -1,12 +1,7 @@
 import { CausedBy } from "../libs/bindings/CausedBy.ts";
 import { InstanceState } from "../libs/bindings/InstanceState.ts";
 import { PerformanceReport } from "../libs/bindings/PerformanceReport.ts";
-import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
-import { emit_console_out } from "../libs/events.ts";
 
-let process: Deno.Process<
-  { cmd: [string, string]; stdout: "piped"; stdin: "piped"; stderr: "piped" }
->;
 
 /**
  * @param {CausedBy} caused_by - The source that requested this instance to start
@@ -21,23 +16,7 @@ let process: Deno.Process<
  */
 // deno-lint-ignore require-await
 export async function startInstance(caused_by: CausedBy, block: boolean) {
-  // open /home/peter/dev/backend/generic_instance_test/launch.sh with sh and get output
-  process = Deno.run({
-    cmd: [
-      "sh",
-      "/home/peter/dev/backend/generic_instance_test/launch.sh",
-    ],
-    stdout: "piped",
-    stdin: "piped",
-    stderr: "piped",
-  });
-  // asynchronously read output line by line and print it
-
-  (async () => {
-    for await (const line of readLines(process.stdout)) {
-      emit_console_out(line);
-    }
-  })();
+  // implementation below
 }
 
 /**
