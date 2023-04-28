@@ -15,15 +15,14 @@ use tracing::info;
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
-use crate::events::{CausedBy, Event};
+use crate::events::CausedBy;
 
 use crate::implementations::generic::player::GenericPlayer;
-use crate::implementations::generic::GenericInstance;
 
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, SetupManifest, SetupValue,
 };
-use crate::traits::t_configurable::{Game, TConfigurable};
+use crate::traits::t_configurable::Game;
 use crate::traits::t_player::Player;
 use crate::traits::t_server::State;
 use crate::types::DotLodestoneConfig;
@@ -373,23 +372,6 @@ fn emit_result(
         .procedure_result_tx
         .send(result)
         .map_err(|_| anyhow!("ProcedureBridge::emit_result: procedure_result_tx closed"))?;
-    Ok(())
-}
-
-#[op]
-async fn emit_console_out(state: Rc<RefCell<OpState>>, out: String) -> Result<(), anyhow::Error> {
-    let instance = state.borrow().borrow::<GenericInstance>().clone();
-    instance
-        .event_broadcaster
-        .as_ref()
-        .send(Event::new_instance_output(
-            instance.dot_lodestone_config.uuid().clone(),
-            instance.name().await,
-            out,
-        ))
-        .map_err(|_| {
-            anyhow!("ProcedureBridge::emit_console_out: global_event_broadcast_tx closed")
-        })?;
     Ok(())
 }
 

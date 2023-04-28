@@ -73,6 +73,7 @@ impl TServer for MinecraftInstance {
                     Vec::new(),
                     CausedBy::System,
                     Box::new(main_worker_generator),
+                    None,
                     Some(self.uuid.clone()),
                     if is_long_running {
                         None

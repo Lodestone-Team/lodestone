@@ -12,7 +12,7 @@ use crate::{
     error::Error,
     event_broadcaster::EventBroadcaster,
     events::CausedBy,
-    macro_executor::{self, MacroExecutor, MainWorkerGenerator},
+    macro_executor::{self, MacroExecutor, WorkerOptionGenerator},
     traits::{
         t_configurable::{
             manifest::{SetupManifest, SetupValue},
@@ -46,22 +46,8 @@ struct InitWorkerGenerator {
     pub bridge: bridge::procedure_call::ProcedureBridge,
 }
 
-impl MainWorkerGenerator for InitWorkerGenerator {
-    fn generate(
-        &self,
-        args: Vec<String>,
-        _caused_by: CausedBy,
-    ) -> deno_runtime::worker::MainWorker {
-        let bootstrap_options = deno_runtime::BootstrapOptions {
-            args,
-            ..Default::default()
-        };
-
-        let mut worker_options = deno_runtime::worker::WorkerOptions {
-            bootstrap: bootstrap_options,
-            ..Default::default()
-        };
-
+impl WorkerOptionGenerator for InitWorkerGenerator {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions {
         let ext = deno_core::Extension::builder("generic_deno_extension_builder")
             .ops(vec![
                 on_procedure::decl(),
@@ -76,18 +62,11 @@ impl MainWorkerGenerator for InitWorkerGenerator {
             })
             .force_op_registration()
             .build();
-        worker_options.extensions.push(ext);
-        worker_options.module_loader = Rc::new(macro_executor::TypescriptModuleLoader::default());
-
-        let main_module = deno_core::resolve_path(".", &std::env::current_dir().unwrap())
-            .expect("Failed to resolve path");
-        // todo(CheatCod3) : limit the permissions
-        let permissions = deno_runtime::permissions::Permissions::allow_all();
-        deno_runtime::worker::MainWorker::bootstrap_from_options(
-            main_module,
-            deno_runtime::permissions::PermissionsContainer::new(permissions),
-            worker_options,
-        )
+        deno_runtime::worker::WorkerOptions {
+            extensions: vec![ext],
+            module_loader: Rc::new(macro_executor::TypescriptModuleLoader::default()),
+            ..Default::default()
+        }
     }
 }
 
@@ -153,6 +132,7 @@ impl GenericInstance {
                     procedure_bridge.clone(),
                     __self.clone(),
                 )),
+                None,
                 Some(dot_lodestone_config.uuid().clone()),
                 None,
             )
@@ -196,6 +176,7 @@ impl GenericInstance {
                 Box::new(InitWorkerGenerator {
                     bridge: procedure_bridge.clone(),
                 }),
+                None,
                 None,
                 None,
             )

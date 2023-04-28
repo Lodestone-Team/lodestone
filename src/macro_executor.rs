@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt::{Debug, Display},
     path::PathBuf,
     sync::{
@@ -11,17 +10,19 @@ use std::{
 
 use color_eyre::eyre::Context;
 use dashmap::DashMap;
+use deno_runtime::{permissions::Permissions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{
     runtime::Builder,
-    sync::{mpsc, oneshot, Mutex},
+    sync::{mpsc, oneshot},
     task::{JoinHandle, LocalSet},
 };
 use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
 use crate::{
+    deno_ops::events::register_all_event_ops,
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
@@ -48,8 +49,8 @@ use deno_core::{resolve_import, ModuleCode};
 
 use futures::FutureExt;
 
-pub trait MainWorkerGenerator: Send + Sync {
-    fn generate(&self, args: Vec<String>, caused_by: CausedBy) -> deno_runtime::worker::MainWorker;
+pub trait WorkerOptionGenerator: Send + Sync {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions;
 }
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
@@ -263,8 +264,9 @@ impl MacroExecutor {
         &self,
         path_to_main_module: PathBuf,
         args: Vec<String>,
-        caused_by: CausedBy,
-        main_worker_generator: Box<dyn MainWorkerGenerator>,
+        _caused_by: CausedBy,
+        worker_options_generator: Box<dyn WorkerOptionGenerator>,
+        permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
         timeout: Option<Duration>,
     ) -> Result<(MacroPID, JoinHandle<Result<(), Error>>), Error> {
@@ -273,7 +275,11 @@ impl MacroExecutor {
             let __self = self.clone();
             async move { __self.wait_with_timeout(pid, timeout).await }
         });
-
+        let main_module = deno_core::resolve_path(
+            ".",
+            &std::env::current_dir().context("Failed to get current directory")?,
+        )
+        .context("Failed to resolve path")?;
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
@@ -281,9 +287,21 @@ impl MacroExecutor {
             move || {
                 let local = LocalSet::new();
                 local.spawn_local(async move {
-                    let mut main_worker = main_worker_generator.generate(args, caused_by);
+                    let mut worker_option = worker_options_generator.generate();
+                    register_all_event_ops(&mut worker_option, event_broadcaster.clone());
+                    worker_option.bootstrap.args = args;
+
+                    let mut main_worker = deno_runtime::worker::MainWorker::from_options(
+                        main_module,
+                        deno_runtime::permissions::PermissionsContainer::new(
+                            permissions.unwrap_or_else(Permissions::allow_all),
+                        ),
+                        worker_option,
+                    );
 
                     let isolate_handle = main_worker.js_runtime.v8_isolate().thread_safe_handle();
+
+                    process_table.insert(pid, isolate_handle);
 
                     let main_module = match deno_core::resolve_path(
                         &path_to_main_module.to_string_lossy(),
@@ -295,7 +313,6 @@ impl MacroExecutor {
                             return;
                         }
                     };
-                    process_table.insert(pid, isolate_handle);
 
                     event_broadcaster.send(
                         MacroEvent {
@@ -494,49 +511,39 @@ impl MacroExecutor {
 
 #[cfg(test)]
 mod tests {
+
     use std::rc::Rc;
 
-    use super::{MainWorkerGenerator, TypescriptModuleLoader};
+    use deno_core::op;
+
+    use super::{TypescriptModuleLoader, WorkerOptionGenerator};
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
 
-    use deno_runtime::permissions::{Permissions, PermissionsContainer};
     struct BasicMainWorkerGenerator;
 
-    impl MainWorkerGenerator for BasicMainWorkerGenerator {
-        fn generate(
-            &self,
-            args: Vec<String>,
-            caused_by: CausedBy,
-        ) -> deno_runtime::worker::MainWorker {
-            let bootstrap_options = deno_runtime::BootstrapOptions {
-                args,
+    #[op]
+    fn hello_world() -> String {
+        "Hello World".to_string()
+    }
+
+    #[op]
+    async fn async_hello_world() -> String {
+        "async Hello World".to_string()
+    }
+
+    impl WorkerOptionGenerator for BasicMainWorkerGenerator {
+        fn generate(&self) -> deno_runtime::worker::WorkerOptions {
+            let ext = deno_core::Extension::builder("generic_deno_extension_builder")
+                .ops(vec![hello_world::decl(), async_hello_world::decl()])
+                .force_op_registration()
+                .build();
+            deno_runtime::worker::WorkerOptions {
+                module_loader: Rc::new(TypescriptModuleLoader::default()),
+                extensions: vec![ext],
                 ..Default::default()
-            };
-
-            let mut worker_options = deno_runtime::worker::WorkerOptions {
-                bootstrap: bootstrap_options,
-                ..Default::default()
-            };
-
-            worker_options.module_loader = Rc::new(TypescriptModuleLoader::default());
-            let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-                deno_core::resolve_path(".", &std::env::current_dir().unwrap()).unwrap(),
-                PermissionsContainer::new(Permissions::allow_all()),
-                worker_options,
-            );
-
-            worker
-                .execute_script(
-                    "[dep_inject]",
-                    format!(
-                        "const caused_by = {};",
-                        serde_json::to_string(&caused_by).unwrap()
-                    ),
-                )
-                .unwrap();
-            worker
+            }
         }
     }
     #[tokio::test]
@@ -557,11 +564,10 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            let a = Deno[Deno.internal].core;
-            // assert a is not undefined
-            if (a === undefined) {
-                throw new Error("Deno.core is undefined");
-            }
+            const { core } = Deno;
+            const { ops } = core;
+            console.log(ops.hello_world())
+            console.log(await core.opAsync("async_hello_world"))
             "#,
         )
         .unwrap();
@@ -574,6 +580,7 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
+                None,
                 None,
                 None,
             )
@@ -612,6 +619,7 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
+                None,
                 None,
                 None,
             )

@@ -11,7 +11,7 @@ use deno_core::{anyhow, op, OpState};
 use crate::{
     error::Error,
     events::{CausedBy, EventInner},
-    macro_executor::{self, MacroPID, MainWorkerGenerator},
+    macro_executor::{self, MacroPID, WorkerOptionGenerator},
     traits::{
         t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
         t_server::TServer,
@@ -151,13 +151,8 @@ impl MinecraftMainWorkerGenerator {
     }
 }
 
-impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
-    fn generate(&self, args: Vec<String>, caused_by: CausedBy) -> deno_runtime::worker::MainWorker {
-        let bootstrap_options = deno_runtime::BootstrapOptions {
-            args,
-            ..Default::default()
-        };
-
+impl WorkerOptionGenerator for MinecraftMainWorkerGenerator {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions {
         let ext = deno_core::Extension::builder("minecraft_deno_extension_builder")
             .ops(vec![
                 send_stdin::decl(),
@@ -172,36 +167,11 @@ impl MainWorkerGenerator for MinecraftMainWorkerGenerator {
             })
             .force_op_registration()
             .build();
-        let worker_options = deno_runtime::worker::WorkerOptions {
-            bootstrap: bootstrap_options,
+        deno_runtime::worker::WorkerOptions {
             extensions: vec![ext],
             module_loader: Rc::new(macro_executor::TypescriptModuleLoader::default()),
             ..Default::default()
-        };
-
-        let main_module = deno_core::resolve_path(".", &std::env::current_dir().unwrap())
-            .expect("Failed to resolve path");
-        // todo(CheatCod3) : limit the permissions
-        let permissions = deno_runtime::permissions::Permissions::allow_all();
-        let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-            main_module,
-            deno_runtime::permissions::PermissionsContainer::new(permissions),
-            worker_options,
-        );
-        let js = include_str!("js_macro/runtime.js");
-        worker
-            .execute_script("[lodestone:runtime.js]", js)
-            .expect("Failed to execute runtime.js");
-        worker
-            .execute_script(
-                "[dep_inject]",
-                format!(
-                    "const caused_by = {};",
-                    serde_json::to_string(&caused_by).unwrap()
-                ),
-            )
-            .expect("Failed to inject executor");
-        worker
+        }
     }
 }
 
@@ -294,6 +264,7 @@ impl TMacro for MinecraftInstance {
                 args,
                 caused_by,
                 Box::new(main_worker_generator),
+                None,
                 Some(self.uuid.clone()),
                 None,
             )
