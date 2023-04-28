@@ -68,6 +68,7 @@ use util::list_dir;
 use uuid::Uuid;
 pub mod auth;
 pub mod db;
+mod deno_ops;
 pub mod error;
 mod event_broadcaster;
 mod events;
