@@ -26,7 +26,6 @@ import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import {
   chooseFiles,
-  getNonDuplicateFolderNameFromFileName,
   parentPath,
 } from 'utils/util';
 import {
@@ -210,18 +209,10 @@ export default function FileViewer() {
       return;
     }
 
-    const targetFileName = getNonDuplicateFolderNameFromFileName(
-      file.name,
-      directorySeparator,
-      fileList ?? []
-    );
-
-    const targetPath = `${path}${directorySeparator}${targetFileName}`;
-
     await unzipInstanceFile(
       instance.uuid,
       file,
-      targetPath,
+      path,
       queryClient,
       directorySeparator
     );
