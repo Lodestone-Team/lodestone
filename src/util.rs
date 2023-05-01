@@ -1,5 +1,6 @@
-use color_eyre::eyre::{eyre, Context};
+use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
@@ -134,7 +135,6 @@ pub async fn list_dir(
         move || {
             Ok(std::fs::read_dir(&path)
                 .context(format!("failed to read directory {}", path.display()))?
-                .into_iter()
                 .filter_map(|entry| entry.ok())
                 .filter(|entry| entry.file_type().is_ok())
                 .filter(|entry| match filter_file_or_dir {
@@ -152,37 +152,90 @@ pub async fn list_dir(
     ret
 }
 
+pub fn resolve_path_conflict(path: PathBuf, predicate: Option<&dyn Fn(&Path) -> bool>) -> PathBuf {
+    let predicate = predicate.unwrap_or(&Path::exists);
+    let name = path
+        .file_stem()
+        .unwrap_or(OsStr::new("unknown"))
+        .to_string_lossy()
+        .to_string();
+    let ext = path.extension().map(|s| s.to_os_string());
+
+    if !predicate(&path) {
+        return path;
+    }
+
+    for i in 1.. {
+        let mut tmp = path.clone();
+        let name_with_suffix = match ext {
+            Some(ref ext) => format!("{}_{}.{}", name, i, ext.to_string_lossy()),
+            None => format!("{}_{}", name, i),
+        };
+        tmp.set_file_name(&name_with_suffix);
+        if !predicate(&tmp) {
+            return tmp;
+        }
+    }
+
+    path // Unreachable code
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, TS)]
+#[ts(export)]
+pub enum UnzipOption {
+    /// Unzip to the same directory as the file
+    Normal,
+    /// Unzip to the same directory as the file while avoiding spillage
+    Smart,
+    /// Unzip to a folder with the same name as the file
+    ToDirectoryWithFileName,
+    /// Unzip to a custom folder
+    ToDir(PathBuf),
+}
+
 pub async fn unzip_file(
     file: impl AsRef<Path>,
-    dest: impl AsRef<Path>,
-    overwrite_old: bool,
+    unzip_option: UnzipOption,
 ) -> Result<HashSet<PathBuf>, Error> {
     let file = file.as_ref();
-    let dest = dest.as_ref();
+
+    if !file.exists() {
+        return Err(eyre!("File {} does not exist", file.display()).into());
+    }
 
     let file_extension = file
         .extension()
         .ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?;
-    if file_extension != "gz" && file_extension != "zip" && file_extension != "rar" {
+    if file_extension != "gz"
+        && file_extension != "tgz"
+        && file_extension != "zip"
+        && file_extension != "rar"
+    {
         return Err(eyre!("Unsupported extension for {}", file.display()).into());
     }
 
-    tokio::fs::create_dir_all(dest)
-        .await
-        .context(format!("Failed to create directory {}", dest.display()))?;
-
-    let dest_file_name = dest
-        .file_name()
-        .unwrap_or_else(|| std::ffi::OsStr::new(""))
-        .to_str()
-        .unwrap_or("");
-    let temp_dest_dir = tempdir::TempDir::new(dest_file_name).context(format!(
-        "Failed to create temporary directory for {}",
-        dest.display()
+    let parent = file.parent().context(format!(
+        "Failed to get parent directory of {}",
+        file.display()
     ))?;
+
+    let file_stem = file
+        .file_stem()
+        .context(format!("Failed to get file stem of {}", file.display()))?;
+
+    let mut dest = match unzip_option {
+        UnzipOption::Normal => parent.to_path_buf(),
+        // resolve the dest after we unzip the file to a temp dir
+        UnzipOption::Smart => Default::default(),
+        UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
+        UnzipOption::ToDir(ref d) => resolve_path_conflict(d.to_owned(), None),
+    };
+
+    let temp_dest_dir =
+        tempdir::TempDir::new("unzip_temp").context("Failed to create temporary directory for")?;
     let temp_dest = temp_dest_dir.path();
 
-    if file_extension == "gz" {
+    if file_extension == "gz" || file_extension == "tgz" {
         let tar_gz =
             std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
         let tar = GzDecoder::new(tar_gz);
@@ -221,34 +274,33 @@ pub async fn unzip_file(
 
     let mut ret: HashSet<PathBuf> = HashSet::new();
 
+    let temp_dir_content = list_dir(temp_dest, None).await?;
+
+    if let UnzipOption::Smart = unzip_option {
+        dest = if temp_dir_content.len() > 1 {
+            resolve_path_conflict(parent.join(file_stem), None)
+        } else {
+            parent.to_path_buf()
+        }
+    };
+
+    let dest = resolve_path_conflict(dest, None);
+
+    tokio::fs::create_dir_all(&dest)
+        .await
+        .context(format!("Failed to create directory {}", dest.display()))?;
+
     // Only loop through direct children
-    for temp_entry_path in list_dir(temp_dest, None).await?.iter() {
-        let mut entry_path = match temp_entry_path.strip_prefix(temp_dest) {
+    for temp_entry_path in temp_dir_content.iter() {
+        let entry_path = match temp_entry_path.strip_prefix(temp_dest) {
             Ok(p) => dest.join(p),
             Err(_) => continue,
         };
 
+        let entry_path = resolve_path_conflict(entry_path, None);
+
         if temp_entry_path.is_dir() {
             // Direct child is a directory
-            if !overwrite_old && entry_path.exists() {
-                let mut duplicate = 1;
-                let name = entry_path
-                    .file_name()
-                    .unwrap_or_else(|| std::ffi::OsStr::new(""))
-                    .to_os_string();
-
-                loop {
-                    let mut new_name = name.clone();
-                    new_name.push(format!("_{}", duplicate).as_str());
-                    entry_path.set_file_name(&new_name);
-
-                    if !entry_path.exists() {
-                        break;
-                    }
-                    duplicate += 1;
-                }
-            }
-
             tokio::fs::create_dir_all(&entry_path)
                 .await
                 .context(format!(
@@ -288,28 +340,6 @@ pub async fn unzip_file(
             }
         } else {
             // Direct child is a file
-            if !overwrite_old && entry_path.exists() {
-                let mut duplicate = 1;
-                let stem = entry_path
-                    .file_stem()
-                    .unwrap_or_else(|| std::ffi::OsStr::new(""))
-                    .to_os_string();
-                let extension = entry_path
-                    .extension()
-                    .unwrap_or_else(|| std::ffi::OsStr::new(""))
-                    .to_os_string();
-                loop {
-                    let mut name = stem.clone();
-                    name.push(format!("_{}", duplicate).as_str());
-                    entry_path.set_file_name(&name);
-                    entry_path.set_extension(&extension);
-
-                    if !entry_path.exists() {
-                        break;
-                    }
-                    duplicate += 1;
-                }
-            }
 
             // Copy direct child file
             tokio::fs::copy(&temp_entry_path, &entry_path)
@@ -517,7 +547,7 @@ pub fn format_byte(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::{download_file, unzip_file};
+    use crate::util::{resolve_path_conflict, unzip_file, UnzipOption};
     use std::collections::HashSet;
     use std::path::PathBuf;
     use tokio;
@@ -526,48 +556,46 @@ mod tests {
     async fn test_unzip_file() {
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
-        let zip = download_file(
-            "https://www.fileformat.info/format/zip/sample/a541997a299648af94d933f65a897f4a/download",
-            temp_path,
-            Some("test.zip"),
-            &Box::new(|_| {}),
-            true
-        ).await.unwrap();
+        let zip = PathBuf::from("testdata/sample.zip");
 
         let mut test: HashSet<PathBuf> = HashSet::new();
         test.insert(temp_path.join("gettysburg.txt"));
         test.insert(temp_path.join("amendments.txt"));
         test.insert(temp_path.join("constitution.txt"));
 
-        assert_eq!(unzip_file(&zip, temp_path, false).await.unwrap(), test);
+        assert_eq!(
+            unzip_file(&zip, UnzipOption::ToDirectoryWithFileName)
+                .await
+                .unwrap(),
+            test
+        );
 
         let mut test: HashSet<PathBuf> = HashSet::new();
         test.insert(temp_path.join("gettysburg_1.txt"));
         test.insert(temp_path.join("amendments_1.txt"));
         test.insert(temp_path.join("constitution_1.txt"));
 
-        assert_eq!(unzip_file(&zip, temp_path, false).await.unwrap(), test);
+        assert_eq!(
+            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned()))
+                .await
+                .unwrap(),
+            test
+        );
     }
 
     #[tokio::test]
     async fn test_unzip_file_2() {
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
-        let rar = download_file(
-            "https://getsamplefiles.com/download/rar/sample-1.rar",
-            temp_path,
-            Some("test.rar"),
-            &Box::new(|_| {}),
-            true,
-        )
-        .await
-        .unwrap();
+        let rar = PathBuf::from("testdata/sample-1.rar");
 
         let mut test: HashSet<PathBuf> = HashSet::new();
         test.insert(temp_path.join("hi").join("sample-1_1.webp"));
 
         assert_eq!(
-            unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(),
+            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi")))
+                .await
+                .unwrap(),
             test
         );
 
@@ -575,7 +603,9 @@ mod tests {
         test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
 
         assert_eq!(
-            unzip_file(&rar, temp_path.join("hi"), false).await.unwrap(),
+            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi")))
+                .await
+                .unwrap(),
             test
         );
     }
@@ -584,21 +614,15 @@ mod tests {
     async fn test_unzip_file_3() {
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
-        let tar_gz = download_file(
-            "http://file.fyicenter.com/a/sample.tgz",
-            &dest_path,
-            Some("test.tar.gz"),
-            &Box::new(|_| {}),
-            true,
-        )
-        .await
-        .unwrap();
+        let tar_gz = PathBuf::from("testdata/sample.gz");
 
         let mut expected: HashSet<PathBuf> = HashSet::new();
         expected.insert(dest_path.join("sample"));
 
         assert_eq!(
-            unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
+            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.clone()))
+                .await
+                .unwrap(),
             expected
         );
         assert!(dest_path.join("sample").join("sample.exe").is_file());
@@ -609,11 +633,42 @@ mod tests {
         expected.insert(dest_path.join("sample_1"));
 
         assert_eq!(
-            unzip_file(&tar_gz, &dest_path, false).await.unwrap(),
+            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.to_owned()))
+                .await
+                .unwrap(),
             expected
         );
         assert!(dest_path.join("sample_1").join("sample.exe").is_file());
         assert!(dest_path.join("sample_1").join("sample.c").is_file());
         assert!(dest_path.join("sample_1").join("sample.obj").is_file(),);
+    }
+
+    #[test]
+    fn test_resolve_path_conflict() {
+        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp_path = temp.path();
+        let txt_path = temp_path.join("test.txt");
+        assert_eq!(resolve_path_conflict(txt_path.clone(), None), txt_path);
+        let txt1_path = temp_path.join("test_1.txt");
+
+        let dir = temp_path.join("test");
+        assert_eq!(resolve_path_conflict(dir.clone(), None), dir);
+
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(&txt_path, "test").unwrap();
+
+        assert_eq!(
+            resolve_path_conflict(txt_path.clone(), None),
+            temp_path.join("test_1.txt")
+        );
+
+        std::fs::write(txt1_path, "test").unwrap();
+
+        assert_eq!(
+            resolve_path_conflict(txt_path, None),
+            temp_path.join("test_2.txt")
+        );
+
+        assert_eq!(resolve_path_conflict(dir, None), temp_path.join("test_1"));
     }
 }

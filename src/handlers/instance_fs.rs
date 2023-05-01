@@ -22,7 +22,7 @@ use crate::{
     },
     traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
-    util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file},
+    util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file, UnzipOption},
     AppState,
 };
 
@@ -591,15 +591,11 @@ async fn upload_instance_file(
 
 pub async fn unzip_instance_file(
     axum::extract::State(state): axum::extract::State<AppState>,
-    Path((uuid, base64_relative_path, base64_relative_path_to_dest)): Path<(
-        InstanceUuid,
-        String,
-        String,
-    )>,
+    Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
+    Json(unzip_option): Json<UnzipOption>,
 ) -> Result<Json<HashSet<PathBuf>>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
-    let relative_path_to_dest = decode_base64(&base64_relative_path_to_dest)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
@@ -610,37 +606,17 @@ pub async fn unzip_instance_file(
     let root = instance.path().await;
     drop(instances);
     let path_to_zip_file = scoped_join_win_safe(&root, relative_path)?;
-    let path_to_dest = scoped_join_win_safe(&root, relative_path_to_dest)?;
-    if !path_to_zip_file.is_file() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("File does not exist"),
-        });
+
+    if let UnzipOption::ToDir(ref dir) = unzip_option {
+        if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(dir) {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("Destination is protected"),
+            });
+        }
     }
 
-    if !path_to_zip_file
-        .extension()
-        .map(|ext| ext == "zip")
-        .unwrap_or(false)
-    {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("File is not a zip file"),
-        });
-    }
-
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile)
-        && is_path_protected(&path_to_dest)
-    {
-        return Err(Error {
-            kind: ErrorKind::PermissionDenied,
-            source: eyre!("Destination is protected"),
-        });
-    }
-
-    Ok(Json(
-        unzip_file(path_to_zip_file, path_to_dest, false).await?,
-    ))
+    Ok(Json(unzip_file(path_to_zip_file, unzip_option).await?))
 }
 
 pub fn get_instance_fs_routes(state: AppState) -> Router {
@@ -687,7 +663,7 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::disable())
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/unzip/:base64_relative_path_to_dest",
+            "/instance/:uuid/fs/:base64_relative_path/unzip",
             put(unzip_instance_file),
         )
         .with_state(state)

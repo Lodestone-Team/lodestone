@@ -50,7 +50,7 @@ use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::util::{
-    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
+    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file, UnzipOption,
 };
 
 use self::configurable::{CmdArgSetting, ServerPropertySetting};
@@ -556,8 +556,11 @@ impl MinecraftInstance {
             )
             .await?;
 
-            let unzipped_content =
-                unzip_file(&downloaded, &path_to_runtimes.join("java"), true).await?;
+            let unzipped_content = unzip_file(
+                &downloaded,
+                UnzipOption::ToDir(path_to_runtimes.join("java")),
+            )
+            .await?;
             if unzipped_content.len() != 1 {
                 return Err(eyre!(
                     "Expected only one file in the JRE archive, got {}",
