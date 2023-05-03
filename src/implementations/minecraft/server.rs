@@ -15,6 +15,7 @@ use crate::implementations::minecraft::line_parser::{
 };
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
+use crate::macro_executor::SpawnResult;
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
@@ -66,7 +67,7 @@ impl TServer for MinecraftInstance {
             let is_long_running = content.contains("LODESTONE_LONG_RUNNING_MACRO");
 
             let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
-            let pid = self
+            let res = self
                 .macro_executor
                 .spawn(
                     prelaunch,
@@ -83,7 +84,12 @@ impl TServer for MinecraftInstance {
                 )
                 .await;
 
-            if let Ok((pid, handle)) = pid {
+            if let Ok(SpawnResult {
+                macro_pid: pid,
+                exit_future,
+                ..
+            }) = res
+            {
                 self.pid_to_task_entry.lock().await.insert(
                     pid,
                     TaskEntry {
@@ -97,7 +103,7 @@ impl TServer for MinecraftInstance {
                         "[{}] Waiting for prelaunch script to finish (5 seconds timeout)",
                         config.name.clone()
                     );
-                    if handle.await.unwrap().is_err() {
+                    if exit_future.await.is_err() {
                         // kill the prelaunch script
                         info!(
                             "[{}] prelaunch script timed out, killing it",

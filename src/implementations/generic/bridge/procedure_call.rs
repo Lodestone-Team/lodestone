@@ -394,39 +394,16 @@ impl ProcedureBridge {
     }
 
     pub async fn call(&self, inner: ProcedureCallInner) -> Result<ProcedureCallResultInner, Error> {
-        // wait until TS side is ready
-        if !self.ready.load(std::sync::atomic::Ordering::SeqCst) {
-            // 5 retries with exponential backoff
-            let mut flag = false;
-            for i in 0..5 {
-                info!(
-                    "ProcedureBridge::call: TS side not ready, retrying in {}ms",
-                    2u64.pow(i) * 100
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(2u64.pow(i) * 100)).await;
-                if self.ready.load(std::sync::atomic::Ordering::SeqCst) {
-                    flag = true;
-                    break;
-                }
-            }
-            if !flag {
-                return Err(eyre!(
-                    "ProcedureBridge::call: TS side not ready, macro most likely crashed"
-                )
-                .into());
-            }
-        }
-
         let id = self
             .procedure_call_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-        let mut rx = self.procedure_result_tx.subscribe();
         self.procedure_tx
             .lock()
             .await
             .send(ProcedureCall { id, inner })
             .unwrap();
+        let mut rx = self.procedure_result_tx.subscribe();
+
         loop {
             match rx.recv().await {
                 Ok(result) => {

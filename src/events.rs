@@ -96,6 +96,7 @@ pub struct UserEvent {
 #[enum_kind(MacroEventKind, derive(Serialize, Deserialize, TS))]
 pub enum MacroEventInner {
     Started,
+    MainModuleExecuted,
     Stopped { exit_status: ExitStatus },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]

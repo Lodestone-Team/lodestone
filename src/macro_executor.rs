@@ -10,14 +10,11 @@ use std::{
 
 use color_eyre::eyre::Context;
 use dashmap::DashMap;
-use deno_runtime::{permissions::Permissions};
+use deno_runtime::permissions::Permissions;
+use futures_util::Future;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{
-    runtime::Builder,
-    sync::{mpsc, oneshot},
-    task::{JoinHandle, LocalSet},
-};
+use tokio::{runtime::Builder, sync::mpsc, task::LocalSet};
 use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
@@ -216,6 +213,12 @@ pub struct MacroExecutor {
     next_process_id: Arc<AtomicUsize>,
 }
 
+pub struct SpawnResult {
+    pub macro_pid: MacroPID,
+    pub main_module_future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    pub exit_future: Pin<Box<dyn Future<Output = Result<ExitStatus, Error>> + Send>>,
+}
+
 impl MacroExecutor {
     pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
         let process_table = Arc::new(DashMap::new());
@@ -260,6 +263,7 @@ impl MacroExecutor {
     /// Note that this does not terminate the process, it just stops the handle from waiting for it.
     ///
     /// It is up to the caller to terminate the process if it is still running.
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         &self,
         path_to_main_module: PathBuf,
@@ -269,11 +273,17 @@ impl MacroExecutor {
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
         timeout: Option<Duration>,
-    ) -> Result<(MacroPID, JoinHandle<Result<(), Error>>), Error> {
+    ) -> Result<SpawnResult, Error> {
         let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
-        let wait_task = tokio::task::spawn({
+        let exit_future = Box::pin({
             let __self = self.clone();
             async move { __self.wait_with_timeout(pid, timeout).await }
+        });
+        let main_module_future = Box::pin({
+            let __self = self.clone();
+            async move {
+                __self.wait_for_main_module_executed(pid).await;
+            }
         });
         let main_module = deno_core::resolve_path(
             ".",
@@ -354,11 +364,17 @@ impl MacroExecutor {
                                 .into(),
                             );
                         }
-
                         return;
                     }
 
-                    let event_broadcaster = event_broadcaster.clone();
+                    event_broadcaster.send(
+                        MacroEvent {
+                            macro_pid: pid,
+                            macro_event_inner: MacroEventInner::MainModuleExecuted,
+                            instance_uuid: instance_uuid.clone(),
+                        }
+                        .into(),
+                    );
 
                     if let Err(e) = main_worker.run_event_loop(false).await {
                         if e.to_string() == "Uncaught Error: execution terminated" {
@@ -445,7 +461,11 @@ impl MacroExecutor {
         tokio::time::timeout(Duration::from_secs(1), fut)
             .await
             .context("Failed to spawn macro")??;
-        Ok((pid, wait_task))
+        Ok(SpawnResult {
+            macro_pid: pid,
+            main_module_future,
+            exit_future,
+        })
     }
 
     /// abort a macro execution
@@ -459,48 +479,56 @@ impl MacroExecutor {
             .terminate_execution();
         Ok(())
     }
+
+    async fn wait_for_main_module_executed(&self, taget_macro_pid: MacroPID) {
+        let mut rx = self.event_broadcaster.subscribe();
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventInner::MacroEvent(MacroEvent {
+                macro_pid,
+                macro_event_inner,
+                ..
+            }) = event.event_inner
+            {
+                if taget_macro_pid == macro_pid {
+                    if let MacroEventInner::MainModuleExecuted = macro_event_inner {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     /// wait for a macro to finish
     async fn wait_with_timeout(
         &self,
         taget_macro_pid: MacroPID,
         timeout: Option<Duration>,
-    ) -> Result<(), Error> {
+    ) -> Result<ExitStatus, Error> {
         let mut rx = self.event_broadcaster.subscribe();
-        tokio::select! {
-            _ = async {
-                if let Some(timeout) = timeout {
-                    tokio::time::sleep(timeout).await;
-                } else {
-                    // create a future that never resolves
-                    let (_tx, rx) = oneshot::channel::<()>();
-                    let _ = rx.await;
-
-                }
-            } => {
-                Err(eyre!("Timeout reached while waiting for macro to finish").into())
-            }
-            v = {
-                async {
-                    loop {
-                    let event = rx.recv().await.unwrap();
-                    if let EventInner::MacroEvent(MacroEvent { macro_pid, macro_event_inner, .. }) = event.event_inner {
-                        if taget_macro_pid == macro_pid {
-                           if let MacroEventInner::Stopped{exit_status } = macro_event_inner {
-                               if exit_status.is_success() {
-                                   break Ok(());
-                               } else {
-                                   break Err(Error {
-                                        kind: ErrorKind::Internal,
-                                        source: eyre!("Macro exited with error: {:?}", exit_status),
-                                   });
-                               }
-                           }
+        let fut = async {
+            loop {
+                let event = rx.recv().await.unwrap();
+                if let EventInner::MacroEvent(MacroEvent {
+                    macro_pid,
+                    macro_event_inner,
+                    ..
+                }) = event.event_inner
+                {
+                    if taget_macro_pid == macro_pid {
+                        if let MacroEventInner::Stopped { exit_status } = macro_event_inner {
+                            break Ok(exit_status);
                         }
                     }
                 }
-            }} => {
-                v
             }
+        };
+        if let Some(timeout) = timeout {
+            tokio::time::timeout(timeout, fut)
+                .await
+                .context("Macro execution timed out")?
+        } else {
+            fut.await
         }
     }
 
@@ -520,6 +548,7 @@ mod tests {
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
+    use crate::macro_executor::SpawnResult;
 
     struct BasicMainWorkerGenerator;
 
@@ -574,7 +603,7 @@ mod tests {
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
-        let (_, handle) = executor
+        let SpawnResult { exit_future, .. } = executor
             .spawn(
                 path_to_macro,
                 Vec::new(),
@@ -586,7 +615,7 @@ mod tests {
             )
             .await
             .unwrap();
-        handle.await.unwrap().unwrap();
+        exit_future.await.unwrap();
     }
 
     #[tokio::test]
@@ -613,7 +642,7 @@ mod tests {
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
-        let (_, handle) = executor
+        let SpawnResult { exit_future, .. } = executor
             .spawn(
                 path_to_macro,
                 Vec::new(),
@@ -625,6 +654,6 @@ mod tests {
             )
             .await
             .unwrap();
-        handle.await.unwrap().unwrap();
+        exit_future.await.unwrap();
     }
 }

@@ -11,7 +11,7 @@ use deno_core::{anyhow, op, OpState};
 use crate::{
     error::Error,
     events::{CausedBy, EventInner},
-    macro_executor::{self, MacroPID, WorkerOptionGenerator},
+    macro_executor::{self, MacroPID, SpawnResult, WorkerOptionGenerator},
     traits::{
         t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
         t_server::TServer,
@@ -257,7 +257,7 @@ impl TMacro for MinecraftInstance {
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
 
         let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
-        let (pid, _) = self
+        let SpawnResult { macro_pid: pid, .. } = self
             .macro_executor
             .spawn(
                 path_to_macro,
