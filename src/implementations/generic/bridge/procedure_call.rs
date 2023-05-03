@@ -43,6 +43,7 @@ pub enum ProcedureCallInner {
         dot_lodestone_config: DotLodestoneConfig,
         path: PathBuf,
     },
+    DestructInstance,
     GetSetupManifest,
     // start of TConfigurable
     GetName,

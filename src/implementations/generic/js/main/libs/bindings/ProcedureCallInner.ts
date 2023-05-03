@@ -16,6 +16,7 @@ export type ProcedureCallInner =
     dot_lodestone_config: DotLodestoneConfig;
     path: string;
   }
+  | { type: "DestructInstance" }
   | { type: "GetSetupManifest" }
   | { type: "GetName" }
   | { type: "GetDescription" }

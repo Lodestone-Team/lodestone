@@ -14,12 +14,11 @@ use super::GenericInstance;
 
 pub struct GenericMainWorkerGenerator {
     bridge: ProcedureBridge,
-    instance: GenericInstance,
 }
 
 impl GenericMainWorkerGenerator {
-    pub fn new(bridge: ProcedureBridge, instance: GenericInstance) -> Self {
-        Self { bridge, instance }
+    pub fn new(bridge: ProcedureBridge) -> Self {
+        Self { bridge }
     }
 }
 
@@ -33,10 +32,8 @@ impl WorkerOptionGenerator for GenericMainWorkerGenerator {
             ])
             .state({
                 let brige = self.bridge.clone();
-                let instance = self.instance.clone();
                 move |state| {
-                    state.put(brige.clone());
-                    state.put(instance);
+                    state.put(brige);
                 }
             })
             .force_op_registration()

@@ -2,6 +2,7 @@ use std::{path::PathBuf, rc::Rc};
 
 use async_trait::async_trait;
 use color_eyre::eyre::Context;
+use tracing::{debug, error};
 use url::Url;
 
 use self::{
@@ -12,7 +13,7 @@ use crate::{
     error::Error,
     event_broadcaster::EventBroadcaster,
     events::CausedBy,
-    macro_executor::{self, MacroExecutor, WorkerOptionGenerator},
+    macro_executor::{self, MacroExecutor, MacroPID, SpawnResult, WorkerOptionGenerator},
     traits::{
         t_configurable::{
             manifest::{SetupManifest, SetupValue},
@@ -40,6 +41,7 @@ pub struct GenericInstance {
     procedure_bridge: bridge::procedure_call::ProcedureBridge,
     core_macro_executor: MacroExecutor,
     path: PathBuf,
+    core_macro_pid: MacroPID,
 }
 
 struct InitWorkerGenerator {
@@ -115,78 +117,78 @@ impl GenericInstance {
 
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
 
-        let __self = GenericInstance {
-            dot_lodestone_config: dot_lodestone_config.clone(),
-            procedure_bridge: procedure_bridge.clone(),
-            event_broadcaster,
-            core_macro_executor: core_macro_executor.clone(),
-            path: path.clone(),
-        };
-
-        core_macro_executor
+        let SpawnResult {
+            macro_pid: core_macro_pid,
+            main_module_future,
+            ..
+        } = core_macro_executor
             .spawn(
                 path_to_bootstrap,
                 Vec::new(),
                 CausedBy::System,
-                Box::new(GenericMainWorkerGenerator::new(
-                    procedure_bridge.clone(),
-                    __self.clone(),
-                )),
+                Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
                 None,
             )
-            .await?
-            .main_module_future
-            .await;
+            .await?;
+        main_module_future.await;
         procedure_bridge
             .call(ProcedureCallInner::SetupInstance {
-                dot_lodestone_config,
+                dot_lodestone_config: dot_lodestone_config.clone(),
                 setup_value,
-                path,
+                path: path.clone(),
             })
             .await?;
-        Ok(__self)
+        Ok(GenericInstance {
+            dot_lodestone_config,
+            procedure_bridge,
+            event_broadcaster,
+            core_macro_executor,
+            path,
+            core_macro_pid,
+        })
     }
 
     pub async fn restore(
         path_to_instance: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         event_broadcaster: EventBroadcaster,
-        macro_executor: MacroExecutor,
+        core_macro_executor: MacroExecutor,
     ) -> Result<Self, Error> {
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
-        let __self = GenericInstance {
-            dot_lodestone_config: dot_lodestone_config.clone(),
-            procedure_bridge: procedure_bridge.clone(),
-            event_broadcaster,
-            core_macro_executor: macro_executor.clone(),
-            path: path_to_instance.clone(),
-        };
-        macro_executor
+        let SpawnResult {
+            macro_pid: core_macro_pid,
+            main_module_future,
+            ..
+        } = core_macro_executor
             .spawn(
                 path_to_instance.join("run.ts"),
                 Vec::new(),
                 CausedBy::System,
-                Box::new(GenericMainWorkerGenerator::new(
-                    procedure_bridge.clone(),
-                    __self.clone(),
-                )),
+                Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
                 None,
             )
-            .await?
-            .main_module_future
-            .await;
+            .await?;
+
+        main_module_future.await;
 
         procedure_bridge
             .call(ProcedureCallInner::RestoreInstance {
-                dot_lodestone_config,
-                path: path_to_instance,
+                dot_lodestone_config: dot_lodestone_config.clone(),
+                path: path_to_instance.clone(),
             })
             .await?;
-        Ok(__self)
+        Ok(GenericInstance {
+            dot_lodestone_config,
+            procedure_bridge,
+            event_broadcaster,
+            core_macro_executor,
+            path: path_to_instance,
+            core_macro_pid,
+        })
     }
 
     pub async fn setup_manifest(
@@ -230,6 +232,31 @@ impl GenericInstance {
             .call(ProcedureCallInner::GetSetupManifest)
             .await?
             .try_into()
+    }
+
+    /// Will notify the typescript side that the instance is being destructed
+    pub async fn destruct(self) {
+        let _ = self
+            .procedure_bridge
+            .call(ProcedureCallInner::DestructInstance)
+            .await
+            .map_err(|e| {
+                error!("Generic instance destructor raised an error: {}", e);
+            });
+    }
+}
+
+impl Drop for GenericInstance {
+    fn drop(&mut self) {
+        let _ = self
+            .core_macro_executor
+            .abort_macro(self.core_macro_pid)
+            .map_err(|e| {
+                error!(
+                    "Failed to abort macro when dropping generic instance: {}",
+                    e
+                );
+            });
     }
 }
 

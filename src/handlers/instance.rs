@@ -19,7 +19,7 @@ use crate::traits::t_configurable::GameType;
 use minecraft::FlavourKind;
 
 use crate::implementations::minecraft::MinecraftInstance;
-use crate::prelude::PATH_TO_INSTANCES;
+use crate::prelude::{GameInstance, PATH_TO_INSTANCES};
 use crate::traits::t_configurable::manifest::SetupValue;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
@@ -288,7 +288,7 @@ pub async fn delete_instance(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    if let Some(instance) = instances.get(&uuid) {
+    if let Some(instance) = instances.remove(&uuid) {
         if !(instance.state().await == State::Stopped) {
             Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -340,6 +340,10 @@ pub async fn delete_instance(
                 .await
                 .deallocate(instance.port().await);
             let instance_path = instance.path().await;
+            // if instance is generic
+            if let GameInstance::GenericInstance(i) = instance {
+                i.destruct().await;
+            };
             instances.remove(&uuid);
             drop(instances);
             let res = crate::util::fs::remove_dir_all(instance_path).await;

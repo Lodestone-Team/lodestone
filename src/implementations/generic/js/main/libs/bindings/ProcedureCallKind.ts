@@ -3,6 +3,7 @@
 export type ProcedureCallKind =
   | "SetupInstance"
   | "RestoreInstance"
+  | "DestructInstance"
   | "GetSetupManifest"
   | "GetName"
   | "GetDescription"
