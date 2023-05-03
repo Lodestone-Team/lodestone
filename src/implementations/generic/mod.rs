@@ -5,7 +5,7 @@ use color_eyre::eyre::Context;
 use url::Url;
 
 use self::{
-    bridge::procedure_call::{emit_result, on_procedure, proc_bridge_ready, ProcedureCallInner},
+    bridge::procedure_call::{emit_result, next_procedure, proc_bridge_ready, ProcedureCallInner},
     r#macro::GenericMainWorkerGenerator,
 };
 use crate::{
@@ -50,7 +50,7 @@ impl WorkerOptionGenerator for InitWorkerGenerator {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions {
         let ext = deno_core::Extension::builder("generic_deno_extension_builder")
             .ops(vec![
-                on_procedure::decl(),
+                next_procedure::decl(),
                 emit_result::decl(),
                 proc_bridge_ready::decl(),
             ])
