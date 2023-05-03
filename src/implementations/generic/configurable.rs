@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
+use indexmap::IndexMap;
 
 use super::GenericInstance;
 use crate::error::{Error, ErrorKind};
@@ -9,6 +10,7 @@ use crate::implementations::generic::bridge::procedure_call::{
     ProcedureCallInner, ProcedureCallResultInner,
 };
 use crate::traits::t_configurable::manifest::{ConfigurableManifest, ConfigurableValue};
+use crate::traits::t_configurable::GameType;
 use crate::traits::t_configurable::{Game, TConfigurable};
 use crate::InstanceUuid;
 
@@ -31,9 +33,18 @@ impl TConfigurable for GenericInstance {
         self.procedure_bridge
             .call(ProcedureCallInner::GetGame)
             .await
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map_or(
+                Game::Generic {
+                    game_name: GameType::Generic,
+                    game_display_name: "Unknown".to_string(),
+                },
+                |r| {
+                    r.try_into().unwrap_or(Game::Generic {
+                        game_name: GameType::Generic,
+                        game_display_name: "Unknown".to_string(),
+                    })
+                },
+            )
     }
     async fn version(&self) -> String {
         self.procedure_bridge
@@ -137,9 +148,13 @@ impl TConfigurable for GenericInstance {
         self.procedure_bridge
             .call(ProcedureCallInner::GetConfigurableManifest)
             .await
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map_or(
+                ConfigurableManifest::new(false, false, IndexMap::new()),
+                |r| {
+                    r.try_into()
+                        .unwrap_or(ConfigurableManifest::new(false, false, IndexMap::new()))
+                },
+            )
     }
 
     async fn update_configurable(

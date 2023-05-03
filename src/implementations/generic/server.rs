@@ -36,9 +36,7 @@ impl TServer for GenericInstance {
         self.procedure_bridge
             .call(ProcedureCallInner::GetState)
             .await
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map_or(State::Stopped, |r| r.try_into().unwrap_or(State::Stopped))
     }
     async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error> {
         self.procedure_bridge
