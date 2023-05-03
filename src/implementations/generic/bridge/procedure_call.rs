@@ -5,12 +5,12 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 
-use color_eyre::eyre::eyre;
+use color_eyre::eyre::{eyre, ContextCompat};
 use deno_core::anyhow::anyhow;
 use deno_core::{anyhow, op, OpState};
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 use ts_rs::TS;
 
@@ -341,12 +341,10 @@ pub struct ProcedureCallResultIR {
 }
 
 #[op]
-async fn on_procedure(state: Rc<RefCell<OpState>>) -> Result<ProcedureCall, anyhow::Error> {
+async fn next_procedure(state: Rc<RefCell<OpState>>) -> Result<ProcedureCall, anyhow::Error> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
-    let mut rx = bridge.procedure_tx.lock().await.subscribe();
-    rx.recv()
-        .await
-        .map_err(|_| anyhow!("ProcedureBridge::on_procedure: procedure_tx closed"))
+    let mut rx = bridge.procedure_rx.write().await;
+    Ok(rx.recv().await.unwrap())
 }
 
 #[op]
@@ -379,17 +377,23 @@ fn emit_result(
 pub struct ProcedureBridge {
     ready: Arc<AtomicBool>,
     procedure_call_id: Arc<AtomicU64>,
-    pub procedure_tx: Arc<Mutex<tokio::sync::broadcast::Sender<ProcedureCall>>>,
-    pub procedure_result_tx: tokio::sync::broadcast::Sender<ProcedureCallResultIR>,
+    procedure_tx: tokio::sync::mpsc::UnboundedSender<ProcedureCall>,
+    procedure_rx: Arc<RwLock<tokio::sync::mpsc::UnboundedReceiver<ProcedureCall>>>,
+    procedure_result_tx: tokio::sync::mpsc::UnboundedSender<ProcedureCallResultIR>,
+    procedure_result_rx: Arc<RwLock<tokio::sync::mpsc::UnboundedReceiver<ProcedureCallResultIR>>>,
 }
 
 impl ProcedureBridge {
     pub fn new() -> Self {
+        let (procedure_tx, procedure_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (procedure_result_tx, procedure_result_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             ready: Arc::new(AtomicBool::new(false)),
             procedure_call_id: Arc::new(AtomicU64::new(0)),
-            procedure_tx: Arc::new(Mutex::new(tokio::sync::broadcast::channel(100).0)),
-            procedure_result_tx: tokio::sync::broadcast::channel(100).0,
+            procedure_tx,
+            procedure_rx: Arc::new(RwLock::new(procedure_rx)),
+            procedure_result_tx,
+            procedure_result_rx: Arc::new(RwLock::new(procedure_result_rx)),
         }
     }
 
@@ -397,16 +401,10 @@ impl ProcedureBridge {
         let id = self
             .procedure_call_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.procedure_tx
-            .lock()
-            .await
-            .send(ProcedureCall { id, inner })
-            .unwrap();
-        let mut rx = self.procedure_result_tx.subscribe();
-
+        self.procedure_tx.send(ProcedureCall { id, inner }).unwrap();
         loop {
-            match rx.recv().await {
-                Ok(result) => {
+            match self.procedure_result_rx.write().await.recv().await {
+                Some(result) => {
                     if result.id == id {
                         return match result.success {
                             true => Ok(result.inner.unwrap()),
@@ -414,7 +412,7 @@ impl ProcedureBridge {
                         };
                     }
                 }
-                Err(_) => {
+                None => {
                     Err(eyre!("ProcedureBridge::call: procedure_result_tx closed"))?;
                     unreachable!()
                 }
