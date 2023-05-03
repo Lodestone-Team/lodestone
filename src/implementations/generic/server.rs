@@ -51,8 +51,8 @@ impl TServer for GenericInstance {
         self.procedure_bridge
             .call(ProcedureCallInner::Monitor)
             .await
-            .unwrap()
-            .try_into()
-            .unwrap()
+            .map_or(MonitorReport::default(), |r| {
+                r.try_into().unwrap_or_default()
+            })
     }
 }
