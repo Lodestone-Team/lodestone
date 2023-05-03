@@ -21,7 +21,7 @@ use tar::Archive;
 pub struct Authentication {
     username: String,
     password: String,
-}
+} 
 
 use crate::error::Error;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -228,7 +228,7 @@ pub async fn unzip_file(
         // resolve the dest after we unzip the file to a temp dir
         UnzipOption::Smart => Default::default(),
         UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
-        UnzipOption::ToDir(ref d) => resolve_path_conflict(d.to_owned(), None),
+        UnzipOption::ToDir(ref d) => d.to_owned(),
     };
 
     let temp_dest_dir =
@@ -284,72 +284,28 @@ pub async fn unzip_file(
         }
     };
 
-    let dest = resolve_path_conflict(dest, None);
+    // let dest = resolve_path_conflict(dest, None);
 
     tokio::fs::create_dir_all(&dest)
         .await
         .context(format!("Failed to create directory {}", dest.display()))?;
 
-    // Only loop through direct children
-    for temp_entry_path in temp_dir_content.iter() {
-        let entry_path = match temp_entry_path.strip_prefix(temp_dest) {
-            Ok(p) => dest.join(p),
-            Err(_) => continue,
-        };
+    for temp_path in temp_dir_content {
+        let entry_path = resolve_path_conflict(
+            match temp_path.strip_prefix(temp_dest) {
+                Ok(p) => dest.join(p),
+                Err(_) => continue,
+            },
+            None,
+        );
 
-        let entry_path = resolve_path_conflict(entry_path, None);
-
-        if temp_entry_path.is_dir() {
-            // Direct child is a directory
-            tokio::fs::create_dir_all(&entry_path)
-                .await
-                .context(format!(
-                    "Failed to create directory {}",
-                    entry_path.display()
-                ))?;
-
-            // Copy all files from direct child directory. Guarentee no duplicate
-            for temp_child in walkdir::WalkDir::new(temp_entry_path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                let temp_child_path = temp_child.path();
-                let child_path = match temp_child_path.strip_prefix(temp_entry_path) {
-                    Ok(p) => entry_path.join(p),
-                    Err(_) => continue,
-                };
-
-                if temp_child_path.is_dir() {
-                    tokio::fs::create_dir_all(&child_path)
-                        .await
-                        .context(format!(
-                            "Failed to create directory {}",
-                            child_path.display()
-                        ))?;
-                }
-
-                if temp_child_path.is_file() {
-                    tokio::fs::copy(&temp_child_path, &child_path)
-                        .await
-                        .context(format!(
-                            "Failed to copy from {} to {}",
-                            temp_child_path.display(),
-                            child_path.display()
-                        ))?;
-                }
-            }
-        } else {
-            // Direct child is a file
-
-            // Copy direct child file
-            tokio::fs::copy(&temp_entry_path, &entry_path)
-                .await
-                .context(format!(
-                    "Failed to copy from {} to {}",
-                    temp_entry_path.display(),
-                    entry_path.display()
-                ))?;
-        }
+        tokio::fs::rename(&temp_path, &entry_path)
+            .await
+            .context(format!(
+                "Failed to move {} to {}",
+                temp_path.display(),
+                entry_path.display()
+            ))?;
         ret.insert(entry_path);
     }
 
@@ -564,7 +520,7 @@ mod tests {
         test.insert(temp_path.join("constitution.txt"));
 
         assert_eq!(
-            unzip_file(&zip, UnzipOption::ToDirectoryWithFileName)
+            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned()))
                 .await
                 .unwrap(),
             test
