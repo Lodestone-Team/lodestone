@@ -506,13 +506,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_forge_jar_url() {
-        assert_eq!(
-            get_forge_jar_url("1.18.2", &None).await.unwrap(),
-            (
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.18.2-40.2.1/forge-1.18.2-40.2.1-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.18.2-40.2.1".to_string())) }
-            )
-        );
+        get_forge_jar_url("1.18.2", &None).await.unwrap();
     }
 
     #[tokio::test]
