@@ -734,7 +734,6 @@ impl MinecraftInstance {
         MinecraftInstance::restore(
             path_to_instance,
             dot_lodestone_config,
-            uuid,
             event_broadcaster,
             macro_executor,
         )
@@ -744,9 +743,8 @@ impl MinecraftInstance {
     pub async fn restore(
         path_to_instance: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
-        instance_uuid: InstanceUuid,
         event_broadcaster: EventBroadcaster,
-        _macro_executor: MacroExecutor,
+        macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
         let restore_config: RestoreConfig =
@@ -871,14 +869,14 @@ impl MinecraftInstance {
 
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
-            uuid: instance_uuid.clone(),
+            uuid: dot_lodestone_config.uuid().clone(),
             creation_time: dot_lodestone_config.creation_time(),
             auto_start: Arc::new(AtomicBool::new(restore_config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(restore_config.restart_on_crash)),
             backup_period: restore_config.backup_period,
             players_manager: Arc::new(Mutex::new(PlayersManager::new(
                 event_broadcaster.clone(),
-                instance_uuid,
+                dot_lodestone_config.uuid().clone(),
             ))),
             config: Arc::new(Mutex::new(restore_config)),
             path_to_instance,
@@ -886,7 +884,7 @@ impl MinecraftInstance {
             path_to_properties,
             path_to_macros,
             path_to_resources,
-            macro_executor: MacroExecutor::new(event_broadcaster.clone()),
+            macro_executor,
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),

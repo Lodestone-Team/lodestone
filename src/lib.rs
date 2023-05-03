@@ -124,18 +124,31 @@ async fn restore_instances(
             .unwrap();
             debug!("restoring instance: {}", path.display());
 
-            if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
-                let instance = minecraft::MinecraftInstance::restore(
-                    path.to_owned(),
-                    dot_lodestone_config.clone(),
-                    dot_lodestone_config.uuid().to_owned(),
-                    event_broadcaster.clone(),
-                    macro_executor.clone(),
-                )
-                .await
-                .unwrap();
-                debug!("Restored successfully");
-                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+            match dot_lodestone_config.game_type() {
+                GameType::MinecraftJava => {
+                    let instance = minecraft::MinecraftInstance::restore(
+                        path.to_owned(),
+                        dot_lodestone_config.clone(),
+                        event_broadcaster.clone(),
+                        macro_executor.clone(),
+                    )
+                    .await
+                    .unwrap();
+                    debug!("Restored Minecraft Instance successfully");
+                    ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+                }
+                GameType::Generic => {
+                    let instance = generic::GenericInstance::restore(
+                        path.to_owned(),
+                        dot_lodestone_config.clone(),
+                        event_broadcaster.clone(),
+                        macro_executor.clone(),
+                    )
+                    .await
+                    .unwrap();
+                    debug!("Restored Generic Instance successfully");
+                    ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+                }
             }
         }
     }

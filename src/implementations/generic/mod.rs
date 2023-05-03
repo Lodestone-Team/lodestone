@@ -136,12 +136,54 @@ impl GenericInstance {
                 Some(dot_lodestone_config.uuid().clone()),
                 None,
             )
-            .await?;
+            .await?
+            .main_module_future
+            .await;
         procedure_bridge
             .call(ProcedureCallInner::SetupInstance {
                 dot_lodestone_config,
                 setup_value,
                 path,
+            })
+            .await?;
+        Ok(__self)
+    }
+
+    pub async fn restore(
+        path_to_instance: PathBuf,
+        dot_lodestone_config: DotLodestoneConfig,
+        event_broadcaster: EventBroadcaster,
+        macro_executor: MacroExecutor,
+    ) -> Result<Self, Error> {
+        let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
+        let __self = GenericInstance {
+            dot_lodestone_config: dot_lodestone_config.clone(),
+            procedure_bridge: procedure_bridge.clone(),
+            event_broadcaster,
+            core_macro_executor: macro_executor.clone(),
+            path: path_to_instance.clone(),
+        };
+        macro_executor
+            .spawn(
+                path_to_instance.join("run.ts"),
+                Vec::new(),
+                CausedBy::System,
+                Box::new(GenericMainWorkerGenerator::new(
+                    procedure_bridge.clone(),
+                    __self.clone(),
+                )),
+                None,
+                Some(dot_lodestone_config.uuid().clone()),
+                None,
+            )
+            .await?
+            .main_module_future
+            .await;
+
+        procedure_bridge
+            .call(ProcedureCallInner::RestoreInstance {
+                dot_lodestone_config,
+                path: path_to_instance,
             })
             .await?;
         Ok(__self)
@@ -180,7 +222,9 @@ impl GenericInstance {
                 None,
                 None,
             )
-            .await?;
+            .await?
+            .main_module_future
+            .await;
 
         procedure_bridge
             .call(ProcedureCallInner::GetSetupManifest)
