@@ -5,11 +5,7 @@ use deno_core::{
     op, OpState,
 };
 
-use crate::{
-    event_broadcaster::{EventBroadcaster},
-    events::Event,
-    types::InstanceUuid,
-};
+use crate::{event_broadcaster::EventBroadcaster, events::Event, types::InstanceUuid};
 
 #[op]
 async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, anyhow::Error> {
@@ -29,7 +25,7 @@ fn broadcast_event(state: Rc<RefCell<OpState>>, event: Event) {
 }
 
 #[op]
-async fn emit_console_out(
+fn emit_console_out(
     state: Rc<RefCell<OpState>>,
     line: String,
     instance_name: String,
