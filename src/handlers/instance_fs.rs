@@ -22,7 +22,7 @@ use crate::{
     },
     traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
-    util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file, UnzipOption},
+    util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file, UnzipOption, resolve_path_conflict},
     AppState,
 };
 
@@ -477,26 +477,7 @@ async fn upload_instance_file(
                 source: eyre!("File extension is protected"),
             });
         }
-        let path = if path.exists() {
-            // add a postfix to the file name
-            let mut postfix = 1;
-            // get the file name without the extension
-            let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
-            loop {
-                let new_path = path.with_file_name(format!(
-                    "{}_{}.{}",
-                    file_name,
-                    postfix,
-                    path.extension().unwrap().to_str().unwrap()
-                ));
-                if !new_path.exists() {
-                    break new_path;
-                }
-                postfix += 1;
-            }
-        } else {
-            path
-        };
+        let path = resolve_path_conflict(path, None);
         let mut file = crate::util::fs::create(&path).await?;
 
         while let Some(chunk) = field.chunk().await.map_err(|e| {
