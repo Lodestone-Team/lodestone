@@ -12,6 +12,7 @@ import { formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef, } from 'react';
 import { useEventListener, useOnClickOutside } from 'usehooks-ts';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 export default function FileList({
   path,
@@ -42,7 +43,7 @@ export default function FileList({
   error: Error | null;
   tickedFiles: ClientFile[];
   tickFile: (file: ClientFile, ticked: boolean) => void;
-  unzipFile: (file: ClientFile) => void;
+  unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
   openedFile: ClientFile | null;
   atTopLevel: boolean;
   onParentClick: () => void;

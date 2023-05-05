@@ -55,6 +55,7 @@ import RenameFileForm from './RenameFileForm';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -203,7 +204,7 @@ export default function FileViewer() {
     }
   };
 
-  const unzipFile = async (file: ClientFile)  => { 
+  const unzipFile = async (file: ClientFile, unzipOption : UnzipOption)  => { 
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
@@ -212,7 +213,7 @@ export default function FileViewer() {
     await unzipInstanceFile(
       instance.uuid,
       file,
-      path,
+      unzipOption,
       queryClient,
       directorySeparator
     );
@@ -221,7 +222,7 @@ export default function FileViewer() {
   const unzipTickedFile = async () => {
     if (!tickedFiles) return;
     const file = tickedFiles[0];
-    await unzipFile(file);
+    await unzipFile(file, "Smart");
     tickFile(file, false);
   };
 

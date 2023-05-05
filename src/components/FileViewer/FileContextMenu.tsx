@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
 import { unzipInstanceFile } from 'utils/apis';
 import clsx from 'clsx';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 const FileContextMenu = forwardRef(
   (
@@ -30,7 +31,7 @@ const FileContextMenu = forwardRef(
       setRenameFileModalOpen: (modalOpen: boolean) => void;
       setShowContextMenu: (showContextMenu: boolean) => void;
       setClipboard: (clipboard: ClientFile[]) => void;
-      unzipFile: (file: ClientFile) => void;
+      unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
       setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
       setTickedFiles: (tickedFiles: ClientFile[]) => void;
       setModalPath: (modalPath: string) => void;
@@ -124,7 +125,7 @@ const FileContextMenu = forwardRef(
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label="Unzip here"
               onClick={() => {
-                unzipFile(file as ClientFile);
+                unzipFile(file as ClientFile, "Normal");
                 setShowContextMenu(false);
               }}
               disabled={file === null}
@@ -133,7 +134,7 @@ const FileContextMenu = forwardRef(
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label="Unzip here (smart)"
               onClick={() => {
-                unzipFile(file as ClientFile);
+                unzipFile(file as ClientFile, "Smart");
                 setShowContextMenu(false);
               }}
               disabled={file === null}
@@ -142,7 +143,7 @@ const FileContextMenu = forwardRef(
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label={file === null ? '' : 'Unzip to ' + file.name}
               onClick={() => {
-                unzipFile(file as ClientFile);
+                unzipFile(file as ClientFile, "ToDirectoryWithFileName");
                 setShowContextMenu(false);
               }}
               disabled={file === null}
