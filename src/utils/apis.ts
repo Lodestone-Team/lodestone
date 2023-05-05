@@ -221,7 +221,8 @@ export const moveInstanceFileOrDirectory = async (
 export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
-  targetDirectory: string,
+  // targetDirectory: string,
+  unzipOption: string,
   queryClient: QueryClient,
   direcotrySeparator: string
 ) => {
@@ -231,7 +232,8 @@ export const unzipInstanceFile = async (
       url: `/instance/${uuid}/fs/${Base64.encode(
         file.path,
         true
-      )}/unzip/${Base64.encode(targetDirectory, true)}`,
+      )}/unzip`,
+      data: unzipOption,
     })
   );
 
@@ -251,7 +253,7 @@ export const unzipInstanceFile = async (
     'instance',
     uuid,
     'fileList',
-    targetDirectory,
+    // targetDirectory,
   ]);
 };
 
