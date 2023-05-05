@@ -21,8 +21,12 @@ pub enum InstanceEventInner {
     StateTransition {
         to: State,
     },
-    InstanceWarning,
-    InstanceError,
+    InstanceWarning {
+        message: String,
+    },
+    InstanceError {
+        message: String,
+    },
     InstanceInput {
         message: String,
     },
