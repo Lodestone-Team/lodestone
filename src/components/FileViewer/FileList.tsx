@@ -74,7 +74,7 @@ export default function FileList({
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
-  const contextMenuDimensions = { height: 234, width: 176 } 
+  const contextMenuDimensions = { height: 290, width: 176 } 
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
