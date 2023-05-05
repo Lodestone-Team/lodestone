@@ -89,11 +89,6 @@ export default function FileList({
   }, [boundingDivRef]);
 
   useEffect(() => {
-    console.log(clipboard)
-    console.log(clipboardAction)
-  }, [])
-
-  useEffect(() => {
     if (boundingDivRef.current !== null) {
       setAbsCoords({
         x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX, 
