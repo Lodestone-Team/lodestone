@@ -234,6 +234,9 @@ export const unzipInstanceFile = async (
         true
       )}/unzip`,
       data: unzipOption,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     })
   );
 
