@@ -140,7 +140,7 @@ const FileContextMenu = forwardRef(
             />
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-              label={file === null ? '' : 'Unzip to ' + file.name}
+              label={file ? 'Unzip to ' + file.name : ''}
               onClick={() => {
                 unzipFile(file as ClientFile);
                 setShowContextMenu(false);
