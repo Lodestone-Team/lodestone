@@ -2,4 +2,4 @@
 import type { InstanceState } from "./InstanceState";
 import type { Player } from "./Player";
 
-export type InstanceEventInner = { type: "StateTransition", to: InstanceState, } | { type: "InstanceWarning" } | { type: "InstanceError" } | { type: "InstanceInput", message: string, } | { type: "InstanceOutput", message: string, } | { type: "SystemMessage", message: string, } | { type: "PlayerChange", player_list: Array<Player>, players_joined: Array<Player>, players_left: Array<Player>, } | { type: "PlayerMessage", player: string, player_message: string, };
+export type InstanceEventInner = { type: "StateTransition", to: InstanceState, } | { type: "InstanceWarning", message: string, } | { type: "InstanceError", message: string, } | { type: "InstanceInput", message: string, } | { type: "InstanceOutput", message: string, } | { type: "SystemMessage", message: string, } | { type: "PlayerChange", player_list: Array<Player>, players_joined: Array<Player>, players_left: Array<Player>, } | { type: "PlayerMessage", player: string, player_message: string, };
