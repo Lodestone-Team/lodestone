@@ -74,7 +74,8 @@ export default function FileList({
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
-  const contextMenuDimensions = { height: 290, width: 176 } 
+  const contextMenuDimensionsWithoutUnzip = { height: 213, width: 176 } // no unzip in menu (file name is null)
+  const contextMenuDimensionsWithUnzip = { height: 290, width: 176 } 
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
@@ -110,22 +111,34 @@ export default function FileList({
   useEventListener('mousedown', onResize);
   useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
 
-  const calculateContextMenuCoords = () => {
+  const calculateContextMenuCoords = (showUnzip : boolean) => {
     let x = null;
     let y = null;
-    if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width) {
-      x = mousePos.x - contextMenuDimensions.width;
+    let width = 0;
+    let height = 0;
+    if (showUnzip) {
+      width = contextMenuDimensionsWithUnzip.width;
+      height = contextMenuDimensionsWithUnzip.height;
+    }
+    else {
+      width = contextMenuDimensionsWithoutUnzip.width;
+      height = contextMenuDimensionsWithoutUnzip.height;
+    }
+
+    if (mousePos.x + width > boundingDivDimensions.width) {
+      x = mousePos.x - width;
     } else {
       x = mousePos.x
     }
-    if (mousePos.y + contextMenuDimensions.height > boundingDivDimensions.height - 10) {
-      y = boundingDivDimensions.height - contextMenuDimensions.height - 10
+    if (mousePos.y + height > boundingDivDimensions.height - 10) {
+      y = boundingDivDimensions.height - height - 10
     } else {
       y = mousePos.y
     }
-    if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width && mousePos.x - contextMenuDimensions.width < 4) {
+    if (mousePos.x + width > boundingDivDimensions.width && mousePos.x - width < 4) {
       x = 4;
     }
+    
     setContextMenuCoords({ x, y })
     
   }
@@ -194,7 +207,7 @@ export default function FileList({
             })}
             onContextMenu={(e) => { e.preventDefault(); 
               setContextMenuFile(file);
-              calculateContextMenuCoords();
+              calculateContextMenuCoords(true);
               setShowContextMenu(true);
               setModalPath(file.file_type === "Directory" ? file.path : path);
             }}
@@ -247,7 +260,7 @@ export default function FileList({
           className="min-h-[25%] grow"
           onContextMenu={(e) => { e.preventDefault(); 
             setContextMenuFile(null);
-            calculateContextMenuCoords();
+            calculateContextMenuCoords(false);
             setShowContextMenu(true);
             setModalPath(path);
           }}
