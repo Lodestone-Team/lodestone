@@ -19,6 +19,7 @@ export default function FileList({
   loading,
   error,
   tickedFiles,
+  clipboard,
   tickFile,
   unzipFile,
   openedFile,
@@ -31,6 +32,8 @@ export default function FileList({
   setModalPath,
   setClipboard,
   setClipboardAction,
+  pasteFiles,
+  clipboardAction,
   setRenameFileModalOpen,
   setTickedFiles,
   deleteSingleFile,
@@ -38,6 +41,7 @@ export default function FileList({
 }: {
   path: string;
   fileList: ClientFile[] | undefined;
+  clipboard: ClientFile[] | undefined;
   loading: boolean;
   error: Error | null;
   tickedFiles: ClientFile[];
@@ -47,12 +51,14 @@ export default function FileList({
   atTopLevel: boolean;
   onParentClick: () => void;
   onEmptyClick: () => void;
+  pasteFiles: (path: string) => void;
   onFileClick: (file: ClientFile) => void;
   setCreateFileModalOpen: (modalOpen: boolean) => void;
   setRenameFileModalOpen: (modalOpen: boolean) => void;
   setCreateFolderModalOpen: (modalOpen: boolean) => void;
   setModalPath: (modalPath: string) => void;
   setClipboard: (clipboard: ClientFile[]) => void;
+  clipboardAction: 'copy' | 'cut';
   setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
   setTickedFiles: (tickedFiles: ClientFile[]) => void;
   deleteSingleFile: (file: ClientFile) => void;
@@ -74,13 +80,18 @@ export default function FileList({
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
-  const contextMenuDimensions = { height: 234, width: 176 } 
+  const contextMenuDimensions = { height: 260, width: 176 } 
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
       setBoundingDivDimensions({ height: boundingDivRef.current.offsetHeight, width: boundingDivRef.current.offsetWidth })
     }
   }, [boundingDivRef]);
+
+  useEffect(() => {
+    console.log(clipboard)
+    console.log(clipboard !== undefined)
+  }, [clipboard])
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
@@ -138,6 +149,7 @@ export default function FileList({
       { showContextMenu && 
         <FileContextMenu 
           ref={contextMenuRef} 
+          currentPath={path}
           file={contextMenuFile as ClientFile} 
           coords={contextMenuCoords} 
           setCreateFileModalOpen={setCreateFileModalOpen} 
@@ -150,6 +162,8 @@ export default function FileList({
           setClipboardAction={setClipboardAction}
           setTickedFiles={setTickedFiles}
           tickedFiles={tickedFiles}
+          clipboard={clipboard}
+          pasteFiles={pasteFiles}
           deleteSingleFile={deleteSingleFile}
           deleteTickedFiles={deleteTickedFiles}
         /> 
@@ -225,7 +239,8 @@ export default function FileList({
             <p
               className={clsx(
                 'truncate text-gray-300 hover:cursor-pointer hover:text-blue-200 hover:underline',
-                openedFile?.path === file.path && 'italic'
+                openedFile?.path === file.path && 'italic',
+                clipboardAction === 'cut' && clipboard?.includes(file) && 'text-opacity-60 ',
               )}
               onClick={() => onFileClick(file)}
             >

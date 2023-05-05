@@ -158,7 +158,7 @@ export default function FileViewer() {
     setTickedFiles([]);
   };
 
-  const pasteFiles = async () => {
+  const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
     if (clipboardAction === 'copy')
       throw new Error('copying files is not implemented yet');
@@ -167,12 +167,12 @@ export default function FileViewer() {
         console.log(
           'moving',
           file.path,
-          `${path} | ${directorySeparator} | ${file.name}`
+          `${currentPath} | ${directorySeparator} | ${file.name}`
         );
         await moveInstanceFileOrDirectory(
           instance.uuid,
           file.path,
-          `${path}${directorySeparator}${file.name}`,
+          `${currentPath}${directorySeparator}${file.name}`,
           queryClient,
           directorySeparator
         );
@@ -470,7 +470,7 @@ export default function FileViewer() {
                 clipboard.length > 1 ? 'files' : 'file'
               }`}
               icon={faPaste}
-              onClick={pasteFiles}
+              onClick={() => pasteFiles(path)}
             />
           )}
           {showingMonaco && (
@@ -532,11 +532,13 @@ export default function FileViewer() {
                 path={path}
                 atTopLevel={atTopLevel}
                 fileList={fileList}
+                clipboard={clipboard}
                 loading={fileListLoading}
                 error={fileListError}
                 tickedFiles={tickedFiles}
                 tickFile={tickFile}
                 unzipFile={unzipFile}
+                pasteFiles={pasteFiles}
                 openedFile={openedFile}
                 onParentClick={() =>
                   setPath(parentPath(path, directorySeparator), false)
@@ -557,6 +559,7 @@ export default function FileViewer() {
                 setRenameFileModalOpen={setRenameFileModalOpen}
                 setModalPath={setModalPath}
                 setClipboard={setClipboard}
+                clipboardAction={clipboardAction}
                 setClipboardAction={setClipboardAction}
                 setTickedFiles={setTickedFiles}
                 deleteSingleFile={deleteSingleFile}
