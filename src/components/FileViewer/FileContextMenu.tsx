@@ -105,7 +105,7 @@ const FileContextMenu = forwardRef(
             label="Paste"
             // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
             onClick={() => {
-              pasteFiles(file === null  || (file as ClientFile).file_type !== 'Directory' ? currentPath : (file as ClientFile).path);
+              pasteFiles((file === null  || (file as ClientFile).file_type !== 'Directory') ? currentPath : (file as ClientFile).path);
               setShowContextMenu(false);
             }}
             disabled={clipboard?.length === 0}

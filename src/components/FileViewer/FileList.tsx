@@ -90,8 +90,8 @@ export default function FileList({
 
   useEffect(() => {
     console.log(clipboard)
-    console.log(clipboard !== undefined)
-  }, [clipboard])
+    console.log(clipboardAction)
+  }, [])
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
@@ -240,7 +240,7 @@ export default function FileList({
               className={clsx(
                 'truncate text-gray-300 hover:cursor-pointer hover:text-blue-200 hover:underline',
                 openedFile?.path === file.path && 'italic',
-                clipboardAction === 'cut' && clipboard?.includes(file) && 'text-opacity-60 ',
+                clipboardAction === 'cut' && clipboard?.some(f => f.path === file.path) && 'text-opacity-60 ',
               )}
               onClick={() => onFileClick(file)}
             >
