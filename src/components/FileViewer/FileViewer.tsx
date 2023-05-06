@@ -51,10 +51,14 @@ import CreationModal from './CreationModal';
 import CreateFolderForm from './CreateFolderForm';
 import CreateFileForm from './CreateFileForm';
 import RenameFileForm from './RenameFileForm';
+import { tauri } from 'utils/tauriUtil';
 
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
+
+import { listen } from '@tauri-apps/api/event'
+import { FileDropEvent } from '@tauri-apps/api/window'
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -69,6 +73,7 @@ export default function FileViewer() {
   const [renameFileModalOpen, setRenameFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
+  const [dropping, setDropping] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
@@ -224,6 +229,19 @@ export default function FileViewer() {
     await unzipFile(file);
     tickFile(file, false);
   };
+
+  const handleFileDropTauri = async (event: any) => {
+    if (!dropping) return;
+    console.log(event);
+  }
+
+  const handleFileDropBrowser = async (event: React.DragEvent) => {
+    console.log(event.dataTransfer?.files);
+  }
+
+  tauri && listen('tauri://file-drop-cancelled', _ => {setDropping(false)});
+  tauri && listen('tauri://file-drop-hover', _ => {setDropping(true)});
+  tauri && listen('tauri://file-drop', event => {handleFileDropTauri(event)});
 
   /* UI */
 
@@ -508,7 +526,13 @@ export default function FileViewer() {
         </div>
 
         {canRead ? (
-          <div className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
+          <div 
+            className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
+            onDragEnter={(e) => { e.preventDefault(); !tauri && setDropping(true); e.stopPropagation(); }}
+            onDragLeave={(e) => { e.preventDefault(); !tauri && setDropping(false); e.stopPropagation(); }}
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDrop={(e: React.DragEvent) => { e.preventDefault(); !tauri && handleFileDropBrowser(e); e.stopPropagation(); }}
+          >
             <ResizePanel
               direction="e"
               maxSize={500}
