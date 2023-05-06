@@ -24,8 +24,8 @@ use crate::{
     traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
     util::{
-        list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file_async, zip_files_async,
-        UnzipOption,
+        format_byte, format_byte_download, list_dir, rand_alphanumeric, scoped_join_win_safe,
+        unzip_file_async, zip_files_async, UnzipOption,
     },
     AppState,
 };
@@ -503,6 +503,11 @@ async fn upload_instance_file(
         };
         let mut file = crate::util::fs::create(&path).await?;
 
+        let threshold = total.unwrap_or(500000.0) / 100.0;
+
+        let mut elapsed_bytes = 0_u64;
+        let mut last_progression = 0_u64;
+
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             std::fs::remove_file(&path).ok();
             state.event_broadcaster.send(Event {
@@ -525,21 +530,33 @@ async fn upload_instance_file(
                 .context("Failed to read chunk")
                 .unwrap_err()
         })? {
-            state.event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id,
-                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress_message: format!("Uploading {}", name),
-                        progress: chunk.len() as f64,
+            elapsed_bytes += chunk.len() as u64;
+            let progression = (elapsed_bytes as f64 / threshold).floor() as u64;
+            if progression > last_progression {
+                last_progression = progression;
+                state.event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id,
+                        progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                            progress_message: if let Some(total) = total {
+                                format!(
+                                    "Uploading {name}, {}",
+                                    format_byte_download(elapsed_bytes, total as u64)
+                                )
+                            } else {
+                                format!("Uploading {name}, {} uploaded", format_byte(elapsed_bytes))
+                            },
+                            progress: threshold,
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: Snowflake::default(),
+                    caused_by: CausedBy::User {
+                        user_id: requester.uid.clone(),
+                        user_name: requester.username.clone(),
                     },
-                }),
-                details: "".to_string(),
-                snowflake: Snowflake::default(),
-                caused_by: CausedBy::User {
-                    user_id: requester.uid.clone(),
-                    user_name: requester.username.clone(),
-                },
-            });
+                });
+            }
             file.write_all(&chunk).await.map_err(|e| {
                 std::fs::remove_file(&path).ok();
                 state.event_broadcaster.send(Event {
