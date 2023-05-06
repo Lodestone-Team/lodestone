@@ -102,7 +102,7 @@ const FileContextMenu = forwardRef(
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label="Paste"
+            label={file?.file_type !== 'Directory' ? "Paste" : `Paste into ${file?.name}`}
             // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
             onClick={() => {
               pasteFiles(file?.file_type !== 'Directory' ? currentPath : file?.path);
