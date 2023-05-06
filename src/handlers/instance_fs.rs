@@ -620,9 +620,15 @@ pub async fn unzip_instance_file(
         }
     }
 
-    Ok(Json(
-        unzip_file_async(path_to_zip_file, unzip_option).await?,
-    ))
+    let ret = unzip_file_async(path_to_zip_file, unzip_option).await?;
+
+    // remove root from paths
+    let ret = ret
+        .into_iter()
+        .map(|path| path.strip_prefix(&root).unwrap().to_path_buf())
+        .collect::<HashSet<_>>();
+
+    Ok(Json(ret))
 }
 
 #[derive(Deserialize)]
@@ -666,9 +672,11 @@ async fn zip_instance_files(
         });
     }
 
-    Ok(Json(
-        zip_files_async(&target_relative_paths, destination_relative_path).await?,
-    ))
+    let ret = zip_files_async(&target_relative_paths, destination_relative_path).await?;
+    // remove root from path
+    let ret = ret.strip_prefix(&root).unwrap().to_path_buf();
+
+    Ok(Json(ret))
 }
 
 pub fn get_instance_fs_routes(state: AppState) -> Router {
