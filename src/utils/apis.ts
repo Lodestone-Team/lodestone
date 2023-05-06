@@ -244,7 +244,9 @@ export const unzipInstanceFile = async (
     toast.error(`Failed to unzip ${file.name}: ${error}`);
     return;
   }
-
+  else {
+    toast.info(file ? 'Unzipped ' + file.name : ''); 
+  }
   // just invalided the query instead of updating it because file name might be different due to conflict
   queryClient.invalidateQueries([
     'instance',

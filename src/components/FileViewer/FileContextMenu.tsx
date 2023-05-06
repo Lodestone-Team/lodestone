@@ -79,8 +79,7 @@ const FileContextMenu = forwardRef(
       }
       else {
         unzipFile(file as ClientFile, unzipOption);
-        setShowContextMenu(false);
-        toast.info(file ? 'Unzipped ' + file.name : '');  
+        setShowContextMenu(false); 
       }
     };
 
