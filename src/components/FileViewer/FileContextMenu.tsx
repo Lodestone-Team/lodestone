@@ -128,7 +128,7 @@ const FileContextMenu = forwardRef(
               onClick={() => {
                 unzipFile(file as ClientFile, "Normal");
                 setShowContextMenu(false);
-                toast.info('Files unzipped');
+                toast.info(file ? 'Unzipped ' + file.name : '');
               }}
               disabled={!file}
             />
@@ -138,7 +138,7 @@ const FileContextMenu = forwardRef(
               onClick={() => {
                 unzipFile(file as ClientFile, "Smart");
                 setShowContextMenu(false);
-                toast.info('Files unzipped');
+                toast.info(file ? 'Unzipped ' + file.name : '');
               }}
               disabled={!file}
             />
@@ -148,7 +148,7 @@ const FileContextMenu = forwardRef(
               onClick={() => {
                 unzipFile(file as ClientFile, "ToDirectoryWithFileName");
                 setShowContextMenu(false);
-                toast.info('Files unzipped');
+                toast.info(file ? 'Unzipped ' + file.name : '');
               }}
               disabled={!file}
             />
