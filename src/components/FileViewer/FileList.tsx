@@ -117,10 +117,10 @@ export default function FileList({
     let y = null;
     let width = 0;
     let height = 0;
-    const supportedZip = ["rar", "zip", "gz", "tgz"];
+    const zipTypes = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
     let fileType = fileName?.split('.').pop();
 
-    if (supportedZip.includes(fileType ? fileType : '')) {
+    if (zipTypes.includes(fileType ? fileType : '')) {
       width = contextMenuDimensionsWithUnzip.width;
       height = contextMenuDimensionsWithUnzip.height;
     }

@@ -42,6 +42,7 @@ const FileContextMenu = forwardRef(
     ref: React.Ref<HTMLDivElement>
   ) => {
     const supportedZip = ["rar", "zip", "gz", "tgz"];
+    const unsupportedZip = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
     
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
@@ -69,6 +70,18 @@ const FileContextMenu = forwardRef(
       setTickedFiles([]);
       setClipboardAction('cut');
       toast.info('Files cut to clipboard');
+    };
+
+    const unzip = async (unzipOption : UnzipOption) => {
+      if (!supportedZip.includes(file?.name.split('.').pop() ?? ''))  { // not supported zip
+        toast.error('Unsupported zip file type');
+        setShowContextMenu(false);
+      }
+      else {
+        unzipFile(file as ClientFile, unzipOption);
+        setShowContextMenu(false);
+        toast.info(file ? 'Unzipped ' + file.name : '');  
+      }
     };
 
     return (
@@ -120,15 +133,13 @@ const FileContextMenu = forwardRef(
             }}
             disabled={!file}
           />
-          {supportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
+          {unsupportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
             (<>
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label="Unzip here"
               onClick={() => {
-                unzipFile(file as ClientFile, "Normal");
-                setShowContextMenu(false);
-                toast.info(file ? 'Unzipped ' + file.name : '');
+                unzip("Normal");
               }}
               disabled={!file}
             />
@@ -136,9 +147,7 @@ const FileContextMenu = forwardRef(
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label="Unzip here (smart)"
               onClick={() => {
-                unzipFile(file as ClientFile, "Smart");
-                setShowContextMenu(false);
-                toast.info(file ? 'Unzipped ' + file.name : '');
+                unzip("Smart");
               }}
               disabled={!file}
             />
@@ -146,9 +155,7 @@ const FileContextMenu = forwardRef(
               className="truncate w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label={file ? 'Unzip to ' + file.name : ''}
               onClick={() => {
-                unzipFile(file as ClientFile, "ToDirectoryWithFileName");
-                setShowContextMenu(false);
-                toast.info(file ? 'Unzipped ' + file.name : '');
+                unzip("ToDirectoryWithFileName");
               }}
               disabled={!file}
             />
