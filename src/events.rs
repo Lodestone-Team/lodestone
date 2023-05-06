@@ -124,7 +124,14 @@ impl From<MacroEvent> for Event {
 #[serde(tag = "type")]
 pub enum ProgressionEndValue {
     InstanceCreation(InstanceInfo),
-    InstanceDelete { instance_uuid: InstanceUuid },
+    InstanceDelete {
+        instance_uuid: InstanceUuid,
+    },
+    FSOperationCompleted {
+        instance_uuid: InstanceUuid,
+        success: bool,
+        message: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
