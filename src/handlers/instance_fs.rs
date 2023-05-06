@@ -10,6 +10,7 @@ use axum_auth::AuthBearer;
 use color_eyre::eyre::{eyre, Context};
 use headers::HeaderMap;
 use reqwest::header::CONTENT_LENGTH;
+use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
@@ -22,7 +23,10 @@ use crate::{
     },
     traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
-    util::{list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file, UnzipOption},
+    util::{
+        list_dir, rand_alphanumeric, scoped_join_win_safe, unzip_file_async, zip_files_async,
+        UnzipOption,
+    },
     AppState,
 };
 
@@ -616,7 +620,55 @@ pub async fn unzip_instance_file(
         }
     }
 
-    Ok(Json(unzip_file(path_to_zip_file, unzip_option).await?))
+    Ok(Json(
+        unzip_file_async(path_to_zip_file, unzip_option).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct ZipRequest {
+    target_relative_paths: Vec<PathBuf>,
+    destination_relative_path: PathBuf,
+}
+
+async fn zip_instance_files(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+    Json(zip_request): Json<ZipRequest>,
+) -> Result<Json<PathBuf>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    let instances = state.instances.lock().await;
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    let root = instance.path().await;
+    drop(instances);
+    let ZipRequest {
+        mut target_relative_paths,
+        mut destination_relative_path,
+    } = zip_request;
+
+    // apply scoped_join_win_safe to all paths
+    for path in &mut target_relative_paths {
+        *path = scoped_join_win_safe(&root, &*path)?;
+    }
+    destination_relative_path = scoped_join_win_safe(&root, &destination_relative_path)?;
+
+    if !requester.can_perform_action(&UserAction::ReadGlobalFile)
+        && is_path_protected(&destination_relative_path)
+    {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Destination is protected"),
+        });
+    }
+
+    Ok(Json(
+        zip_files_async(&target_relative_paths, destination_relative_path).await?,
+    ))
 }
 
 pub fn get_instance_fs_routes(state: AppState) -> Router {
@@ -666,5 +718,6 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             "/instance/:uuid/fs/:base64_relative_path/unzip",
             put(unzip_instance_file),
         )
+        .route("/instance/:uuid/fs/zip", put(zip_instance_files))
         .with_state(state)
 }

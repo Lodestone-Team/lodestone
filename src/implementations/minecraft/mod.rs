@@ -50,7 +50,7 @@ use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::util::{
-    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file, UnzipOption,
+    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file, UnzipOption, unzip_file_async,
 };
 
 use self::configurable::{CmdArgSetting, ServerPropertySetting};
@@ -556,7 +556,7 @@ impl MinecraftInstance {
             )
             .await?;
 
-            let unzipped_content = unzip_file(
+            let unzipped_content = unzip_file_async(
                 &downloaded,
                 UnzipOption::ToDir(path_to_runtimes.join("java")),
             )

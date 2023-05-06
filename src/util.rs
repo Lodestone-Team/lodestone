@@ -181,7 +181,7 @@ pub fn resolve_path_conflict(path: PathBuf, predicate: Option<&dyn Fn(&Path) -> 
     path // Unreachable code
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, TS)]
+#[derive(Serialize, Deserialize, Debug, Clone, TS, PartialEq, Eq)]
 #[ts(export)]
 pub enum UnzipOption {
     /// Unzip to the same directory as the file
@@ -194,7 +194,7 @@ pub enum UnzipOption {
     ToDir(PathBuf),
 }
 
-pub async fn unzip_file(
+pub fn unzip_file(
     file: impl AsRef<Path>,
     unzip_option: UnzipOption,
 ) -> Result<HashSet<PathBuf>, Error> {
@@ -275,7 +275,10 @@ pub async fn unzip_file(
 
     let mut ret: HashSet<PathBuf> = HashSet::new();
 
-    let temp_dir_content = list_dir(temp_dest, None).await?;
+    let temp_dir_content = std::fs::read_dir(temp_dest)
+        .context(format!("Failed to read directory {}", temp_dest.display()))?
+        .filter_map(|entry| entry.ok().map(|v| v.path()))
+        .collect::<Vec<_>>();
 
     if let UnzipOption::Smart = unzip_option {
         dest = if temp_dir_content.len() > 1 {
@@ -287,8 +290,7 @@ pub async fn unzip_file(
 
     // let dest = resolve_path_conflict(dest, None);
 
-    tokio::fs::create_dir_all(&dest)
-        .await
+    std::fs::create_dir_all(&dest)
         .context(format!("Failed to create directory {}", dest.display()))?;
 
     for temp_path in temp_dir_content {
@@ -300,24 +302,35 @@ pub async fn unzip_file(
             None,
         );
 
-        tokio::fs::rename(&temp_path, &entry_path)
-            .await
-            .context(format!(
-                "Failed to move {} to {}",
-                temp_path.display(),
-                entry_path.display()
-            ))?;
+        std::fs::rename(&temp_path, &entry_path).context(format!(
+            "Failed to move {} to {}",
+            temp_path.display(),
+            entry_path.display()
+        ))?;
         ret.insert(entry_path);
     }
 
     Ok(ret)
 }
 
-pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<PathBuf, Error> {
-    let dest = resolve_path_conflict(dest.as_ref().into(), None);
+pub async fn unzip_file_async(
+    file: impl AsRef<Path>,
+    unzip_option: UnzipOption,
+) -> Result<HashSet<PathBuf>, Error> {
+    let _file = file.as_ref().to_owned();
+    tokio::task::spawn_blocking(move || unzip_file(_file, unzip_option))
+        .await
+        .context(format!(
+            "Failed to unzip file {} in a blocking task",
+            file.as_ref().display()
+        ))?
+}
 
+pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<PathBuf, Error> {
+    let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
+    let dest = resolve_path_conflict(dest.into(), None);
     let archive = std::fs::File::create(&dest)
         .context(format!("Failed to create archive {}", dest.display()))?;
 
@@ -416,6 +429,20 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
 
     writer.finish().context("Zip failed")?;
     Ok(dest)
+}
+
+pub async fn zip_files_async(
+    files: &[impl AsRef<Path>],
+    dest: impl AsRef<Path>,
+) -> Result<PathBuf, Error> {
+    let _files = files
+        .iter()
+        .map(|f| f.as_ref().to_owned())
+        .collect::<Vec<_>>();
+    let _dest = dest.as_ref().to_owned();
+    tokio::task::spawn_blocking(move || zip_files(&_files, &_dest))
+        .await
+        .context("Failed to spawn blocking task")?
 }
 
 pub fn rand_alphanumeric(len: usize) -> String {
@@ -627,9 +654,7 @@ mod tests {
         test.insert(temp_path.join("constitution.txt"));
 
         assert_eq!(
-            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned()))
-                .await
-                .unwrap(),
+            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned())).unwrap(),
             test
         );
 
@@ -639,9 +664,7 @@ mod tests {
         test.insert(temp_path.join("constitution_1.txt"));
 
         assert_eq!(
-            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned()))
-                .await
-                .unwrap(),
+            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned())).unwrap(),
             test
         );
     }
@@ -656,9 +679,7 @@ mod tests {
         test.insert(temp_path.join("hi").join("sample-1_1.webp"));
 
         assert_eq!(
-            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi")))
-                .await
-                .unwrap(),
+            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi"))).unwrap(),
             test
         );
 
@@ -666,9 +687,7 @@ mod tests {
         test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
 
         assert_eq!(
-            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi")))
-                .await
-                .unwrap(),
+            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi"))).unwrap(),
             test
         );
     }
@@ -683,9 +702,7 @@ mod tests {
         expected.insert(dest_path.join("sample"));
 
         assert_eq!(
-            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.clone()))
-                .await
-                .unwrap(),
+            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.clone())).unwrap(),
             expected
         );
         assert!(dest_path.join("sample").join("sample.exe").is_file());
@@ -696,9 +713,7 @@ mod tests {
         expected.insert(dest_path.join("sample_1"));
 
         assert_eq!(
-            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.to_owned()))
-                .await
-                .unwrap(),
+            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.to_owned())).unwrap(),
             expected
         );
         assert!(dest_path.join("sample_1").join("sample.exe").is_file());
@@ -774,7 +789,6 @@ mod tests {
                 &dest_path.join("test_dest_2.zip"),
                 UnzipOption::ToDir(dest_path.join("unzipped"))
             )
-            .await
             .unwrap(),
             expected
         );
