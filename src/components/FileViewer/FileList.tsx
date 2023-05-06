@@ -112,7 +112,7 @@ export default function FileList({
   useEventListener('mousedown', onResize);
   useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
 
-  const calculateContextMenuCoords = (fileName? : String) => {
+  const calculateContextMenuCoords = (fileName? : string) => {
     let x = null;
     let y = null;
     let width = 0;
