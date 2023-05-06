@@ -15,6 +15,7 @@ import {
   isAxiosError,
   parentPath,
 } from './util';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 /***********************
  * Start Files API
@@ -221,8 +222,7 @@ export const moveInstanceFileOrDirectory = async (
 export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
-  // targetDirectory: string,
-  unzipOption: string,
+  unzipOption: UnzipOption,
   queryClient: QueryClient,
   direcotrySeparator: string
 ) => {
@@ -234,6 +234,9 @@ export const unzipInstanceFile = async (
         true
       )}/unzip`,
       data: unzipOption,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     })
   );
 
