@@ -42,7 +42,7 @@ const FileContextMenu = forwardRef(
     ref: React.Ref<HTMLDivElement>
   ) => {
     const supportedZip = ["rar", "zip", "gz", "tgz"];
-    const unsupportedZip = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
+    
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
       if (window.navigator.userAgent.indexOf('Mac') != -1) {
@@ -128,6 +128,7 @@ const FileContextMenu = forwardRef(
               onClick={() => {
                 unzipFile(file as ClientFile, "Normal");
                 setShowContextMenu(false);
+                toast.info('Files unzipped');
               }}
               disabled={!file}
             />
@@ -137,6 +138,7 @@ const FileContextMenu = forwardRef(
               onClick={() => {
                 unzipFile(file as ClientFile, "Smart");
                 setShowContextMenu(false);
+                toast.info('Files unzipped');
               }}
               disabled={!file}
             />
@@ -146,6 +148,7 @@ const FileContextMenu = forwardRef(
               onClick={() => {
                 unzipFile(file as ClientFile, "ToDirectoryWithFileName");
                 setShowContextMenu(false);
+                toast.info('Files unzipped');
               }}
               disabled={!file}
             />
