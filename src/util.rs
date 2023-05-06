@@ -1,6 +1,7 @@
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::io::{Read, Write};
 use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
@@ -21,7 +22,7 @@ use tar::Archive;
 pub struct Authentication {
     username: String,
     password: String,
-} 
+}
 
 use crate::error::Error;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -312,6 +313,111 @@ pub async fn unzip_file(
     Ok(ret)
 }
 
+pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<PathBuf, Error> {
+    let dest = resolve_path_conflict(dest.as_ref().into(), None);
+
+    std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
+        .context(format!("Failed to create directory {}", dest.display()))?;
+    let archive = std::fs::File::create(&dest)
+        .context(format!("Failed to create archive {}", dest.display()))?;
+
+    let mut buffer = Vec::new();
+    let mut writer = zip::ZipWriter::new(archive);
+    let options = zip::write::FileOptions::default().unix_permissions(0o775);
+    for entry_path in files.iter().map(|f| f.as_ref()) {
+        if entry_path.is_dir() {
+            writer
+                .add_directory(
+                    entry_path
+                        .file_name()
+                        .ok_or_else(|| eyre!("Entry has abnormal name"))?
+                        .to_str()
+                        .ok_or_else(|| eyre!("Entry has abnormal name"))?,
+                    options,
+                )
+                .context(format!(
+                    "Failed to create {} in archive",
+                    entry_path.display()
+                ))?;
+
+            for child_entry in walkdir::WalkDir::new(entry_path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let child_entry_path = child_entry.path();
+                let child_entry_dest =
+                    child_entry_path
+                        .strip_prefix(entry_path.parent().context(format!(
+                            "Failed to get parent for {}",
+                            entry_path.display()
+                        ))?)
+                        .context(format!(
+                            "Failed to strip prefix for {}",
+                            child_entry_path.display()
+                        ))?;
+
+                if child_entry_path.is_dir() {
+                    writer
+                        .add_directory(child_entry_dest.to_string_lossy(), options)
+                        .context(format!(
+                            "Failed to create {} in archive",
+                            child_entry_path.display()
+                        ))?;
+                }
+
+                if child_entry_path.is_file() {
+                    let child_entry_name = child_entry_dest.to_string_lossy();
+
+                    writer
+                        .start_file(child_entry_name, options)
+                        .context(format!(
+                            "Failed to create {} in archive",
+                            child_entry_path.display()
+                        ))?;
+
+                    let mut child_entry_file = std::fs::File::open(child_entry_path)
+                        .context(format!("Failed to open {}", child_entry_path.display()))?;
+                    child_entry_file
+                        .read_to_end(&mut buffer)
+                        .context(format!("Failed to read {}", child_entry_path.display()))?;
+                    writer.write_all(&buffer).context(format!(
+                        "Failed to write {} to archive",
+                        child_entry_path.display()
+                    ))?;
+                    buffer.clear();
+                }
+            }
+        }
+
+        if entry_path.is_file() {
+            let entry_name = entry_path
+                .file_name()
+                .ok_or_else(|| eyre!("File to zip has no name"))?
+                .to_str()
+                .ok_or_else(|| eyre!("File to zip has abnormal name"))?;
+
+            writer.start_file(entry_name, options).context(format!(
+                "Failed to create {} in archive",
+                entry_path.display()
+            ))?;
+
+            let mut entry_file = std::fs::File::open(entry_path)
+                .context(format!("Failed to open {}", entry_path.display()))?;
+            entry_file
+                .read_to_end(&mut buffer)
+                .context(format!("Failed to read {}", entry_path.display()))?;
+            writer.write_all(&buffer).context(format!(
+                "Failed to write {} to archive",
+                entry_path.display()
+            ))?;
+            buffer.clear();
+        }
+    }
+
+    writer.finish().context("Zip failed")?;
+    Ok(dest)
+}
+
 pub fn rand_alphanumeric(len: usize) -> String {
     thread_rng().sample_iter(&Alphanumeric).take(len).collect()
 }
@@ -503,8 +609,9 @@ pub fn format_byte(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::{resolve_path_conflict, unzip_file, UnzipOption};
+    use crate::util::{resolve_path_conflict, unzip_file, zip_files, UnzipOption};
     use std::collections::HashSet;
+    use std::io::Read;
     use std::path::PathBuf;
     use tokio;
 
@@ -626,5 +733,95 @@ mod tests {
         );
 
         assert_eq!(resolve_path_conflict(dir, None), temp_path.join("test_1"));
+    }
+
+    #[tokio::test]
+    async fn test_zip_files() {
+        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let dest_path = temp.path().to_path_buf();
+
+        assert_eq!(
+            zip_files(
+                &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
+                dest_path.join("test_dest.zip")
+            )
+            .unwrap(),
+            dest_path.join("test_dest.zip")
+        );
+        assert_eq!(
+            zip_files(
+                &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
+                dest_path.join("test_dest.zip")
+            )
+            .unwrap(),
+            dest_path.join("test_dest_1.zip")
+        );
+        assert_eq!(
+            zip_files(
+                &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
+                dest_path.join("test_dest.zip")
+            )
+            .unwrap(),
+            dest_path.join("test_dest_2.zip")
+        );
+
+        let mut expected: HashSet<PathBuf> = HashSet::new();
+        expected.insert(dest_path.join("unzipped").join("test1.txt"));
+        expected.insert(dest_path.join("unzipped").join("test2"));
+
+        assert_eq!(
+            unzip_file(
+                &dest_path.join("test_dest_2.zip"),
+                UnzipOption::ToDir(dest_path.join("unzipped"))
+            )
+            .await
+            .unwrap(),
+            expected
+        );
+
+        assert!(dest_path.join("unzipped").join("test1.txt").is_file());
+        assert!(dest_path.join("unzipped").join("test2").is_dir());
+        assert!(dest_path
+            .join("unzipped")
+            .join("test2")
+            .join("test1.txt")
+            .is_file());
+        assert!(dest_path
+            .join("unzipped")
+            .join("test2")
+            .join("test2")
+            .is_dir());
+        assert!(dest_path
+            .join("unzipped")
+            .join("test2")
+            .join("test2")
+            .join("test1.txt")
+            .is_file());
+
+        let file = std::fs::File::open(dest_path.join("unzipped").join("test1.txt")).unwrap();
+        let mut buf_reader = std::io::BufReader::new(file);
+        let mut contents = String::new();
+        buf_reader.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents.trim(), "test1");
+
+        let file = std::fs::File::open(dest_path.join("unzipped").join("test2").join("test1.txt"))
+            .unwrap();
+        let mut buf_reader = std::io::BufReader::new(file);
+        let mut contents = String::new();
+        buf_reader.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents.trim(), "test2_test1");
+
+        let file = std::fs::File::open(
+            dest_path
+                .join("unzipped")
+                .join("test2")
+                .join("test2")
+                .join("test1.txt"),
+        )
+        .unwrap();
+        let mut buf_reader = std::io::BufReader::new(file);
+        let mut contents = String::new();
+        buf_reader.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents.trim(), "test2_test2_test1");
     }
 }
