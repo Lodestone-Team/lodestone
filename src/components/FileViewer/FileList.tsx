@@ -111,12 +111,15 @@ export default function FileList({
   useEventListener('mousedown', onResize);
   useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
 
-  const calculateContextMenuCoords = (showUnzip : boolean) => {
+  const calculateContextMenuCoords = (fileName? : String) => {
     let x = null;
     let y = null;
     let width = 0;
     let height = 0;
-    if (showUnzip) {
+    const supportedZip = ["rar", "zip", "gz", "tgz"];
+    let fileType = fileName?.split('.').pop();
+
+    if (supportedZip.includes(fileType ? fileType : '')) {
       width = contextMenuDimensionsWithUnzip.width;
       height = contextMenuDimensionsWithUnzip.height;
     }
@@ -207,7 +210,7 @@ export default function FileList({
             })}
             onContextMenu={(e) => { e.preventDefault(); 
               setContextMenuFile(file);
-              calculateContextMenuCoords(true);
+              calculateContextMenuCoords(file.name);
               setShowContextMenu(true);
               setModalPath(file.file_type === "Directory" ? file.path : path);
             }}
@@ -260,7 +263,7 @@ export default function FileList({
           className="min-h-[25%] grow"
           onContextMenu={(e) => { e.preventDefault(); 
             setContextMenuFile(null);
-            calculateContextMenuCoords(false);
+            calculateContextMenuCoords();
             setShowContextMenu(true);
             setModalPath(path);
           }}
