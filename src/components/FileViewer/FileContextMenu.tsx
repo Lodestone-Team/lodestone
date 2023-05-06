@@ -40,7 +40,8 @@ const FileContextMenu = forwardRef(
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
-    const zipFileExtensions = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
+    const supportedZip = ["rar", "zip", "gz", "tgz"];
+    const unsupportedZip = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
       if (window.navigator.userAgent.indexOf('Mac') != -1) {
@@ -93,7 +94,7 @@ const FileContextMenu = forwardRef(
             onClick={() => {
               cutFile();
             }}
-            disabled={file === null}
+            disabled={!file}
           />
         </div>
         <div className="py-2">
@@ -106,7 +107,7 @@ const FileContextMenu = forwardRef(
               setRenameFileModalOpen(true);
               setShowContextMenu(false);
             }}
-            disabled={file === null}
+            disabled={!file}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
@@ -116,10 +117,10 @@ const FileContextMenu = forwardRef(
               deleteFile();
               setShowContextMenu(false);
             }}
-            disabled={file === null}
+            disabled={!file}
           />
-          {((file === null || !(zipFileExtensions.includes(file.name.split('.').pop()!)) ) ? // if file name is null or file is not zip file
-            null : (<>
+          {supportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
+            (<>
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label="Unzip here"
@@ -127,7 +128,7 @@ const FileContextMenu = forwardRef(
                 unzipFile(file as ClientFile);
                 setShowContextMenu(false);
               }}
-              disabled={file === null}
+              disabled={!file}
             />
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
@@ -136,18 +137,18 @@ const FileContextMenu = forwardRef(
                 unzipFile(file as ClientFile);
                 setShowContextMenu(false);
               }}
-              disabled={file === null}
+              disabled={!file}
             />
             <ContextMenuButton
-              className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+              className="truncate w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label={file ? 'Unzip to ' + file.name : ''}
               onClick={() => {
                 unzipFile(file as ClientFile);
                 setShowContextMenu(false);
               }}
-              disabled={file === null}
+              disabled={!file}
             />
-            </>))}
+            </>) : null}
         </div>
         <div className="py-2">
           <ContextMenuButton
