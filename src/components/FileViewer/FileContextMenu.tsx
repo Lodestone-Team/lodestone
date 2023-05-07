@@ -67,6 +67,17 @@ const FileContextMenu = forwardRef(
       toast.info('Files deleted');
     };
 
+    const copyFile = async () => {
+      if (tickedFiles?.includes(file as ClientFile)) {
+        setClipboard(tickedFiles);
+      } else {
+        setClipboard([file as ClientFile]);
+      }
+      setTickedFiles([]);
+      setClipboardAction('copy');
+      toast.info('Files copied to clipboard');
+    };
+
     const cutFile = async () => {
       if (tickedFiles?.includes(file as ClientFile)) {
         setClipboard(tickedFiles);
@@ -104,7 +115,11 @@ const FileContextMenu = forwardRef(
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Copy"
             // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
-            disabled={true}
+            onClick={() => {
+              copyFile();
+              setShowContextMenu(false);
+            }}
+            disabled={file === null}
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"

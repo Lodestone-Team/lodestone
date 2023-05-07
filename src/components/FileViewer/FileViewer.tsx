@@ -36,6 +36,7 @@ import {
   unzipInstanceFile,
   uploadInstanceFiles,
   moveInstanceFileOrDirectory,
+  copyRecursive,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
@@ -160,9 +161,21 @@ export default function FileViewer() {
 
   const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
-    if (clipboardAction === 'copy')
-      throw new Error('copying files is not implemented yet');
-    if (clipboardAction === 'cut') {
+    if (clipboardAction === 'copy') {
+      let files : string[] = [];
+      for (const file of clipboard) {
+        files.push(file.path);
+      }
+      await copyRecursive(
+        instance.uuid,
+        {
+          relative_paths_source: files,
+          relative_path_dest: `${currentPath}`,
+        },
+        directorySeparator,
+        queryClient,
+      )
+    } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
         console.log(
           'moving',
@@ -214,8 +227,6 @@ export default function FileViewer() {
       instance.uuid,
       file,
       unzipOption,
-      queryClient,
-      directorySeparator
     );
   }
 

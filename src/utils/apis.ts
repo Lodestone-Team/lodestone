@@ -16,6 +16,7 @@ import {
   parentPath,
 } from './util';
 import { UnzipOption } from 'bindings/UnzipOptions';
+import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 
 /***********************
  * Start Files API
@@ -180,6 +181,31 @@ export const createInstanceDirectory = async (
   );
 };
 
+export const copyRecursive = async (
+  uuid: string,
+  request: CopyInstanceFileRequest,
+  direcotrySeparator: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/cpr`,
+      data: request,
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(request.relative_path_dest, direcotrySeparator),
+  ]);
+}
+
 export const moveInstanceFileOrDirectory = async (
   uuid: string,
   source: string,
@@ -223,8 +249,6 @@ export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
   unzipOption: UnzipOption,
-  queryClient: QueryClient,
-  direcotrySeparator: string
 ) => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
@@ -245,21 +269,8 @@ export const unzipInstanceFile = async (
     return;
   }
   else {
-    toast.info(file ? 'Unzipped ' + file.name : ''); 
+    toast.info(`Unzipping ${file.name}...`);
   }
-  // just invalided the query instead of updating it because file name might be different due to conflict
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    parentPath(file.path, direcotrySeparator),
-  ]);
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    // targetDirectory,
-  ]);
 };
 
 /***********************
