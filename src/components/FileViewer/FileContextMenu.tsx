@@ -85,8 +85,7 @@ const FileContextMenu = forwardRef(
     ref: React.Ref<HTMLDivElement>
   ) => {
     const supportedZip = ["rar", "zip", "gz", "tgz"];
-    const unsupportedZip = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
-    
+        
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
       if (window.navigator.userAgent.indexOf('Mac') != -1) {
@@ -214,7 +213,7 @@ const FileContextMenu = forwardRef(
               setShowContextMenu(false);
             }}
           />
-          {unsupportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
+          {supportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
             (<>
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
