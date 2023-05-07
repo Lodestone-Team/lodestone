@@ -48,7 +48,7 @@ export default function FileList({
   error: Error | null;
   tickedFiles: ClientFile[];
   tickFile: (file: ClientFile, ticked: boolean) => void;
-  zipFiles: (files: ClientFile[]) => void;
+  zipFiles: (files: ClientFile[], dest : string) => void;
   unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
   openedFile: ClientFile | null;
   atTopLevel: boolean;

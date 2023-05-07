@@ -6,6 +6,41 @@ import { unzipInstanceFile } from 'utils/apis';
 import clsx from 'clsx';
 import { UnzipOption } from 'bindings/UnzipOptions';
 
+function generateZipText(tickedFiles : ClientFile[] | undefined, hoverFile : ClientFile | null) : string {
+  // if there is no file ticked, and that there is a file, zip the current file to a zip file with the same name
+  // if there is a file ticked, zip all the ticked files
+  if (tickedFiles === undefined && hoverFile === undefined) {
+    return "Zip";
+  } else if (tickedFiles === undefined || tickedFiles.length === 0) {
+    return `Zip to ${hoverFile?.name}.zip`;
+  } else if (tickedFiles.length === 1) {
+    return `Zip ${tickedFiles[0].name} to ${tickedFiles[0].name}.zip`;
+  }
+   else {
+    // const numDir = tickedFiles.filter((file) => file.file_type === "Directory").length;
+    // const numFile = tickedFiles.filter((file) => file.file_type === "File").length;
+    // // if either is 0, then we don't need to show it
+    // const dirText = numDir === 0 ? "" : `${numDir} director${numDir > 1 ? "ies" : "y"}`;
+    // const fileText = numFile === 0 ? "" : `${numFile} file${numFile > 1 ? "s" : ""}`;
+    // const andText = numDir > 0 && numFile > 0 ? " and " : "";
+    const numFile = tickedFiles.length;
+    return `Zip ${numFile} file${numFile > 1 ? "s" : ""} to Archive.zip`;
+  }
+}
+
+function generateZipFileName(tickedFiles : ClientFile[], hoverFile : ClientFile | null) : string {
+  if (tickedFiles === undefined && hoverFile === undefined) {
+    return "";
+  } else if (tickedFiles === undefined || tickedFiles.length === 0) {
+    return hoverFile?.name + ".zip";
+  } else if (tickedFiles.length === 1) {
+    return tickedFiles[0].name + ".zip";
+  }
+   else {
+    return "Archive.zip";
+  }
+}
+
 const FileContextMenu = forwardRef(
   (
     {
@@ -36,7 +71,7 @@ const FileContextMenu = forwardRef(
       setRenameFileModalOpen: (modalOpen: boolean) => void;
       setShowContextMenu: (showContextMenu: boolean) => void;
       setClipboard: (clipboard: ClientFile[]) => void;
-      zipFiles: (files: ClientFile[]) => void;
+      zipFiles: (files: ClientFile[], dest : string) => void;
       unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
       pasteFiles: (path: string) => void;
       setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
@@ -168,24 +203,13 @@ const FileContextMenu = forwardRef(
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            // if 0 file is selected, label is "Zip"
-            // otherwise, if there is 0 directory, label is "Zip x files". If there is 1 file, label is "Zip 1 file"
-            // otherwise, if is no file, label is "Zip x directories". If there is 1 directory, label is "Zip 1 directory"
-            // otherwise, label is "Zip x files and y directories"
-            // take care of the case where x or y is 1
-            label= {tickedFiles?.length === 0 ? "Zip" :
-              (tickedFiles?.filter((file) => file.file_type === 'Directory').length === 0 ?
-                `Zip ${tickedFiles?.length} files` :
-                (tickedFiles?.filter((file) => file.file_type === 'Directory').length === 1 ?
-                  `Zip 1 file` :
-                  `Zip ${tickedFiles?.length} files`
-                )
-              )
-            }
-            // disable if no file is selected
-            disabled={tickedFiles?.length === 0}
+            
+            label= {generateZipText(tickedFiles, file)}
+            // disable if no file is ticked and if there is no file
+            disabled={tickedFiles?.length === 0 && !file}
             onClick={() => {
-              zipFiles(tickedFiles as ClientFile[]);
+              // if there is no file ticked, zip the current file to a zip file with the same name
+              zipFiles(tickedFiles?.length === 0 ? [file! as ClientFile] : tickedFiles!, `${currentPath}/` + generateZipFileName(tickedFiles!, file));
               setTickedFiles([]);
               setShowContextMenu(false);
             }}

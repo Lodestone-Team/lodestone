@@ -218,13 +218,10 @@ export default function FileViewer() {
     }
   };
 
-  const zipFiles = async (files: ClientFile[]) => {
-    // zip to Archive.zip
-    const zipName = 'Archive.zip';
-    const zipPath = `${path}${directorySeparator}${zipName}`;
+  const zipFiles = async (files: ClientFile[], dest : string) => {
     await zipInstanceFiles(instance.uuid, {
       target_relative_paths: files.map((f) => f.path),
-      destination_relative_path: zipPath,
+      destination_relative_path: dest,
     });
   };
 
