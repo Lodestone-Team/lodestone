@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 
 use axum::{
     body::Bytes,
@@ -827,7 +827,7 @@ pub async fn unzip_instance_file(
                         inner: Some(ProgressionEndValue::FSOperationCompleted {
                             instance_uuid: uuid,
                             success: false,
-                            message: format!("Unzipping {} failed : {e}", relative_path),
+                            message: format!("Unzip {} failed : {e}", relative_path),
                         }),
                     },
                 }),
@@ -845,7 +845,7 @@ pub async fn unzip_instance_file(
                         inner: Some(ProgressionEndValue::FSOperationCompleted {
                             instance_uuid: uuid,
                             success: true,
-                            message: format!("Unzipping {} complete", relative_path),
+                            message: format!("Unzipped {relative_path}"),
                         }),
                     },
                 }),
@@ -859,7 +859,8 @@ pub async fn unzip_instance_file(
     Ok(Json(()))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, TS)]
+#[ts(export)]
 struct ZipRequest {
     target_relative_paths: Vec<PathBuf>,
     destination_relative_path: PathBuf,
@@ -870,7 +871,7 @@ async fn zip_instance_files(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
     Json(zip_request): Json<ZipRequest>,
-) -> Result<Json<PathBuf>, Error> {
+) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
     let instances = state.instances.lock().await;
@@ -900,11 +901,90 @@ async fn zip_instance_files(
         });
     }
 
-    let ret = zip_files_async(&target_relative_paths, destination_relative_path).await?;
-    // remove root from path
-    let ret = ret.strip_prefix(&root).unwrap().to_path_buf();
+    let event_broadcaster = state.event_broadcaster.clone();
 
-    Ok(Json(ret))
+    tokio::spawn(async move {
+        let event_id = Snowflake::default();
+        let aggregate_name = {
+            let combined_file_name = target_relative_paths
+                .iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", ");
+            if combined_file_name.len() < 100 {
+                combined_file_name
+            } else {
+                format!("{} files", target_relative_paths.len())
+            }
+        };
+        event_broadcaster.send(Event {
+            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                event_id,
+                progression_event_inner: ProgressionEventInner::ProgressionStart {
+                    // if the combined file name is not too long, use it
+                    // otherwise, use the number of files
+                    progression_name: format!("Zipping {aggregate_name}"),
+                    producer_id: None,
+                    total: None,
+                    inner: None,
+                },
+            }),
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            caused_by: CausedBy::User {
+                user_id: requester.uid.clone(),
+                user_name: requester.username.clone(),
+            },
+        });
+
+        if let Err(e) = zip_files_async(&target_relative_paths, destination_relative_path).await {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: true,
+                        message: Some(format!("Zip failed: {}", e)),
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid,
+                            success: false,
+                            message: format!("Zip {aggregate_name} failed : {e}"),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: CausedBy::User {
+                    user_id: requester.uid.clone(),
+                    user_name: requester.username.clone(),
+                },
+            });
+        } else {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: true,
+                        message: Some("Zip complete".to_string()),
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid,
+                            success: true,
+                            message: format!("Zipped {aggregate_name}"),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: CausedBy::User {
+                    user_id: requester.uid.clone(),
+                    user_name: requester.username.clone(),
+                },
+            });
+        }
+    });
+
+    // remove root from path
+
+    Ok(Json(()))
 }
 
 pub fn get_instance_fs_routes(state: AppState) -> Router {
