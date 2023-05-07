@@ -2,4 +2,4 @@
 import type { InstanceInfo } from "./InstanceInfo";
 import type { InstanceUuid } from "./InstanceUuid";
 
-export type ProgressionEndValue = { type: "InstanceCreation" } & InstanceInfo | { type: "InstanceDelete", instance_uuid: InstanceUuid, };
+export type ProgressionEndValue = { type: "InstanceCreation" } & InstanceInfo | { type: "InstanceDelete", instance_uuid: InstanceUuid, } | { type: "FSOperationCompleted", instance_uuid: InstanceUuid, success: boolean, message: string, };

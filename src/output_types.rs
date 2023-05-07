@@ -23,8 +23,8 @@ impl From<&Event> for ClientEvent {
     fn from(event: &Event) -> Self {
         let level = match &event.event_inner {
             EventInner::InstanceEvent(i) => match i.instance_event_inner {
-                InstanceEventInner::InstanceError => EventLevel::Error,
-                InstanceEventInner::InstanceWarning => EventLevel::Warning,
+                InstanceEventInner::InstanceError { .. } => EventLevel::Error,
+                InstanceEventInner::InstanceWarning { .. } => EventLevel::Warning,
                 _ => EventLevel::Info,
             },
             EventInner::UserEvent(_) => EventLevel::Info,
