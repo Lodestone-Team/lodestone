@@ -13,13 +13,13 @@ use headers::HeaderMap;
 use reqwest::header::CONTENT_LENGTH;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
+use tracing::debug;
 use ts_rs::TS;
 use walkdir::WalkDir;
 
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
-    event_broadcaster,
     events::{
         new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEndValue,
         ProgressionEvent, ProgressionEventInner,
@@ -257,8 +257,15 @@ async fn copy_instance_files(
         let event_id = Snowflake::default();
 
         let mut first = true;
+
+        let mut threshold = 500000_u64;
+
+        let mut elapsed_bytes = 0_u64;
+        let mut last_progression = 0_u64;
+
         let handle = |process_info: TransitProcess| {
             if first {
+                threshold = process_info.total_bytes / 100;
                 event_broadcaster.send(Event {
                     event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                         event_id,
@@ -274,33 +281,43 @@ async fn copy_instance_files(
                     caused_by: caused_by.clone(),
                 });
                 first = false;
+                elapsed_bytes = process_info.copied_bytes;
             } else {
-                event_broadcaster.send(Event {
-                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                        event_id,
-                        progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                            progress_message: format!(
-                                "Copying file {}, {} / {} bytes",
-                                process_info.file_name,
-                                process_info.copied_bytes,
-                                process_info.total_bytes
-                            ),
-                            progress: process_info.copied_bytes as f64,
-                        },
-                    }),
-                    details: "".to_string(),
-                    snowflake: Snowflake::default(),
-                    caused_by: caused_by.clone(),
-                });
+                elapsed_bytes = process_info.copied_bytes;
+                let progression = elapsed_bytes / threshold;
+                if progression > last_progression {
+                    last_progression = progression;
+                    event_broadcaster.send(Event {
+                        event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                            event_id,
+                            progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                                progress_message: format!(
+                                    "Copying file {}, {}",
+                                    process_info.file_name,
+                                    format_byte_download(
+                                        process_info.copied_bytes,
+                                        process_info.total_bytes
+                                    )
+                                ),
+                                progress: threshold as f64,
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: Snowflake::default(),
+                        caused_by: caused_by.clone(),
+                    });
+                }
             }
             fs_extra::dir::TransitProcessResult::SkipAll
         };
+        debug!("Copying {:?} to {:?}", paths_source, path_dest);
         if let Err(e) = fs_extra::copy_items_with_progress(
             &paths_source,
             &path_dest,
             &fs_extra::dir::CopyOptions::new(),
             handle,
         ) {
+            debug!("Error copying file(s): {}", e);
             event_broadcaster.send(Event {
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
                     event_id,
