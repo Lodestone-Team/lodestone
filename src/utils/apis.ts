@@ -17,6 +17,7 @@ import {
 } from './util';
 import { UnzipOption } from 'bindings/UnzipOptions';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
+import { ZipRequest } from 'bindings/ZipRequest';
 
 /***********************
  * Start Files API
@@ -244,6 +245,29 @@ export const moveInstanceFileOrDirectory = async (
     parentPath(destination, direcotrySeparator),
   ]);
 };
+
+export const zipInstanceFiles = async (
+  uuid: string,
+  zipRequest: ZipRequest
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/zip`,
+      data: zipRequest,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+  );
+  if (error) {
+    toast.error(`Failed to initiate zip: ${error}`);
+    return;
+  }
+  else {
+    toast.info(`Zipping ${zipRequest.target_relative_paths.length} files...`);
+  }
+}
 
 export const unzipInstanceFile = async (
   uuid: string,

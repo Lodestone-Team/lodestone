@@ -22,6 +22,7 @@ export default function FileList({
   tickedFiles,
   clipboard,
   tickFile,
+  zipFiles,
   unzipFile,
   openedFile,
   atTopLevel,
@@ -47,6 +48,7 @@ export default function FileList({
   error: Error | null;
   tickedFiles: ClientFile[];
   tickFile: (file: ClientFile, ticked: boolean) => void;
+  zipFiles: (files: ClientFile[]) => void;
   unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
   openedFile: ClientFile | null;
   atTopLevel: boolean;
@@ -81,9 +83,8 @@ export default function FileList({
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
-  const contextMenuDimensionsWithoutUnzip = { height: 213, width: 176 } // no unzip in menu (file name is null)
-  const contextMenuDimensionsWithUnzip = { height: 290, width: 176 } 
-  const contextMenuDimensions = { height: 260, width: 176 } 
+  const contextMenuDimensionsWithoutUnzip = { height: 259, width: 176 } // no unzip in menu (file name is null)
+  const contextMenuDimensionsWithUnzip = { height: 337, width: 176 } 
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
@@ -170,6 +171,7 @@ export default function FileList({
           setCreateFolderModalOpen={setCreateFolderModalOpen} 
           setShowContextMenu={setShowContextMenu}
           setClipboard={setClipboard}
+          zipFiles={zipFiles}
           unzipFile={unzipFile}
           setModalPath={setModalPath}
           setClipboardAction={setClipboardAction}

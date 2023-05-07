@@ -37,6 +37,7 @@ import {
   uploadInstanceFiles,
   moveInstanceFileOrDirectory,
   copyRecursive,
+  zipInstanceFiles,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
@@ -162,7 +163,7 @@ export default function FileViewer() {
   const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
     if (clipboardAction === 'copy') {
-      let files : string[] = [];
+      const files : string[] = [];
       for (const file of clipboard) {
         files.push(file.path);
       }
@@ -215,6 +216,16 @@ export default function FileViewer() {
         `Downloading a directory is not supported. The following directories were not downloaded: ${missedDirectoriesString}`
       );
     }
+  };
+
+  const zipFiles = async (files: ClientFile[]) => {
+    // zip to Archive.zip
+    const zipName = 'Archive.zip';
+    const zipPath = `${path}${directorySeparator}${zipName}`;
+    await zipInstanceFiles(instance.uuid, {
+      target_relative_paths: files.map((f) => f.path),
+      destination_relative_path: zipPath,
+    });
   };
 
   const unzipFile = async (file: ClientFile, unzipOption : UnzipOption)  => { 
@@ -540,6 +551,7 @@ export default function FileViewer() {
                 error={fileListError}
                 tickedFiles={tickedFiles}
                 tickFile={tickFile}
+                zipFiles={zipFiles}
                 unzipFile={unzipFile}
                 pasteFiles={pasteFiles}
                 openedFile={openedFile}

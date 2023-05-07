@@ -22,6 +22,7 @@ const FileContextMenu = forwardRef(
       tickedFiles,
       clipboard,
       setShowContextMenu,
+      zipFiles,
       unzipFile,
       setRenameFileModalOpen,
       deleteSingleFile,
@@ -35,6 +36,7 @@ const FileContextMenu = forwardRef(
       setRenameFileModalOpen: (modalOpen: boolean) => void;
       setShowContextMenu: (showContextMenu: boolean) => void;
       setClipboard: (clipboard: ClientFile[]) => void;
+      zipFiles: (files: ClientFile[]) => void;
       unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
       pasteFiles: (path: string) => void;
       setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
@@ -163,6 +165,30 @@ const FileContextMenu = forwardRef(
               setShowContextMenu(false);
             }}
             disabled={!file}
+          />
+          <ContextMenuButton
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+            // if 0 file is selected, label is "Zip"
+            // otherwise, if there is 0 directory, label is "Zip x files". If there is 1 file, label is "Zip 1 file"
+            // otherwise, if is no file, label is "Zip x directories". If there is 1 directory, label is "Zip 1 directory"
+            // otherwise, label is "Zip x files and y directories"
+            // take care of the case where x or y is 1
+            label= {tickedFiles?.length === 0 ? "Zip" :
+              (tickedFiles?.filter((file) => file.file_type === 'Directory').length === 0 ?
+                `Zip ${tickedFiles?.length} files` :
+                (tickedFiles?.filter((file) => file.file_type === 'Directory').length === 1 ?
+                  `Zip 1 file` :
+                  `Zip ${tickedFiles?.length} files`
+                )
+              )
+            }
+            // disable if no file is selected
+            disabled={tickedFiles?.length === 0}
+            onClick={() => {
+              zipFiles(tickedFiles as ClientFile[]);
+              setTickedFiles([]);
+              setShowContextMenu(false);
+            }}
           />
           {unsupportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
             (<>
