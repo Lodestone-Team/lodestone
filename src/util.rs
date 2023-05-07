@@ -330,12 +330,10 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
     let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
-    let dest = resolve_path_conflict(dest.into(), None);
-    let archive = std::fs::File::create(&dest)
-        .context(format!("Failed to create archive {}", dest.display()))?;
+    let tmp_archive = tempfile::NamedTempFile::new().context("Failed to create temporary file")?;
 
     let mut buffer = Vec::new();
-    let mut writer = zip::ZipWriter::new(archive);
+    let mut writer = zip::ZipWriter::new(&tmp_archive);
     let options = zip::write::FileOptions::default().unix_permissions(0o775);
     for entry_path in files.iter().map(|f| f.as_ref()) {
         if entry_path.is_dir() {
@@ -428,6 +426,12 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
     }
 
     writer.finish().context("Zip failed")?;
+    let dest = resolve_path_conflict(dest.into(), None);
+    std::fs::rename(tmp_archive.path(), &dest).context(format!(
+        "Failed to move {} to {}",
+        tmp_archive.path().display(),
+        dest.display()
+    ))?;
     Ok(dest)
 }
 
