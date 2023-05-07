@@ -17,12 +17,6 @@ function generateZipText(tickedFiles : ClientFile[] | undefined, hoverFile : Cli
     return `Zip ${tickedFiles[0].name} to ${tickedFiles[0].name}.zip`;
   }
    else {
-    // const numDir = tickedFiles.filter((file) => file.file_type === "Directory").length;
-    // const numFile = tickedFiles.filter((file) => file.file_type === "File").length;
-    // // if either is 0, then we don't need to show it
-    // const dirText = numDir === 0 ? "" : `${numDir} director${numDir > 1 ? "ies" : "y"}`;
-    // const fileText = numFile === 0 ? "" : `${numFile} file${numFile > 1 ? "s" : ""}`;
-    // const andText = numDir > 0 && numFile > 0 ? " and " : "";
     const numFile = tickedFiles.length;
     return `Zip ${numFile} file${numFile > 1 ? "s" : ""} to Archive.zip`;
   }
@@ -85,7 +79,7 @@ const FileContextMenu = forwardRef(
     ref: React.Ref<HTMLDivElement>
   ) => {
     const supportedZip = ["rar", "zip", "gz", "tgz"];
-        
+
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
       if (window.navigator.userAgent.indexOf('Mac') != -1) {
@@ -213,7 +207,7 @@ const FileContextMenu = forwardRef(
               setShowContextMenu(false);
             }}
           />
-          {supportedZip.includes(file?.name.split('.').pop() ?? '') ? // if file name is null or file is not zip file
+          {supportedZip.includes(file?.name.split('.').pop() ?? '') && file?.file_type === "File" ? // if file name is null or file is not zip file
             (<>
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
