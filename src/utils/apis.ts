@@ -15,6 +15,9 @@ import {
   isAxiosError,
   parentPath,
 } from './util';
+import { UnzipOption } from 'bindings/UnzipOptions';
+import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
+import { ZipRequest } from 'bindings/ZipRequest';
 
 /***********************
  * Start Files API
@@ -179,6 +182,31 @@ export const createInstanceDirectory = async (
   );
 };
 
+export const copyRecursive = async (
+  uuid: string,
+  request: CopyInstanceFileRequest,
+  direcotrySeparator: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/cpr`,
+      data: request,
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(request.relative_path_dest, direcotrySeparator),
+  ]);
+}
+
 export const moveInstanceFileOrDirectory = async (
   uuid: string,
   source: string,
@@ -218,12 +246,33 @@ export const moveInstanceFileOrDirectory = async (
   ]);
 };
 
+export const zipInstanceFiles = async (
+  uuid: string,
+  zipRequest: ZipRequest
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/zip`,
+      data: zipRequest,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+  );
+  if (error) {
+    toast.error(`Failed to initiate zip: ${error}`);
+    return;
+  }
+  else {
+    toast.info(`Zipping ${zipRequest.target_relative_paths.length} files...`);
+  }
+}
+
 export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
-  targetDirectory: string,
-  queryClient: QueryClient,
-  direcotrySeparator: string
+  unzipOption: UnzipOption,
 ) => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
@@ -231,7 +280,11 @@ export const unzipInstanceFile = async (
       url: `/instance/${uuid}/fs/${Base64.encode(
         file.path,
         true
-      )}/unzip/${Base64.encode(targetDirectory, true)}`,
+      )}/unzip`,
+      data: unzipOption,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     })
   );
 
@@ -239,20 +292,9 @@ export const unzipInstanceFile = async (
     toast.error(`Failed to unzip ${file.name}: ${error}`);
     return;
   }
-
-  // just invalided the query instead of updating it because file name might be different due to conflict
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    parentPath(file.path, direcotrySeparator),
-  ]);
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    targetDirectory,
-  ]);
+  else {
+    toast.info(`Unzipping ${file.name}...`);
+  }
 };
 
 /***********************
