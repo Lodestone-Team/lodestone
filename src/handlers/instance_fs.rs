@@ -8,18 +8,21 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 use color_eyre::eyre::{eyre, Context};
+use fs_extra::TransitProcess;
 use headers::HeaderMap;
 use reqwest::header::CONTENT_LENGTH;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
+use ts_rs::TS;
 use walkdir::WalkDir;
 
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
+    event_broadcaster,
     events::{
-        new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEvent,
-        ProgressionEventInner,
+        new_fs_event, CausedBy, Event, EventInner, FSOperation, FSTarget, ProgressionEndValue,
+        ProgressionEvent, ProgressionEventInner,
     },
     traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
@@ -200,6 +203,141 @@ async fn make_instance_directory(
         FSTarget::Directory(path),
         caused_by,
     ));
+    Ok(Json(()))
+}
+
+#[derive(Deserialize, TS)]
+#[ts(export)]
+struct CopyInstanceFileRequest {
+    relative_paths_source: Vec<PathBuf>,
+    relative_path_dest: PathBuf,
+}
+
+async fn copy_instance_files(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+    Json(CopyInstanceFileRequest {
+        relative_paths_source,
+        relative_path_dest,
+    }): Json<CopyInstanceFileRequest>,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    let instances = state.instances.lock().await;
+    let instance = instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    let root = instance.path().await;
+    drop(instances);
+    // join each path to the root
+    let paths_source = relative_paths_source
+        .iter()
+        .map(|p| scoped_join_win_safe(root.clone(), p))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let path_dest = scoped_join_win_safe(root, &relative_path_dest)?;
+
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path_dest)
+    {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You don't have permission to write to this file"),
+        });
+    }
+
+    let event_broadcaster = state.event_broadcaster.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let caused_by = CausedBy::User {
+            user_id: requester.uid,
+            user_name: requester.username,
+        };
+        let event_id = Snowflake::default();
+
+        let mut first = true;
+        let handle = |process_info: TransitProcess| {
+            if first {
+                event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id,
+                        progression_event_inner: ProgressionEventInner::ProgressionStart {
+                            progression_name: "Copying file(s)".to_string(),
+                            producer_id: None,
+                            total: Some(process_info.total_bytes as f64),
+                            inner: None,
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: Snowflake::default(),
+                    caused_by: caused_by.clone(),
+                });
+                first = false;
+            } else {
+                event_broadcaster.send(Event {
+                    event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                        event_id,
+                        progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                            progress_message: format!(
+                                "Copying file {}, {} / {} bytes",
+                                process_info.file_name,
+                                process_info.copied_bytes,
+                                process_info.total_bytes
+                            ),
+                            progress: process_info.copied_bytes as f64,
+                        },
+                    }),
+                    details: "".to_string(),
+                    snowflake: Snowflake::default(),
+                    caused_by: caused_by.clone(),
+                });
+            }
+            fs_extra::dir::TransitProcessResult::SkipAll
+        };
+        if let Err(e) = fs_extra::copy_items_with_progress(
+            &paths_source,
+            &path_dest,
+            &fs_extra::dir::CopyOptions::new(),
+            handle,
+        ) {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: false,
+                        message: Some(format!("Error copying file(s): {}", e)),
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid,
+                            success: false,
+                            message: format!("Error copying file(s): {}", e),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: caused_by.clone(),
+            });
+        } else {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: true,
+                        message: None,
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid,
+                            success: true,
+                            message: "File(s) copied successfully".to_string(),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by: caused_by.clone(),
+            });
+        }
+    });
     Ok(Json(()))
 }
 
@@ -615,7 +753,7 @@ pub async fn unzip_instance_file(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
     Json(unzip_option): Json<UnzipOption>,
-) -> Result<Json<HashSet<PathBuf>>, Error> {
+) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
@@ -626,7 +764,7 @@ pub async fn unzip_instance_file(
     })?;
     let root = instance.path().await;
     drop(instances);
-    let path_to_zip_file = scoped_join_win_safe(&root, relative_path)?;
+    let path_to_zip_file = scoped_join_win_safe(root, &relative_path)?;
 
     if let UnzipOption::ToDir(ref dir) = unzip_option {
         if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(dir) {
@@ -636,16 +774,72 @@ pub async fn unzip_instance_file(
             });
         }
     }
+    let event_broadcaster = state.event_broadcaster.clone();
+    tokio::spawn(async move {
+        let event_id = Snowflake::default();
+        let caused_by = CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        };
 
-    let ret = unzip_file_async(path_to_zip_file, unzip_option).await?;
+        event_broadcaster.send(Event {
+            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                event_id,
+                progression_event_inner: ProgressionEventInner::ProgressionStart {
+                    progression_name: format!("Unzipping {}", relative_path),
+                    producer_id: None,
+                    total: None,
+                    inner: None,
+                },
+            }),
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            caused_by: CausedBy::User {
+                user_id: requester.uid.clone(),
+                user_name: requester.username.clone(),
+            },
+        });
 
-    // remove root from paths
-    let ret = ret
-        .into_iter()
-        .map(|path| path.strip_prefix(&root).unwrap().to_path_buf())
-        .collect::<HashSet<_>>();
+        if let Err(e) = unzip_file_async(path_to_zip_file, unzip_option).await {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: true,
+                        message: Some(format!("Unzip failed: {}", e)),
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid,
+                            success: false,
+                            message: format!("Unzipping {} failed : {e}", relative_path),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by,
+            });
+        } else {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                        success: true,
+                        message: Some("Unzip complete".to_string()),
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid,
+                            success: true,
+                            message: format!("Unzipping {} complete", relative_path),
+                        }),
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by,
+            });
+        }
+    });
 
-    Ok(Json(ret))
+    Ok(Json(()))
 }
 
 #[derive(Deserialize)]
@@ -714,6 +908,7 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             "/instance/:uuid/fs/:base64_relative_path/mkdir",
             put(make_instance_directory),
         )
+        .route("/instance/:uuid/fs/cpr", put(copy_instance_files))
         .route(
             "/instance/:uuid/fs/:base64_relative_path/move/:base64_relative_path_dest",
             put(move_instance_file),
