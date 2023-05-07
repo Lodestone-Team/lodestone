@@ -10,14 +10,17 @@ const FileContextMenu = forwardRef(
   (
     {
       file,
+      currentPath,
       coords,
       setCreateFileModalOpen,
       setCreateFolderModalOpen,
       setClipboard,
       setClipboardAction,
       setTickedFiles,
+      pasteFiles,
       setModalPath,
       tickedFiles,
+      clipboard,
       setShowContextMenu,
       unzipFile,
       setRenameFileModalOpen,
@@ -26,18 +29,21 @@ const FileContextMenu = forwardRef(
     }: {
       file: ClientFile | null;
       coords: { x: number; y: number };
+      currentPath: string;
       setCreateFileModalOpen: (modalOpen: boolean) => void;
       setCreateFolderModalOpen: (modalOpen: boolean) => void;
       setRenameFileModalOpen: (modalOpen: boolean) => void;
       setShowContextMenu: (showContextMenu: boolean) => void;
       setClipboard: (clipboard: ClientFile[]) => void;
       unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
+      pasteFiles: (path: string) => void;
       setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
       setTickedFiles: (tickedFiles: ClientFile[]) => void;
       setModalPath: (modalPath: string) => void;
       deleteSingleFile: (file: ClientFile) => void;
       deleteTickedFiles: () => void;
-      tickedFiles: ClientFile[];
+      tickedFiles: ClientFile[] | undefined;
+      clipboard: ClientFile[] | undefined;
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
@@ -52,7 +58,7 @@ const FileContextMenu = forwardRef(
     }, []);
 
     const deleteFile = async () => {
-      if (tickedFiles.includes(file as ClientFile)) {
+      if (tickedFiles?.includes(file as ClientFile)) {
         await deleteTickedFiles();
       } else {
         await deleteSingleFile(file as ClientFile);
@@ -62,7 +68,7 @@ const FileContextMenu = forwardRef(
     };
 
     const cutFile = async () => {
-      if (tickedFiles.includes(file as ClientFile)) {
+      if (tickedFiles?.includes(file as ClientFile)) {
         setClipboard(tickedFiles);
       } else {
         setClipboard([file as ClientFile]);
@@ -106,8 +112,19 @@ const FileContextMenu = forwardRef(
             // subLabel={ isMac ? "⌘+X" : "CTRL+X"}
             onClick={() => {
               cutFile();
+              setShowContextMenu(false);
             }}
-            disabled={!file}
+            disabled={file === null}
+          />
+          <ContextMenuButton
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+            label={file?.file_type !== 'Directory' ? "Paste" : `Paste into ${file?.name}`}
+            // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
+            onClick={() => {
+              pasteFiles(file?.file_type !== 'Directory' ? currentPath : file?.path);
+              setShowContextMenu(false);
+            }}
+            disabled={clipboard?.length === 0}
           />
         </div>
         <div className="py-2">
