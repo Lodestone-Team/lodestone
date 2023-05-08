@@ -5,6 +5,7 @@ import { ClientFile } from 'bindings/ClientFile';
 import { unzipInstanceFile } from 'utils/apis';
 import clsx from 'clsx';
 import { UnzipOption } from 'bindings/UnzipOptions';
+import { supportedZip } from 'utils/util';
 
 function generateZipText(tickedFiles : ClientFile[] | undefined, hoverFile : ClientFile | null) : string {
   // if there is no file ticked, and that there is a file, zip the current file to a zip file with the same name
@@ -78,7 +79,6 @@ const FileContextMenu = forwardRef(
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
-    const supportedZip = ["rar", "zip", "gz", "tgz"];
 
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
@@ -120,7 +120,7 @@ const FileContextMenu = forwardRef(
     };
 
     const unzip = async (unzipOption : UnzipOption) => {
-      if (!supportedZip.includes(file?.name.split('.').pop() ?? ''))  { // not supported zip
+      if (!supportedZip.includes(file?.extension ?? ''))  { // not supported zip
         toast.error('Unsupported zip file type');
         setShowContextMenu(false);
       }
@@ -178,7 +178,7 @@ const FileContextMenu = forwardRef(
             label="Rename"
             // subLabel={ isMac ? "⌘+R" : "CTRL+R"}
             onClick={() => {
-              setModalPath((file as ClientFile).path);
+              setModalPath(file!.path);
               setRenameFileModalOpen(true);
               setShowContextMenu(false);
             }}
@@ -207,7 +207,7 @@ const FileContextMenu = forwardRef(
               setShowContextMenu(false);
             }}
           />
-          {supportedZip.includes(file?.name.split('.').pop() ?? '') && file?.file_type === "File" ? // if file name is null or file is not zip file
+          {supportedZip.includes(file?.extension ?? '') && file?.file_type === "File" ? // if file name is null or file is not zip file
             (<>
             <ContextMenuButton
               className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
@@ -227,7 +227,7 @@ const FileContextMenu = forwardRef(
             />
             <ContextMenuButton
               className="truncate w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-              label={file ? 'Unzip to ' + file.name : ''}
+              label={file ? 'Unzip to ' + file.file_stem : ''}
               onClick={() => {
                 unzip("ToDirectoryWithFileName");
               }}
