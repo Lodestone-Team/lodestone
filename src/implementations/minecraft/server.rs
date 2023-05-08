@@ -494,7 +494,6 @@ impl TServer for MinecraftInstance {
                         self.players_manager.lock().await.clear(name);
                     }
                 });
-
                 self.config.lock().await.has_started = true;
                 self.write_config_to_file().await?;
                 let instance_uuid = self.uuid.clone();
