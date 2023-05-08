@@ -26,7 +26,6 @@ import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import {
   chooseFiles,
-  getNonDuplicateFolderNameFromFileName,
   parentPath,
 } from 'utils/util';
 import {
@@ -37,6 +36,8 @@ import {
   unzipInstanceFile,
   uploadInstanceFiles,
   moveInstanceFileOrDirectory,
+  copyRecursive,
+  zipInstanceFiles,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
@@ -56,6 +57,7 @@ import RenameFileForm from './RenameFileForm';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -160,9 +162,21 @@ export default function FileViewer() {
 
   const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
-    if (clipboardAction === 'copy')
-      throw new Error('copying files is not implemented yet');
-    if (clipboardAction === 'cut') {
+    if (clipboardAction === 'copy') {
+      const files : string[] = [];
+      for (const file of clipboard) {
+        files.push(file.path);
+      }
+      await copyRecursive(
+        instance.uuid,
+        {
+          relative_paths_source: files,
+          relative_path_dest: `${currentPath}`,
+        },
+        directorySeparator,
+        queryClient,
+      )
+    } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
         console.log(
           'moving',
@@ -204,33 +218,30 @@ export default function FileViewer() {
     }
   };
 
-  const unzipFile = async (file: ClientFile)  => { 
+  const zipFiles = async (files: ClientFile[], dest : string) => {
+    await zipInstanceFiles(instance.uuid, {
+      target_relative_paths: files.map((f) => f.path),
+      destination_relative_path: dest,
+    });
+  };
+
+  const unzipFile = async (file: ClientFile, unzipOption : UnzipOption)  => { 
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
     }
 
-    const targetFileName = getNonDuplicateFolderNameFromFileName(
-      file.name,
-      directorySeparator,
-      fileList ?? []
-    );
-
-    const targetPath = `${path}${directorySeparator}${targetFileName}`;
-
     await unzipInstanceFile(
       instance.uuid,
       file,
-      targetPath,
-      queryClient,
-      directorySeparator
+      unzipOption,
     );
   }
 
   const unzipTickedFile = async () => {
     if (!tickedFiles) return;
     const file = tickedFiles[0];
-    await unzipFile(file);
+    await unzipFile(file, "Smart");
     tickFile(file, false);
   };
 
@@ -537,6 +548,7 @@ export default function FileViewer() {
                 error={fileListError}
                 tickedFiles={tickedFiles}
                 tickFile={tickFile}
+                zipFiles={zipFiles}
                 unzipFile={unzipFile}
                 pasteFiles={pasteFiles}
                 openedFile={openedFile}

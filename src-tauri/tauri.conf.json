@@ -59,7 +59,7 @@
       {
         "fullscreen": false,
         "height": 600,
-        "minHeight": 500,
+        "minHeight": 550,
         "resizable": true,
         "title": "Lodestone",
         "width": 1100,

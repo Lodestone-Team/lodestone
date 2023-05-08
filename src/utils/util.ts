@@ -420,29 +420,6 @@ export const getFileExtension = (path: string, direcotrySeparator: string) => {
   return fileNameParts[fileNameParts.length - 1];
 };
 
-export const getNonDuplicateFolderNameFromFileName = (
-  fileName: string,
-  direcotrySeparator: string,
-  existingFiles: ClientFile[]
-) => {
-  const fileNameWithoutExtension = getFileNameWithoutExtension(
-    fileName,
-    direcotrySeparator
-  );
-  let newFileName = fileName;
-  let i = 1;
-  while (
-    existingFiles.find(
-      (file) =>
-        file.name === newFileName ||
-        file.name === `${newFileName}${direcotrySeparator}`
-    )
-  ) {
-    newFileName = `${fileNameWithoutExtension}-${i}`;
-    i++;
-  }
-  return newFileName;
-};
 
 // check if a core is localhost
 export function isLocalCore(core: CoreConnectionInfo) {

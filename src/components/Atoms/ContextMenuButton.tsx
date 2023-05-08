@@ -41,8 +41,7 @@ const ContextMenuButton = forwardRef(
         onClick={onClick}
       >
         <div className={`flex grow items-center truncate`}>
-          <span className={'truncate' + clsx(!disabled && 'text-gray-300')}
-          >
+          <span className={'truncate text-ellipsis' + clsx(!disabled && 'text-gray-300')}>
             {label}
           </span>
           {subLabel &&
