@@ -35,7 +35,7 @@ use super::util::decode_base64;
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum FileType {
-    File { size: Option<u64> },
+    File,
     Directory,
     Unknown,
 }
@@ -47,6 +47,7 @@ pub struct FileEntry {
     pub file_stem: String,
     pub extension: Option<String>,
     pub path: String,
+    pub size: Option<u64>,
     pub creation_time: Option<u64>,
     pub modification_time: Option<u64>,
     pub file_type: FileType,
@@ -57,9 +58,7 @@ impl From<&std::path::Path> for FileEntry {
         let file_type = if path.is_dir() {
             FileType::Directory
         } else if path.is_file() {
-            FileType::File {
-                size: path.metadata().ok().map(|m| m.len()),
-            }
+            FileType::File
         } else {
             FileType::Unknown
         };
@@ -72,6 +71,11 @@ impl From<&std::path::Path> for FileEntry {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default(),
+            size: if path.is_file() {
+                path.metadata().ok().map(|m| m.len())
+            } else {
+                None
+            },
             file_stem: path
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
