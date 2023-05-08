@@ -16,20 +16,30 @@ RUN apt-get update \
   && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-RUN ldconfig
+# RUN ldconfig
 
-RUN echo $LD_LIBRARY_PATH
+# RUN echo $LD_LIBRARY_PATH
 
 # create and enter app directory
 WORKDIR /app
 
-COPY $binpath$lodestone_version ./main
+COPY $binpath ./main
 
 # specify default port
 EXPOSE 16662
 
+RUN chmod +x ./main
+
+RUN groupadd -r user && useradd -r -g user user
+
+RUN mkdir -p /home/user/.lodestone
+RUN chown user /app
+RUN chown user /home/user/.lodestone
+
+USER user
+
 # specify persistent volume
-VOLUME ["/root/.lodestone"]
+VOLUME ["/home/user/.lodestone"]
 
 # start lodestone_core
 CMD ["./main"]

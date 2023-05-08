@@ -26,8 +26,16 @@ COPY --from=build /app/target/release/main ./
 # specify default port
 EXPOSE 16662
 
+RUN groupadd -r user && useradd -r -g user user
+
+RUN mkdir -p /home/user/.lodestone
+RUN chown user /app
+RUN chown user /home/user/.lodestone
+
+USER user
+
 # specify persistent volume
-VOLUME ["/root/.lodestone"]
+VOLUME ["/home/user/.lodestone"]
 
 # start lodestone_core
 CMD ["./main"]
