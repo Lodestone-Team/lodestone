@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
 use sysinfo::SystemExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
@@ -30,10 +29,9 @@ use tokio::sync::Mutex;
 use ::serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
-use tracing::{debug, error, info};
+use tracing::error;
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::{self};
+use tokio;
 use ts_rs::TS;
 
 use crate::error::Error;
@@ -53,7 +51,8 @@ use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::util::{
-    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file, UnzipOption, unzip_file_async,
+    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
+    unzip_file_async, UnzipOption,
 };
 
 use self::configurable::{CmdArgSetting, ServerPropertySetting};
@@ -197,18 +196,9 @@ pub struct MinecraftInstance {
     players_manager: Arc<Mutex<PlayersManager>>,
     configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
-    backup_sender: UnboundedSender<BackupInstruction>,
     rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
     macro_name_to_last_run: Arc<Mutex<HashMap<String, i64>>>,
     pid_to_task_entry: Arc<Mutex<IndexMap<MacroPID, TaskEntry>>>,
-}
-
-#[derive(Debug, Clone)]
-enum BackupInstruction {
-    SetPeriod(Option<u32>),
-    BackupNow,
-    Pause,
-    Resume,
 }
 
 #[tokio::test]
@@ -768,90 +758,6 @@ impl MinecraftInstance {
             .await
             .expect("failed to write to server.properties");
         };
-        let state = Arc::new(Mutex::new(State::Stopped));
-        let (backup_tx, mut backup_rx): (
-            UnboundedSender<BackupInstruction>,
-            UnboundedReceiver<BackupInstruction>,
-        ) = tokio::sync::mpsc::unbounded_channel();
-        let _backup_task = tokio::spawn({
-            let backup_period = restore_config.backup_period;
-            let path_to_resources = path_to_resources.clone();
-            let path_to_instance = path_to_instance.clone();
-            let state = state.clone();
-            async move {
-                let backup_now = || async {
-                    debug!("Backing up instance");
-                    let backup_dir = &path_to_resources.join("worlds/backup");
-                    tokio::fs::create_dir_all(&backup_dir).await.ok();
-                    // get current time in human readable format
-                    let time = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
-                    let backup_name = format!("backup-{}", time);
-                    let backup_path = backup_dir.join(&backup_name);
-                    if let Err(e) = tokio::task::spawn_blocking({
-                        let path_to_instance = path_to_instance.clone();
-                        let backup_path = backup_path.clone();
-                        let mut copy_option = fs_extra::dir::CopyOptions::new();
-                        copy_option.copy_inside = true;
-                        move || {
-                            fs_extra::dir::copy(
-                                path_to_instance.join("world"),
-                                &backup_path,
-                                &copy_option,
-                            )
-                        }
-                    })
-                    .await
-                    {
-                        error!("Failed to backup instance: {}", e);
-                    }
-                };
-                let mut backup_period = backup_period;
-                let mut counter = 0;
-                loop {
-                    tokio::select! {
-                           instruction = backup_rx.recv() => {
-                             if instruction.is_none() {
-                                 info!("Backup task exiting");
-                                 break;
-                             }
-                             let instruction = instruction.unwrap();
-                             match instruction {
-                             BackupInstruction::SetPeriod(new_period) => {
-                                 backup_period = new_period;
-                             },
-                             BackupInstruction::BackupNow => backup_now().await,
-                             BackupInstruction::Pause => {
-                                     loop {
-                                         if let Some(BackupInstruction::Resume) = backup_rx.recv().await {
-                                             break;
-                                         } else {
-                                             continue
-                                         }
-                                     }
-
-                             },
-                             BackupInstruction::Resume => {
-                                 continue;
-                             },
-                             }
-                           }
-                           _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                             if let Some(period) = backup_period {
-                                 if *state.lock().await == State::Running {
-                                     debug!("counter is {}", counter);
-                                     counter += 1;
-                                     if counter >= period {
-                                         counter = 0;
-                                         backup_now().await;
-                                     }
-                                 }
-                             }
-                           }
-                    }
-                }
-            }
-        });
-
         let java_path = path_to_runtimes
             .join("java")
             .join(format!("jre{}", restore_config.jre_major_version))
@@ -890,7 +796,6 @@ impl MinecraftInstance {
             process: Arc::new(Mutex::new(None)),
             system: Arc::new(Mutex::new(sysinfo::System::new_all())),
             stdin: Arc::new(Mutex::new(None)),
-            backup_sender: backup_tx,
             rcon_conn: Arc::new(Mutex::new(None)),
             configurable_manifest,
             macro_name_to_last_run: Arc::new(Mutex::new(HashMap::new())),

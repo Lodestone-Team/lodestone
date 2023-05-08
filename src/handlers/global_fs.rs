@@ -44,7 +44,10 @@ pub enum FileType {
 #[ts(export)]
 pub struct FileEntry {
     pub name: String,
+    pub file_stem: String,
+    pub extension: Option<String>,
     pub path: String,
+    pub size: Option<u64>,
     pub creation_time: Option<u64>,
     pub modification_time: Option<u64>,
     pub file_type: FileType,
@@ -60,8 +63,24 @@ impl From<&std::path::Path> for FileEntry {
             FileType::Unknown
         };
         Self {
-            name: path.file_name().unwrap().to_string_lossy().into_owned(),
-            path: path.file_name().unwrap().to_string_lossy().into_owned(),
+            name: path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            path: path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            size: if path.is_file() {
+                path.metadata().ok().map(|m| m.len())
+            } else {
+                None
+            },
+            file_stem: path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            extension: path.extension().map(|s| s.to_string_lossy().into_owned()),
             // unix timestamp
             // if we cant get the time, return none
             creation_time: path
