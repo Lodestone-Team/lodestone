@@ -36,6 +36,8 @@ import {
   unzipInstanceFile,
   uploadInstanceFiles,
   moveInstanceFileOrDirectory,
+  copyRecursive,
+  zipInstanceFiles,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
 import { useLocalStorage } from 'usehooks-ts';
@@ -56,6 +58,7 @@ import { tauri } from 'utils/tauriUtil';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 import { listen } from '@tauri-apps/api/event'
 import { FileDropEvent } from '@tauri-apps/api/window'
@@ -162,21 +165,33 @@ export default function FileViewer() {
     setTickedFiles([]);
   };
 
-  const pasteFiles = async () => {
+  const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
-    if (clipboardAction === 'copy')
-      throw new Error('copying files is not implemented yet');
-    if (clipboardAction === 'cut') {
+    if (clipboardAction === 'copy') {
+      const files : string[] = [];
+      for (const file of clipboard) {
+        files.push(file.path);
+      }
+      await copyRecursive(
+        instance.uuid,
+        {
+          relative_paths_source: files,
+          relative_path_dest: `${currentPath}`,
+        },
+        directorySeparator,
+        queryClient,
+      )
+    } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
         console.log(
           'moving',
           file.path,
-          `${path} | ${directorySeparator} | ${file.name}`
+          `${currentPath} | ${directorySeparator} | ${file.name}`
         );
         await moveInstanceFileOrDirectory(
           instance.uuid,
           file.path,
-          `${path}${directorySeparator}${file.name}`,
+          `${currentPath}${directorySeparator}${file.name}`,
           queryClient,
           directorySeparator
         );
@@ -208,7 +223,14 @@ export default function FileViewer() {
     }
   };
 
-  const unzipFile = async (file: ClientFile)  => { 
+  const zipFiles = async (files: ClientFile[], dest : string) => {
+    await zipInstanceFiles(instance.uuid, {
+      target_relative_paths: files.map((f) => f.path),
+      destination_relative_path: dest,
+    });
+  };
+
+  const unzipFile = async (file: ClientFile, unzipOption : UnzipOption)  => { 
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
@@ -217,16 +239,14 @@ export default function FileViewer() {
     await unzipInstanceFile(
       instance.uuid,
       file,
-      path,
-      queryClient,
-      directorySeparator
+      unzipOption,
     );
   }
 
   const unzipTickedFile = async () => {
     if (!tickedFiles) return;
     const file = tickedFiles[0];
-    await unzipFile(file);
+    await unzipFile(file, "Smart");
     tickFile(file, false);
   };
 
@@ -504,7 +524,7 @@ export default function FileViewer() {
                 clipboard.length > 1 ? 'files' : 'file'
               }`}
               icon={faPaste}
-              onClick={pasteFiles}
+              onClick={() => pasteFiles(path)}
             />
           )}
           {showingMonaco && (
@@ -572,11 +592,14 @@ export default function FileViewer() {
                 path={path}
                 atTopLevel={atTopLevel}
                 fileList={fileList}
+                clipboard={clipboard}
                 loading={fileListLoading}
                 error={fileListError}
                 tickedFiles={tickedFiles}
                 tickFile={tickFile}
+                zipFiles={zipFiles}
                 unzipFile={unzipFile}
+                pasteFiles={pasteFiles}
                 openedFile={openedFile}
                 onParentClick={() =>
                   setPath(parentPath(path, directorySeparator), false)
@@ -597,6 +620,7 @@ export default function FileViewer() {
                 setRenameFileModalOpen={setRenameFileModalOpen}
                 setModalPath={setModalPath}
                 setClipboard={setClipboard}
+                clipboardAction={clipboardAction}
                 setClipboardAction={setClipboardAction}
                 setTickedFiles={setTickedFiles}
                 deleteSingleFile={deleteSingleFile}

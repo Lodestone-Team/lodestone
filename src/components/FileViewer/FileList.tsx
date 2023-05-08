@@ -12,6 +12,7 @@ import { formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef, } from 'react';
 import { useEventListener, useOnClickOutside } from 'usehooks-ts';
+import { UnzipOption } from 'bindings/UnzipOptions';
 
 export default function FileList({
   path,
@@ -19,7 +20,9 @@ export default function FileList({
   loading,
   error,
   tickedFiles,
+  clipboard,
   tickFile,
+  zipFiles,
   unzipFile,
   openedFile,
   atTopLevel,
@@ -31,6 +34,8 @@ export default function FileList({
   setModalPath,
   setClipboard,
   setClipboardAction,
+  pasteFiles,
+  clipboardAction,
   setRenameFileModalOpen,
   setTickedFiles,
   deleteSingleFile,
@@ -38,21 +43,25 @@ export default function FileList({
 }: {
   path: string;
   fileList: ClientFile[] | undefined;
+  clipboard: ClientFile[] | undefined;
   loading: boolean;
   error: Error | null;
   tickedFiles: ClientFile[];
   tickFile: (file: ClientFile, ticked: boolean) => void;
-  unzipFile: (file: ClientFile) => void;
+  zipFiles: (files: ClientFile[], dest : string) => void;
+  unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
   openedFile: ClientFile | null;
   atTopLevel: boolean;
   onParentClick: () => void;
   onEmptyClick: () => void;
+  pasteFiles: (path: string) => void;
   onFileClick: (file: ClientFile) => void;
   setCreateFileModalOpen: (modalOpen: boolean) => void;
   setRenameFileModalOpen: (modalOpen: boolean) => void;
   setCreateFolderModalOpen: (modalOpen: boolean) => void;
   setModalPath: (modalPath: string) => void;
   setClipboard: (clipboard: ClientFile[]) => void;
+  clipboardAction: 'copy' | 'cut';
   setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
   setTickedFiles: (tickedFiles: ClientFile[]) => void;
   deleteSingleFile: (file: ClientFile) => void;
@@ -74,7 +83,8 @@ export default function FileList({
   const [absCoords, setAbsCoords] = useState({x: 0, y: 0})
   const [boundingDivDimensions, setBoundingDivDimensions] = useState({ height: 0, width: 0})
 
-  const contextMenuDimensions = { height: 234, width: 176 } 
+  const contextMenuDimensionsWithoutUnzip = { height: 259, width: 176 } // no unzip in menu (file name is null)
+  const contextMenuDimensionsWithUnzip = { height: 337, width: 176 } 
 
   useEffect(() => {
     if (boundingDivRef.current !== null) {
@@ -110,22 +120,37 @@ export default function FileList({
   useEventListener('mousedown', onResize);
   useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
 
-  const calculateContextMenuCoords = () => {
+  const calculateContextMenuCoords = (fileName? : string) => {
     let x = null;
     let y = null;
-    if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width) {
-      x = mousePos.x - contextMenuDimensions.width;
+    let width = 0;
+    let height = 0;
+    const zipTypes = ["rar", "zip", "7z", "tar", "gz", "xz", "bz2", "tbz2", "tgz", "txz", "tlz", "lz"];
+    const fileType = fileName?.split('.').pop();
+
+    if (zipTypes.includes(fileType ? fileType : '')) {
+      width = contextMenuDimensionsWithUnzip.width;
+      height = contextMenuDimensionsWithUnzip.height;
+    }
+    else {
+      width = contextMenuDimensionsWithoutUnzip.width;
+      height = contextMenuDimensionsWithoutUnzip.height;
+    }
+
+    if (mousePos.x + width > boundingDivDimensions.width) {
+      x = mousePos.x - width;
     } else {
       x = mousePos.x
     }
-    if (mousePos.y + contextMenuDimensions.height > boundingDivDimensions.height - 10) {
-      y = boundingDivDimensions.height - contextMenuDimensions.height - 10
+    if (mousePos.y + height > boundingDivDimensions.height - 10) {
+      y = boundingDivDimensions.height - height - 10
     } else {
       y = mousePos.y
     }
-    if (mousePos.x + contextMenuDimensions.width > boundingDivDimensions.width && mousePos.x - contextMenuDimensions.width < 4) {
+    if (mousePos.x + width > boundingDivDimensions.width && mousePos.x - width < 4) {
       x = 4;
     }
+    
     setContextMenuCoords({ x, y })
     
   }
@@ -138,6 +163,7 @@ export default function FileList({
       { showContextMenu && 
         <FileContextMenu 
           ref={contextMenuRef} 
+          currentPath={path}
           file={contextMenuFile as ClientFile} 
           coords={contextMenuCoords} 
           setCreateFileModalOpen={setCreateFileModalOpen} 
@@ -145,11 +171,14 @@ export default function FileList({
           setCreateFolderModalOpen={setCreateFolderModalOpen} 
           setShowContextMenu={setShowContextMenu}
           setClipboard={setClipboard}
+          zipFiles={zipFiles}
           unzipFile={unzipFile}
           setModalPath={setModalPath}
           setClipboardAction={setClipboardAction}
           setTickedFiles={setTickedFiles}
           tickedFiles={tickedFiles}
+          clipboard={clipboard}
+          pasteFiles={pasteFiles}
           deleteSingleFile={deleteSingleFile}
           deleteTickedFiles={deleteTickedFiles}
         /> 
@@ -194,7 +223,7 @@ export default function FileList({
             })}
             onContextMenu={(e) => { e.preventDefault(); 
               setContextMenuFile(file);
-              calculateContextMenuCoords();
+              calculateContextMenuCoords(file.name);
               setShowContextMenu(true);
               setModalPath(file.file_type === "Directory" ? file.path : path);
             }}
@@ -225,7 +254,8 @@ export default function FileList({
             <p
               className={clsx(
                 'truncate text-gray-300 hover:cursor-pointer hover:text-blue-200 hover:underline',
-                openedFile?.path === file.path && 'italic'
+                openedFile?.path === file.path && 'italic',
+                clipboardAction === 'cut' && clipboard?.some(f => f.path === file.path) && 'text-opacity-60 ',
               )}
               onClick={() => onFileClick(file)}
             >

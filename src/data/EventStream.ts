@@ -315,6 +315,14 @@ export const useEventStream = () => {
                             addInstance(instance_info, queryClient),
                           InstanceDelete: ({ instance_uuid: uuid }) =>
                             deleteInstance(uuid, queryClient),
+                          FSOperationCompleted: ({ instance_uuid, success, message }) => {
+                            if (success) {
+                              toast.info(message)
+                            } else {
+                              toast.error(message)
+                            }
+                            queryClient.invalidateQueries(['instance', instance_uuid, 'fileList']);
+                          }
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => {}
@@ -394,11 +402,10 @@ export const useEventStream = () => {
     if (!token) return;
 
     const connectWebsocket = () => {
-      const wsAddress = `ws://${core.address}:${
-        core.port ?? LODESTONE_PORT
-      }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
-        eventQuery
-      )}`;
+      const wsAddress = `ws://${core.address}:${core.port ?? LODESTONE_PORT
+        }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
+          eventQuery
+        )}`;
 
       if (wsRef.current) wsRef.current.close();
 
