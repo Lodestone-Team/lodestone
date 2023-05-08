@@ -1,7 +1,14 @@
-# syntax=docker/dockerfile:1
-FROM debian:bullseye-slim as production
+FROM debian:bullseye-slim as base
 
-ARG binpath=./release/main
+FROM base AS production-amd64
+ENV binpath "./release/lodestone_core_"
+
+FROM base as production-arm64
+ENV binpath "./release/lodestone_core_arm_"
+
+ARG TARGETARCH
+FROM production-$TARGETARCH AS production
+ARG lodestone_version
 
 #
 RUN apt-get update \
@@ -16,7 +23,7 @@ RUN echo $LD_LIBRARY_PATH
 # create and enter app directory
 WORKDIR /app
 
-COPY $binpath ./main
+COPY $binpath$lodestone_version ./main
 
 # specify default port
 EXPOSE 16662
