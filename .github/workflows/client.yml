@@ -24,6 +24,10 @@ jobs:
             toolchain: stable
             components: clippy
             override: true
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-gnu-client
       - name: Test Clippy
         uses: actions-rs/clippy-check@v1
         with:
@@ -35,6 +39,12 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      CACHE_KEY: >
+        ${{ fromJson('
+          "windows-latest": "windows",
+          "ubuntu-latest": "x86_64-unknown-linux-gnu"
+        ')[matrix.os] }}
     steps:
       - uses: actions/checkout@v1
       - name: Install Rust toolchain
@@ -42,6 +52,10 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ env.CACHE_KEY }}-client
       - name: Cargo Test Backend
         uses: actions-rs/cargo@v1
         with:
