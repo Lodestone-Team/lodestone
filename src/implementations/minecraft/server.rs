@@ -275,72 +275,6 @@ impl TServer for MinecraftInstance {
                             }
                         }
 
-                        enum MacroInstruction {
-                            Abort(usize),
-                            Spawn {
-                                player_name: String,
-                                macro_name: String,
-                                args: Vec<String>,
-                            },
-                        }
-
-                        fn parse_macro_invocation(msg: &str) -> Option<MacroInstruction> {
-                            if let Some((player, msg)) = parse_player_msg(msg) {
-                                lazy_static! {
-                                    static ref RE: Regex =
-                                        Regex::new(r"\.macro abort (.+)").unwrap();
-                                }
-                                if RE.is_match(&msg).unwrap() {
-                                    if let Some(cap) = RE.captures(&msg).ok()? {
-                                        Some(MacroInstruction::Abort(
-                                            cap.get(1)?.as_str().parse().ok()?,
-                                        ))
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    lazy_static! {
-                                        static ref RE: Regex =
-                                            Regex::new(r"\.macro spawn (.+)").unwrap();
-                                    }
-                                    if RE.is_match(&msg).unwrap() {
-                                        if let Some(cap) = RE.captures(&msg).ok()? {
-                                            // the first capture is the whole string
-                                            // the first word is the macro name
-                                            // the rest are the arguments
-                                            // read the first word as the macro name
-                                            let macro_name = cap
-                                                .get(1)?
-                                                .as_str()
-                                                .to_string()
-                                                .split_whitespace()
-                                                .next()?
-                                                .to_string();
-                                            let args = cap
-                                                .get(1)?
-                                                .as_str()
-                                                .split_whitespace()
-                                                .skip(1)
-                                                .map(|s| s.to_string())
-                                                .collect::<Vec<String>>();
-
-                                            Some(MacroInstruction::Spawn {
-                                                player_name: player,
-                                                macro_name,
-                                                args,
-                                            })
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
                         fn parse_server_started(system_msg: &str) -> bool {
                             lazy_static! {
                                 static ref RE: Regex = Regex::new(r#"Done \(.+\)!"#).unwrap();
@@ -505,35 +439,6 @@ impl TServer for MinecraftInstance {
                                     snowflake: Snowflake::default(),
                                     caused_by: CausedBy::System,
                                 });
-                                if let Some(macro_instruction) = parse_macro_invocation(&line) {
-                                    match macro_instruction {
-                                        MacroInstruction::Abort(macro_id) => {
-                                            let _ = macro_executor.abort_macro(&macro_id).await;
-                                        }
-                                        MacroInstruction::Spawn {
-                                            player_name: _,
-                                            macro_name,
-                                            args,
-                                        } => {
-                                            debug!(
-                                                "Invoking macro {} with args {:?}",
-                                                macro_name, args
-                                            );
-                                            let _ = self
-                                                .run_macro(
-                                                    &macro_name,
-                                                    args,
-                                                    CausedBy::Unknown,
-                                                    true,
-                                                )
-                                                .await
-                                                .map_err(|e| {
-                                                    warn!("Failed to run macro: {}", e);
-                                                    e
-                                                });
-                                        }
-                                    }
-                                }
                             }
                         }
                         info!("Instance {} process shutdown", name);
