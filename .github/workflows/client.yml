@@ -55,7 +55,7 @@ jobs:
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-        key: ${{ env.CACHE_KEY }}-client
+          key: ${{ env.CACHE_KEY }}-client
       - name: Cargo Test Backend
         uses: actions-rs/cargo@v1
         with:
