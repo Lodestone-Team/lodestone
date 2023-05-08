@@ -8,10 +8,13 @@ use tokio::process::Command;
 
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::implementations::minecraft::line_parser::{
+    parse_player_joined, parse_player_left, parse_player_msg, parse_server_started,
+    parse_system_msg, PlayerMessage,
+};
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
 use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_macro::TMacro;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::types::Snowflake;
@@ -19,7 +22,7 @@ use crate::util::{dont_spawn_terminal, list_dir};
 
 use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
 use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
@@ -204,124 +207,77 @@ impl TServer for MinecraftInstance {
                 })?;
                 *self.process.lock().await = Some(proc);
                 tokio::task::spawn({
-                    use fancy_regex::Regex;
-                    use lazy_static::lazy_static;
-
                     let event_broadcaster = self.event_broadcaster.clone();
                     let uuid = self.uuid.clone();
                     let name = config.name.clone();
                     let players_manager = self.players_manager.clone();
-                    let macro_executor = self.macro_executor.clone();
                     let mut __self = self.clone();
                     async move {
-                        fn parse_system_msg(msg: &str) -> Option<String> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"\[.+\]+: (?!<)(.+)").unwrap();
-                            }
-                            if RE.is_match(msg).ok()? {
-                                RE.captures(msg)
-                                    .ok()?
-                                    .map(|caps| caps.get(1).unwrap().as_str().to_string())
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_player_msg(msg: &str) -> Option<(String, String)> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"\[.+\]+: <(.+)> (.+)").unwrap();
-                            }
-                            if RE.is_match(msg).unwrap() {
-                                if let Some(cap) = RE.captures(msg).ok()? {
-                                    Some((
-                                        cap.get(1)?.as_str().to_string(),
-                                        cap.get(2)?.as_str().to_string(),
-                                    ))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_player_joined(system_msg: &str) -> Option<String> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"(.+) joined the game").unwrap();
-                            }
-                            if RE.is_match(system_msg).unwrap() {
-                                if let Some(cap) = RE.captures(system_msg).ok()? {
-                                    Some(cap.get(1)?.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_player_left(system_msg: &str) -> Option<String> {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r"(.+) left the game").unwrap();
-                            }
-                            if RE.is_match(system_msg).unwrap() {
-                                if let Some(cap) = RE.captures(system_msg).ok()? {
-                                    Some(cap.get(1)?.as_str().to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-
-                        fn parse_server_started(system_msg: &str) -> bool {
-                            lazy_static! {
-                                static ref RE: Regex = Regex::new(r#"Done \(.+\)!"#).unwrap();
-                            }
-                            RE.is_match(system_msg).unwrap()
-                        }
-
                         let mut did_start = false;
 
-                        let mut stdout_lines = BufReader::new(stdout).lines();
-                        let mut stderr_lines = BufReader::new(stderr).lines();
+                        let mut stdout_reader = BufReader::new(stdout);
+                        let mut stderr_reader = BufReader::new(stderr);
 
-                        while let (Ok(Some(line)), is_stdout) = tokio::select!(
-                            line = stdout_lines.next_line() => {
-                                (line, true)
-                            }
-                            line = stderr_lines.next_line() => {
-                                (line, false)
-                            }
-                        ) {
-                            if is_stdout {
-                                // info!("[{}] {}", name, line);
-                            } else {
-                                warn!("[{}] {}", name, line);
-                            }
-                            let _ = event_broadcaster.send(Event {
-                                event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                    instance_uuid: uuid.clone(),
-                                    instance_event_inner: InstanceEventInner::InstanceOutput {
-                                        message: line.clone(),
-                                    },
-                                    instance_name: name.clone(),
-                                }),
-                                details: "".to_string(),
-                                snowflake: Snowflake::default(),
-                                caused_by: CausedBy::System,
+                        loop {
+                            let (line_res, is_stdout) = tokio::select!(
+                                line_res = async {
+                                    let mut line = Vec::new();
+                                    match stdout_reader.read_until(b'\n', &mut line).await {
+                                        Ok(0) => return Ok(None),
+                                        Err(e) => return Err(e),
+                                        Ok(_) => {}
+
+                                    };
+                                    Ok(Some(line))
+                                } => {
+                                    (line_res, true)
+                                },
+                                line_res = async {
+                                    let mut line = Vec::new();
+                                    match stderr_reader.read_until(b'\n', &mut line).await {
+                                        Ok(0) => return Ok(None),
+                                        Err(e) => return Err(e),
+                                        Ok(_) => {}
+                                    };
+                                    Ok(Some(line))
+                                } => {
+                                    (line_res, false)
+                                }
+                            );
+                            let _ = line_res.as_ref().map_err(|e| {
+                                error!("[{}] Failed to read from stdout/stderr: {}", name, e);
                             });
 
-                            if parse_server_started(&line) && !did_start {
-                                did_start = true;
-                                self.state
-                                    .lock()
-                                    .await
-                                    .try_transition(
-                                        StateAction::InstanceStart,
-                                        Some(&|state| {
-                                            self.event_broadcaster.send(Event {
+                            if let Ok(line) = line_res {
+                                if let Some(line) = line {
+                                    let line = String::from_utf8_lossy(&line).to_string();
+                                    if !is_stdout {
+                                        // info!("[{}] {}", name, line);
+                                        warn!("[{}] {}", name, line);
+                                    }
+                                    event_broadcaster.send(Event {
+                                        event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                            instance_uuid: uuid.clone(),
+                                            instance_event_inner:
+                                                InstanceEventInner::InstanceOutput {
+                                                    message: line.clone(),
+                                                },
+                                            instance_name: name.clone(),
+                                        }),
+                                        details: "".to_string(),
+                                        snowflake: Snowflake::default(),
+                                        caused_by: CausedBy::System,
+                                    });
+
+                                    if parse_server_started(&line) && !did_start {
+                                        did_start = true;
+                                        self.state
+                                            .lock()
+                                            .await
+                                            .try_transition(
+                                                StateAction::InstanceStart,
+                                                Some(&|state| {
+                                                    self.event_broadcaster.send(Event {
                                                 event_inner: EventInner::InstanceEvent(
                                                     InstanceEvent {
                                                         instance_name: config.name.clone(),
@@ -336,43 +292,47 @@ impl TServer for MinecraftInstance {
                                                 details: "Starting server".to_string(),
                                                 caused_by: cause_by.clone(),
                                             });
-                                        }),
-                                    )
-                                    .unwrap();
+                                                }),
+                                            )
+                                            .unwrap();
 
-                                let _ = self.read_properties().await.map_err(|e| {
-                                    error!("Failed to read properties: {}", e);
-                                    e
-                                });
+                                        let _ = self.read_properties().await.map_err(|e| {
+                                            error!("Failed to read properties: {}", e);
+                                            e
+                                        });
 
-                                if let (Some(true), Some(rcon_psw), Some(rcon_port)) = {
-                                    let lock = self.configurable_manifest.lock().await;
+                                        if let (Some(true), Some(rcon_psw), Some(rcon_port)) = {
+                                            let lock = self.configurable_manifest.lock().await;
 
-                                    let a = lock
-                                        .get_unique_setting_key("enable-rcon")
-                                        .and_then(|v| {
-                                            v.get_value().map(|v| v.try_as_boolean().ok())
-                                        })
-                                        .flatten();
+                                            let a = lock
+                                                .get_unique_setting_key("enable-rcon")
+                                                .and_then(|v| {
+                                                    v.get_value().map(|v| v.try_as_boolean().ok())
+                                                })
+                                                .flatten();
 
-                                    let b = lock
-                                        .get_unique_setting_key("rcon.password")
-                                        .and_then(|v| v.get_value().map(|v| v.try_as_string().ok()))
-                                        .flatten()
-                                        .cloned();
+                                            let b = lock
+                                                .get_unique_setting_key("rcon.password")
+                                                .and_then(|v| {
+                                                    v.get_value().map(|v| v.try_as_string().ok())
+                                                })
+                                                .flatten()
+                                                .cloned();
 
-                                    let c = lock
-                                        .get_unique_setting_key("rcon.port")
-                                        .and_then(|v| {
-                                            v.get_value().map(|v| v.try_as_unsigned_integer().ok())
-                                        })
-                                        .flatten();
-                                    (a, b, c)
-                                } {
-                                    let max_retry = 3;
-                                    for i in 0..max_retry {
-                                        let rcon =
-                                            <rcon::Connection<tokio::net::TcpStream>>::builder()
+                                            let c = lock
+                                                .get_unique_setting_key("rcon.port")
+                                                .and_then(|v| {
+                                                    v.get_value()
+                                                        .map(|v| v.try_as_unsigned_integer().ok())
+                                                })
+                                                .flatten();
+                                            (a, b, c)
+                                        } {
+                                            let max_retry = 3;
+                                            for i in 0..max_retry {
+                                                let rcon =
+                                                <rcon::Connection<tokio::net::TcpStream>>::builder(
+                                                )
                                                 .enable_minecraft_quirks(true)
                                                 .connect(
                                                     &format!("localhost:{}", rcon_port),
@@ -386,59 +346,73 @@ impl TServer for MinecraftInstance {
                                                 );
                                                     e
                                                 });
-                                        if let Ok(rcon) = rcon {
-                                            info!("Connected to RCON");
-                                            self.rcon_conn.lock().await.replace(rcon);
-                                            break;
+                                                if let Ok(rcon) = rcon {
+                                                    info!("Connected to RCON");
+                                                    self.rcon_conn.lock().await.replace(rcon);
+                                                    break;
+                                                }
+                                                tokio::time::sleep(Duration::from_secs(
+                                                    2_u64.pow(i),
+                                                ))
+                                                .await;
+                                            }
+                                        } else {
+                                            warn!("RCON is not enabled or misconfigured, skipping");
+                                            self.rcon_conn.lock().await.take();
                                         }
-                                        tokio::time::sleep(Duration::from_secs(2_u64.pow(i))).await;
+                                    }
+                                    if let Some(system_msg) = parse_system_msg(&line) {
+                                        let _ = event_broadcaster.send(Event {
+                                            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                                instance_uuid: uuid.clone(),
+                                                instance_event_inner:
+                                                    InstanceEventInner::SystemMessage {
+                                                        message: line,
+                                                    },
+                                                instance_name: name.clone(),
+                                            }),
+                                            details: "".to_string(),
+                                            snowflake: Snowflake::default(),
+                                            caused_by: CausedBy::System,
+                                        });
+                                        if let Some(player_name) = parse_player_joined(&system_msg)
+                                        {
+                                            players_manager.lock().await.add_player(
+                                                MinecraftPlayer {
+                                                    name: player_name.clone(),
+                                                    uuid: name_to_uuid(&player_name).await,
+                                                },
+                                                self.name().await,
+                                            );
+                                        } else if let Some(player_name) =
+                                            parse_player_left(&system_msg)
+                                        {
+                                            players_manager
+                                                .lock()
+                                                .await
+                                                .remove_by_name(&player_name, self.name().await);
+                                        }
+                                    } else if let Some(PlayerMessage { player, message }) =
+                                        parse_player_msg(&line)
+                                    {
+                                        let _ = event_broadcaster.send(Event {
+                                            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                                                instance_uuid: uuid.clone(),
+                                                instance_event_inner:
+                                                    InstanceEventInner::PlayerMessage {
+                                                        player,
+                                                        player_message: message,
+                                                    },
+                                                instance_name: name.clone(),
+                                            }),
+                                            details: "".to_string(),
+                                            snowflake: Snowflake::default(),
+                                            caused_by: CausedBy::System,
+                                        });
                                     }
                                 } else {
-                                    warn!("RCON is not enabled or misconfigured, skipping");
-                                    self.rcon_conn.lock().await.take();
+                                    break;
                                 }
-                            }
-                            if let Some(system_msg) = parse_system_msg(&line) {
-                                let _ = event_broadcaster.send(Event {
-                                    event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                        instance_uuid: uuid.clone(),
-                                        instance_event_inner: InstanceEventInner::SystemMessage {
-                                            message: line,
-                                        },
-                                        instance_name: name.clone(),
-                                    }),
-                                    details: "".to_string(),
-                                    snowflake: Snowflake::default(),
-                                    caused_by: CausedBy::System,
-                                });
-                                if let Some(player_name) = parse_player_joined(&system_msg) {
-                                    players_manager.lock().await.add_player(
-                                        MinecraftPlayer {
-                                            name: player_name.clone(),
-                                            uuid: name_to_uuid(&player_name).await,
-                                        },
-                                        self.name().await,
-                                    );
-                                } else if let Some(player_name) = parse_player_left(&system_msg) {
-                                    players_manager
-                                        .lock()
-                                        .await
-                                        .remove_by_name(&player_name, self.name().await);
-                                }
-                            } else if let Some((player, msg)) = parse_player_msg(&line) {
-                                let _ = event_broadcaster.send(Event {
-                                    event_inner: EventInner::InstanceEvent(InstanceEvent {
-                                        instance_uuid: uuid.clone(),
-                                        instance_event_inner: InstanceEventInner::PlayerMessage {
-                                            player,
-                                            player_message: msg,
-                                        },
-                                        instance_name: name.clone(),
-                                    }),
-                                    details: "".to_string(),
-                                    snowflake: Snowflake::default(),
-                                    caused_by: CausedBy::System,
-                                });
                             }
                         }
                         info!("Instance {} process shutdown", name);
@@ -466,7 +440,6 @@ impl TServer for MinecraftInstance {
                         self.players_manager.lock().await.clear(name);
                     }
                 });
-
                 self.config.lock().await.has_started = true;
                 self.write_config_to_file().await?;
                 let instance_uuid = self.uuid.clone();
