@@ -232,11 +232,12 @@ export default function FileViewer() {
 
   const handleFileDropTauri = async (event: any) => {
     if (!dropping) return;
-    console.log(event);
+    console.log(`copying from ${event}`);
   }
 
   const handleFileDropBrowser = async (event: React.DragEvent) => {
-    console.log(event.dataTransfer?.files);
+    uploadInstanceFiles(instance.uuid, path, Array.from(event.dataTransfer?.files), queryClient);
+    setDropping(false);
   }
 
   tauri && listen('tauri://file-drop-cancelled', _ => {setDropping(false)});
@@ -318,7 +319,31 @@ export default function FileViewer() {
           ))}
         </ul>
       </ConfirmDialog>
-      <div className="relative flex h-full w-full grow flex-col gap-3">
+      {dropping && 
+        <Dialog
+          open={true}
+          onClose={() => {return}}
+        >
+          <div className="fixed inset-0 bg-[#000]/80" />
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center text-white/50">
+              <Dialog.Panel className="flex  w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800 bg-opacity-50 pb-8 pt-12">
+                <FontAwesomeIcon 
+                  className="m-0 p-0 text-h1 text-gray-faded/80"
+                  icon={faDownload} />
+                <p>drop file</p>
+              </Dialog.Panel>
+            </div>
+          </div>
+        </Dialog>
+      }
+      <div 
+        className="relative flex h-full w-full grow flex-col gap-3"
+        onDragEnter={(e) => { e.preventDefault(); !tauri && setDropping(true); e.stopPropagation(); }}
+        onDragLeave={(e) => { e.preventDefault(); !tauri && setDropping(false); e.stopPropagation(); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation();}}
+        onDrop={(e: React.DragEvent) => { e.preventDefault(); !tauri && handleFileDropBrowser(e); e.stopPropagation(); }}
+      >
         <div className="flex flex-row items-center justify-between gap-4">
           <Menu as="div" className="relative inline-block text-left">
             <Menu.Button
