@@ -35,7 +35,7 @@ use super::util::decode_base64;
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum FileType {
-    File,
+    File { size: Option<u64> },
     Directory,
     Unknown,
 }
@@ -44,6 +44,8 @@ pub enum FileType {
 #[ts(export)]
 pub struct FileEntry {
     pub name: String,
+    pub file_stem: String,
+    pub extension: Option<String>,
     pub path: String,
     pub creation_time: Option<u64>,
     pub modification_time: Option<u64>,
@@ -55,13 +57,26 @@ impl From<&std::path::Path> for FileEntry {
         let file_type = if path.is_dir() {
             FileType::Directory
         } else if path.is_file() {
-            FileType::File
+            FileType::File {
+                size: path.metadata().ok().map(|m| m.len()),
+            }
         } else {
             FileType::Unknown
         };
         Self {
-            name: path.file_name().unwrap().to_string_lossy().into_owned(),
-            path: path.file_name().unwrap().to_string_lossy().into_owned(),
+            name: path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            path: path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            file_stem: path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            extension: path.extension().map(|s| s.to_string_lossy().into_owned()),
             // unix timestamp
             // if we cant get the time, return none
             creation_time: path
