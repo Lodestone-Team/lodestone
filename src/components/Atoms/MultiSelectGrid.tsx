@@ -9,6 +9,7 @@ export type MultiSelectGridProps<T extends string | object> = {
   selectedOptions: T[];
   onChange: (selectedOptions: T[]) => void;
   optionLabel?: (option: T) => string;
+  optionKey?: (option: T) => string;
 };
 
 /**
@@ -24,6 +25,15 @@ export default function MultiSelectGrid<T extends string | object>(
     selectedOptions,
     onChange,
     optionLabel = (option) => {
+      let output = '';
+      if (typeof option === 'string') {
+        output = option;
+      } else {
+        output = JSON.stringify(option);
+      }
+      return output;
+    },
+    optionKey = (option) => {
       let output = '';
       if (typeof option === 'string') {
         output = option;
@@ -52,7 +62,7 @@ export default function MultiSelectGrid<T extends string | object>(
     >
       {options.map((option) => (
         <Checkbox
-          key={optionLabel(option)}
+          key={optionKey(option)}
           label={optionLabel(option)}
           checked={selectedOptions.includes(option)}
           onChange={(checked) => onCheckboxChange(option, checked)}

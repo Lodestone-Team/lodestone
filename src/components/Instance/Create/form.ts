@@ -67,41 +67,43 @@ export const instanceSettingPageObject: SectionManifest = {
   },
 };
 
-export const generateValidationSchema = (instanceManifest:ConfigurableManifest) => {
-  const validationSchema:any[] = []
+export const generateValidationSchema = (instanceManifest: ConfigurableManifest) => {
+  const validationSchema: any[] = []
   const setting_sections = instanceManifest["setting_sections"]
   setting_sections["instance_settings"] = instanceSettingPageObject
   validationSchema.push(yup.object().shape({})) //for select game type
   const generateYupObject = (setting: SettingManifest) => {
     const settingType = setting.value_type.type
-      if(settingType === "String") {
-        let validate = yup.string();
-        if(setting.is_required) validate = validate.required(`${setting.name} is required`);
-        return validate;
-      } else if(settingType === "Integer" || settingType === "UnsignedInteger" || settingType === "Float") {
-        let validate = yup.number();
-        if(setting.is_required) validate = validate.required(`${setting.name} is required`);
-        if(setting.value_type.min) validate = validate.min(setting.value_type.min, `${setting.name} must be greater than or equal to ${setting.value_type.min}`);
-        if(setting.value_type.max) validate = validate.max(setting.value_type.max, `${setting.name} must be less than or equal to ${setting.value_type.max}`);
-        return validate;
-      } else if(settingType === "Boolean") {
-        let validate = yup.boolean();
-        if(setting.is_required) validate = validate.required(`${setting.name} is required`);
-        return validate;
-      } else if(settingType === "Enum") {
-        let validate = yup.string().oneOf(setting.value_type.options, `${setting.name} must be one of the available options`);
-        if(setting.is_required) validate = validate.required(`${setting.name} is required`);
-        return validate;
-      } else {
-        throw Error("Invalid Setting Type");
-      }
+    if (settingType === "String") {
+      let validate = yup.string();
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
+      return validate;
+    } else if (settingType === "Integer" || settingType === "UnsignedInteger" || settingType === "Float") {
+      let validate = yup.number();
+      if (settingType === "Integer") validate = validate.integer(`${setting.name} must be an integer`);
+      if (settingType === "UnsignedInteger") validate = validate.integer(`${setting.name} must be an integer`).min(0, `${setting.name} must be positive`);
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
+      if (setting.value_type.min) validate = validate.min(setting.value_type.min, `${setting.name} must be greater than or equal to ${setting.value_type.min}`);
+      if (setting.value_type.max) validate = validate.max(setting.value_type.max, `${setting.name} must be less than or equal to ${setting.value_type.max}`);
+      return validate;
+    } else if (settingType === "Boolean") {
+      let validate = yup.boolean();
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
+      return validate;
+    } else if (settingType === "Enum") {
+      let validate = yup.string().oneOf(setting.value_type.options, `${setting.name} must be one of the available options`);
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
+      return validate;
+    } else {
+      throw Error("Invalid Setting Type");
+    }
   }
   Object.keys(setting_sections).forEach((sectionId: string) => {
-    const validationSchemaSection:Record<string, any> = {}
+    const validationSchemaSection: Record<string, any> = {}
     const settings = setting_sections[sectionId]["settings"];
     Object.keys(settings).forEach((settingId: string) => {
       const setting = settings[settingId]
-      validationSchemaSection[setting.setting_id] = yup.object().shape({value: generateYupObject(setting)})
+      validationSchemaSection[setting.setting_id] = yup.object().shape({ value: generateYupObject(setting) })
     });
     validationSchema.push(yup.object().shape(validationSchemaSection))
   })
@@ -109,20 +111,20 @@ export const generateValidationSchema = (instanceManifest:ConfigurableManifest) 
 }
 
 
-export const generateInitialValues = (settingSections:Record<string, SectionManifest>) => {
-  const initialValues:Record<string, ConfigurableValue | null> = {};
+export const generateInitialValues = (settingSections: Record<string, SectionManifest>) => {
+  const initialValues: Record<string, ConfigurableValue | null> = {};
 
   Object.keys(settingSections).forEach((sectionId: string) => {
     const setting = settingSections[sectionId]["settings"];
     Object.keys(setting).forEach((settingId: string) => {
       const settingValue = setting[settingId];
       initialValues[settingId] = settingValue.default_value ?? settingValue.value;
-      if(initialValues[settingId] === null){
-        if(settingValue.value_type.type === "Boolean") initialValues[settingId] = {type: "Boolean", value: false};
-        else if(settingValue.value_type.type === "Integer") initialValues[settingId] = {type: "Integer", value: 0};
-        else if(settingValue.value_type.type === "UnsignedInteger") initialValues[settingId] = {type: "UnsignedInteger", value: 0};
-        else if(settingValue.value_type.type === "Float") initialValues[settingId] = {type: "Float", value: 0};
-        else if(settingValue.value_type.type === "String") initialValues[settingId] = {type: "String", value: ""};
+      if (initialValues[settingId] === null) {
+        if (settingValue.value_type.type === "Boolean") initialValues[settingId] = { type: "Boolean", value: false };
+        else if (settingValue.value_type.type === "Integer") initialValues[settingId] = { type: "Integer", value: 0 };
+        else if (settingValue.value_type.type === "UnsignedInteger") initialValues[settingId] = { type: "UnsignedInteger", value: 0 };
+        else if (settingValue.value_type.type === "Float") initialValues[settingId] = { type: "Float", value: 0 };
+        else if (settingValue.value_type.type === "String") initialValues[settingId] = { type: "String", value: "" };
       }
     })
   })
