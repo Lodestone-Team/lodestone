@@ -8,7 +8,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
-import { formatTimeAgo, supportedZip } from 'utils/util';
+import { formatBytes, formatTimeAgo, supportedZip } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef } from 'react';
 import { useEventListener, useOnClickOutside } from 'usehooks-ts';
@@ -140,24 +140,26 @@ export default function FileList({
       properties: '/icons/document.svg',
       yml: '/icons/yaml.svg',
       yaml: '/icons/yaml.svg',
-      exe : '/icons/exe.svg',
+      exe: '/icons/exe.svg',
       cfg: '/icons/document.svg',
       conf: '/icons/document.svg',
       config: '/icons/document.svg',
       ini: '/icons/document.svg',
-      png : '/icons/image.svg',
-      jpg : '/icons/image.svg',
-      jpeg : '/icons/image.svg',
-      gif : '/icons/image.svg',
-      bmp : '/icons/image.svg',
-      svg : '/icons/image.svg',
+      png: '/icons/image.svg',
+      jpg: '/icons/image.svg',
+      jpeg: '/icons/image.svg',
+      gif: '/icons/image.svg',
+      bmp: '/icons/image.svg',
+      svg: '/icons/image.svg',
       json: '/icons/json.svg',
+      mcmeta : '/icons/json.svg',
       zip: '/icons/zip.svg',
       rar: '/icons/zip.svg',
       gz: '/icons/zip.svg',
       tar: '/icons/zip.svg',
       jar: '/icons/jar.svg',
       java: '/icons/java.svg',
+      class: '/icons/javaclass.svg',
       ts: '/icons/typescript.svg',
       js: '/icons/javascript.svg',
       readme: '/icons/readme.svg',
@@ -168,7 +170,10 @@ export default function FileList({
       nbt: '/icons/3d.svg',
       mca: '/icons/3d.svg',
       lock: '/icons/lock.svg',
-      log : '/icons/log.svg',
+      log: '/icons/log.svg',
+      ps1: '/icons/pwsh.svg',
+      sh : '/icons/console.svg',
+      mcfunction: '/icons/minecraft.svg',
     };
 
     if (file.file_type === 'Directory') {
@@ -176,6 +181,18 @@ export default function FileList({
         <img src="/icons/folder-blue.svg" alt="folder icon" draggable="false" />
       );
     } else if (file.file_type === 'File') {
+      if (file.file_stem === '.lodestone_config') {
+        return (
+          <img
+            src="/icons/lodestone.svg"
+            alt="file icon"
+            draggable="false"
+            // because the lodestone icon is a bit bigger than the others
+            // set between 4 and 5
+            className="h-4 w-4"
+          />
+        );
+      }
       const fileExt = file.extension ?? '';
       if (fileExt in iconMap) {
         return (
@@ -336,12 +353,20 @@ export default function FileList({
             </p>
             <div className="grow"></div>
 
-            <p className="hidden min-w-[10ch] text-right text-gray-500 @xs:inline">
+            <p className="hidden min-w-[8ch] text-left text-gray-500 @xs:inline">
               {file.modification_time || file.creation_time
                 ? formatTimeAgo(
                     Number(file.modification_time ?? file.creation_time) * 1000
                   )
-                : 'Unknown Time'}
+                : 'Unknown Creation Time'}
+            </p>
+
+            <p className="hidden min-w-[8ch] text-right text-gray-500 @xs:inline">
+              {file.file_type === 'Directory'
+                ? ''
+                : file.size
+                ? formatBytes(file.size, 1)
+                : ''}
             </p>
           </div>
         ))}
