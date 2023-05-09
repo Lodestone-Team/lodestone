@@ -4,6 +4,7 @@ use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
 use color_eyre::eyre::{eyre, Context};
+use tracing::error;
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -69,6 +70,7 @@ pub async fn create_instance(
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::CreateInstance)?;
+    let mut perm = requester.permissions;
 
     let mut instance_uuid = InstanceUuid::default();
 
@@ -197,6 +199,22 @@ pub async fn create_instance(
             };
             let mut port_manager = state.port_manager.lock().await;
             port_manager.add_port(setup_config.port);
+            perm.can_start_instance.insert(uuid.clone());
+            perm.can_stop_instance.insert(uuid.clone());
+            perm.can_view_instance.insert(uuid.clone());
+            perm.can_read_instance_file.insert(uuid.clone());
+            perm.can_write_instance_file.insert(uuid.clone());
+            // ignore errors since we don't care if the permissions update fails
+            let _ = state
+                .users_manager
+                .write()
+                .await
+                .update_permissions(&requester.uid, perm, CausedBy::System)
+                .await
+                .map_err(|e| {
+                    error!("Failed to update permissions: {:?}", e);
+                    e
+                });
             state
                 .instances
                 .lock()
