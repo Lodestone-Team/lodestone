@@ -54,6 +54,7 @@ export const saveInstanceFile = async (
       return {
         ...f,
         modification_time: Math.round(Date.now() / 1000),
+        size: content.length,
       };
     return f;
   });
