@@ -24,10 +24,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import {
-  chooseFiles,
-  parentPath,
-} from 'utils/util';
+import { chooseFiles, parentPath } from 'utils/util';
 import {
   deleteInstanceDirectory,
   deleteInstanceFile,
@@ -60,8 +57,8 @@ import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOptions';
 
-import { listen } from '@tauri-apps/api/event'
-import { FileDropEvent } from '@tauri-apps/api/window'
+import { listen } from '@tauri-apps/api/event';
+import { readBinaryFile, readDir } from '@tauri-apps/api/fs';
 
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -77,9 +74,11 @@ export default function FileViewer() {
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
   const [dropping, setDropping] = useState(false);
+  const [droppingDialog, setDroppingDialog] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
+  const [dropCounter, setDropCounter] = useState<number>(0);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
   const tickFile = (file: ClientFile, ticked: boolean) => {
@@ -156,7 +155,7 @@ export default function FileViewer() {
         setFileContent('');
       }
     }
-  }
+  };
   const deleteTickedFiles = async () => {
     if (!tickedFiles) return;
     for (const file of tickedFiles) {
@@ -168,7 +167,7 @@ export default function FileViewer() {
   const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
     if (clipboardAction === 'copy') {
-      const files : string[] = [];
+      const files: string[] = [];
       for (const file of clipboard) {
         files.push(file.path);
       }
@@ -179,8 +178,8 @@ export default function FileViewer() {
           relative_path_dest: `${currentPath}`,
         },
         directorySeparator,
-        queryClient,
-      )
+        queryClient
+      );
     } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
         console.log(
@@ -223,46 +222,67 @@ export default function FileViewer() {
     }
   };
 
-  const zipFiles = async (files: ClientFile[], dest : string) => {
+  const zipFiles = async (files: ClientFile[], dest: string) => {
     await zipInstanceFiles(instance.uuid, {
       target_relative_paths: files.map((f) => f.path),
       destination_relative_path: dest,
     });
   };
 
-  const unzipFile = async (file: ClientFile, unzipOption : UnzipOption)  => { 
+  const unzipFile = async (file: ClientFile, unzipOption: UnzipOption) => {
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
     }
 
-    await unzipInstanceFile(
-      instance.uuid,
-      file,
-      unzipOption,
-    );
-  }
+    await unzipInstanceFile(instance.uuid, file, unzipOption);
+  };
 
   const unzipTickedFile = async () => {
     if (!tickedFiles) return;
     const file = tickedFiles[0];
-    await unzipFile(file, "Smart");
+    await unzipFile(file, 'Smart');
     tickFile(file, false);
   };
 
   const handleFileDropTauri = async (event: any) => {
     if (!dropping) return;
-    console.log(`copying from ${event}`);
-  }
+    const fileArray = [];
+    console.log(event);
+    for (const i in event.payload) {
+      const fileBlob = new Blob([await readBinaryFile(event.payload[i])]);
+      const file = new File([fileBlob], event.payload[i].split(directorySeparator).pop() ?? 'unknown');
+      fileArray.push(file);
+    }
+
+    uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
+  };
 
   const handleFileDropBrowser = async (event: React.DragEvent) => {
-    uploadInstanceFiles(instance.uuid, path, Array.from(event.dataTransfer?.files), queryClient);
+    uploadInstanceFiles(
+      instance.uuid,
+      path,
+      Array.from(event.dataTransfer?.files),
+      queryClient
+    );
     setDropping(false);
-  }
+    setDroppingDialog(false);
+  };
 
-  tauri && listen('tauri://file-drop-cancelled', _ => {setDropping(false)});
-  tauri && listen('tauri://file-drop-hover', _ => {setDropping(true)});
-  tauri && listen('tauri://file-drop', event => {handleFileDropTauri(event)});
+  tauri &&
+    listen('tauri://file-drop-cancelled', (_) => {
+      setDropping(false);
+    });
+  tauri &&
+    listen('tauri://file-drop-hover', (_) => {
+      setDropping(true);
+    });
+  tauri &&
+    listen('tauri://file-drop', (event) => {
+      console.log(dropping, event);
+      handleFileDropTauri(event);
+      setDropping(false);
+    });
 
   /* UI */
 
@@ -288,7 +308,7 @@ export default function FileViewer() {
 
   return (
     <>
-      <CreationModal 
+      <CreationModal
         setModalOpen={setCreateFolderModalOpen}
         modalOpen={createFolderModalOpen}
       >
@@ -299,7 +319,7 @@ export default function FileViewer() {
           path={modalPath}
         />
       </CreationModal>
-      <CreationModal 
+      <CreationModal
         setModalOpen={setCreateFileModalOpen}
         modalOpen={createFileModalOpen}
       >
@@ -310,7 +330,7 @@ export default function FileViewer() {
           fileList={fileList}
         />
       </CreationModal>
-      <CreationModal 
+      <CreationModal
         setModalOpen={setRenameFileModalOpen}
         modalOpen={renameFileModalOpen}
       >
@@ -339,31 +359,69 @@ export default function FileViewer() {
           ))}
         </ul>
       </ConfirmDialog>
-      {dropping && 
+      <div
+        className="relative flex h-full w-full grow flex-col gap-3"
+        onDragEnter={(e) => {
+          e.preventDefault();
+          !tauri && setDropping(true);
+          e.stopPropagation();
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          !tauri && setDropping(false);
+          e.stopPropagation();
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e: React.DragEvent) => {
+          e.preventDefault();
+          !tauri && handleFileDropBrowser(e);
+          e.stopPropagation();
+        }}
+      >
         <Dialog
-          open={true}
-          onClose={() => {return}}
+          open={dropping || droppingDialog}
+          onClose={() => {
+            return;
+          }}
         >
-          <div className="fixed inset-0 bg-[#000]/80" />
-          <div className="fixed inset-0 overflow-y-auto">
-            <div className="flex min-h-full items-center justify-center p-4 text-center text-white/50">
-              <Dialog.Panel className="flex  w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800 bg-opacity-50 pb-8 pt-12">
-                <FontAwesomeIcon 
-                  className="m-0 p-0 text-h1 text-gray-faded/80"
-                  icon={faDownload} />
-                <p>drop file</p>
-              </Dialog.Panel>
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              !tauri && setDroppingDialog(true);
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              !tauri && setDroppingDialog(false);
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              !tauri && handleFileDropBrowser(e);
+              e.stopPropagation();
+            }}
+          >
+            <div className="fixed inset-0 bg-[#000]/80" />
+            <div className="fixed inset-0 overflow-y-auto">
+              <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
+                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800 bg-opacity-50 pb-8 pt-12">
+                  <FontAwesomeIcon
+                    className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
+                    icon={faDownload}
+                  />
+                  <p className="pointer-events-none">drop file</p>
+                </Dialog.Panel>
+              </div>
             </div>
           </div>
         </Dialog>
-      }
-      <div 
-        className="relative flex h-full w-full grow flex-col gap-3"
-        onDragEnter={(e) => { e.preventDefault(); !tauri && setDropping(true); e.stopPropagation(); }}
-        onDragLeave={(e) => { e.preventDefault(); !tauri && setDropping(false); e.stopPropagation(); }}
-        onDragOver={(e) => { e.preventDefault(); e.stopPropagation();}}
-        onDrop={(e: React.DragEvent) => { e.preventDefault(); !tauri && handleFileDropBrowser(e); e.stopPropagation(); }}
-      >
         <div className="flex flex-row items-center justify-between gap-4">
           <Menu as="div" className="relative inline-block text-left">
             <Menu.Button
@@ -460,7 +518,7 @@ export default function FileViewer() {
                         className="w-full whitespace-nowrap py-1.5"
                         onClick={() => {
                           setModalPath(path);
-                          setCreateFileModalOpen(true)
+                          setCreateFileModalOpen(true);
                         }}
                         iconComponent={fileCheckIcon}
                         variant="text"
@@ -478,7 +536,6 @@ export default function FileViewer() {
                           setModalPath(path);
                           setCreateFolderModalOpen(true);
                         }}
-
                         icon={faFolderPlus}
                         variant="text"
                         align="start"
@@ -571,12 +628,26 @@ export default function FileViewer() {
         </div>
 
         {canRead ? (
-          <div 
+          <div
             className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
-            onDragEnter={(e) => { e.preventDefault(); !tauri && setDropping(true); e.stopPropagation(); }}
-            onDragLeave={(e) => { e.preventDefault(); !tauri && setDropping(false); e.stopPropagation(); }}
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDrop={(e: React.DragEvent) => { e.preventDefault(); !tauri && handleFileDropBrowser(e); e.stopPropagation(); }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              !tauri && setDropping(true);
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              !tauri && setDropping(false);
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              !tauri && handleFileDropBrowser(e);
+              e.stopPropagation();
+            }}
           >
             <ResizePanel
               direction="e"
@@ -672,15 +743,11 @@ export default function FileViewer() {
           />
         )}
         <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length === 1 && (
-            <div>1 item selected</div>
-          )}
+          {tickedFiles.length === 1 && <div>1 item selected</div>}
           {tickedFiles.length > 1 && (
             <div>{tickedFiles.length} items selected</div>
           )}
-          {clipboard.length === 1 && (
-            <div>1 item in clipboard</div>
-          )}
+          {clipboard.length === 1 && <div>1 item in clipboard</div>}
           {clipboard.length > 1 && (
             <div>{clipboard.length} items in clipboard</div>
           )}
