@@ -63,7 +63,8 @@
         "resizable": true,
         "title": "Lodestone",
         "width": 1100,
-        "minWidth": 1000
+        "minWidth": 1000,
+        "fileDropEnabled": false
       }
     ]
   }

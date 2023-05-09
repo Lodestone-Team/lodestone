@@ -50,7 +50,6 @@ import CreationModal from './CreationModal';
 import CreateFolderForm from './CreateFolderForm';
 import CreateFileForm from './CreateFileForm';
 import RenameFileForm from './RenameFileForm';
-import { tauri } from 'utils/tauriUtil';
 
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
@@ -78,7 +77,7 @@ export default function FileViewer() {
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
-  const [dropCounter, setDropCounter] = useState<number>(0);
+  const [droppingInProgress, setDroppingInProgress] = useState(false);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
   const tickFile = (file: ClientFile, ticked: boolean) => {
@@ -245,18 +244,19 @@ export default function FileViewer() {
     tickFile(file, false);
   };
 
-  const handleFileDropTauri = async (event: any) => {
-    if (!dropping) return;
-    const fileArray = [];
-    console.log(event);
-    for (const i in event.payload) {
-      const fileBlob = new Blob([await readBinaryFile(event.payload[i])]);
-      const file = new File([fileBlob], event.payload[i].split(directorySeparator).pop() ?? 'unknown');
-      fileArray.push(file);
-    }
-
-    uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
-  };
+  // const handleFileDropTauri = async (event: any) => {
+  //   if (!dropping) return;
+  //   const fileArray = [];
+  //   console.log(event);
+  //   for (const i in event.payload) {
+  //     const fileBlob = new Blob([await readBinaryFile(event.payload[i])]);
+  //     const file = new File([fileBlob], event.payload[i].split(directorySeparator).pop() ?? 'unknown');
+  //     fileArray.push(file);
+  //   }
+  //   console.log(fileArray);
+    
+  //   uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
+  // };
 
   const handleFileDropBrowser = async (event: React.DragEvent) => {
     uploadInstanceFiles(
@@ -269,20 +269,20 @@ export default function FileViewer() {
     setDroppingDialog(false);
   };
 
-  tauri &&
-    listen('tauri://file-drop-cancelled', (_) => {
-      setDropping(false);
-    });
-  tauri &&
-    listen('tauri://file-drop-hover', (_) => {
-      setDropping(true);
-    });
-  tauri &&
-    listen('tauri://file-drop', (event) => {
-      console.log(dropping, event);
-      handleFileDropTauri(event);
-      setDropping(false);
-    });
+  // tauri &&
+  //   listen('tauri://file-drop-cancelled', (_) => {
+  //     setDropping(false);
+  //   });
+  // tauri &&
+  //   listen('tauri://file-drop-hover', (_) => {
+  //     setDropping(true);
+  //   });
+  // tauri &&
+  //   listen('tauri://file-drop', (event) => {
+  //     console.log(dropping, event);
+  //     handleFileDropTauri(event);
+  //     setDropping(false);
+  //   });
 
   /* UI */
 
@@ -363,12 +363,12 @@ export default function FileViewer() {
         className="relative flex h-full w-full grow flex-col gap-3"
         onDragEnter={(e) => {
           e.preventDefault();
-          !tauri && setDropping(true);
+          setDropping(true);
           e.stopPropagation();
         }}
         onDragLeave={(e) => {
           e.preventDefault();
-          !tauri && setDropping(false);
+          setDropping(false);
           e.stopPropagation();
         }}
         onDragOver={(e) => {
@@ -377,7 +377,7 @@ export default function FileViewer() {
         }}
         onDrop={(e: React.DragEvent) => {
           e.preventDefault();
-          !tauri && handleFileDropBrowser(e);
+          handleFileDropBrowser(e);
           e.stopPropagation();
         }}
       >
@@ -390,12 +390,12 @@ export default function FileViewer() {
           <div
             onDragEnter={(e) => {
               e.preventDefault();
-              !tauri && setDroppingDialog(true);
+              setDroppingDialog(true);
               e.stopPropagation();
             }}
             onDragLeave={(e) => {
               e.preventDefault();
-              !tauri && setDroppingDialog(false);
+              setDroppingDialog(false);
               e.stopPropagation();
             }}
             onDragOver={(e) => {
@@ -404,7 +404,7 @@ export default function FileViewer() {
             }}
             onDrop={(e: React.DragEvent) => {
               e.preventDefault();
-              !tauri && handleFileDropBrowser(e);
+              handleFileDropBrowser(e);
               e.stopPropagation();
             }}
           >
@@ -632,12 +632,12 @@ export default function FileViewer() {
             className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
             onDragEnter={(e) => {
               e.preventDefault();
-              !tauri && setDropping(true);
+              setDropping(true);
               e.stopPropagation();
             }}
             onDragLeave={(e) => {
               e.preventDefault();
-              !tauri && setDropping(false);
+              setDropping(false);
               e.stopPropagation();
             }}
             onDragOver={(e) => {
@@ -645,7 +645,7 @@ export default function FileViewer() {
             }}
             onDrop={(e: React.DragEvent) => {
               e.preventDefault();
-              !tauri && handleFileDropBrowser(e);
+              handleFileDropBrowser(e);
               e.stopPropagation();
             }}
           >
