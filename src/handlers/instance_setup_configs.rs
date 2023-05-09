@@ -2,15 +2,16 @@ use crate::error::Error;
 use crate::implementations::minecraft;
 use crate::minecraft::FlavourKind;
 use crate::traits::t_configurable::manifest::ConfigurableManifest;
-use crate::traits::t_configurable::manifest::SectionManifestValue;
 use crate::traits::t_configurable::GameType;
 use axum::extract::Path;
 use axum::routing::get;
 use axum::routing::put;
 use axum::Json;
 use axum::Router;
+use color_eyre::eyre::Context;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Value;
 use ts_rs::TS;
 #[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize, TS)]
@@ -63,8 +64,9 @@ pub async fn get_setup_manifest(
 
 pub async fn validate_section(
     Path((game_type, section_id)): Path<(HandlerGameType, String)>,
-    Json(section): Json<SectionManifestValue>,
+    Json(section): Json<Value>,
 ) -> Result<Json<()>, Error> {
+    let section = serde_json::from_value(section).context("Form error")?;
     Ok(Json(
         minecraft::MinecraftInstance::validate_section(&game_type.into(), &section_id, &section)
             .await?,
