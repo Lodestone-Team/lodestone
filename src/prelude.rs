@@ -6,7 +6,7 @@ thread_local! {
     pub static VERSION: semver::Version = semver::Version {
         major: 0,
         minor: 4,
-        patch: 3,
+        patch: 4,
         pre: Prerelease::new("").unwrap(),
         build: BuildMetadata::EMPTY,
     };
