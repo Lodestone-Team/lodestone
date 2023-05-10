@@ -24,7 +24,7 @@ export const FormFromManifest = ({
       {children}
       <div className="mt-5 flex flex-col rounded-md border border-gray-faded/30 text-left child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
         {Object.keys(section['settings']).map((field: string, i: number) => (
-          <FieldFromManifest setting={section['settings'][field]} />
+          <FieldFromManifest setting={section['settings'][field]} key={field} />
         ))}
       </div>
     </>
