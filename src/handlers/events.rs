@@ -270,7 +270,7 @@ async fn event_stream_ws(
             Some(Ok(ws_msg)) = receiver.next() => {
                 match sender.send(ws_msg).await {
                     Ok(_) => debug!("Replied to ping"),
-                    Err(_) => {debug!("breaking"); break},
+                    Err(_) => {debug!("Websocket disconnected"); break},
                 };
             }
         }
