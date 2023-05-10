@@ -2,8 +2,6 @@ import React, { useState, useEffect, forwardRef } from 'react';
 import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
-import { unzipInstanceFile } from 'utils/apis';
-import clsx from 'clsx';
 import { UnzipOption } from 'bindings/UnzipOptions';
 import { supportedZip } from 'utils/util';
 
@@ -94,7 +92,6 @@ const FileContextMenu = forwardRef(
         await deleteSingleFile(file as ClientFile);
       }
       setTickedFiles([]);
-      toast.info('Files deleted');
     };
 
     const copyFile = async () => {
@@ -185,7 +182,7 @@ const FileContextMenu = forwardRef(
             disabled={!file}
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium text-red-200"
             label="Delete"
             // iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
             onClick={() => {
@@ -226,7 +223,7 @@ const FileContextMenu = forwardRef(
               disabled={!file}
             />
             <ContextMenuButton
-              className="truncate w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+              className="w-full truncate whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
               label={file ? 'Unzip to ' + file.file_stem : ''}
               onClick={() => {
                 unzip("ToDirectoryWithFileName");
