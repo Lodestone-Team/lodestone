@@ -199,7 +199,7 @@ export default function FileList({
             src={iconMap[fileExt]}
             alt="file icon"
             draggable="false"
-            className="h-5 w-5"
+            className="h-4 w-4"
           />
         );
       } else {
@@ -208,7 +208,7 @@ export default function FileList({
             src="/icons/template.svg"
             alt="file icon"
             draggable="false"
-            className="h-5 w-5"
+            className="h-4 w-4"
           />
         );
       }

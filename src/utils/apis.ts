@@ -113,14 +113,22 @@ export const deleteInstanceDirectory = async (
   );
 };
 
-export const downloadInstanceFiles = async (uuid: string, file: ClientFile) => {
+export const requestInstanceFileUrl = async (
+  uuid: string,
+  file: ClientFile
+): Promise<string> => {
+  const tokenResponse = await
+    axiosWrapper<string>({
+      method: 'get',
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/url`,
+    });
+  return axios.defaults.baseURL + `/file/${tokenResponse}`;
+};
+
+export const downloadInstanceFile = async (uuid: string, file: ClientFile) => {
   // TODO handle errors
-  const tokenResponse = await axiosWrapper<string>({
-    method: 'get',
-    url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/download`,
-  });
-  const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
-  window.open(downloadUrl, '_blank');
+
+  window.open(await requestInstanceFileUrl(uuid, file), '_blank');
 };
 
 export const uploadInstanceFiles = async (
@@ -134,6 +142,7 @@ export const uploadInstanceFiles = async (
   file.forEach((f) => {
     formData.append('file', f);
   });
+  toast.info(`Uploading ${file.length} ${file.length > 1 ? 'files' : 'file'}`);
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
@@ -143,9 +152,6 @@ export const uploadInstanceFiles = async (
         'Content-Type': 'multipart/form-data',
       },
       timeout: 0,
-      onUploadProgress: (progressEvent) => {
-        console.log(progressEvent);
-      },
     })
   );
   if (error) {

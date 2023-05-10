@@ -4,33 +4,42 @@ import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
 import { UnzipOption } from 'bindings/UnzipOptions';
 import { supportedZip } from 'utils/util';
+import { requestInstanceFileUrl } from 'utils/apis';
+import { InstanceInfo } from 'bindings/InstanceInfo';
 
-function generateZipText(tickedFiles : ClientFile[] | undefined, hoverFile : ClientFile | null) : string {
+function generateZipText(
+  tickedFiles: ClientFile[] | undefined,
+  hoverFile: ClientFile | null
+): string {
   // if there is no file ticked, and that there is a file, zip the current file to a zip file with the same name
   // if there is a file ticked, zip all the ticked files
-  if (tickedFiles === undefined && hoverFile === undefined) {
-    return "Zip";
+  if (
+    (tickedFiles === undefined || tickedFiles.length === 0) &&
+    hoverFile === null
+  ) {
+    return 'Zip';
   } else if (tickedFiles === undefined || tickedFiles.length === 0) {
     return `Zip to ${hoverFile?.name}.zip`;
   } else if (tickedFiles.length === 1) {
     return `Zip ${tickedFiles[0].name} to ${tickedFiles[0].name}.zip`;
-  }
-   else {
+  } else {
     const numFile = tickedFiles.length;
-    return `Zip ${numFile} file${numFile > 1 ? "s" : ""} to Archive.zip`;
+    return `Zip ${numFile} file${numFile > 1 ? 's' : ''} to Archive.zip`;
   }
 }
 
-function generateZipFileName(tickedFiles : ClientFile[], hoverFile : ClientFile | null) : string {
+function generateZipFileName(
+  tickedFiles: ClientFile[],
+  hoverFile: ClientFile | null
+): string {
   if (tickedFiles === undefined && hoverFile === undefined) {
-    return "";
+    return '';
   } else if (tickedFiles === undefined || tickedFiles.length === 0) {
-    return hoverFile?.name + ".zip";
+    return hoverFile?.name + '.zip';
   } else if (tickedFiles.length === 1) {
-    return tickedFiles[0].name + ".zip";
-  }
-   else {
-    return "Archive.zip";
+    return tickedFiles[0].name + '.zip';
+  } else {
+    return 'Archive.zip';
   }
 }
 
@@ -64,8 +73,8 @@ const FileContextMenu = forwardRef(
       setRenameFileModalOpen: (modalOpen: boolean) => void;
       setShowContextMenu: (showContextMenu: boolean) => void;
       setClipboard: (clipboard: ClientFile[]) => void;
-      zipFiles: (files: ClientFile[], dest : string) => void;
-      unzipFile: (file: ClientFile, unzipOption : UnzipOption) => void;
+      zipFiles: (files: ClientFile[], dest: string) => void;
+      unzipFile: (file: ClientFile, unzipOption: UnzipOption) => void;
       pasteFiles: (path: string) => void;
       setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
       setTickedFiles: (tickedFiles: ClientFile[]) => void;
@@ -77,7 +86,6 @@ const FileContextMenu = forwardRef(
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
-
     const [isMac, setIsMac] = useState(false);
     useEffect(() => {
       if (window.navigator.userAgent.indexOf('Mac') != -1) {
@@ -102,7 +110,15 @@ const FileContextMenu = forwardRef(
       }
       setTickedFiles([]);
       setClipboardAction('copy');
-      toast.info('Files copied to clipboard');
+      // if ticked file is 0 and file is not null, return 1, else return ticked file length
+      const fileCount =
+        tickedFiles?.length === 0 && file !== null
+          ? 1
+          : tickedFiles?.length ?? 1;
+      const toastString = `${fileCount} item${
+        fileCount > 1 ? 's' : ''
+      } copied to clipboard`;
+      toast.info(toastString);
     };
 
     const cutFile = async () => {
@@ -113,17 +129,25 @@ const FileContextMenu = forwardRef(
       }
       setTickedFiles([]);
       setClipboardAction('cut');
-      toast.info('Files cut to clipboard');
+      // if ticked file is 0 and file is not null, return 1, else return ticked file length
+      const fileCount =
+        tickedFiles?.length === 0 && file !== null
+          ? 1
+          : tickedFiles?.length ?? 1;
+      const toastString = `${fileCount} item${
+        fileCount > 1 ? 's' : ''
+      } cut to clipboard`;
+      toast.info(toastString);
     };
 
-    const unzip = async (unzipOption : UnzipOption) => {
-      if (!supportedZip.includes(file?.extension ?? ''))  { // not supported zip
+    const unzip = async (unzipOption: UnzipOption) => {
+      if (!supportedZip.includes(file?.extension ?? '')) {
+        // not supported zip
         toast.error('Unsupported zip file type');
         setShowContextMenu(false);
-      }
-      else {
+      } else {
         unzipFile(file as ClientFile, unzipOption);
-        setShowContextMenu(false); 
+        setShowContextMenu(false);
       }
     };
 
@@ -137,7 +161,7 @@ const FileContextMenu = forwardRef(
         }}
         ref={ref}
       >
-        <div className="py-2">
+        <div className="py-1">
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Copy"
@@ -160,16 +184,22 @@ const FileContextMenu = forwardRef(
           />
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label={file?.file_type !== 'Directory' ? "Paste" : `Paste into ${file?.name}`}
+            label={
+              file?.file_type !== 'Directory'
+                ? 'Paste'
+                : `Paste into ${file?.name}`
+            }
             // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
             onClick={() => {
-              pasteFiles(file?.file_type !== 'Directory' ? currentPath : file?.path);
+              pasteFiles(
+                file?.file_type !== 'Directory' ? currentPath : file?.path
+              );
               setShowContextMenu(false);
             }}
             disabled={clipboard?.length === 0}
           />
         </div>
-        <div className="py-2">
+        <div className="py-1">
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Rename"
@@ -191,48 +221,56 @@ const FileContextMenu = forwardRef(
             }}
             disabled={!file}
           />
+        </div>
+        <div className="py-1">
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            
-            label= {generateZipText(tickedFiles, file)}
+            label={generateZipText(tickedFiles, file)}
             // disable if no file is ticked and if there is no file
             disabled={tickedFiles?.length === 0 && !file}
             onClick={() => {
               // if there is no file ticked, zip the current file to a zip file with the same name
-              zipFiles(tickedFiles?.length === 0 ? [file! as ClientFile] : tickedFiles!, `${currentPath}/` + generateZipFileName(tickedFiles!, file));
+              zipFiles(
+                tickedFiles?.length === 0
+                  ? [file! as ClientFile]
+                  : tickedFiles!,
+                `${currentPath}/` + generateZipFileName(tickedFiles!, file)
+              );
               setTickedFiles([]);
               setShowContextMenu(false);
             }}
           />
-          {supportedZip.includes(file?.extension ?? '') && file?.file_type === "File" ? // if file name is null or file is not zip file
-            (<>
-            <ContextMenuButton
-              className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-              label="Unzip here"
-              onClick={() => {
-                unzip("Normal");
-              }}
-              disabled={!file}
-            />
-            <ContextMenuButton
-              className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-              label="Unzip here (smart)"
-              onClick={() => {
-                unzip("Smart");
-              }}
-              disabled={!file}
-            />
-            <ContextMenuButton
-              className="w-full truncate whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-              label={file ? 'Unzip to ' + file.file_stem : ''}
-              onClick={() => {
-                unzip("ToDirectoryWithFileName");
-              }}
-              disabled={!file}
-            />
-            </>) : null}
+          {supportedZip.includes(file?.extension ?? '') &&
+          file?.file_type === 'File' ? ( // if file name is null or file is not zip file
+            <>
+              <ContextMenuButton
+                className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+                label="Unzip here"
+                onClick={() => {
+                  unzip('Normal');
+                }}
+                disabled={!file}
+              />
+              <ContextMenuButton
+                className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+                label="Unzip here (smart)"
+                onClick={() => {
+                  unzip('Smart');
+                }}
+                disabled={!file}
+              />
+              <ContextMenuButton
+                className="w-full truncate whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+                label={file ? 'Unzip to ' + file.file_stem : ''}
+                onClick={() => {
+                  unzip('ToDirectoryWithFileName');
+                }}
+                disabled={!file}
+              />
+            </>
+          ) : null}
         </div>
-        <div className="py-2">
+        <div className="py-1">
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New folder"

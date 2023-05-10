@@ -315,7 +315,7 @@ export const useEventStream = () => {
                             deleteInstance(uuid, queryClient),
                           FSOperationCompleted: ({ instance_uuid, success, message }) => {
                             if (success) {
-                              toast.info(message)
+                              toast.success(message)
                             } else {
                               toast.error(message)
                             }
