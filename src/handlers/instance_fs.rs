@@ -542,7 +542,7 @@ async fn new_instance_file(
     Ok(Json(()))
 }
 
-async fn download_instance_file(
+async fn get_instance_file_url(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
@@ -1015,8 +1015,8 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             put(new_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/download",
-            get(download_instance_file),
+            "/instance/:uuid/fs/:base64_relative_path/url",
+            get(get_instance_file_url),
         )
         .route(
             "/instance/:uuid/fs/:base64_relative_path/upload",
