@@ -18,7 +18,6 @@ import { toast } from 'react-toastify';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
-  useDocumentTitle('Macros');
   const { selectedInstance } = useContext(InstanceContext);
   const [macros, setMacros] = useState<TableRow[]>([]);
   const [tasks, setTasks] = useState<TableRow[]>([]);

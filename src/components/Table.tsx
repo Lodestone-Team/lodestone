@@ -1,3 +1,4 @@
+import { r } from '@tauri-apps/api/clipboard-2fa91cee';
 import ButtonMenu from './ButtonMenu';
 import { ButtonMenuConfig } from './ButtonMenu';
 
@@ -56,53 +57,64 @@ export function Table({
 
   // Code currently uses arbitrary values for min and max width when alignment is set to left
   return (
-    <table
-      className={clsx(
-        'z-10 w-full bg-gray-875 text-left tracking-medium',
-        alignment === 'even' ? 'table-fixed' : 'table-auto',
-        className
-      )}
-    >
-      <thead className="h-6 border-b border-b-fade-700 bg-gray-875">
-        <tr>
-          {modifiedColumns.map((column, cIndex) => (
-            <th
-              key={cIndex}
-              className={clsx(
-                'sticky top-0 z-30 bg-gray-875 px-4 py-2 text-medium font-bold',
-                alignment === 'left' && 'min-w-[8rem] max-w-[12rem]'
-              )}
-            >
-              {column.headerName}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, indexRow) => (
-          <tr
-            key={indexRow}
-            className={clsx(
-              'h-full border-b border-b-fade-700',
-              indexRow % 2 === 1 && 'bg-gray-850'
-            )}
-          >
-            {modifiedColumns.map((column, indexColumn) => (
-              <td
-                key={indexColumn}
+    <div>
+      <table
+        className={clsx(
+          'z-10 w-full bg-gray-875 text-left tracking-medium',
+          alignment === 'even' ? 'table-fixed' : 'table-auto',
+          className
+        )}
+      >
+        <thead className="h-6 border-b border-b-fade-700 bg-gray-875">
+          <tr>
+            {modifiedColumns.map((column, cIndex) => (
+              <th
+                key={cIndex}
                 className={clsx(
-                  'p-4 text-left text-white/50',
-                  column.className
+                  'sticky top-0 z-30 bg-gray-875 px-4 py-2 text-medium font-bold',
+                  alignment === 'left' && 'min-w-[8rem] max-w-[12rem]'
                 )}
               >
-                {column.element
-                  ? column.element(rows, indexRow)
-                  : row[column.field]}
-              </td>
+                {column.headerName}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, indexRow) => (
+            <tr
+              key={indexRow}
+              className={clsx(
+                'h-full border-b border-b-fade-700',
+                indexRow % 2 === 1 && 'bg-gray-850'
+              )}
+            >
+              {modifiedColumns.map((column, indexColumn) => (
+                <td
+                  key={indexColumn}
+                  className={clsx(
+                    'p-4 text-left text-white/50',
+                    column.className
+                  )}
+                >
+                  {column.element
+                    ? column.element(rows, indexRow)
+                    : row[column.field]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length === 0 && (
+        <div>
+          <div className="mt-8 flex flex-col items-center justify-center">
+            <div className=" text-h2 font-bold text-gray-400">
+              No data currently available
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
