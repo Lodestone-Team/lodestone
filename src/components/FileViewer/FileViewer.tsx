@@ -401,7 +401,7 @@ export default function FileViewer() {
                     className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
                     icon={faDownload}
                   />
-                  <p className="pointer-events-none">Drop File</p>
+                  <p className="pointer-events-none">Release to Upload File</p>
                 </Dialog.Panel>
               </div>
             </div>
