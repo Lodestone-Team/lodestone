@@ -244,21 +244,21 @@ export default function FileViewer() {
     tickFile(file, false);
   };
 
-  // const handleFileDropTauri = async (event: any) => {
-  //   if (!dropping) return;
-  //   const fileArray = [];
-  //   console.log(event);
-  //   for (const i in event.payload) {
-  //     const fileBlob = new Blob([await readBinaryFile(event.payload[i])]);
-  //     const file = new File([fileBlob], event.payload[i].split(directorySeparator).pop() ?? 'unknown');
-  //     fileArray.push(file);
-  //   }
-  //   console.log(fileArray);
-    
-  //   uploadInstanceFiles(instance.uuid, path, fileArray, queryClient);
-  // };
+  const handleFileDrop = async (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes('Files'))
+      return;
 
-  const handleFileDropBrowser = async (event: React.DragEvent) => {
+    for (const i in event.dataTransfer.items) {
+        const item = event.dataTransfer.items[i];
+        const entry = "getAsEntry" in DataTransferItem.prototype ? (item as any).getAsEntry() : item.webkitGetAsEntry();
+        if (entry.isDirectory) {
+          toast.error("Only files can be uploaded");
+          setDropping(false);
+          setDroppingDialog(false);
+          return;
+        }
+    }
+
     uploadInstanceFiles(
       instance.uuid,
       path,
@@ -268,21 +268,6 @@ export default function FileViewer() {
     setDropping(false);
     setDroppingDialog(false);
   };
-
-  // tauri &&
-  //   listen('tauri://file-drop-cancelled', (_) => {
-  //     setDropping(false);
-  //   });
-  // tauri &&
-  //   listen('tauri://file-drop-hover', (_) => {
-  //     setDropping(true);
-  //   });
-  // tauri &&
-  //   listen('tauri://file-drop', (event) => {
-  //     console.log(dropping, event);
-  //     handleFileDropTauri(event);
-  //     setDropping(false);
-  //   });
 
   /* UI */
 
@@ -363,7 +348,7 @@ export default function FileViewer() {
         className="relative flex h-full w-full grow flex-col gap-3"
         onDragEnter={(e) => {
           e.preventDefault();
-          setDropping(true);
+          e.dataTransfer.types.includes('Files') && setDropping(true);
           e.stopPropagation();
         }}
         onDragLeave={(e) => {
@@ -377,7 +362,7 @@ export default function FileViewer() {
         }}
         onDrop={(e: React.DragEvent) => {
           e.preventDefault();
-          handleFileDropBrowser(e);
+          handleFileDrop(e);
           e.stopPropagation();
         }}
       >
@@ -390,7 +375,7 @@ export default function FileViewer() {
           <div
             onDragEnter={(e) => {
               e.preventDefault();
-              setDroppingDialog(true);
+              e.dataTransfer.types.includes('Files') &&setDroppingDialog(true);
               e.stopPropagation();
             }}
             onDragLeave={(e) => {
@@ -404,7 +389,7 @@ export default function FileViewer() {
             }}
             onDrop={(e: React.DragEvent) => {
               e.preventDefault();
-              handleFileDropBrowser(e);
+              handleFileDrop(e);
               e.stopPropagation();
             }}
           >
@@ -632,7 +617,8 @@ export default function FileViewer() {
             className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
             onDragEnter={(e) => {
               e.preventDefault();
-              setDropping(true);
+              e.dataTransfer.types.includes('Files') && setDropping(true);
+              //setDropping(true);
               e.stopPropagation();
             }}
             onDragLeave={(e) => {
@@ -645,7 +631,7 @@ export default function FileViewer() {
             }}
             onDrop={(e: React.DragEvent) => {
               e.preventDefault();
-              handleFileDropBrowser(e);
+              handleFileDrop(e);
               e.stopPropagation();
             }}
           >
