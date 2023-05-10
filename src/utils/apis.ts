@@ -76,6 +76,8 @@ export const deleteInstanceFile = async (
   if (error) {
     toast.error(error);
     return;
+  } else {
+    toast.success(`Deleted ${file.name}`);
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
