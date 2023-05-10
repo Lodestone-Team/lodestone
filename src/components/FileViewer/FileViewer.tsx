@@ -250,6 +250,7 @@ export default function FileViewer() {
 
     for (const i in event.dataTransfer.items) {
         const item = event.dataTransfer.items[i];
+        if (item.kind !== "file") continue;
         const entry = "getAsEntry" in DataTransferItem.prototype ? (item as any).getAsEntry() : item.webkitGetAsEntry();
         if (entry.isDirectory) {
           toast.error("Only files can be uploaded");
@@ -258,7 +259,6 @@ export default function FileViewer() {
           return;
         }
     }
-
     uploadInstanceFiles(
       instance.uuid,
       path,
