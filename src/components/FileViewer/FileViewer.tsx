@@ -56,9 +56,6 @@ import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOptions';
 
-import { listen } from '@tauri-apps/api/event';
-import { readBinaryFile, readDir } from '@tauri-apps/api/fs';
-
 export default function FileViewer() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
@@ -77,7 +74,6 @@ export default function FileViewer() {
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
-  const [droppingInProgress, setDroppingInProgress] = useState(false);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
   const tickFile = (file: ClientFile, ticked: boolean) => {
