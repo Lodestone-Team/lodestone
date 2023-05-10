@@ -27,8 +27,8 @@ use crate::{
     traits::t_configurable::TConfigurable,
     types::{InstanceUuid, Snowflake},
     util::{
-        format_byte, format_byte_download, list_dir, rand_alphanumeric, scoped_join_win_safe,
-        unzip_file_async, zip_files_async, UnzipOption, resolve_path_conflict,
+        format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
+        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption, resolve_path_conflict,
     },
     AppState,
 };
@@ -542,7 +542,7 @@ async fn new_instance_file(
     Ok(Json(()))
 }
 
-async fn download_instance_file(
+async fn get_instance_file_url(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
@@ -628,7 +628,7 @@ async fn upload_instance_file(
             source: eyre!("Missing file name"),
         })?;
         let name = sanitize_filename::sanitize(name);
-        let path = scoped_join_win_safe(&path_to_dir, &name)?;
+        let path = resolve_path_conflict(scoped_join_win_safe(&path_to_dir, &name)?, None);
         // if the file has a protected extension, or no extension, deny
         if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
             return Err(Error {
@@ -652,7 +652,11 @@ async fn upload_instance_file(
                     progression_event_inner: ProgressionEventInner::ProgressionEnd {
                         success: false,
                         message: Some(e.to_string()),
-                        inner: None,
+                        inner: Some(ProgressionEndValue::FSOperationCompleted {
+                            instance_uuid: uuid.clone(),
+                            success: false,
+                            message: format!("Failed to upload file {name}, {e}"),
+                        }),
                     },
                 }),
                 details: "".to_string(),
@@ -701,7 +705,11 @@ async fn upload_instance_file(
                         progression_event_inner: ProgressionEventInner::ProgressionEnd {
                             success: false,
                             message: Some(e.to_string()),
-                            inner: None,
+                            inner: Some(ProgressionEndValue::FSOperationCompleted {
+                                instance_uuid: uuid.clone(),
+                                success: false,
+                                message: format!("Failed to upload file {name}, {e}"),
+                            }),
                         },
                     }),
                     details: "".to_string(),
@@ -733,7 +741,11 @@ async fn upload_instance_file(
             progression_event_inner: ProgressionEventInner::ProgressionEnd {
                 success: true,
                 message: Some("Upload complete".to_string()),
-                inner: None,
+                inner: Some(ProgressionEndValue::FSOperationCompleted {
+                    instance_uuid: uuid,
+                    success: true,
+                    message: "File(s) uploaded".to_string(),
+                }),
             },
         }),
         details: "".to_string(),
@@ -1004,8 +1016,8 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
             put(new_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/download",
-            get(download_instance_file),
+            "/instance/:uuid/fs/:base64_relative_path/url",
+            get(get_instance_file_url),
         )
         .route(
             "/instance/:uuid/fs/:base64_relative_path/upload",

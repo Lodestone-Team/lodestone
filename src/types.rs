@@ -1,10 +1,9 @@
 use std::fmt::Display;
 
+use crate::migration::DotLodestoneConfigV043;
 use crate::traits::t_configurable::GameType;
 use crate::{
-    implementations::minecraft::Flavour,
-    migration::RestoreConfigV042,
-    prelude::{SNOWFLAKE_GENERATOR, VERSION},
+    implementations::minecraft::Flavour, migration::RestoreConfigV042, prelude::SNOWFLAKE_GENERATOR,
 };
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::*;
@@ -119,13 +118,18 @@ impl Display for InstanceUuid {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LodestoneMetadata {
+    pub semver: semver::Version,
+}
+
+/// A marker file to indicate to lodestone that the directory contains a lodestone instance
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DotLodestoneConfig {
     game_type: GameType,
     uuid: InstanceUuid,
     creation_time: i64,
-    lodestone_version: String,
 }
 
 impl From<RestoreConfigV042> for DotLodestoneConfig {
@@ -141,7 +145,16 @@ impl From<RestoreConfigV042> for DotLodestoneConfig {
             game_type,
             uuid: config.uuid,
             creation_time: config.creation_time,
-            lodestone_version: "0.4.3".to_string(),
+        }
+    }
+}
+
+impl From<DotLodestoneConfigV043> for DotLodestoneConfig {
+    fn from(config: DotLodestoneConfigV043) -> Self {
+        Self {
+            game_type: config.game_type,
+            uuid: config.uuid,
+            creation_time: config.creation_time,
         }
     }
 }
@@ -152,18 +165,16 @@ impl DotLodestoneConfig {
             game_type,
             uuid,
             creation_time: chrono::Utc::now().timestamp(),
-            lodestone_version: VERSION.with(|v| v.to_string()),
         }
     }
+
     pub fn uuid(&self) -> &InstanceUuid {
         &self.uuid
     }
     pub fn creation_time(&self) -> i64 {
         self.creation_time
     }
-    pub fn lodestone_version(&self) -> &str {
-        &self.lodestone_version
-    }
+
     pub fn game_type(&self) -> &GameType {
         &self.game_type
     }
