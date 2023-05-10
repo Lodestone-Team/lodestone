@@ -141,7 +141,6 @@ async fn restore_instances(
             let instance = minecraft::MinecraftInstance::restore(
                 path.to_owned(),
                 dot_lodestone_config.clone(),
-                dot_lodestone_config.uuid().to_owned(),
                 event_broadcaster.clone(),
                 macro_executor.clone(),
             )
@@ -228,7 +227,6 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
             .with_ansi(false)
             .with_writer(non_blocking)
             .with_filter(EnvFilter::from("lodestone_core=debug"));
-
 
         tracing_subscriber::registry()
             // .with(ErrorLayer::default())

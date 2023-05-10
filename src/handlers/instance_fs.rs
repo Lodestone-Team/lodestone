@@ -28,7 +28,7 @@ use crate::{
     types::{InstanceUuid, Snowflake},
     util::{
         format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
-        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption, resolve_path_conflict,
+        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption,
     },
     AppState,
 };
