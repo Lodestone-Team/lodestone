@@ -70,6 +70,8 @@ export default function FileViewer() {
   const [renameFileModalOpen, setRenameFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const [droppingDialog, setDroppingDialog] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
@@ -254,6 +256,31 @@ export default function FileViewer() {
     tickFile(file, false);
   };
 
+  const handleFileDrop = async (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes('Files'))
+      return;
+
+    for (const i in event.dataTransfer.items) {
+        const item = event.dataTransfer.items[i];
+        if (item.kind !== "file") continue;
+        const entry = "getAsEntry" in DataTransferItem.prototype ? (item as any).getAsEntry() : item.webkitGetAsEntry();
+        if (entry.isDirectory) {
+          toast.error("Only files can be uploaded");
+          setDropping(false);
+          setDroppingDialog(false);
+          return;
+        }
+    }
+    uploadInstanceFiles(
+      instance.uuid,
+      path,
+      Array.from(event.dataTransfer?.files),
+      queryClient
+    );
+    setDropping(false);
+    setDroppingDialog(false);
+  };
+
   /* UI */
 
   const fileCheckIcon = (
@@ -331,8 +358,67 @@ export default function FileViewer() {
       </ConfirmDialog>
       <div
         className="relative flex h-full w-full grow flex-col gap-3"
-        ref={boundingDivRef}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.dataTransfer.types.includes('Files') && setDropping(true);
+          e.stopPropagation();
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setDropping(false);
+          e.stopPropagation();
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e: React.DragEvent) => {
+          e.preventDefault();
+          handleFileDrop(e);
+          e.stopPropagation();
+        }}
       >
+        <Dialog
+          open={dropping || droppingDialog}
+          onClose={() => {
+            return;
+          }}
+        >
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.dataTransfer.types.includes('Files') &&setDroppingDialog(true);
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDroppingDialog(false);
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              handleFileDrop(e);
+              e.stopPropagation();
+            }}
+          >
+            <div className="fixed inset-0 bg-[#000]/80" />
+            <div className="fixed inset-0 overflow-y-auto">
+              <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
+                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800 bg-opacity-50 pb-8 pt-12">
+                  <FontAwesomeIcon
+                    className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
+                    icon={faDownload}
+                  />
+                  <p className="pointer-events-none">Release to Upload File</p>
+                </Dialog.Panel>
+              </div>
+            </div>
+          </div>
+        </Dialog>
         <div className="flex flex-row items-center justify-between gap-4">
           <Menu as="div" className="relative inline-block text-left">
             <Menu.Button
@@ -539,7 +625,28 @@ export default function FileViewer() {
         </div>
 
         {canRead ? (
-          <div className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
+          <div
+            className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.dataTransfer.types.includes('Files') && setDropping(true);
+              //setDropping(true);
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDropping(false);
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              handleFileDrop(e);
+              e.stopPropagation();
+            }}
+          >
             <ResizePanel
               direction="e"
               maxSize={boundingDivDimensions.width - 200}
