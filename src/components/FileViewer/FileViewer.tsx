@@ -664,7 +664,6 @@ export default function FileViewer() {
               grow={!openedFile}
             >
               <FileList
-                instance={instance}
                 path={path}
                 atTopLevel={atTopLevel}
                 fileList={fileList}
