@@ -1,9 +1,4 @@
-import {
-  faClipboardQuestion,
-  faFile,
-  faFilePen,
-  faFolder,
-} from '@fortawesome/free-solid-svg-icons';
+import { faClipboardQuestion } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
@@ -13,6 +8,53 @@ import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef } from 'react';
 import { useEventListener, useOnClickOutside } from 'usehooks-ts';
 import { UnzipOption } from 'bindings/UnzipOptions';
+
+// a map from file extension to icon
+const iconMap: { [key: string]: string } = {
+  txt: '/icons/document.svg',
+  md: '/icons/document.svg',
+  properties: '/icons/document.svg',
+  yml: '/icons/yaml.svg',
+  yaml: '/icons/yaml.svg',
+  exe: '/icons/exe.svg',
+  cfg: '/icons/document.svg',
+  conf: '/icons/document.svg',
+  config: '/icons/document.svg',
+  ini: '/icons/document.svg',
+  png: '/icons/image.svg',
+  jpg: '/icons/image.svg',
+  jpeg: '/icons/image.svg',
+  gif: '/icons/image.svg',
+  bmp: '/icons/image.svg',
+  svg: '/icons/image.svg',
+  json: '/icons/json.svg',
+  mcmeta: '/icons/json.svg',
+  zip: '/icons/zip.svg',
+  rar: '/icons/zip.svg',
+  gz: '/icons/zip.svg',
+  tar: '/icons/zip.svg',
+  jar: '/icons/jar.svg',
+  java: '/icons/java.svg',
+  class: '/icons/javaclass.svg',
+  ts: '/icons/typescript.svg',
+  js: '/icons/javascript.svg',
+  readme: '/icons/readme.svg',
+  bin: '/icons/binary.svg',
+  dll: '/icons/binary.svg',
+  dylib: '/icons/binary.svg',
+  so: '/icons/binary.svg',
+  o: '/icons/binary.svg',
+  dat: '/icons/3d.svg',
+  dat_old: '/icons/3d.svg',
+  obj: '/icons/3d.svg',
+  nbt: '/icons/3d.svg',
+  mca: '/icons/3d.svg',
+  lock: '/icons/lock.svg',
+  log: '/icons/log.svg',
+  ps1: '/icons/pwsh.svg',
+  sh: '/icons/console.svg',
+  mcfunction: '/icons/minecraft.svg',
+};
 
 export default function FileList({
   path,
@@ -133,49 +175,6 @@ export default function FileList({
   useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
 
   function fileToIcon(file: ClientFile) {
-    // a map from file extension to icon
-    const iconMap: { [key: string]: string } = {
-      txt: '/icons/document.svg',
-      md: '/icons/document.svg',
-      properties: '/icons/document.svg',
-      yml: '/icons/yaml.svg',
-      yaml: '/icons/yaml.svg',
-      exe: '/icons/exe.svg',
-      cfg: '/icons/document.svg',
-      conf: '/icons/document.svg',
-      config: '/icons/document.svg',
-      ini: '/icons/document.svg',
-      png: '/icons/image.svg',
-      jpg: '/icons/image.svg',
-      jpeg: '/icons/image.svg',
-      gif: '/icons/image.svg',
-      bmp: '/icons/image.svg',
-      svg: '/icons/image.svg',
-      json: '/icons/json.svg',
-      mcmeta : '/icons/json.svg',
-      zip: '/icons/zip.svg',
-      rar: '/icons/zip.svg',
-      gz: '/icons/zip.svg',
-      tar: '/icons/zip.svg',
-      jar: '/icons/jar.svg',
-      java: '/icons/java.svg',
-      class: '/icons/javaclass.svg',
-      ts: '/icons/typescript.svg',
-      js: '/icons/javascript.svg',
-      readme: '/icons/readme.svg',
-      bin: '/icons/3d.svg',
-      dat: '/icons/3d.svg',
-      dat_old: '/icons/3d.svg',
-      obj: '/icons/3d.svg',
-      nbt: '/icons/3d.svg',
-      mca: '/icons/3d.svg',
-      lock: '/icons/lock.svg',
-      log: '/icons/log.svg',
-      ps1: '/icons/pwsh.svg',
-      sh : '/icons/console.svg',
-      mcfunction: '/icons/minecraft.svg',
-    };
-
     if (file.file_type === 'Directory') {
       return (
         <img src="/icons/folder-blue.svg" alt="folder icon" draggable="false" />
@@ -361,7 +360,7 @@ export default function FileList({
                 : 'Unknown Creation Time'}
             </p>
 
-            <p className="hidden min-w-[8ch] text-right text-gray-500 @xs:inline">
+            <p className="hidden min-w-[8ch] text-right text-gray-500 @sm:inline">
               {file.file_type === 'Directory'
                 ? ''
                 : file.size
