@@ -1,9 +1,18 @@
 name: lodestone-desktop
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to tag release with'
+        required: true
+        default: 'edge'
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to tag release with'
+        required: true
+        default: 'edge'
 
 jobs:
   build-tauri:
@@ -51,12 +60,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: "edge"
+          tagName: ${{ inputs.version }}
           releaseName: 'Lodestone v__VERSION__'
-          releaseBody: 'This is a prerelease version of Lodestone. Please report any bugs you find.'
+          releaseBody: 'This is a prerelease version of Lodestone. Please report any bugs you find. Developers please modify this message to include a changelog before publishing.'
           releaseDraft: true
           prerelease: true
 
+      # Tauri doesn't include the windows standalone exe but it's a popular format
+      - name: Add additional files to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./src-tauri/target/release/Lodestone.exe
+        
       # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
       # on windows cache exe in src-tauri/target/release/Lodestone.exe
       # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone*.deb
@@ -68,9 +84,20 @@ jobs:
         with:
           name: ${{ matrix.platform }}-tauri
           path: |
-            ./src-tauri/target/release/bundle/msi/Lodestone*.msi
             ./src-tauri/target/release/Lodestone.exe
+            ./src-tauri/target/release/bundle/msi/Lodestone*.msi
+            ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip
+            ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip.sig
             ./src-tauri/target/release/bundle/deb/lodestone*.deb
+            ./src-tauri/target/release/bundle/deb/lodestone*.deb.tar.gz
+            ./src-tauri/target/release/bundle/deb/lodestone*.deb.tar.gz.sig
             ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage.tar.gz
+            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage.tar.gz.sig
             ./src-tauri/target/release/bundle/macos/Lodestone.app
+            ./src-tauri/target/release/bundle/macos/Lodestone.app.tar.gz
+            ./src-tauri/target/release/bundle/macos/Lodestone.app.tar.gz.sig
             ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg
+            ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz
+            ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz.sig
+            
