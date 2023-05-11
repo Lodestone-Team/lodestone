@@ -1,0 +1,13 @@
+name: Developer Preview Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  lodestone-desktop:
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: edge
+    secrets: inherit
