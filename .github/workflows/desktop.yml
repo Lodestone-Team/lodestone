@@ -90,7 +90,7 @@ jobs:
         with:
           name: ${{ matrix.platform }}-tauri
           path: |
-            ${{steps.tauri.outputs.artifactPath }}
+            ${{steps.tauri.outputs.artifactPaths }}
             ./src-tauri/target/release/Lodestone.exe
 # ./src-tauri/target/release/bundle/msi/Lodestone*.msi
 # ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip
@@ -111,7 +111,7 @@ jobs:
 
       - name: Test Debug
         run: |
-          echo Artifact Path ${{ steps.tauri.outputs.artifactPath }}
+          echo Artifact Path ${{ steps.tauri.outputs.artifactPaths }}
           echo ReleaseHTMLUrl ${{ steps.tauri.outputs.releaseHtmlUrl }}
           echo ReleaseUploadURL ${{ steps.tauri.outputs.releaseUploadUrl }}
             
