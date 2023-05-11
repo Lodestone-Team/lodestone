@@ -48,7 +48,6 @@ use std::{
     time::Duration,
 };
 use sysinfo::SystemExt;
-use time::macros::format_description;
 use tokio::{
     select,
     sync::{broadcast::error::RecvError, Mutex, RwLock},
@@ -59,9 +58,7 @@ use tower_http::{
 };
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{
-    fmt::time::LocalTime, prelude::__tracing_subscriber_SubscriberExt, EnvFilter,
-};
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
@@ -501,11 +498,19 @@ pub async fn run() -> (
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
+                info!("Shutting down web server");
                 axum_server_handle.shutdown();
+                info!("Signalling all instances to stop");
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    let _ = instance.stop(CausedBy::System, false).await;
+                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                        error!(
+                            "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                            instance.uuid().await,
+                            e
+                        );
+                    }
                 }
             }
         },

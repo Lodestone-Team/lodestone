@@ -49,8 +49,8 @@ use crate::traits::t_server::State;
 use crate::traits::TInstance;
 use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
 use crate::util::{
-    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file,
-    unzip_file_async, UnzipOption,
+    dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file_async,
+    UnzipOption,
 };
 
 use self::configurable::{CmdArgSetting, ServerPropertySetting};
