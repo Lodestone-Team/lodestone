@@ -110,8 +110,8 @@ jobs:
 
 
       - name: Test Debug
-        echo: ${{ steps.tauri.outputs.artifactPath }}
-        echo: ${{ steps.tauri.outputs.releaseHtmlUrl }}
-        echo: ${{ steps.tauri.outputs.releaseUploadUrl }}
-        run: echo "Debugging"
+        run: |
+          echo Artifact Path ${{ steps.tauri.outputs.artifactPath }}
+          echo ReleaseHTMLUrl ${{ steps.tauri.outputs.releaseHtmlUrl }}
+          echo ReleaseUploadURL ${{ steps.tauri.outputs.releaseUploadUrl }}
             
