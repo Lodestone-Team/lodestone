@@ -2,6 +2,7 @@
 
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
+use crate::prelude::VERSION;
 use crate::traits::t_configurable::GameType;
 use crate::{
     db::write::write_event_to_db_task,
@@ -47,7 +48,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use sysinfo::SystemExt;
+use sysinfo::{CpuExt, SystemExt};
 use tokio::{
     select,
     sync::{broadcast::error::RecvError, Mutex, RwLock},
@@ -235,6 +236,27 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     _guard
 }
 
+fn output_sys_info() {
+    info!("lodestone_core version {}", VERSION.with(|v| v.clone()));
+    // output system info
+    info!("System info:");
+    info!("  OS: {}", std::env::consts::OS);
+    info!("  Arch: {}", std::env::consts::ARCH);
+    // CPU and RAM info
+    let sys = sysinfo::System::new_all();
+    let cpu_name = sys
+        .cpus()
+        .first()
+        .map_or_else(|| "Unknown CPU", |v| v.brand());
+    let ram = sys.total_memory();
+    info!("  CPU: {cpu_name}");
+    info!(
+        "  RAM: {ram} bytes ({ram_gb} GB)",
+        ram = ram,
+        ram_gb = ram / 1024 / 1024 / 1024
+    );
+}
+
 pub async fn run() -> (
     impl Future<Output = ()>,
     AppState,
@@ -244,6 +266,7 @@ pub async fn run() -> (
         error!("Failed to install color_eyre: {}", e);
     });
     let guard = setup_tracing();
+    output_sys_info();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
