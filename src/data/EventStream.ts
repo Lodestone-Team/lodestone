@@ -235,9 +235,6 @@ export const useEventStream = () => {
               // });
             },
             PermissionChanged: ({ new_permissions }) => {
-              console.log(
-                `User ${uid} permission changed to ${new_permissions}`
-              );
               if (fresh) {
                 if (uid === selfUid) {
                   updatePermission(new_permissions);
@@ -246,8 +243,9 @@ export const useEventStream = () => {
                   ['user', 'list'],
                   (oldList: { [uid: string]: PublicUser } | undefined) => {
                     if (!oldList) return oldList;
+                    const newUser = {...oldList[uid], permissions: new_permissions};
                     const newList = { ...oldList };
-                    newList[uid].permissions = new_permissions;
+                    newList[uid] = newUser;
                     return newList;
                   }
                 );
@@ -317,7 +315,7 @@ export const useEventStream = () => {
                             deleteInstance(uuid, queryClient),
                           FSOperationCompleted: ({ instance_uuid, success, message }) => {
                             if (success) {
-                              toast.info(message)
+                              toast.success(message)
                             } else {
                               toast.error(message)
                             }

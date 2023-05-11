@@ -19,6 +19,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -28,7 +29,7 @@ import { chooseFiles, parentPath } from 'utils/util';
 import {
   deleteInstanceDirectory,
   deleteInstanceFile,
-  downloadInstanceFiles,
+  downloadInstanceFile,
   saveInstanceFile,
   unzipInstanceFile,
   uploadInstanceFiles,
@@ -76,6 +77,12 @@ export default function FileViewer() {
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
+  const boundingDivRef = useRef<HTMLDivElement>(null);
+  const [boundingDivDimensions, setBoundingDivDimensions] = useState({
+    height: 0,
+    width: 0,
+  });
+
   const tickFile = (file: ClientFile, ticked: boolean) => {
     if (ticked) {
       setTickedFiles((files) => [...files, file]);
@@ -83,6 +90,15 @@ export default function FileViewer() {
       setTickedFiles((files) => files.filter((f) => f.path !== file.path));
     }
   };
+
+  useEffect(() => {
+    if (boundingDivRef.current !== null) {
+      setBoundingDivDimensions({
+        height: boundingDivRef.current.offsetHeight,
+        width: boundingDivRef.current.offsetWidth,
+      });
+    }
+  }, [boundingDivRef]);
 
   const atTopLevel = path === '.';
   let directorySeparator = '\\';
@@ -205,7 +221,7 @@ export default function FileViewer() {
       if (file.file_type === 'Directory') {
         missedDirectories.push(file.path);
       } else if (file.file_type === 'File') {
-        downloadInstanceFiles(instance.uuid, file);
+        downloadInstanceFile(instance.uuid, file);
         tickFile(file, false);
       }
     }
@@ -241,19 +257,21 @@ export default function FileViewer() {
   };
 
   const handleFileDrop = async (event: React.DragEvent) => {
-    if (!event.dataTransfer.types.includes('Files'))
-      return;
+    if (!event.dataTransfer.types.includes('Files')) return;
 
     for (const i in event.dataTransfer.items) {
-        const item = event.dataTransfer.items[i];
-        if (item.kind !== "file") continue;
-        const entry = "getAsEntry" in DataTransferItem.prototype ? (item as any).getAsEntry() : item.webkitGetAsEntry();
-        if (entry.isDirectory) {
-          toast.error("Only files can be uploaded");
-          setDropping(false);
-          setDroppingDialog(false);
-          return;
-        }
+      const item = event.dataTransfer.items[i];
+      if (item.kind !== 'file') continue;
+      const entry =
+        'getAsEntry' in DataTransferItem.prototype
+          ? (item as any).getAsEntry()
+          : item.webkitGetAsEntry();
+      if (entry.isDirectory) {
+        toast.error('Only files can be uploaded');
+        setDropping(false);
+        setDroppingDialog(false);
+        return;
+      }
     }
     uploadInstanceFiles(
       instance.uuid,
@@ -371,7 +389,7 @@ export default function FileViewer() {
           <div
             onDragEnter={(e) => {
               e.preventDefault();
-              e.dataTransfer.types.includes('Files') &&setDroppingDialog(true);
+              e.dataTransfer.types.includes('Files') && setDroppingDialog(true);
               e.stopPropagation();
             }}
             onDragLeave={(e) => {
@@ -456,7 +474,11 @@ export default function FileViewer() {
                           setClipboard(tickedFiles);
                           setClipboardAction('cut');
                           setTickedFiles([]);
-                          toast.info('Files cut to clipboard');
+                          toast.info(
+                            `${tickedFiles.length} ${
+                              tickedFiles.length === 1 ? 'file' : 'files'
+                            } cut to clipboard`
+                          );
                         }}
                         variant="text"
                         align="start"
@@ -633,7 +655,7 @@ export default function FileViewer() {
           >
             <ResizePanel
               direction="e"
-              maxSize={500}
+              maxSize={boundingDivDimensions.width - 200}
               minSize={200}
               size={fileListSize}
               validateSize={false}

@@ -3,7 +3,10 @@ import type { FileType } from './FileType';
 
 export interface ClientFile {
   name: string;
+  file_stem: string;
+  extension: string | null;
   path: string;
+  size: number | null;
   creation_time: number | null;
   modification_time: number | null;
   file_type: FileType;

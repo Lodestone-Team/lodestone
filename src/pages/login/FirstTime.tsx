@@ -59,9 +59,12 @@ const FirstTime = () => {
         </div>
 
         <p className="text-medium font-medium tracking-medium text-white">
-          Our product is still in its beta release cycle. Browser support is
-          limited and bugs are expected. You can check known issues and report
-          any new ones on our{' '}
+          <span className="font-extrabold text-red-200">
+            Lodestone is a beta software!{' '}
+          </span>
+          Browser support is limited and bugs are expected. Feature stability
+          and future compatibility is not guaranteed. You can check known issues
+          and report any new ones on our{' '}
           <a
             href="https://github.com/Lodestone-Team/lodestone/issues"
             target="_blank"

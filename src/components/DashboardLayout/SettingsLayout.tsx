@@ -22,11 +22,10 @@ export const SettingsLayout = () => {
     undefined
   );
   const userList = canManageUsers ? dataUserList : undefined;
-
   useEffect(() => {
-    if (queryUid && userList && queryUid in userList)
+    if (queryUid && userList && queryUid in userList) {
       setSelectedUser(userList[queryUid]);
-    else setSelectedUser(undefined);
+    } else setSelectedUser(undefined);
   }, [userList, queryUid]);
 
   function selectUser(user?: PublicUser) {
