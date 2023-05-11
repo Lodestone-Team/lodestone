@@ -72,12 +72,12 @@ jobs:
           prerelease: true
 
       # Tauri doesn't include the windows standalone exe but it's a popular format
-      - name: Add additional files to release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ inputs.version }}
-          files: |
-            ./src-tauri/target/release/Lodestone.exe
+      #- name: Add additional files to release
+      #  uses: softprops/action-gh-release@v1
+      #  with:
+      #    tag_name: ${{ inputs.version }}
+      #    files: |
+      #      ./src-tauri/target/release/Lodestone.exe
         
       # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
       # on windows cache exe in src-tauri/target/release/Lodestone.exe
@@ -107,11 +107,3 @@ jobs:
 # ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg
 # ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz
 # ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz.sig
-
-
-      - name: Test Debug
-        run: |
-          echo Artifact Path ${{ steps.tauri.outputs.artifactPaths }}
-          echo ReleaseHTMLUrl ${{ steps.tauri.outputs.releaseHtmlUrl }}
-          echo ReleaseUploadURL ${{ steps.tauri.outputs.releaseUploadUrl }}
-            
