@@ -6,6 +6,7 @@ on:
         description: 'Version to tag release with'
         required: true
         default: 'edge'
+        type: string
 
   workflow_dispatch:
     inputs:
@@ -13,6 +14,7 @@ on:
         description: 'Version to tag release with'
         required: true
         default: 'edge'
+        type: string
 
 jobs:
   build-tauri:
