@@ -470,27 +470,38 @@ pub async fn run() -> (
                     port += 1;
                 }
                 let addr = SocketAddr::from(([0, 0, 0, 0], port));
+                let axum_server_handle = axum_server::Handle::new();
+                tokio::spawn({
+                    let axum_server_handle = axum_server_handle.clone();
+                    async move {
+                        info!("Lodestone Core live on {addr}");
+                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
+                        match tls_config_result {
+                            Ok(config) => {
+                                info!("TLS enabled");
+                                axum_server::bind_rustls(addr, config)
+                                    .handle(axum_server_handle)
+                                    .serve(app.into_make_service())
+                                    .await
+                            }
+                            Err(e) => {
+                                warn!("Invalid TLS config : {e}, using HTTP");
+                                axum_server::bind(addr)
+                                    .handle(axum_server_handle)
+                                    .serve(app.into_make_service())
+                                    .await
+                            }
+                        }
+                        .unwrap();
+                    }
+                });
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
-                    _ = {
-                        info!("Lodestone Core live on {addr}");
-                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
-                        async {
-                            match tls_config_result {
-                                Ok(config) => {
-                                    info!("TLS enabled");
-                                    axum_server::bind_rustls(addr, config).serve(app.into_make_service()).await
-                                },
-                                Err(e) => {
-                                    warn!("Invalid TLS config : {e}, using HTTP");
-                                    axum_server::bind(addr).serve(app.into_make_service()).await},
-                            }.unwrap();
-                        }
-                    } => info!("Server exited"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
+                axum_server_handle.shutdown();
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
