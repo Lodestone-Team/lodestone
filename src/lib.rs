@@ -228,7 +228,6 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
             .with_writer(non_blocking)
             .with_filter(EnvFilter::from("lodestone_core=debug"));
 
-
         tracing_subscriber::registry()
             // .with(ErrorLayer::default())
             .with(fmt_layer_stdout)
@@ -294,6 +293,7 @@ pub async fn run() -> (
             "First time setup key: {}",
             ansi_term::Color::Green.paint(key.clone())
         );
+        info!("This is a one-time, in-memory randomly generated key that allows you to create the owner account.");
         info!(
             "{}",
             ansi_term::Color::Red.paint("DO NOT SHARE THIS KEY WITH ANYONE!")
@@ -474,7 +474,8 @@ pub async fn run() -> (
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = {
-                        info!("Web server live on {addr}");
+                        info!("Lodestone Core live on {addr}");
+                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                         async {
                             match tls_config_result {
                                 Ok(config) => {
