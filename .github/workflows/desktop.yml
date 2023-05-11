@@ -56,16 +56,13 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Set Tauri Enviromental Variable
-        # need to set the enviromental variable TAURI_PRIVATE_KEY to sign the updaters
-        # we can get it from ${{ secrets.TAURI_PRIVATE_KEY }} but we need to write it to a file
-
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
         id: tauri
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
           tagName: ${{ inputs.version }}
           releaseName: 'Lodestone v__VERSION__'
@@ -116,4 +113,5 @@ jobs:
         echo: ${{ steps.tauri.outputs.artifactPath }}
         echo: ${{ steps.tauri.outputs.releaseHtmlUrl }}
         echo: ${{ steps.tauri.outputs.releaseUploadUrl }}
+        run: echo "Debugging"
             
