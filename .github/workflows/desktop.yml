@@ -56,8 +56,13 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Set Tauri Enviromental Variable
+        # need to set the enviromental variable TAURI_PRIVATE_KEY to sign the updaters
+        # we can get it from ${{ secrets.TAURI_PRIVATE_KEY }} but we need to write it to a file
+
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
+        id: tauri
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,6 +70,7 @@ jobs:
           tagName: ${{ inputs.version }}
           releaseName: 'Lodestone v__VERSION__'
           releaseBody: 'This is a prerelease version of Lodestone. Please report any bugs you find. Developers please modify this message to include a changelog before publishing.'
+          includeUpdaterJson: true
           releaseDraft: true
           prerelease: true
 
@@ -72,6 +78,7 @@ jobs:
       - name: Add additional files to release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ inputs.version }}
           files: |
             ./src-tauri/target/release/Lodestone.exe
         
@@ -86,20 +93,27 @@ jobs:
         with:
           name: ${{ matrix.platform }}-tauri
           path: |
+            ${{steps.tauri.outputs.artifactPath }}
             ./src-tauri/target/release/Lodestone.exe
-            ./src-tauri/target/release/bundle/msi/Lodestone*.msi
-            ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip
-            ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip.sig
-            ./src-tauri/target/release/bundle/deb/lodestone*.deb
-            ./src-tauri/target/release/bundle/deb/lodestone*.deb.tar.gz
-            ./src-tauri/target/release/bundle/deb/lodestone*.deb.tar.gz.sig
-            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
-            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage.tar.gz
-            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage.tar.gz.sig
-            ./src-tauri/target/release/bundle/macos/Lodestone.app
-            ./src-tauri/target/release/bundle/macos/Lodestone.app.tar.gz
-            ./src-tauri/target/release/bundle/macos/Lodestone.app.tar.gz.sig
-            ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg
-            ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz
-            ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz.sig
+# ./src-tauri/target/release/bundle/msi/Lodestone*.msi
+# ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip
+# ./src-tauri/target/release/bundle/msi/Lodestone*.msi.zip.sig
+# ./src-tauri/target/release/bundle/deb/lodestone*.deb
+# ./src-tauri/target/release/bundle/deb/lodestone*.deb.tar.gz
+# ./src-tauri/target/release/bundle/deb/lodestone*.deb.tar.gz.sig
+# ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+# ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage.tar.gz
+# ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage.tar.gz.sig
+# ./src-tauri/target/release/bundle/macos/Lodestone.app
+# ./src-tauri/target/release/bundle/macos/Lodestone.app.tar.gz
+# ./src-tauri/target/release/bundle/macos/Lodestone.app.tar.gz.sig
+# ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg
+# ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz
+# ./src-tauri/target/release/bundle/macos/rw.Lodestone*.dmg.tar.gz.sig
+
+
+      - name: Test Debug
+        echo: ${{ steps.tauri.outputs.artifactPath }}
+        echo: ${{ steps.tauri.outputs.releaseHtmlUrl }}
+        echo: ${{ steps.tauri.outputs.releaseUploadUrl }}
             
