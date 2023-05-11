@@ -269,12 +269,7 @@ async fn move_file(
 
     requester.try_action(&UserAction::WriteGlobalFile)?;
 
-    tokio::fs::rename(&path_source, &path_dest)
-        .await
-        .context(format!(
-            "Failed to move file from {} to {}",
-            path_source, path_dest
-        ))?;
+    crate::util::fs::rename(&path_source, &path_dest).await;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,

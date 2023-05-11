@@ -258,6 +258,7 @@ pub async fn run() -> (
         .and_then(|_| std::fs::create_dir_all(PATH_TO_BINARIES.with(|path| path.clone())))
         .and_then(|_| std::fs::create_dir_all(PATH_TO_STORES.with(|path| path.clone())))
         .and_then(|_| std::fs::create_dir_all(&path_to_instances))
+        .and_then(|_| std::fs::create_dir_all(lodestone_path.join("tmp")))
         .map_err(|e| {
             error!(
                 "Failed to create lodestone path: {}. Lodestone will now crash...",

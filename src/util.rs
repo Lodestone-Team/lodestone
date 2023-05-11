@@ -25,6 +25,7 @@ pub struct Authentication {
 }
 
 use crate::error::Error;
+use crate::prelude::LODESTONE_PATH;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -231,9 +232,15 @@ pub fn unzip_file(
         UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
         UnzipOption::ToDir(ref d) => d.to_owned(),
     };
+    let lodestone_tmp = LODESTONE_PATH.with(|v| v.join("tmp"));
+    std::fs::create_dir_all(&lodestone_tmp).context(format!(
+        "Failed to create temporary directory {}",
+        lodestone_tmp.display()
+    ))?;
 
-    let temp_dest_dir =
-        tempdir::TempDir::new("unzip_temp").context("Failed to create temporary directory for")?;
+    let temp_dest_dir = tempfile::tempdir_in(lodestone_tmp).context(
+        "Failed to create temporary directory for unzipping. Please make sure you have enough space in your disk",
+    )?;
     let temp_dest = temp_dest_dir.path();
 
     if file_extension == "gz" || file_extension == "tgz" {
@@ -330,7 +337,13 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
     let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
-    let tmp_archive = tempfile::NamedTempFile::new().context("Failed to create temporary file")?;
+    let lodestone_tmp = LODESTONE_PATH.with(|v| v.join("tmp"));
+    std::fs::create_dir_all(&lodestone_tmp).context(format!(
+        "Failed to create temporary directory {}",
+        lodestone_tmp.display()
+    ))?;
+    let tmp_archive = tempfile::NamedTempFile::new_in(lodestone_tmp)
+        .context("Failed to create temporary file for zipping")?;
 
     let mut buffer = Vec::new();
     let mut writer = zip::ZipWriter::new(&tmp_archive);
