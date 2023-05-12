@@ -9,7 +9,7 @@ jobs:
   lodestone-desktop:
     uses: ./.github/workflows/desktop.yml
     with:
-      version: edge
+      version: rc
       debug: false
       release: true
     secrets: inherit
