@@ -114,7 +114,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.platform }}-tauri
-          path: |
-            ${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}
-            ./src-tauri/target/release/Lodestone.exe
-            ./src-tauri/target/debug/Lodestone.exe
+          path: "${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}\n./src-tauri/target/release/Lodestone.exe\n./src-tauri/target/debug/Lodestone.exe"
