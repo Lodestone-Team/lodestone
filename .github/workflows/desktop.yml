@@ -85,17 +85,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
-          tagName: ${{ inputs.version }}
+          tagName: ${{ inputs.release && inputs.version || null }}
           releaseName: 'Lodestone ${{ inputs.version }}'
           releaseBody: 'Automated build of Lodestone. Use at your own risk.'
           includeUpdaterJson: true
           releaseDraft: true
           prerelease: true
-          includeDebug: ${{ inputs.debug }}
-          includeRelease: ${{ !inputs.debug }}
+          includeDebug: ${{ inputs.debug && inputs.release }}
+          includeRelease: ${{ !inputs.debug && inputs.release }}
+
 
       - name: Add windows portable exe to release
         uses: softprops/action-gh-release@v1
+        if: matrix.platform == 'windows-latest' && inputs.release
         with:
           files: |
             ./src-tauri/target/release/Lodestone.exe

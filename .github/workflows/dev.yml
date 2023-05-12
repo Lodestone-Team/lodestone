@@ -11,5 +11,5 @@ jobs:
     with:
       version: dev
       debug: true
-      release: true
+      release: false
     secrets: inherit
