@@ -39,7 +39,7 @@ on:
 jobs:
   build-tauri:
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-latest, windows-latest, macos-latest]
 
