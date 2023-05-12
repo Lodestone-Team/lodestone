@@ -70,7 +70,16 @@ jobs:
           includeUpdaterJson: true
           releaseDraft: true
           prerelease: true
-        
+      
+      - name: Add windows portable exe to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./src-tauri/target/release/Lodestone.exe
+          tag_name: ${{ inputs.version }}
+          draft: true
+          prerelease: true
+
       # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
       # on windows cache exe in src-tauri/target/release/Lodestone.exe
       # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone*.deb
