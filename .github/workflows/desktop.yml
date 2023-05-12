@@ -45,6 +45,13 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -70,8 +77,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-          key: ${{ runner.os }}-tauri
-          shared-key: ${{ runner.os }}-tauri-shared
+          prefix-key: rust-cache
+          shared-key: ${{ runner.os }}-tauri
+          key: "v1"
 
       - name: Install npm dependencies
         run: npm ci
@@ -85,7 +93,7 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
           tagName: ${{ inputs.version }}
-          releaseName: 'Lodestone v__VERSION__'
+          releaseName: 'Lodestone ${{ inputs.version }}'
           releaseBody: 'Automated build of Lodestone. Use at your own risk.'
           includeUpdaterJson: true
           releaseDraft: true
