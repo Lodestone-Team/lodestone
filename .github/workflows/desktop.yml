@@ -1,4 +1,4 @@
-name: lodestone-desktop
+name: Build Lodestone Desktop
 on:
   workflow_call:
     inputs:

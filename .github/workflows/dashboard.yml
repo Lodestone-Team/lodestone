@@ -1,4 +1,4 @@
-name: web-dashboard
+name: Build Lodestone Dashboard
 
 on:
   workflow_dispatch:
