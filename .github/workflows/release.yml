@@ -14,4 +14,6 @@ jobs:
     uses: ./.github/workflows/desktop.yml
     with:
       version: ${{ github.ref_name }}
+      debug: false
+      release: true
     secrets: inherit
