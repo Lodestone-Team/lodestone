@@ -205,7 +205,7 @@ export default function FileList({
       } else {
         return (
           <img
-            src="/icons/template.svg"
+            src="/icons/file.svg"
             alt="file icon"
             draggable="false"
             className="h-4 w-4"
