@@ -32,7 +32,7 @@ export default function GameConsole() {
         listRef.current.scrollTop -
         listRef.current.clientHeight <
       autoScrollThreshold
-    : true;
+    : false;
   const oldIsAtBottom = usePrevious(isAtBottom);
 
   const scrollToBottom = () => {
@@ -57,7 +57,6 @@ export default function GameConsole() {
         'Content-Type': 'application/json',
       },
     });
-    scrollToBottom();
   };
 
   let consoleStatusMessage = '';
