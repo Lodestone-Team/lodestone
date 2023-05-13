@@ -86,7 +86,7 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
           tagName: ${{ inputs.release && inputs.version || null }}
-          releaseName: 'Lodestone ${{ inputs.version }}'
+          releaseName: ${{ inputs.release && 'Lodestone ${{ inputs.version }}' || null }}
           releaseBody: 'Automated build of Lodestone. Use at your own risk.'
           includeUpdaterJson: true
           releaseDraft: true
