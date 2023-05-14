@@ -241,6 +241,7 @@ export const UserSettings = () => {
                   }
                   selectedOptions={currentSettings}
                   optionLabel={(uuid) => instanceList?.[uuid]?.name || uuid}
+                  optionKey={(uuid) => uuid}
                   onChange={(newSettings) => {
                     // I hate typescript
                     const newPermissions = {

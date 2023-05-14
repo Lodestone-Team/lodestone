@@ -38,12 +38,11 @@ export default function CreateFileForm({
       ) => {
         actions.setSubmitting(true);
 
-        console.log(values.name)
-        console.log(path)
         const error = await moveInstanceFileOrDirectory(
           instance.uuid,
           path,
-          path.substring(0, path.lastIndexOf(directorySeparator) + 1) + values.name,
+          path.substring(0, path.lastIndexOf(directorySeparator) + 1) +
+            values.name,
           queryClient,
           directorySeparator
         );

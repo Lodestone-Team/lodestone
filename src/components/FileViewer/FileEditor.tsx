@@ -114,6 +114,7 @@ export function FileEditor({
         minimap: {
           enabled: false,
         },
+        wordWrap: 'on',
       }}
       language={monacoLanguage}
       saveViewState={true}

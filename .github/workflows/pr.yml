@@ -1,0 +1,14 @@
+name: Pull Request Build Check
+
+on:
+  pull_request:
+    branches: [main, dev, release/*]
+
+jobs:
+  lodestone-desktop:
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: pr
+      debug: true
+      release: false
+    secrets: inherit

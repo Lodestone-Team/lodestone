@@ -1,14 +1,45 @@
-name: lodestone-desktop
+name: Build Lodestone Desktop
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to tag release with'
+        required: true
+        default: 'edge'
+        type: string
+      debug:
+        description: 'Whether to build in debug mode'
+        required: true
+        default: true
+        type: boolean
+      release:
+        description: 'Whether to draft a release'
+        required: true
+        default: false
+        type: boolean
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to tag release with'
+        required: true
+        default: 'edge'
+        type: string
+      debug:
+        description: 'Whether to build in debug mode'
+        required: true
+        default: true
+        type: boolean
+      release:
+        description: 'Whether to draft a release'
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   build-tauri:
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-latest, windows-latest, macos-latest]
 
@@ -39,22 +70,40 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-          key: ${{ runner.os }}-tauri
-          shared-key: ${{ runner.os }}-tauri-shared
+          prefix-key: rust-cache
+          shared-key: ${{ runner.os }}-tauri
+          key: "v1"
 
       - name: Install npm dependencies
         run: npm ci
 
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
+        id: tauri
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
-          tagName: "edge"
-          releaseName: 'Lodestone v__VERSION__'
-          releaseBody: 'This is a prerelease version of Lodestone. Please report any bugs you find.'
+          tagName: ${{ inputs.release && inputs.version || null }}
+          releaseName: ${{ inputs.release && inputs.version || null }}
+          releaseBody: "Automated release for ${{ inputs.version }}"
+          includeUpdaterJson: true
           releaseDraft: true
+          prerelease: true
+          includeDebug: ${{ inputs.debug }}
+          includeRelease: ${{ !inputs.debug }}
+
+
+      - name: Add windows portable exe to release
+        uses: softprops/action-gh-release@v1
+        if: matrix.platform == 'windows-latest' && inputs.release
+        with:
+          files: |
+            ./src-tauri/target/release/Lodestone.exe
+            ./src-tauri/target/debug/Lodestone.exe
+          tag_name: ${{ inputs.version }}
+          draft: true
           prerelease: true
 
       # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
@@ -67,8 +116,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.platform }}-tauri
-          path: |
-            ./src-tauri/target/release/bundle/msi/Lodestone*.msi
-            ./src-tauri/target/release/Lodestone.exe
-            ./src-tauri/target/release/bundle/deb/lodestone*.deb
-            ./src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+          path: "${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}\n./src-tauri/target/release/Lodestone.exe\n./src-tauri/target/debug/Lodestone.exe"

@@ -105,52 +105,33 @@ export const generateValidationSchema = (instanceManifest: SetupManifest) => {
   const validationSchema: any[] = [];
   const setting_sections = instanceManifest['setting_sections'];
 
-  validationSchema.push(yup.object().shape({})); //for select game type
+  validationSchema.push(yup.object().shape({})) //for select game type
   const generateYupObject = (setting: SettingManifest) => {
-    const settingType = setting.value_type.type;
-    if (settingType === 'String') {
+    const settingType = setting.value_type.type
+    if (settingType === "String") {
       let validate = yup.string();
-      if (setting.is_required)
-        validate = validate.required(`${setting.name} is required`);
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
       return validate;
-    } else if (
-      settingType === 'Integer' ||
-      settingType === 'UnsignedInteger' ||
-      settingType === 'Float'
-    ) {
+    } else if (settingType === "Integer" || settingType === "UnsignedInteger" || settingType === "Float") {
       let validate = yup.number();
-      if (setting.is_required)
-        validate = validate.required(`${setting.name} is required`);
-      if (setting.value_type.min)
-        validate = validate.min(
-          setting.value_type.min,
-          `${setting.name} must be greater than or equal to ${setting.value_type.min}`
-        );
-      if (setting.value_type.max)
-        validate = validate.max(
-          setting.value_type.max,
-          `${setting.name} must be less than or equal to ${setting.value_type.max}`
-        );
+      if (settingType === "Integer") validate = validate.integer(`${setting.name} must be an integer`);
+      if (settingType === "UnsignedInteger") validate = validate.integer(`${setting.name} must be an integer`).min(0, `${setting.name} must be positive`);
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
+      if (setting.value_type.min) validate = validate.min(setting.value_type.min, `${setting.name} must be greater than or equal to ${setting.value_type.min}`);
+      if (setting.value_type.max) validate = validate.max(setting.value_type.max, `${setting.name} must be less than or equal to ${setting.value_type.max}`);
       return validate;
-    } else if (settingType === 'Boolean') {
+    } else if (settingType === "Boolean") {
       let validate = yup.boolean();
-      if (setting.is_required)
-        validate = validate.required(`${setting.name} is required`);
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
       return validate;
-    } else if (settingType === 'Enum') {
-      let validate = yup
-        .string()
-        .oneOf(
-          setting.value_type.options,
-          `${setting.name} must be one of the available options`
-        );
-      if (setting.is_required)
-        validate = validate.required(`${setting.name} is required`);
+    } else if (settingType === "Enum") {
+      let validate = yup.string().oneOf(setting.value_type.options, `${setting.name} must be one of the available options`);
+      if (setting.is_required) validate = validate.required(`${setting.name} is required`);
       return validate;
     } else {
-      throw Error('Invalid Setting Type');
+      throw Error("Invalid Setting Type");
     }
-  };
+  }
   const instanceSettingsValidationSchemaSection: Record<string, any> = {};
   Object.keys(setting_sections).forEach((sectionId: string) => {
     const settings = setting_sections[sectionId]['settings'];

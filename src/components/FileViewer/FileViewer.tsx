@@ -19,19 +19,17 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import {
-  chooseFiles,
-  parentPath,
-} from 'utils/util';
+import { chooseFiles, parentPath } from 'utils/util';
 import {
   deleteInstanceDirectory,
   deleteInstanceFile,
-  downloadInstanceFiles,
+  downloadInstanceFile,
   saveInstanceFile,
   unzipInstanceFile,
   uploadInstanceFiles,
@@ -72,11 +70,19 @@ export default function FileViewer() {
   const [renameFileModalOpen, setRenameFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const [droppingDialog, setDroppingDialog] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
   const [tickedFiles, setTickedFiles] = useState<ClientFile[]>([]);
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
+  const boundingDivRef = useRef<HTMLDivElement>(null);
+  const [boundingDivDimensions, setBoundingDivDimensions] = useState({
+    height: 0,
+    width: 0,
+  });
+
   const tickFile = (file: ClientFile, ticked: boolean) => {
     if (ticked) {
       setTickedFiles((files) => [...files, file]);
@@ -84,6 +90,15 @@ export default function FileViewer() {
       setTickedFiles((files) => files.filter((f) => f.path !== file.path));
     }
   };
+
+  useEffect(() => {
+    if (boundingDivRef.current !== null) {
+      setBoundingDivDimensions({
+        height: boundingDivRef.current.offsetHeight,
+        width: boundingDivRef.current.offsetWidth,
+      });
+    }
+  }, [boundingDivRef]);
 
   const atTopLevel = path === '.';
   let directorySeparator = '\\';
@@ -151,7 +166,7 @@ export default function FileViewer() {
         setFileContent('');
       }
     }
-  }
+  };
   const deleteTickedFiles = async () => {
     if (!tickedFiles) return;
     for (const file of tickedFiles) {
@@ -163,7 +178,7 @@ export default function FileViewer() {
   const pasteFiles = async (currentPath: string) => {
     if (!clipboard) return;
     if (clipboardAction === 'copy') {
-      const files : string[] = [];
+      const files: string[] = [];
       for (const file of clipboard) {
         files.push(file.path);
       }
@@ -174,8 +189,8 @@ export default function FileViewer() {
           relative_path_dest: `${currentPath}`,
         },
         directorySeparator,
-        queryClient,
-      )
+        queryClient
+      );
     } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
         console.log(
@@ -206,7 +221,7 @@ export default function FileViewer() {
       if (file.file_type === 'Directory') {
         missedDirectories.push(file.path);
       } else if (file.file_type === 'File') {
-        downloadInstanceFiles(instance.uuid, file);
+        downloadInstanceFile(instance.uuid, file);
         tickFile(file, false);
       }
     }
@@ -218,31 +233,54 @@ export default function FileViewer() {
     }
   };
 
-  const zipFiles = async (files: ClientFile[], dest : string) => {
+  const zipFiles = async (files: ClientFile[], dest: string) => {
     await zipInstanceFiles(instance.uuid, {
       target_relative_paths: files.map((f) => f.path),
       destination_relative_path: dest,
     });
   };
 
-  const unzipFile = async (file: ClientFile, unzipOption : UnzipOption)  => { 
+  const unzipFile = async (file: ClientFile, unzipOption: UnzipOption) => {
     if (file.file_type !== 'File') {
       toast.error('Only files can be unzipped');
       return;
     }
 
-    await unzipInstanceFile(
-      instance.uuid,
-      file,
-      unzipOption,
-    );
-  }
+    await unzipInstanceFile(instance.uuid, file, unzipOption);
+  };
 
   const unzipTickedFile = async () => {
     if (!tickedFiles) return;
     const file = tickedFiles[0];
-    await unzipFile(file, "Smart");
+    await unzipFile(file, 'Smart');
     tickFile(file, false);
+  };
+
+  const handleFileDrop = async (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes('Files')) return;
+
+    for (const i in event.dataTransfer.items) {
+      const item = event.dataTransfer.items[i];
+      if (item.kind !== 'file') continue;
+      const entry =
+        'getAsEntry' in DataTransferItem.prototype
+          ? (item as any).getAsEntry()
+          : item.webkitGetAsEntry();
+      if (entry.isDirectory) {
+        toast.error('Only files can be uploaded');
+        setDropping(false);
+        setDroppingDialog(false);
+        return;
+      }
+    }
+    uploadInstanceFiles(
+      instance.uuid,
+      path,
+      Array.from(event.dataTransfer?.files),
+      queryClient
+    );
+    setDropping(false);
+    setDroppingDialog(false);
   };
 
   /* UI */
@@ -269,7 +307,7 @@ export default function FileViewer() {
 
   return (
     <>
-      <CreationModal 
+      <CreationModal
         setModalOpen={setCreateFolderModalOpen}
         modalOpen={createFolderModalOpen}
       >
@@ -280,7 +318,7 @@ export default function FileViewer() {
           path={modalPath}
         />
       </CreationModal>
-      <CreationModal 
+      <CreationModal
         setModalOpen={setCreateFileModalOpen}
         modalOpen={createFileModalOpen}
       >
@@ -291,7 +329,7 @@ export default function FileViewer() {
           fileList={fileList}
         />
       </CreationModal>
-      <CreationModal 
+      <CreationModal
         setModalOpen={setRenameFileModalOpen}
         modalOpen={renameFileModalOpen}
       >
@@ -320,7 +358,69 @@ export default function FileViewer() {
           ))}
         </ul>
       </ConfirmDialog>
-      <div className="relative flex h-full w-full grow flex-col gap-3">
+      <div
+        className="relative flex h-full w-full grow flex-col gap-3"
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.dataTransfer.types.includes('Files') && setDropping(true);
+          e.stopPropagation();
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setDropping(false);
+          e.stopPropagation();
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e: React.DragEvent) => {
+          e.preventDefault();
+          handleFileDrop(e);
+          e.stopPropagation();
+        }}
+      >
+        <Dialog
+          open={dropping || droppingDialog}
+          onClose={() => {
+            return;
+          }}
+        >
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.dataTransfer.types.includes('Files') && setDroppingDialog(true);
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDroppingDialog(false);
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              handleFileDrop(e);
+              e.stopPropagation();
+            }}
+          >
+            <div className="fixed inset-0 bg-[#000]/80" />
+            <div className="fixed inset-0 overflow-y-auto">
+              <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
+                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800 bg-opacity-50 pb-8 pt-12">
+                  <FontAwesomeIcon
+                    className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
+                    icon={faDownload}
+                  />
+                  <p className="pointer-events-none">Release to Upload File</p>
+                </Dialog.Panel>
+              </div>
+            </div>
+          </div>
+        </Dialog>
         <div className="flex flex-row items-center justify-between gap-4">
           <Menu as="div" className="relative inline-block text-left">
             <Menu.Button
@@ -374,7 +474,11 @@ export default function FileViewer() {
                           setClipboard(tickedFiles);
                           setClipboardAction('cut');
                           setTickedFiles([]);
-                          toast.info('Files cut to clipboard');
+                          toast.info(
+                            `${tickedFiles.length} ${
+                              tickedFiles.length === 1 ? 'file' : 'files'
+                            } cut to clipboard`
+                          );
                         }}
                         variant="text"
                         align="start"
@@ -417,7 +521,7 @@ export default function FileViewer() {
                         className="w-full whitespace-nowrap py-1.5"
                         onClick={() => {
                           setModalPath(path);
-                          setCreateFileModalOpen(true)
+                          setCreateFileModalOpen(true);
                         }}
                         iconComponent={fileCheckIcon}
                         variant="text"
@@ -435,7 +539,6 @@ export default function FileViewer() {
                           setModalPath(path);
                           setCreateFolderModalOpen(true);
                         }}
-
                         icon={faFolderPlus}
                         variant="text"
                         align="start"
@@ -528,10 +631,31 @@ export default function FileViewer() {
         </div>
 
         {canRead ? (
-          <div className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800">
+          <div
+            className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.dataTransfer.types.includes('Files') && setDropping(true);
+              //setDropping(true);
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDropping(false);
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+            }}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              handleFileDrop(e);
+              e.stopPropagation();
+            }}
+          >
             <ResizePanel
               direction="e"
-              maxSize={500}
+              maxSize={boundingDivDimensions.width - 200}
               minSize={200}
               size={fileListSize}
               validateSize={false}
@@ -623,15 +747,11 @@ export default function FileViewer() {
           />
         )}
         <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length === 1 && (
-            <div>1 item selected</div>
-          )}
+          {tickedFiles.length === 1 && <div>1 item selected</div>}
           {tickedFiles.length > 1 && (
             <div>{tickedFiles.length} items selected</div>
           )}
-          {clipboard.length === 1 && (
-            <div>1 item in clipboard</div>
-          )}
+          {clipboard.length === 1 && <div>1 item in clipboard</div>}
           {clipboard.length > 1 && (
             <div>{clipboard.length} items in clipboard</div>
           )}

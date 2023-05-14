@@ -1,0 +1,15 @@
+name: Release Candidate Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  lodestone-desktop:
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: rc
+      debug: false
+      release: true
+    secrets: inherit

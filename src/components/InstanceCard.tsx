@@ -138,7 +138,7 @@ export default function InstanceCard({
 
     setLoading(true);
 
-    gaEventTracker('Change Instance State', 'Restart');
+    gaEventTracker('Restarted Instance');
     axios
       .put(`/instance/${uuid}/restart`)
       .then((response) => {
@@ -162,7 +162,9 @@ export default function InstanceCard({
 
     setLoading(true);
 
-    gaEventTracker('Change Instance State', stateToActionMessageMap[state]);
+    if (state === 'Stopped') {
+      gaEventTracker('Started Instance');
+    }
 
     if (stateToApiEndpointMap[state] === '/start') {
       const result = await axiosWrapper<PortStatus>({

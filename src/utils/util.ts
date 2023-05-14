@@ -49,6 +49,8 @@ export const myTwMerge = extendTailwindMerge({
   },
 });
 
+export const supportedZip = ["rar", "zip", "gz", "tgz"];
+
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
 };
@@ -403,23 +405,6 @@ export const getFileName = (path: string, direcotrySeparator: string) => {
   const pathParts = path.split(direcotrySeparator);
   return pathParts[pathParts.length - 1];
 };
-
-export const getFileNameWithoutExtension = (
-  path: string,
-  direcotrySeparator: string
-) => {
-  const fileName = getFileName(path, direcotrySeparator);
-  const fileNameParts = fileName.split('.');
-  fileNameParts.pop();
-  return fileNameParts.join('.');
-};
-
-export const getFileExtension = (path: string, direcotrySeparator: string) => {
-  const fileName = getFileName(path, direcotrySeparator);
-  const fileNameParts = fileName.split('.');
-  return fileNameParts[fileNameParts.length - 1];
-};
-
 
 // check if a core is localhost
 export function isLocalCore(core: CoreConnectionInfo) {

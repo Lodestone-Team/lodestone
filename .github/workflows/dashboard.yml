@@ -1,10 +1,8 @@
-name: web-dashboard
+name: Build Lodestone Dashboard
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
