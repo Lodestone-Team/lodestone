@@ -3582,7 +3582,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone-client"
-version = "0.5.0"
+version = "0.4.4"
 dependencies = [
  "lodestone_core",
  "portpicker",
