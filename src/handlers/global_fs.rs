@@ -269,7 +269,7 @@ async fn move_file(
 
     requester.try_action(&UserAction::WriteGlobalFile)?;
 
-    crate::util::fs::rename(&path_source, &path_dest).await;
+    crate::util::fs::rename(&path_source, &path_dest).await?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,

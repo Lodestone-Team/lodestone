@@ -2,7 +2,9 @@
 
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
+use crate::prelude::VERSION;
 use crate::traits::t_configurable::GameType;
+use crate::traits::t_server::State;
 use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
@@ -47,8 +49,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use sysinfo::SystemExt;
-use time::macros::format_description;
+use sysinfo::{CpuExt, SystemExt};
 use tokio::{
     select,
     sync::{broadcast::error::RecvError, Mutex, RwLock},
@@ -59,9 +60,7 @@ use tower_http::{
 };
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{
-    fmt::time::LocalTime, prelude::__tracing_subscriber_SubscriberExt, EnvFilter,
-};
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
@@ -238,6 +237,27 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     _guard
 }
 
+fn output_sys_info() {
+    info!("lodestone_core version {}", VERSION.with(|v| v.clone()));
+    // output system info
+    info!("System info:");
+    info!("  OS: {}", std::env::consts::OS);
+    info!("  Arch: {}", std::env::consts::ARCH);
+    // CPU and RAM info
+    let sys = sysinfo::System::new_all();
+    let cpu_name = sys
+        .cpus()
+        .first()
+        .map_or_else(|| "Unknown CPU", |v| v.brand());
+    let ram = sys.total_memory();
+    info!("  CPU: {cpu_name}");
+    info!(
+        "  RAM: {ram} bytes ({ram_gb} GB)",
+        ram = ram,
+        ram_gb = ram / 1024 / 1024 / 1024
+    );
+}
+
 pub async fn run() -> (
     impl Future<Output = ()>,
     AppState,
@@ -247,6 +267,7 @@ pub async fn run() -> (
         error!("Failed to install color_eyre: {}", e);
     });
     let guard = setup_tracing();
+    output_sys_info();
     let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
@@ -501,11 +522,22 @@ pub async fn run() -> (
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
+                info!("Shutting down web server");
                 axum_server_handle.shutdown();
+                info!("Signalling all instances to stop");
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
-                    let _ = instance.stop(CausedBy::System, false).await;
+                    if instance.state().await == State::Stopped {
+                        continue;
+                    }
+                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                        error!(
+                            "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                            instance.uuid().await,
+                            e
+                        );
+                    }
                 }
             }
         },

@@ -2,7 +2,6 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::{Read, Write};
-use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -10,7 +9,6 @@ use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -47,6 +45,17 @@ pub async fn download_file(
     on_download: &(dyn Fn(DownloadProgress) + Send + Sync),
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
+    let lodestone_tmp = LODESTONE_PATH.with(|p| p.join("tmp"));
+    tokio::fs::create_dir_all(&lodestone_tmp)
+        .await
+        .context("Failed to create tmp dir")?;
+    let temp_file_path = tempfile::NamedTempFile::new_in(lodestone_tmp)
+        .context("Failed to create temporary file")?
+        .path()
+        .to_owned();
+    let mut temp_file = tokio::fs::File::create(&temp_file_path)
+        .await
+        .context("Failed to create temporary file")?;
     let client = Client::new();
     let response = client
         .get(url)
@@ -88,24 +97,15 @@ pub async fn download_file(
     if !overwrite_old && path.join(&file_name).exists() {
         return Err(eyre!("File {} already exists", path.join(&file_name).display()).into());
     }
-    fs::remove_file(path.join(&file_name)).await.ok();
     let total_size = response.content_length();
-    let pb = ProgressBar::new(total_size.unwrap_or(0));
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
-        .progress_chars("#>-"));
-    pb.set_message(&format!("Downloading {}", url));
 
-    let mut downloaded_file = File::create(path.join(&file_name))
-        .await
-        .context(format!("Failed to create file {}", &path.display()))?;
     let mut downloaded: u64 = 0;
     let mut new_downloaded: u64 = 0;
     let threshold = total_size.unwrap_or(500000) / 100;
     let mut stream = response.bytes_stream();
     while let Some(item) = stream.next().await {
-        let chunk = item.expect("Error while downloading file");
-        downloaded_file
+        let chunk = item.context("Failed to read response")?;
+        temp_file
             .write_all(&chunk)
             .await
             .context(format!("Failed to write to file {}", &file_name))?;
@@ -120,9 +120,10 @@ pub async fn download_file(
             });
             downloaded = new_downloaded;
         }
-
-        pb.set_position(new_downloaded);
     }
+    tokio::fs::rename(temp_file_path, path.join(&file_name))
+        .await
+        .context(format!("Failed to rename file {}", &file_name))?;
     Ok(path.join(&file_name))
 }
 
