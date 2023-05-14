@@ -228,7 +228,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c57d12312ff59c811c0643f4d80830505833c9ffaebd193d819392b265be8e"
 dependencies = [
- "num-traits 0.2.15",
+ "num-traits",
 ]
 
 [[package]]
@@ -600,7 +600,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-integer",
- "num-traits 0.2.15",
+ "num-traits",
  "time 0.1.45",
  "wasm-bindgen",
  "winapi",
@@ -1084,7 +1084,7 @@ dependencies = [
  "deno_core",
  "deno_web",
  "elliptic-curve",
- "num-traits 0.2.15",
+ "num-traits",
  "once_cell",
  "p256",
  "p384",
@@ -1474,7 +1474,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e2dc99247101e0132a17680c5afbba9a7334477b47738dd3431c13f5e2c9a84"
 dependencies = [
  "bumpalo",
- "num-bigint 0.4.3",
+ "num-bigint",
  "rustc-hash",
  "swc_atoms",
  "swc_common",
@@ -1609,15 +1609,6 @@ dependencies = [
  "proc-macro2 1.0.52",
  "swc_macros_common",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "enum_primitive"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4551092f4d519593039259a9ed8daedf0da12e5109c5280338073eaeb81180"
-dependencies = [
- "num-traits 0.1.43",
 ]
 
 [[package]]
@@ -2792,7 +2783,6 @@ dependencies = [
  "tracing-error",
  "tracing-subscriber",
  "ts-rs",
- "unrar",
  "uuid",
  "walkdir",
  "whoami",
@@ -2991,7 +2981,7 @@ dependencies = [
  "hexf-parse",
  "indexmap",
  "log",
- "num-traits 0.2.15",
+ "num-traits",
  "rustc-hash",
  "serde",
  "spirv",
@@ -3104,32 +3094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num"
-version = "0.1.42"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4703ad64153382334aa8db57c637364c322d3372e097840c72000dabdcf6156e"
-dependencies = [
- "num-bigint 0.1.44",
- "num-complex",
- "num-integer",
- "num-iter",
- "num-rational",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.1.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e63899ad0da84ce718c14936262a41cee2c79c981fc0a0e7c7beb47d5a07e8c1"
-dependencies = [
- "num-integer",
- "num-traits 0.2.15",
- "rand 0.4.6",
- "rustc-serialize",
-]
-
-[[package]]
 name = "num-bigint"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3137,7 +3101,7 @@ checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
 dependencies = [
  "autocfg 1.1.0",
  "num-integer",
- "num-traits 0.2.15",
+ "num-traits",
  "serde",
 ]
 
@@ -3152,20 +3116,10 @@ dependencies = [
  "libm",
  "num-integer",
  "num-iter",
- "num-traits 0.2.15",
+ "num-traits",
  "rand 0.8.5",
  "smallvec",
  "zeroize",
-]
-
-[[package]]
-name = "num-complex"
-version = "0.1.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b288631d7878aaf59442cffd36910ea604ecd7745c36054328595114001c9656"
-dependencies = [
- "num-traits 0.2.15",
- "rustc-serialize",
 ]
 
 [[package]]
@@ -3175,7 +3129,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "225d3389fb3509a24c93f5c29eb6bde2586b98d9f016636dff58d7c6f7569cd9"
 dependencies = [
  "autocfg 1.1.0",
- "num-traits 0.2.15",
+ "num-traits",
 ]
 
 [[package]]
@@ -3186,28 +3140,7 @@ checksum = "7d03e6c028c5dc5cac6e2dec0efda81fc887605bb3d884578bb6d6bf7514e252"
 dependencies = [
  "autocfg 1.1.0",
  "num-integer",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.1.42"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee314c74bd753fc86b4780aa9475da469155f3848473a261d2d18e35245a784e"
-dependencies = [
- "num-bigint 0.1.44",
- "num-integer",
- "num-traits 0.2.15",
- "rustc-serialize",
-]
-
-[[package]]
-name = "num-traits"
-version = "0.1.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92e5113e9fd4cc14ded8e499429f396a20f98c772a47cc8622a736e1ec843c31"
-dependencies = [
- "num-traits 0.2.15",
+ "num-traits",
 ]
 
 [[package]]
@@ -4103,7 +4036,7 @@ dependencies = [
  "num-bigint-dig",
  "num-integer",
  "num-iter",
- "num-traits 0.2.15",
+ "num-traits",
  "pkcs1",
  "pkcs8",
  "rand_core 0.6.4",
@@ -4138,12 +4071,6 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
-
-[[package]]
-name = "rustc-serialize"
-version = "0.3.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "rustc_version"
@@ -4525,8 +4452,8 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adc4e5204eb1910f40f9cfa375f6f05b68c3abac4b6fd879c8ff5e7ae8a0a085"
 dependencies = [
- "num-bigint 0.4.3",
- "num-traits 0.2.15",
+ "num-bigint",
+ "num-traits",
  "thiserror",
  "time 0.3.20",
 ]
@@ -4608,7 +4535,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "246bfa38fe3db3f1dfc8ca5a2cdeb7348c78be2112740cc0ec8ef18b6d94f830"
 dependencies = [
  "bitflags",
- "num-traits 0.2.15",
+ "num-traits",
 ]
 
 [[package]]
@@ -4817,7 +4744,7 @@ dependencies = [
  "either",
  "from_variant",
  "new_debug_unreachable",
- "num-bigint 0.4.3",
+ "num-bigint",
  "once_cell",
  "rustc-hash",
  "serde",
@@ -4865,7 +4792,7 @@ checksum = "a887102d5595b557261aa4bde35f3d71906fba674d4b79cd5c59b4155b12ee2d"
 dependencies = [
  "bitflags",
  "is-macro",
- "num-bigint 0.4.3",
+ "num-bigint",
  "scoped-tls",
  "serde",
  "string_enum",
@@ -4881,7 +4808,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45f8f20522626a737753381bdf64ee53d568730f9f7e720d35960de97e5ff965"
 dependencies = [
  "memchr",
- "num-bigint 0.4.3",
+ "num-bigint",
  "once_cell",
  "rustc-hash",
  "serde",
@@ -4929,7 +4856,7 @@ dependencies = [
  "either",
  "enum_kind",
  "lexical",
- "num-bigint 0.4.3",
+ "num-bigint",
  "serde",
  "smallvec",
  "swc_atoms",
@@ -5073,7 +5000,7 @@ version = "0.82.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b2ee0f4b61d6c426189d0d9da1333705ff3bc4513fb63633ca254595a700f75"
 dependencies = [
- "num-bigint 0.4.3",
+ "num-bigint",
  "swc_atoms",
  "swc_common",
  "swc_ecma_ast",
@@ -5856,31 +5783,6 @@ checksum = "7d3160b73c9a19f7e2939a2fdad446c57c1bbbbf4d919d3213ff1267a580d8b5"
 dependencies = [
  "crypto-common",
  "subtle",
-]
-
-[[package]]
-name = "unrar"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "433cea4f0b7bec88d47becb380887b8786a3cfb1c82e1ef9d32a682ba6801814"
-dependencies = [
- "bitflags",
- "enum_primitive",
- "lazy_static",
- "num",
- "regex",
- "unrar_sys",
-]
-
-[[package]]
-name = "unrar_sys"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0009399408dc0bcc5c8910672544fceceeba18b91f741ff943916e917d982c60"
-dependencies = [
- "cc",
- "libc",
- "winapi",
 ]
 
 [[package]]
