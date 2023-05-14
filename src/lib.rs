@@ -4,6 +4,7 @@ use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::VERSION;
 use crate::traits::t_configurable::GameType;
+use crate::traits::t_server::State;
 use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
@@ -527,6 +528,9 @@ pub async fn run() -> (
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
+                    if instance.state().await == State::Stopped {
+                        continue;
+                    }
                     if let Err(e) = instance.stop(CausedBy::System, false).await {
                         error!(
                             "Failed to stop instance {} : {}. Instance may need manual cleanup",
