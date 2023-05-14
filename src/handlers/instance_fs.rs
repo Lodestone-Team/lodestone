@@ -123,7 +123,9 @@ async fn read_instance_file(
     drop(instances);
     let path = scoped_join_win_safe(root, relative_path)?;
 
-    let ret = crate::util::fs::read_to_string(&path).await?;
+    let ret = tokio::fs::read_to_string(&path)
+        .await
+        .context("Failed to read file")?;
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,
@@ -160,8 +162,12 @@ async fn write_instance_file(
             source: eyre!("You don't have permission to write to this file"),
         });
     }
-    // create the file if it doesn't exist
-    crate::util::fs::write_all(&path, body).await?;
+    let mut file = tokio::fs::File::create(&path)
+        .await
+        .context("Failed to create file")?;
+    file.write_all(&body)
+        .await
+        .context("Failed to write to file")?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
@@ -381,6 +387,13 @@ async fn move_instance_file(
     let path_source = scoped_join_win_safe(&root, relative_path_source)?;
     let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
 
+    let relative_path_source = path_source
+        .strip_prefix(&root)
+        .context("Error stripping prefix")?;
+    let relative_path_dest = path_dest
+        .strip_prefix(&root)
+        .context("Error stripping prefix")?;
+
     if !requester.can_perform_action(&UserAction::WriteInstanceFile(uuid.clone()))
         && (is_path_protected(&path_source) || is_path_protected(&path_dest))
     {
@@ -389,7 +402,16 @@ async fn move_instance_file(
             source: eyre!("File extension is protected"),
         });
     }
-    crate::util::fs::rename(&path_source, &path_dest).await?;
+
+    let path_dest = resolve_path_conflict(path_dest.to_owned(), None);
+
+    tokio::fs::rename(&path_source, &path_dest)
+        .await
+        .context(format!(
+            "Error moving file from {} to {}",
+            relative_path_source.display(),
+            relative_path_dest.display()
+        ))?;
 
     let caused_by = CausedBy::User {
         user_id: requester.uid,
