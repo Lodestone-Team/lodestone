@@ -90,7 +90,6 @@ zip = "0.6.2"
 openssl = { version = "0.10.45", features = ["vendored"], optional = true }
 flate2 = "1.0.24"
 tar = "0.4.38"
-unrar = "0.4.4"
 tempfile = "3.5.0"
 [dependencies.uuid]
 version = "1.1.2"

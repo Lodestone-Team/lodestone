@@ -209,11 +209,7 @@ pub fn unzip_file(
     let file_extension = file
         .extension()
         .ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?;
-    if file_extension != "gz"
-        && file_extension != "tgz"
-        && file_extension != "zip"
-        && file_extension != "rar"
-    {
+    if file_extension != "gz" && file_extension != "tgz" && file_extension != "zip" {
         return Err(eyre!("Unsupported extension for {}", file.display()).into());
     }
 
@@ -261,24 +257,6 @@ pub fn unzip_file(
         archive
             .extract(temp_dest)
             .context(format!("Failed to decompress file {}", file.display()))?;
-    } else if file_extension == "rar" {
-        let archive = unrar::Archive::new(
-            file.to_str()
-                .ok_or_else(|| eyre!("Non-unicode character in file name {}", file.display()))?
-                .to_string(),
-        );
-        archive
-            .extract_to(
-                temp_dest
-                    .to_str()
-                    .ok_or_else(|| {
-                        eyre!("Non-unicode character in file name {}", temp_dest.display())
-                    })?
-                    .to_string(),
-            )
-            .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?
-            .process()
-            .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?;
     }
 
     let mut ret: HashSet<PathBuf> = HashSet::new();
@@ -683,29 +661,6 @@ mod tests {
 
         assert_eq!(
             unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned())).unwrap(),
-            test
-        );
-    }
-
-    #[tokio::test]
-    async fn test_unzip_file_2() {
-        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
-        let temp_path = temp.path();
-        let rar = PathBuf::from("testdata/sample-1.rar");
-
-        let mut test: HashSet<PathBuf> = HashSet::new();
-        test.insert(temp_path.join("hi").join("sample-1_1.webp"));
-
-        assert_eq!(
-            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi"))).unwrap(),
-            test
-        );
-
-        let mut test: HashSet<PathBuf> = HashSet::new();
-        test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
-
-        assert_eq!(
-            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi"))).unwrap(),
             test
         );
     }
