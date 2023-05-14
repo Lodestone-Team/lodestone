@@ -35,7 +35,7 @@ export type FormPage = {
   page: SetupManifest;
 };
 
-export default function CreateGameInstance({
+export default function InstanceCreateForm({
   onComplete,
 }: {
   onComplete: () => void;
@@ -210,14 +210,13 @@ export default function CreateGameInstance({
   }
 
   function handleBack() {
-    setGenericFetchReady(false);
-    setUrlValid(false);
+    if(activeStep === 1) {
+      setGenericFetchReady(false);
+      setUrlValid(false);
+      setUrl('');
+    }
     setActiveStep(activeStep - 1);
   }
-
-  if (!setupManifest) return <Spinner />;
-
-  console.log('setupManifest.setting_sections', setupManifest.setting_sections);
 
   return (
     <GameInstanceContext.Provider
