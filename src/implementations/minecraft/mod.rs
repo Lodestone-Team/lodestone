@@ -35,7 +35,7 @@ use ts_rs::TS;
 
 use crate::error::Error;
 use crate::event_broadcaster::EventBroadcaster;
-use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
+use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner, ProgressionEventID};
 use crate::macro_executor::MacroExecutor;
 use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
@@ -462,7 +462,7 @@ impl MinecraftInstance {
         config: SetupConfig,
         dot_lodestone_config: DotLodestoneConfig,
         path_to_instance: PathBuf,
-        progression_event_id: Snowflake,
+        progression_event_id: ProgressionEventID,
         event_broadcaster: EventBroadcaster,
         macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
