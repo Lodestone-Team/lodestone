@@ -211,10 +211,14 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
     }
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, TS, PartialEq)]
+#[serde(transparent)]
+pub struct ProgressionEventID(Snowflake);
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct ProgressionEvent {
-    pub event_id: Snowflake,
+    pub event_id: ProgressionEventID,
     pub progression_event_inner: ProgressionEventInner,
 }
 
@@ -404,7 +408,7 @@ impl Event {
     pub fn new_instance_state_transition(
         instance_uuid: InstanceUuid,
         instance_name: String,
-        state: State,
+        new_state: State,
     ) -> Event {
         Event {
             details: "".to_string(),
@@ -412,7 +416,74 @@ impl Event {
             event_inner: EventInner::InstanceEvent(InstanceEvent {
                 instance_uuid,
                 instance_name,
-                instance_event_inner: InstanceEventInner::StateTransition { to: state },
+                instance_event_inner: InstanceEventInner::StateTransition { to: new_state },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+    pub fn new_progression_event_start(
+        progression_name: &str,
+        producer_id: Option<InstanceUuid>,
+        total: Option<f64>,
+        inner: Option<ProgressionStartValue>,
+        caused_by: CausedBy,
+    ) -> (Event, ProgressionEventID) {
+        let event_id = ProgressionEventID(Snowflake::default());
+        (
+            Event {
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                    event_id,
+                    progression_event_inner: ProgressionEventInner::ProgressionStart {
+                        progression_name: progression_name.to_string(),
+                        producer_id,
+                        total,
+                        inner,
+                    },
+                }),
+                caused_by,
+            },
+            event_id,
+        )
+    }
+
+    pub fn new_progression_event_update(
+        event_id: ProgressionEventID,
+        progress_message: String,
+        progress: f64,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                event_id,
+                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
+                    progress_message,
+                    progress,
+                },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+    pub fn new_progression_event_end(
+        event_id: ProgressionEventID,
+        success: bool,
+        message: Option<&str>,
+        inner: Option<ProgressionEndValue>,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
+                event_id,
+                progression_event_inner: ProgressionEventInner::ProgressionEnd {
+                    success,
+                    message: message.map(|s| s.to_string()),
+                    inner,
+                },
             }),
             caused_by: CausedBy::System,
         }
