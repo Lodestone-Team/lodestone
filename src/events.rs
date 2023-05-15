@@ -206,15 +206,22 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, TS, PartialEq)]
-#[serde(transparent)]
 pub struct ProgressionEventID(Snowflake);
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct ProgressionEvent {
-    pub event_id: ProgressionEventID,
-    pub progression_event_inner: ProgressionEventInner,
+    event_id: Snowflake,
+    progression_event_inner: ProgressionEventInner,
+}
+
+impl ProgressionEvent {
+    pub fn event_id(&self) -> Snowflake {
+        self.event_id
+    }
+    pub fn progression_event_inner(&self) -> &ProgressionEventInner {
+        &self.progression_event_inner
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
@@ -409,9 +416,9 @@ impl Event {
             caused_by: CausedBy::System,
         }
     }
-
+    #[must_use]
     pub fn new_progression_event_start(
-        progression_name: &str,
+        progression_name: impl AsRef<str>,
         producer_id: Option<InstanceUuid>,
         total: Option<f64>,
         inner: Option<ProgressionStartValue>,
@@ -423,9 +430,9 @@ impl Event {
                 details: "".to_string(),
                 snowflake: Snowflake::default(),
                 event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id,
+                    event_id: event_id.0,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
-                        progression_name: progression_name.to_string(),
+                        progression_name: progression_name.as_ref().to_string(),
                         producer_id,
                         total,
                         inner,
@@ -438,17 +445,17 @@ impl Event {
     }
 
     pub fn new_progression_event_update(
-        event_id: ProgressionEventID,
-        progress_message: String,
+        event_id: &ProgressionEventID,
+        progress_message: impl AsRef<str>,
         progress: f64,
     ) -> Event {
         Event {
             details: "".to_string(),
             snowflake: Snowflake::default(),
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id,
+                event_id: event_id.0,
                 progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress_message,
+                    progress_message: progress_message.as_ref().to_string(),
                     progress,
                 },
             }),
@@ -459,17 +466,17 @@ impl Event {
     pub fn new_progression_event_end(
         event_id: ProgressionEventID,
         success: bool,
-        message: Option<&str>,
+        message: Option<impl AsRef<str>>,
         inner: Option<ProgressionEndValue>,
     ) -> Event {
         Event {
             details: "".to_string(),
             snowflake: Snowflake::default(),
             event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id,
+                event_id: event_id.0,
                 progression_event_inner: ProgressionEventInner::ProgressionEnd {
                     success,
-                    message: message.map(|s| s.to_string()),
+                    message: message.map(|s| s.as_ref().to_string()),
                     inner,
                 },
             }),

@@ -37,7 +37,7 @@ pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_
 
         let client_event: ClientEvent = result.unwrap().into();
         if let EventInner::ProgressionEvent(pe) = &client_event.event_inner {
-            if let ProgressionEventInner::ProgressionUpdate { .. } = &pe.progression_event_inner {
+            if let ProgressionEventInner::ProgressionUpdate { .. } = pe.progression_event_inner() {
                 continue;
             }
         }

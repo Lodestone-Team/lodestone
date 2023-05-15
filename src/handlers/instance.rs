@@ -125,7 +125,7 @@ pub async fn create_instance(
         };
         async move {
             let (progression_start_event, event_id) = Event::new_progression_event_start(
-                &format!("Setting up Minecraft server {instance_name}"),
+                format!("Setting up Minecraft server {instance_name}"),
                 Some(uuid.clone()),
                 Some(10.0),
                 Some(ProgressionStartValue::InstanceCreation {
@@ -142,7 +142,7 @@ pub async fn create_instance(
                 setup_config.clone(),
                 dot_lodestone_config,
                 setup_path.clone(),
-                event_id,
+                &event_id,
                 state.event_broadcaster.clone(),
                 state.macro_executor.clone(),
             )
@@ -221,7 +221,7 @@ pub async fn delete_instance(
             })
         } else {
             let (progression_event_start, event_id) = Event::new_progression_event_start(
-                &format!("Deleting instance {}", instance.name().await),
+                format!("Deleting instance {}", instance.name().await),
                 Some(uuid.clone()),
                 Some(10.0),
                 None,
@@ -229,19 +229,20 @@ pub async fn delete_instance(
             );
             let event_broadcaster = state.event_broadcaster.clone();
             event_broadcaster.send(progression_event_start);
-            tokio::fs::remove_file(instance.path().await.join(".lodestone_config"))
-                .await
-                .map_err(|e| {
-                    event_broadcaster.send(Event::new_progression_event_end(
-                        event_id,
-                        false,
-                        Some("Failed to delete .lodestone_config. Instance not deleted"),
-                        None,
-                    ));
-                    Err::<(), std::io::Error>(e)
-                        .context("Failed to delete .lodestone_config file. Instance not deleted")
-                        .unwrap_err()
-                })?;
+            if let Err(e) =
+                tokio::fs::remove_file(instance.path().await.join(".lodestone_config")).await
+            {
+                event_broadcaster.send(Event::new_progression_event_end(
+                    event_id,
+                    false,
+                    Some("Failed to delete .lodestone_config. Instance not deleted"),
+                    None,
+                ));
+                return Err::<Json<()>, std::io::Error>(e)
+                    .context("Failed to delete .lodestone_config file. Instance not deleted")
+                    .map_err(Into::into);
+            }
+
             state
                 .port_manager
                 .lock()

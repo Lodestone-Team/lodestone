@@ -33,11 +33,11 @@ impl From<&Event> for ClientEvent {
                 MacroEventInner::MacroStopped => EventLevel::Info,
                 MacroEventInner::MacroErrored { .. } => EventLevel::Error,
             },
-            EventInner::ProgressionEvent(p) => match p.progression_event_inner {
+            EventInner::ProgressionEvent(p) => match p.progression_event_inner() {
                 ProgressionEventInner::ProgressionStart { .. } => EventLevel::Info,
                 ProgressionEventInner::ProgressionUpdate { .. } => EventLevel::Info,
                 ProgressionEventInner::ProgressionEnd { success, .. } => {
-                    if success {
+                    if *success {
                         EventLevel::Info
                     } else {
                         EventLevel::Error
