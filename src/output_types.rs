@@ -39,11 +39,11 @@ impl From<&Event> for ClientEvent {
                 }
                 MacroEventInner::MainModuleExecuted => EventLevel::Info,
             },
-            EventInner::ProgressionEvent(p) => match p.progression_event_inner {
+            EventInner::ProgressionEvent(p) => match p.progression_event_inner() {
                 ProgressionEventInner::ProgressionStart { .. } => EventLevel::Info,
                 ProgressionEventInner::ProgressionUpdate { .. } => EventLevel::Info,
                 ProgressionEventInner::ProgressionEnd { success, .. } => {
-                    if success {
+                    if *success {
                         EventLevel::Info
                     } else {
                         EventLevel::Error

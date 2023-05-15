@@ -505,25 +505,28 @@ async fn upload_file(
             .await
             .context(format!("Failed to create file {}", path.display()))?;
 
-        while let Some(chunk) = field.chunk().await.map_err(|e| {
-            std::fs::remove_file(&path).ok();
-            state
-                .event_broadcaster
-                .send(Event::new_progression_event_end(
-                    event_id,
-                    false,
-                    Some(&e.to_string()),
-                    None,
-                ));
-            Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("Failed to read chunk: {}", e),
+        while let Some(chunk) = match field.chunk().await {
+            Ok(v) => v,
+            Err(e) => {
+                tokio::fs::remove_file(&path).await.ok();
+                state
+                    .event_broadcaster
+                    .send(Event::new_progression_event_end(
+                        event_id,
+                        false,
+                        Some(&e.to_string()),
+                        None,
+                    ));
+                return Err(Error {
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("Failed to read chunk: {}", e),
+                });
             }
-        })? {
+        } {
             state
                 .event_broadcaster
                 .send(Event::new_progression_event_update(
-                    event_id,
+                    &event_id,
                     format!("Uploading {name}"),
                     chunk.len() as f64,
                 ));

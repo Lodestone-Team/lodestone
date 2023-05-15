@@ -36,7 +36,7 @@ use ts_rs::TS;
 
 use crate::error::Error;
 use crate::event_broadcaster::EventBroadcaster;
-use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner, ProgressionEventID};
+use crate::events::{Event, ProgressionEventID};
 use crate::macro_executor::{MacroExecutor, MacroPID};
 use crate::prelude::PATH_TO_BINARIES;
 use crate::traits::t_configurable::PathBuf;
@@ -49,7 +49,7 @@ use crate::traits::t_configurable::manifest::{
 use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
-use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
+use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::util::{
     dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file_async,
     UnzipOption,
@@ -431,7 +431,7 @@ impl MinecraftInstance {
         config: SetupConfig,
         dot_lodestone_config: DotLodestoneConfig,
         path_to_instance: PathBuf,
-        progression_event_id: ProgressionEventID,
+        progression_event_id: &ProgressionEventID,
         event_broadcaster: EventBroadcaster,
         macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
@@ -445,18 +445,11 @@ impl MinecraftInstance {
         let uuid = dot_lodestone_config.uuid().to_owned();
 
         // Step 1: Create Directories
-        event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id,
-                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1.0,
-                    progress_message: "1/4: Creating directories".to_string(),
-                },
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by: CausedBy::Unknown,
-        });
+        event_broadcaster.send(Event::new_progression_event_update(
+            progression_event_id,
+            "1/4: Creating directories",
+            1.0,
+        ));
         tokio::fs::create_dir_all(&path_to_instance)
             .await
             .and(tokio::fs::create_dir_all(&path_to_macros).await)
@@ -488,25 +481,16 @@ impl MinecraftInstance {
                 None,
                 {
                     let event_broadcaster = event_broadcaster.clone();
-                    let progression_event_id = progression_event_id;
                     &move |dl| {
                         if let Some(total) = dl.total {
-                            event_broadcaster.send(Event {
-                                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                    event_id: progression_event_id,
-                                    progression_event_inner:
-                                        ProgressionEventInner::ProgressionUpdate {
-                                            progress: (dl.step as f64 / total as f64) * 4.0,
-                                            progress_message: format!(
-                                                "2/4: Downloading JRE {}",
-                                                format_byte_download(dl.downloaded, total)
-                                            ),
-                                        },
-                                }),
-                                details: "".to_string(),
-                                snowflake: Snowflake::default(),
-                                caused_by: CausedBy::Unknown,
-                            });
+                            event_broadcaster.send(Event::new_progression_event_update(
+                                progression_event_id,
+                                format!(
+                                    "2/4: Downloading JRE {}",
+                                    format_byte_download(dl.downloaded, total)
+                                ),
+                                (dl.step as f64 / total as f64) * 4.0,
+                            ));
                         }
                     }
                 },
@@ -544,18 +528,11 @@ impl MinecraftInstance {
                 unzipped_content.iter().last().unwrap().display()
             ))?;
         } else {
-            event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id,
-                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 4.0,
-                        progress_message: "2/4: JRE already downloaded".to_string(),
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: Snowflake::default(),
-                caused_by: CausedBy::Unknown,
-            });
+            event_broadcaster.send(Event::new_progression_event_update(
+                progression_event_id,
+                "2/4: JRE already downloaded",
+                4.0,
+            ));
         }
 
         // Step 3: Download server.jar
@@ -582,44 +559,29 @@ impl MinecraftInstance {
             Some(jar_name),
             {
                 let event_broadcaster = event_broadcaster.clone();
-                let progression_event_id = progression_event_id;
                 &move |dl| {
                     if let Some(total) = dl.total {
-                        event_broadcaster.send(Event {
-                            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                event_id: progression_event_id,
-                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                                    progress: (dl.step as f64 / total as f64) * 3.0,
-                                    progress_message: format!(
-                                        "3/4: Downloading {} {} {}",
-                                        flavour_name,
-                                        jar_name,
-                                        format_byte_download(dl.downloaded, total),
-                                    ),
-                                },
-                            }),
-                            details: "".to_string(),
-                            snowflake: Snowflake::default(),
-                            caused_by: CausedBy::Unknown,
-                        });
+                        event_broadcaster.send(Event::new_progression_event_update(
+                            progression_event_id,
+                            format!(
+                                "3/4: Downloading {} {} {}",
+                                flavour_name,
+                                jar_name,
+                                format_byte_download(dl.downloaded, total),
+                            ),
+                            (dl.step as f64 / total as f64) * 3.0,
+                        ));
                     } else {
-                        event_broadcaster.send(Event {
-                            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                event_id: progression_event_id,
-                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                                    progress: 0.0,
-                                    progress_message: format!(
-                                        "3/4: Downloading {} {} {}",
-                                        flavour_name,
-                                        jar_name,
-                                        format_byte(dl.downloaded),
-                                    ),
-                                },
-                            }),
-                            details: "".to_string(),
-                            snowflake: Snowflake::default(),
-                            caused_by: CausedBy::Unknown,
-                        });
+                        event_broadcaster.send(Event::new_progression_event_update(
+                            progression_event_id,
+                            format!(
+                                "3/4: Downloading {} {} {}",
+                                flavour_name,
+                                jar_name,
+                                format_byte(dl.downloaded),
+                            ),
+                            0.0,
+                        ));
                     }
                 }
             },
@@ -637,18 +599,11 @@ impl MinecraftInstance {
             .join("java");
         // Step 3 (part 2): Forge Setup
         if let Flavour::Forge { .. } = flavour.clone() {
-            event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id,
-                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 1.0,
-                        progress_message: "3/4: Installing Forge Server".to_string(),
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: Snowflake::default(),
-                caused_by: CausedBy::Unknown,
-            });
+            event_broadcaster.send(Event::new_progression_event_update(
+                progression_event_id,
+                "3/4: Installing Forge Server",
+                1.0,
+            ));
 
             if !dont_spawn_terminal(
                 Command::new(&jre)
@@ -680,18 +635,11 @@ impl MinecraftInstance {
         }
 
         // Step 4: Finishing Up
-        event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id,
-                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1.0,
-                    progress_message: "4/4: Finishing up".to_string(),
-                },
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by: CausedBy::Unknown,
-        });
+        event_broadcaster.send(Event::new_progression_event_update(
+            progression_event_id,
+            "4/4: Finishing up",
+            1.0,
+        ));
 
         let restore_config = RestoreConfig {
             name: config.name,

@@ -20,11 +20,9 @@ use walkdir::WalkDir;
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
-    events::{
-        new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEndValue,
-    },
+    events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEndValue},
     traits::t_configurable::TConfigurable,
-    types::{InstanceUuid},
+    types::InstanceUuid,
     util::{
         format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
         scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption,
@@ -287,7 +285,7 @@ async fn copy_instance_files(
                 if progression > last_progression {
                     last_progression = progression;
                     event_broadcaster.send(Event::new_progression_event_update(
-                        progression_event_id.unwrap(),
+                        progression_event_id.as_ref().unwrap(),
                         format!(
                             "Copying file {}, {}",
                             process_info.file_name,
@@ -324,7 +322,7 @@ async fn copy_instance_files(
             event_broadcaster.send(Event::new_progression_event_end(
                 progression_event_id.unwrap(),
                 true,
-                None,
+                None::<&str>,
                 Some(ProgressionEndValue::FSOperationCompleted {
                     instance_uuid: uuid,
                     success: true,
@@ -604,6 +602,7 @@ async fn upload_instance_file(
         .and_then(|v| v.parse::<f64>().ok());
     let (progression_start_event, event_id) =
         Event::new_progression_event_start("Uploading files", None, total, None, caused_by.clone());
+    state.event_broadcaster.send(progression_start_event);
     while let Ok(Some(mut field)) = multipart.next_field().await {
         let name = field.file_name().ok_or_else(|| Error {
             kind: ErrorKind::BadRequest,
@@ -627,45 +626,10 @@ async fn upload_instance_file(
         let mut elapsed_bytes = 0_u64;
         let mut last_progression = 0_u64;
 
-        while let Some(chunk) = field.chunk().await.map_err(|e| {
-            std::fs::remove_file(&path).ok();
-            state
-                .event_broadcaster
-                .send(Event::new_progression_event_end(
-                    event_id,
-                    false,
-                    Some(&e.to_string()),
-                    Some(ProgressionEndValue::FSOperationCompleted {
-                        instance_uuid: uuid.clone(),
-                        success: false,
-                        message: format!("Failed to upload file {name}, {e}"),
-                    }),
-                ));
-            Err::<(), axum::extract::multipart::MultipartError>(e)
-                .context("Failed to read chunk")
-                .unwrap_err()
-        })? {
-            elapsed_bytes += chunk.len() as u64;
-            let progression = (elapsed_bytes as f64 / threshold).floor() as u64;
-            if progression > last_progression {
-                last_progression = progression;
-                state
-                    .event_broadcaster
-                    .send(Event::new_progression_event_update(
-                        event_id,
-                        if let Some(total) = total {
-                            format!(
-                                "Uploading {name}, {}",
-                                format_byte_download(elapsed_bytes, total as u64)
-                            )
-                        } else {
-                            format!("Uploading {name}, {} uploaded", format_byte(elapsed_bytes))
-                        },
-                        threshold,
-                    ));
-            }
-            file.write_all(&chunk).await.map_err(|e| {
-                std::fs::remove_file(&path).ok();
+        while let Some(chunk) = match field.chunk().await {
+            Ok(v) => v,
+            Err(e) => {
+                tokio::fs::remove_file(&path).await.ok();
                 state
                     .event_broadcaster
                     .send(Event::new_progression_event_end(
@@ -678,10 +642,51 @@ async fn upload_instance_file(
                             message: format!("Failed to upload file {name}, {e}"),
                         }),
                     ));
-                Err::<(), std::io::Error>(e)
-                    .context("Failed to write chunk")
-                    .unwrap_err()
-            })?;
+                return Err::<Json<()>, axum::extract::multipart::MultipartError>(e)
+                    .context("Failed to read chunk")
+                    .map_err(Error::from);
+            }
+        } {
+            elapsed_bytes += chunk.len() as u64;
+            let progression = (elapsed_bytes as f64 / threshold).floor() as u64;
+            if progression > last_progression {
+                last_progression = progression;
+                state
+                    .event_broadcaster
+                    .send(Event::new_progression_event_update(
+                        &event_id,
+                        if let Some(total) = total {
+                            format!(
+                                "Uploading {name}, {}",
+                                format_byte_download(elapsed_bytes, total as u64)
+                            )
+                        } else {
+                            format!("Uploading {name}, {} uploaded", format_byte(elapsed_bytes))
+                        },
+                        threshold,
+                    ));
+            }
+            match file.write_all(&chunk).await {
+                Ok(v) => v,
+                Err(e) => {
+                    tokio::fs::remove_file(&path).await.ok();
+                    state
+                        .event_broadcaster
+                        .send(Event::new_progression_event_end(
+                            event_id,
+                            false,
+                            Some(&e.to_string()),
+                            Some(ProgressionEndValue::FSOperationCompleted {
+                                instance_uuid: uuid.clone(),
+                                success: false,
+                                message: format!("Failed to upload file {name}, {e}"),
+                            }),
+                        ));
+                    return Err::<Json<()>, std::io::Error>(e)
+                        .context("Failed to write chunk")
+                        .map_err(Error::from);
+                }
+            };
         }
 
         state.event_broadcaster.send(new_fs_event(
@@ -734,7 +739,7 @@ pub async fn unzip_instance_file(
     let event_broadcaster = state.event_broadcaster.clone();
     tokio::spawn(async move {
         let (progression_event_start, event_id) = Event::new_progression_event_start(
-            &format!("Unzipping {relative_path}"),
+            format!("Unzipping {relative_path}"),
             None,
             None,
             None,
@@ -832,7 +837,7 @@ async fn zip_instance_files(
             }
         };
         let (progression_start_event, event_id) = Event::new_progression_event_start(
-            &format!("Zipping {aggregate_name}"),
+            format!("Zipping {aggregate_name}"),
             None,
             None,
             None,
