@@ -8,7 +8,7 @@ on:
         default: 'edge'
         type: string
       debug:
-        description: 'Whether to build in debug mode'
+        description: 'Whether to build in debug mode, uses less time but might run out of space on windows'
         required: true
         default: true
         type: boolean
@@ -26,7 +26,7 @@ on:
         default: 'edge'
         type: string
       debug:
-        description: 'Whether to build in debug mode'
+        description: 'Whether to build in debug mode, uses less time but might run out of space on windows'
         required: true
         default: true
         type: boolean
