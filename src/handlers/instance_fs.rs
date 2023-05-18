@@ -267,7 +267,6 @@ async fn copy_instance_files(
                 let (progression_event_start, _progression_event_id) =
                     Event::new_progression_event_start(
                         "Copying files(s)",
-                        None,
                         Some(process_info.total_bytes as f64),
                         None,
                         CausedBy::User {
@@ -601,7 +600,7 @@ async fn upload_instance_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<f64>().ok());
     let (progression_start_event, event_id) =
-        Event::new_progression_event_start("Uploading files", None, total, None, caused_by.clone());
+        Event::new_progression_event_start("Uploading files", total, None, caused_by.clone());
     state.event_broadcaster.send(progression_start_event);
     while let Ok(Some(mut field)) = multipart.next_field().await {
         let name = field.file_name().ok_or_else(|| Error {
@@ -742,7 +741,6 @@ pub async fn unzip_instance_file(
             format!("Unzipping {relative_path}"),
             None,
             None,
-            None,
             CausedBy::User {
                 user_id: requester.uid.clone(),
                 user_name: requester.username.clone(),
@@ -838,7 +836,6 @@ async fn zip_instance_files(
         };
         let (progression_start_event, event_id) = Event::new_progression_event_start(
             format!("Zipping {aggregate_name}"),
-            None,
             None,
             None,
             CausedBy::User {

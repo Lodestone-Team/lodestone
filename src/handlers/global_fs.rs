@@ -462,7 +462,6 @@ async fn upload_file(
 
     let (progression_start_event, event_id) = Event::new_progression_event_start(
         "Uploading file(s)",
-        None,
         total,
         None,
         CausedBy::User {

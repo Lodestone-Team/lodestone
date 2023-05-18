@@ -10,8 +10,82 @@ use crate::{
     macro_executor::MacroPID,
     output_types::ClientEvent,
     traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
-    types::{InstanceUuid, Snowflake},
+    types::{InstanceUuid, Snowflake, TimeRange},
 };
+
+pub trait EventFilter {
+    fn filter(&mut self, event: impl AsRef<ClientEvent>) -> bool;
+}
+
+
+#[derive(Deserialize, Clone, Debug, TS)]
+#[ts(export)]
+pub struct EventQuery {
+    pub event_levels: Option<Vec<EventLevel>>,
+    pub event_types: Option<Vec<EventType>>,
+    pub instance_event_types: Option<Vec<InstanceEventKind>>,
+    pub user_event_types: Option<Vec<UserEventKind>>,
+    pub event_user_ids: Option<Vec<UserId>>,
+    pub event_instance_ids: Option<Vec<InstanceUuid>>,
+    pub bearer_token: Option<String>,
+    pub time_range: Option<TimeRange>,
+}
+
+impl EventQuery {
+    pub fn filter(&self, event: impl AsRef<ClientEvent>) -> bool {
+        let event = event.as_ref();
+        if let Some(event_levels) = &self.event_levels {
+            if !event_levels.contains(&event.level) {
+                return false;
+            }
+        }
+        if let Some(event_types) = &self.event_types {
+            if !event_types.contains(&event.event_inner.as_ref().into()) {
+                return false;
+            }
+        }
+        if let Some(instance_event_types) = &self.instance_event_types {
+            if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
+                if !instance_event_types
+                    .contains(&instance_event.instance_event_inner.as_ref().into())
+                {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(user_event_types) = &self.user_event_types {
+            if let EventInner::UserEvent(user_event) = &event.event_inner {
+                if !user_event_types.contains(&user_event.user_event_inner.as_ref().into()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(event_user_ids) = &self.event_user_ids {
+            if let EventInner::UserEvent(user_event) = &event.event_inner {
+                if !event_user_ids.contains(&user_event.user_id) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(event_instance_ids) = &self.event_instance_ids {
+            if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
+                if !event_instance_ids.contains(&instance_event.instance_uuid) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        // TODO might need to check time too
+        true
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
@@ -162,7 +236,6 @@ pub enum ProgressionStartValue {
 pub enum ProgressionEventInner {
     ProgressionStart {
         progression_name: String,
-        producer_id: Option<InstanceUuid>,
         total: Option<f64>,
         inner: Option<ProgressionStartValue>,
     },
@@ -431,7 +504,6 @@ impl Event {
     #[must_use]
     pub fn new_progression_event_start(
         progression_name: impl AsRef<str>,
-        producer_id: Option<InstanceUuid>,
         total: Option<f64>,
         inner: Option<ProgressionStartValue>,
         caused_by: CausedBy,
@@ -445,7 +517,6 @@ impl Event {
                     event_id: event_id.0,
                     progression_event_inner: ProgressionEventInner::ProgressionStart {
                         progression_name: progression_name.as_ref().to_string(),
-                        producer_id,
                         total,
                         inner,
                     },
