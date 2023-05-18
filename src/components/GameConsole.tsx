@@ -12,7 +12,7 @@ import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
 
-const autoScrollThreshold = 100;
+const autoScrollThreshold = 10;
 
 export default function GameConsole() {
   const { selectedInstance: instance } = useContext(InstanceContext);
