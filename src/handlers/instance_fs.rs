@@ -21,6 +21,7 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEndValue},
+    prelude::PATH_TO_TMP,
     traits::t_configurable::TConfigurable,
     types::InstanceUuid,
     util::{
@@ -242,8 +243,7 @@ async fn copy_instance_files(
 
     let path_dest = scoped_join_win_safe(root, &relative_path_dest)?;
 
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path_dest)
-    {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path_dest) {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
             source: eyre!("You don't have permission to write to this file"),
@@ -254,9 +254,7 @@ async fn copy_instance_files(
 
     tokio::task::spawn_blocking(move || {
         let mut first = true;
-
         let mut threshold = 500000_u64;
-
         let mut elapsed_bytes = 0_u64;
         let mut last_progression = 0_u64;
         let mut progression_event_id = None;
@@ -299,13 +297,34 @@ async fn copy_instance_files(
             }
             fs_extra::dir::TransitProcessResult::SkipAll
         };
-        debug!("Copying {:?} to {:?}", paths_source, path_dest);
-        if let Err(e) = fs_extra::copy_items_with_progress(
-            &paths_source,
-            &path_dest,
-            &fs_extra::dir::CopyOptions::new(),
-            handle,
-        ) {
+
+        let inner = || -> Result<(), Error> {
+            let tmp_dir = tempfile::tempdir_in(PATH_TO_TMP.with(|p| p.clone()))
+                .context("Failed to create temporary file")?;
+            let temp_dir_path = tmp_dir.path().to_owned();
+            debug!("Copying {:?} to {:?}", paths_source, temp_dir_path);
+
+            fs_extra::copy_items_with_progress(
+                &paths_source,
+                &temp_dir_path,
+                &fs_extra::dir::CopyOptions::new(),
+                handle,
+            )
+            .context("Failed to copy file(s)")?;
+
+            for temp_path in std::fs::read_dir(temp_dir_path)
+                .context("Failed to read tmp directory")?
+                .filter_map(|entry| entry.ok().map(|v| v.path()))
+            {
+                let dest_path =
+                    resolve_path_conflict(path_dest.join(temp_path.file_name().unwrap()), None);
+                debug!("Moving {:?} to {:?}", temp_path, dest_path);
+                std::fs::rename(temp_path, dest_path).context("Failed to move file")?;
+            }
+            Ok(())
+        };
+
+        if let Err(e) = inner() {
             error!("Error copying file(s): {}", e);
             event_broadcaster.send(Event::new_progression_event_end(
                 progression_event_id.unwrap(),
