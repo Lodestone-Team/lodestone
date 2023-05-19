@@ -13,18 +13,17 @@ use futures::{SinkExt, StreamExt};
 use ringbuffer::{AllocRingBuffer, RingBufferExt};
 use tracing::{debug, error};
 
+use crate::output_types::ClientEvent;
+use crate::types::InstanceUuid;
 use crate::{
     auth::{user::UsersManager, user_id::UserId},
     db::read::search_events,
     error::{Error, ErrorKind},
-    events::InstanceEventKind,
-    types::TimeRange,
+    events::EventQuery,
 };
-use crate::{events::EventType, output_types::ClientEvent};
-use crate::{events::UserEventKind, types::InstanceUuid};
 
 use crate::{
-    events::{Event, EventInner, EventLevel, UserEventInner},
+    events::{Event, EventInner, UserEventInner},
     AppState,
 };
 use serde::Deserialize;
@@ -32,74 +31,6 @@ use tokio::sync::{broadcast::Receiver, RwLock};
 use ts_rs::TS;
 
 use super::util::parse_bearer_token;
-#[derive(Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-pub struct EventQuery {
-    pub event_levels: Option<Vec<EventLevel>>,
-    pub event_types: Option<Vec<EventType>>,
-    pub instance_event_types: Option<Vec<InstanceEventKind>>,
-    pub user_event_types: Option<Vec<UserEventKind>>,
-    pub event_user_ids: Option<Vec<UserId>>,
-    pub event_instance_ids: Option<Vec<InstanceUuid>>,
-    pub bearer_token: Option<String>,
-    pub time_range: Option<TimeRange>,
-}
-
-impl EventQuery {
-    pub fn filter(&self, event: impl AsRef<ClientEvent>) -> bool {
-        let event = event.as_ref();
-        if let Some(event_levels) = &self.event_levels {
-            if !event_levels.contains(&event.level) {
-                return false;
-            }
-        }
-        if let Some(event_types) = &self.event_types {
-            if !event_types.contains(&event.event_inner.as_ref().into()) {
-                return false;
-            }
-        }
-        if let Some(instance_event_types) = &self.instance_event_types {
-            if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
-                if !instance_event_types
-                    .contains(&instance_event.instance_event_inner.as_ref().into())
-                {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        if let Some(user_event_types) = &self.user_event_types {
-            if let EventInner::UserEvent(user_event) = &event.event_inner {
-                if !user_event_types.contains(&user_event.user_event_inner.as_ref().into()) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        if let Some(event_user_ids) = &self.event_user_ids {
-            if let EventInner::UserEvent(user_event) = &event.event_inner {
-                if !event_user_ids.contains(&user_event.user_id) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        if let Some(event_instance_ids) = &self.event_instance_ids {
-            if let EventInner::InstanceEvent(instance_event) = &event.event_inner {
-                if !event_instance_ids.contains(&instance_event.instance_uuid) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        // TODO might need to check time too
-        true
-    }
-}
 
 #[derive(Deserialize, Clone, Debug, TS)]
 pub struct EventQueryWrapper {

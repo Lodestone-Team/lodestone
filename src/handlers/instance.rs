@@ -126,7 +126,6 @@ pub async fn create_instance(
         async move {
             let (progression_start_event, event_id) = Event::new_progression_event_start(
                 format!("Setting up Minecraft server {instance_name}"),
-                Some(uuid.clone()),
                 Some(10.0),
                 Some(ProgressionStartValue::InstanceCreation {
                     instance_uuid: uuid.clone(),
@@ -222,7 +221,6 @@ pub async fn delete_instance(
         } else {
             let (progression_event_start, event_id) = Event::new_progression_event_start(
                 format!("Deleting instance {}", instance.name().await),
-                Some(uuid.clone()),
                 Some(10.0),
                 None,
                 caused_by,
