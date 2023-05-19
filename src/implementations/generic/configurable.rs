@@ -144,7 +144,7 @@ impl TConfigurable for GenericInstance {
         })
     }
 
-    async fn configurable_manifest(&self) -> ConfigurableManifest {
+    async fn configurable_manifest(&mut self) -> ConfigurableManifest {
         self.procedure_bridge
             .call(ProcedureCallInner::GetConfigurableManifest)
             .await
