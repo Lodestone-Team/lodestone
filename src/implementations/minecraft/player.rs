@@ -69,16 +69,4 @@ impl TPlayerManagement for MinecraftInstance {
     async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
         Ok(self.players_manager.lock().await.clone().into())
     }
-
-    async fn set_max_player_count(&mut self, max_player_count: u32) -> Result<(), Error> {
-        self.configurable_manifest
-            .lock()
-            .await
-            .set_unique_setting_key(
-                &ServerPropertySetting::MaxPlayers(0).get_identifier(),
-                max_player_count.into(),
-            )?;
-        self.write_properties_to_file().await?;
-        Ok(())
-    }
 }

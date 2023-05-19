@@ -7,15 +7,15 @@ use ts_rs::TS;
 
 use crate::{
     auth::{permission::UserPermission, user_id::UserId},
+    macro_executor::MacroPID,
     output_types::ClientEvent,
-    traits::{t_player::Player, t_server::State, InstanceInfo},
+    traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake, TimeRange},
 };
 
 pub trait EventFilter {
     fn filter(&mut self, event: impl AsRef<ClientEvent>) -> bool;
 }
-
 
 #[derive(Deserialize, Clone, Debug, TS)]
 #[ts(export)]
@@ -145,6 +145,9 @@ pub enum UserEventInner {
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
+    UsernameChanged {
+        new_username: String,
+    },
     PermissionChanged {
         new_permissions: Box<UserPermission>,
     },
@@ -162,21 +165,22 @@ pub struct UserEvent {
     pub user_id: UserId,
     pub user_event_inner: UserEventInner,
 }
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
 #[derive(enum_kinds::EnumKind)]
 #[enum_kind(MacroEventKind, derive(Serialize, Deserialize, TS))]
 pub enum MacroEventInner {
-    MacroStarted,
-    MacroStopped,
-    MacroErrored { error_msg: String },
+    Started,
+    MainModuleExecuted,
+    Stopped { exit_status: ExitStatus },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct MacroEvent {
     pub instance_uuid: Option<InstanceUuid>,
-    pub macro_pid: usize,
+    pub macro_pid: MacroPID,
     pub macro_event_inner: MacroEventInner,
 }
 
@@ -329,7 +333,7 @@ fn event_type_export() {
 pub enum CausedBy {
     User { user_id: UserId, user_name: String },
     Instance { instance_uuid: InstanceUuid },
-    Macro { macro_pid: usize },
+    Macro { macro_pid: MacroPID },
     System,
     Unknown,
 }
@@ -412,6 +416,13 @@ impl Event {
     pub fn get_instance_uuid(&self) -> Option<InstanceUuid> {
         match &self.event_inner {
             EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn try_macro_event(&self) -> Option<&MacroEvent> {
+        match &self.event_inner {
+            EventInner::MacroEvent(macro_event) => Some(macro_event),
             _ => None,
         }
     }

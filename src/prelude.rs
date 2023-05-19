@@ -34,6 +34,7 @@ lazy_static! {
         ));
 }
 
+use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
 #[enum_dispatch::enum_dispatch(
     TInstance,
@@ -47,4 +48,5 @@ use crate::minecraft::MinecraftInstance;
 #[derive(Clone)]
 pub enum GameInstance {
     MinecraftInstance,
+    GenericInstance,
 }

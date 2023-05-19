@@ -166,6 +166,31 @@ pub async fn get_user_info(
     ))
 }
 
+pub async fn rename_user(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uid): Path<UserId>,
+    AuthBearer(token): AuthBearer,
+    Json(new_name): Json<String>,
+) -> Result<Json<()>, Error> {
+    let mut users_manager = state.users_manager.write().await;
+
+    let requester = users_manager.try_auth_or_err(&token)?;
+
+    if requester.uid != uid && !requester.can_perform_action(&UserAction::ManageUser) {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("You are not authorized to rename other users"),
+        });
+    }
+
+    let caused_by = CausedBy::User {
+        user_id: requester.uid.clone(),
+        user_name: requester.username.clone(),
+    };
+    users_manager.rename_user(uid, new_name, caused_by).await?;
+    Ok(Json(()))
+}
+
 #[derive(Deserialize)]
 pub struct ChangePasswordConfig {
     uid: UserId,
@@ -272,6 +297,7 @@ pub fn get_user_routes(state: AppState) -> Router {
         .route("/user/:uid", delete(delete_user))
         .route("/user/:uid/update_perm", put(update_permissions))
         .route("/user/info", get(get_self_info))
+        .route("/user/:uid/rename", put(rename_user))
         .route("/user/:uid/password", put(change_password))
         .route("/user/login", post(login))
         .route("/user/logout/:uid", post(logout))

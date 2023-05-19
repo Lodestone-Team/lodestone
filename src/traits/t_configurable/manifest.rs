@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 pub use std::path::PathBuf;
 
 use color_eyre::eyre::eyre;
@@ -443,7 +442,8 @@ impl SettingManifest {
 
 // A Setting section contains a name and a description (for UI)
 // A Setting section contains a list of InstanceSetting
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SectionManifest {
     pub(super) section_id: String,
     pub(super) name: String,
@@ -513,13 +513,73 @@ impl SectionManifest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SetupManifest {
+    pub setting_sections: IndexMap<String, SectionManifest>,
+}
+
+impl SetupManifest {
+    pub fn validate_setup_value(&self, value: &SetupValue) -> Result<(), Error> {
+        for (section_id, section_value) in value.setting_sections.iter() {
+            if let Some(section) = self.setting_sections.get(section_id) {
+                section.validate_section(section_value)?;
+            } else {
+                return Err(Error {
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("Section not found"),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_section(
+        &self,
+        section_key: &str,
+        section: &SectionManifestValue,
+    ) -> Result<(), Error> {
+        if let Some(manifest_section) = self.setting_sections.get(section_key) {
+            manifest_section.validate_section(section)
+        } else {
+            Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Section not found"),
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SetupValue {
+    pub name: String,
+    pub description: Option<String>,
+    pub auto_start: bool,
+    pub restart_on_crash: bool,
+    pub setting_sections: IndexMap<String, SectionManifestValue>,
+}
+
+impl SetupValue {
+    pub fn get_unique_setting(&self, setting_id: &str) -> Option<&SettingManifestValue> {
+        for section in self.setting_sections.values() {
+            for (id, setting) in section.settings.iter() {
+                if id == setting_id {
+                    return Some(setting);
+                }
+            }
+        }
+        None
+    }
+}
+
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ConfigurableManifest {
     auto_start: bool,
     restart_on_crash: bool,
-    start_on_connection: bool,
     setting_sections: IndexMap<String, SectionManifest>,
 }
 
@@ -527,13 +587,11 @@ impl ConfigurableManifest {
     pub fn new(
         auto_start: bool,
         restart_on_crash: bool,
-        start_on_connection: bool,
         setting_sections: IndexMap<String, SectionManifest>,
     ) -> Self {
         Self {
             auto_start,
             restart_on_crash,
-            start_on_connection,
             setting_sections,
         }
     }
@@ -674,62 +732,12 @@ impl SettingManifestValue {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SectionManifestValue {
-    pub(super) settings: BTreeMap<String, SettingManifestValue>,
+    pub(super) settings: IndexMap<String, SettingManifestValue>,
 }
 
 impl SectionManifestValue {
     pub fn get_setting(&self, setting_id: &str) -> Option<&SettingManifestValue> {
         self.settings.get(setting_id)
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ManifestValue {
-    auto_start: bool,
-    restart_on_crash: bool,
-    start_on_connection: bool,
-    pub(super) setting_sections: BTreeMap<String, SectionManifestValue>,
-}
-
-impl ManifestValue {
-    pub fn get_setting(&self, section_id: &str, setting_id: &str) -> Option<&SettingManifestValue> {
-        if let Some(section) = self.setting_sections.get(section_id) {
-            section.settings.get(setting_id)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_auto_start(&self) -> bool {
-        self.auto_start
-    }
-
-    pub fn get_restart_on_crash(&self) -> bool {
-        self.restart_on_crash
-    }
-
-    pub fn get_start_on_connection(&self) -> bool {
-        self.start_on_connection
-    }
-
-    pub fn get_unique_setting(&self, setting_id: &str) -> Option<&SettingManifestValue> {
-        for section in self.setting_sections.values() {
-            for (id, setting) in section.settings.iter() {
-                if id == setting_id {
-                    return Some(setting);
-                }
-            }
-        }
-        None
-    }
-
-    pub fn get_section(&self, section_id: &str) -> Option<&SectionManifestValue> {
-        self.setting_sections.get(section_id)
-    }
-
-    pub fn get_all_sections(&self) -> BTreeMap<String, SectionManifestValue> {
-        self.setting_sections.clone()
     }
 }
 
@@ -757,22 +765,6 @@ impl SectionManifest {
                 return Err(Error {
                     kind: ErrorKind::BadRequest,
                     source: eyre!("Setting not found"),
-                });
-            }
-        }
-        Ok(())
-    }
-}
-
-impl ConfigurableManifest {
-    pub fn validate_manifest_value(&self, value: &ManifestValue) -> Result<(), Error> {
-        for (section_id, section_value) in value.setting_sections.iter() {
-            if let Some(section) = self.setting_sections.get(section_id) {
-                section.validate_section(section_value)?;
-            } else {
-                return Err(Error {
-                    kind: ErrorKind::BadRequest,
-                    source: eyre!("Section not found"),
                 });
             }
         }

@@ -35,11 +35,7 @@ impl TConfigurable for MinecraftInstance {
     async fn version(&self) -> String {
         self.config.lock().await.version.clone()
     }
-
-    async fn flavour(&self) -> String {
-        self.config.lock().await.flavour.to_string()
-    }
-
+    
     async fn description(&self) -> String {
         self.config.lock().await.description.clone()
     }

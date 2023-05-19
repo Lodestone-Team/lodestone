@@ -616,6 +616,7 @@ async fn upload_instance_file(
                 source: eyre!("File extension is protected"),
             });
         }
+        let path = resolve_path_conflict(path, None);
 
         let mut file = crate::util::fs::create(&path).await?;
 

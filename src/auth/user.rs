@@ -494,6 +494,53 @@ impl UsersManager {
         }
     }
 
+    pub async fn rename_user(
+        &mut self,
+        uid: impl AsRef<UserId>,
+        new_username: String,
+        caused_by: CausedBy,
+    ) -> Result<(), Error> {
+        let old_username = self
+            .users
+            .get_mut(uid.as_ref())
+            .ok_or_else(|| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("User id not found"),
+            })?
+            .username
+            .clone();
+        if let Some(user) = self.users.get_mut(uid.as_ref()) {
+            user.username = new_username.clone();
+            match self.write_to_file().await {
+                Ok(_) => {
+                    self.event_broadcaster.send(Event {
+                        event_inner: EventInner::UserEvent(UserEvent {
+                            user_id: uid.as_ref().to_owned(),
+                            user_event_inner: UserEventInner::UsernameChanged {
+                                new_username: new_username.clone(),
+                            },
+                        }),
+                        details: "".to_string(),
+                        snowflake: Snowflake::default(),
+                        caused_by,
+                    });
+                    Ok(())
+                }
+                Err(e) => {
+                    if let Some(user) = self.users.get_mut(uid.as_ref()) {
+                        user.username = old_username
+                    }
+                    Err(e)
+                }
+            }
+        } else {
+            Err(Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("User id not found"),
+            })
+        }
+    }
+
     pub async fn change_password(
         &mut self,
         uid: impl AsRef<UserId>,

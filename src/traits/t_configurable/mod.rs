@@ -14,10 +14,14 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::implementations::minecraft::Flavour;
 use crate::traits::GameInstance;
+use crate::traits::GenericInstance;
 use crate::traits::MinecraftInstance;
+
 use crate::types::InstanceUuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type")]
+#[ts(export)]
 pub enum MinecraftVariant {
     Vanilla,
     Forge,
@@ -29,6 +33,8 @@ pub enum MinecraftVariant {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
 #[enum_kind(GameType, derive(Serialize, Deserialize, TS))]
+#[serde(tag = "type")]
+#[ts(export)]
 pub enum Game {
     MinecraftJava {
         variant: MinecraftVariant,
@@ -37,6 +43,11 @@ pub enum Game {
         game_name: GameType,       //used for identifying the "game" ("Minecraft")
         game_display_name: String, //displaying to the user what on earth this is ("MinecraftGlowstone")
     },
+}
+
+#[test]
+fn export_game_type() {
+    let _ = GameType::export();
 }
 
 impl From<Flavour> for Game {
@@ -67,7 +78,6 @@ pub trait TConfigurable {
     // getters
     async fn uuid(&self) -> InstanceUuid;
     async fn name(&self) -> String;
-    async fn flavour(&self) -> String;
     async fn game_type(&self) -> Game;
     async fn version(&self) -> String;
     async fn description(&self) -> String;

@@ -33,7 +33,7 @@ use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
-use implementations::minecraft;
+use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
 use port_manager::PortManager;
 use prelude::GameInstance;
@@ -66,6 +66,7 @@ use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 pub mod auth;
 pub mod db;
+mod deno_ops;
 pub mod error;
 mod event_broadcaster;
 mod events;
@@ -139,7 +140,6 @@ async fn restore_instances(
             let instance = minecraft::MinecraftInstance::restore(
                 path.to_owned(),
                 dot_lodestone_config.clone(),
-                dot_lodestone_config.uuid().to_owned(),
                 event_broadcaster.clone(),
                 macro_executor.clone(),
             )
@@ -459,7 +459,7 @@ pub async fn run() -> (
 
                 let api_routes = Router::new()
                     .merge(get_events_routes(shared_state.clone()))
-                    .merge(get_instance_setup_config_routes())
+                    .merge(get_instance_setup_config_routes(shared_state.clone()))
                     .merge(get_instance_server_routes(shared_state.clone()))
                     .merge(get_instance_config_routes(shared_state.clone()))
                     .merge(get_instance_players_routes(shared_state.clone()))
