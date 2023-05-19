@@ -283,6 +283,7 @@ pub async fn delete_instance(
     };
     if let Some(instance) = instances.remove(&uuid) {
         if !(instance.state().await == State::Stopped) {
+            instances.insert(uuid.clone(), instance);
             Err(Error {
                 kind: ErrorKind::BadRequest,
                 source: eyre!("Instance must be stopped before deletion"),
@@ -305,6 +306,7 @@ pub async fn delete_instance(
                     Some("Failed to delete .lodestone_config. Instance not deleted"),
                     None,
                 ));
+                instances.insert(uuid.clone(), instance);
                 return Err::<Json<()>, std::io::Error>(e)
                     .context("Failed to delete .lodestone_config file. Instance not deleted")
                     .map_err(Into::into);
@@ -320,7 +322,6 @@ pub async fn delete_instance(
             if let GameInstance::GenericInstance(i) = instance {
                 i.destruct().await;
             };
-            instances.remove(&uuid);
             drop(instances);
             let res = crate::util::fs::remove_dir_all(instance_path).await;
             match &res {

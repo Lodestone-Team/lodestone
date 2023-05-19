@@ -122,7 +122,7 @@ pub trait TConfigurable {
         })
     }
 
-    async fn configurable_manifest(&self) -> ConfigurableManifest;
+    async fn configurable_manifest(&mut self) -> ConfigurableManifest;
 
     async fn update_configurable(
         &mut self,

@@ -350,11 +350,6 @@ impl TServer for MinecraftInstance {
                                             )
                                             .unwrap();
 
-                                        let _ = self.read_properties().await.map_err(|e| {
-                                            error!("Failed to read properties: {}", e);
-                                            e
-                                        });
-
                                         if let (Some(true), Some(rcon_psw), Some(rcon_port)) = {
                                             let lock = self.configurable_manifest.lock().await;
 

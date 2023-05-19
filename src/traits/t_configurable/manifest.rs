@@ -715,6 +715,15 @@ impl ConfigurableManifest {
             })
         }
     }
+
+    pub fn clear_section(
+        &mut self,
+        section_id: impl AsRef<str>,
+    ) -> Option<IndexMap<String, SettingManifest>> {
+        self.setting_sections
+            .get_mut(section_id.as_ref())
+            .map(|section| std::mem::take(&mut section.settings))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

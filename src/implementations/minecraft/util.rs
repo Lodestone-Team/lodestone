@@ -27,6 +27,9 @@ pub async fn read_properties_from_path(
         .await
         .context("Failed to read line from properties file")?
     {
+        if line.is_empty() {
+            continue;
+        }
         // if a line starts with '#', it is a comment, skip it
         if line.starts_with('#') {
             continue;

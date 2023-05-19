@@ -35,7 +35,7 @@ impl TConfigurable for MinecraftInstance {
     async fn version(&self) -> String {
         self.config.lock().await.version.clone()
     }
-    
+
     async fn description(&self) -> String {
         self.config.lock().await.description.clone()
     }
@@ -172,7 +172,9 @@ impl TConfigurable for MinecraftInstance {
         self.write_config_to_file().await
     }
 
-    async fn configurable_manifest(&self) -> ConfigurableManifest {
+    async fn configurable_manifest(&mut self) -> ConfigurableManifest {
+        self.configurable_manifest.lock().await.clear_section(ServerPropertySetting::get_section_id());
+        let _ = self.read_properties().await;
         self.configurable_manifest.lock().await.clone()
     }
 
@@ -182,6 +184,7 @@ impl TConfigurable for MinecraftInstance {
         setting_id: &str,
         value: ConfigurableValue,
     ) -> Result<(), Error> {
+        let _ = self.read_properties().await;
         self.configurable_manifest
             .lock()
             .await
