@@ -49,7 +49,7 @@ export const myTwMerge = extendTailwindMerge({
   },
 });
 
-export const supportedZip = ["rar", "zip", "gz", "tgz"];
+export const supportedZip = ["zip", "gz", "tgz"];
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
