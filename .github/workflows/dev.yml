@@ -6,11 +6,11 @@ on:
       - dev
 
 jobs:
-  lodestone-desktop:
-    runs-on: ubuntu-latest
-    steps:
-      - name: "Checkout"
-        uses: actions/checkout@v3
-        
-      - uses: ./.github/workflows/dashboard.yml
-      - uses: ./.github/workflows/check.yml
+
+  check_rs:
+    uses: ./.github/workflows/check.yml
+    secrets: inherit
+  
+  build_dashboard:
+    uses: ./.github/workflows/dashboard.yml
+    secrets: inherit
