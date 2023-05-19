@@ -243,10 +243,19 @@ async fn copy_instance_files(
 
     let path_dest = scoped_join_win_safe(root, &relative_path_dest)?;
 
-    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path_dest) {
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path_dest)
+    {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
             source: eyre!("You don't have permission to write to this file"),
+        });
+    }
+
+    // if the destination path is a subdirectory of any of the source paths, deny
+    if paths_source.iter().any(|p| path_dest.starts_with(p)) {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("You can't copy a directory to a subdirectory of itself"),
         });
     }
 
@@ -302,7 +311,6 @@ async fn copy_instance_files(
             let tmp_dir = tempfile::tempdir_in(PATH_TO_TMP.with(|p| p.clone()))
                 .context("Failed to create temporary file")?;
             let temp_dir_path = tmp_dir.path().to_owned();
-            debug!("Copying {:?} to {:?}", paths_source, temp_dir_path);
 
             fs_extra::copy_items_with_progress(
                 &paths_source,
@@ -318,7 +326,6 @@ async fn copy_instance_files(
             {
                 let dest_path =
                     resolve_path_conflict(path_dest.join(temp_path.file_name().unwrap()), None);
-                debug!("Moving {:?} to {:?}", temp_path, dest_path);
                 std::fs::rename(temp_path, dest_path).context("Failed to move file")?;
             }
             Ok(())
@@ -387,7 +394,15 @@ async fn move_instance_file(
     {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
-            source: eyre!("File extension is protected"),
+            source: eyre!("You don't have permission to write to this file"),
+        });
+    }
+
+    // if the destination is a subdirectory of the source, we reject the request
+    if path_dest.starts_with(&path_source) {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Destination is a subdirectory of the source"),
         });
     }
 
