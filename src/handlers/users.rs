@@ -207,7 +207,7 @@ pub async fn change_password(
 
     let requester = users_manager.try_auth_or_err(&token)?;
 
-    if requester.uid != config.uid && requester.can_perform_action(&UserAction::ManageUser) {
+    if requester.uid != config.uid || !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
             source: eyre!("You are not authorized to change other users password"),
