@@ -10,13 +10,12 @@ use crate::{
     macro_executor::MacroPID,
     output_types::ClientEvent,
     traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
-    types::{InstanceUuid, Snowflake, TimeRange, TimeRange},
+    types::{InstanceUuid, Snowflake, TimeRange},
 };
 
 pub trait EventFilter {
     fn filter(&mut self, event: impl AsRef<ClientEvent>) -> bool;
 }
-
 
 #[derive(Deserialize, Clone, Debug, TS)]
 #[ts(export)]
