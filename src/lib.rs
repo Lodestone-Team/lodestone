@@ -144,7 +144,13 @@ async fn restore_instances(
                 macro_executor.clone(),
             )
             .await
-            .unwrap();
+            .map_err(|e| {
+                error!(
+                    "Error while restoring instance {}, failed to restore instance : {e}",
+                    path.display()
+                );
+                e
+            })?;
             debug!("Restored successfully");
             ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
         }
