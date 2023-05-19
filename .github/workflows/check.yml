@@ -5,7 +5,7 @@ on:
   workflow_call:
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
 
     defaults:

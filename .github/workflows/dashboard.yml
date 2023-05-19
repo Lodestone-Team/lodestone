@@ -5,7 +5,7 @@ on:
   workflow_call:
 
 jobs:
-  build:
+  build-nextjs:
     runs-on: ubuntu-latest
 
     defaults:
