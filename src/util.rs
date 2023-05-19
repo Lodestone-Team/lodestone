@@ -23,7 +23,7 @@ pub struct Authentication {
 }
 
 use crate::error::Error;
-use crate::prelude::LODESTONE_PATH;
+use crate::prelude::{LODESTONE_PATH, PATH_TO_TMP};
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -45,7 +45,7 @@ pub async fn download_file(
     on_download: &(dyn Fn(DownloadProgress) + Send + Sync),
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
-    let lodestone_tmp = LODESTONE_PATH.with(|p| p.join("tmp"));
+    let lodestone_tmp = PATH_TO_TMP.with(|p| p.clone());
     tokio::fs::create_dir_all(&lodestone_tmp)
         .await
         .context("Failed to create tmp dir")?;

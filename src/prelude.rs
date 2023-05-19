@@ -21,6 +21,7 @@ thread_local! {
     pub static PATH_TO_STORES : PathBuf = LODESTONE_PATH.with(|p| p.join("stores"));
     pub static PATH_TO_GLOBAL_SETTINGS : PathBuf = LODESTONE_PATH.with(|p| p.join("global_settings.json"));
     pub static PATH_TO_USERS : PathBuf = PATH_TO_STORES.with(|p| p.join("users.json"));
+    pub static PATH_TO_TMP : PathBuf = LODESTONE_PATH.with(|p| p.join("tmp"));
     pub static LODESTONE_EPOCH_SEC: i64 = 1667530800;
     pub static LODESTONE_EPOCH_MIL: i64 = 1667530800000;
 }
