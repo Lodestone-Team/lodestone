@@ -5,7 +5,7 @@ on:
     branches: [main, dev, release/*]
 
 jobs:
-  lodestone-desktop:
+  build_desktop:
     uses: ./.github/workflows/desktop.yml
     with:
       version: pr

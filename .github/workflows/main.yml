@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  lodestone-desktop:
+  build_desktop:
     uses: ./.github/workflows/desktop.yml
     with:
       version: rc
