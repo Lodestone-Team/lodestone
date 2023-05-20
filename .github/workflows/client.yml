@@ -87,7 +87,7 @@ jobs:
 
       - name: Rename File
         run: |
-          mv ./target/${{ matrix.platform }}/release/lodestone-core${{ matrix.postfix }} ./${FILENAME}
+          mv ./target/${{ matrix.platform }}/release/main${{ matrix.postfix }} ./${FILENAME}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
