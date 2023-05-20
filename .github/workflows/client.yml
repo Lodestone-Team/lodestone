@@ -37,7 +37,7 @@ jobs:
   cargo_test_check:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       CACHE_KEY: >
@@ -131,6 +131,49 @@ jobs:
           use-cross: true
           command: build
           args: --release --features "vendored-openssl" --target ${{ matrix.platform }}
+
+      # on windows it's ./target/release/main.exe
+      # on linux it's ./target/release/main
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.platform }}-client
+          path: ./target/${{ matrix.platform }}/release/main
+
+  build_macos:
+    strategy:
+      matrix:
+        platform: [x86_64-apple-darwin, aarch64-apple-darwin]
+    
+    runs-on: macos-latest
+    needs: [clippy_check, cargo_test_check]
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.platform }}
+
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}-client
+
+      - name: Build Backend
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.platform }}
 
       # on windows it's ./target/release/main.exe
       # on linux it's ./target/release/main
