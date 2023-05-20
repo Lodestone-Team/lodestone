@@ -20,7 +20,7 @@ jobs:
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: x86_64-unknown-linux-gnu-client
+          key: x86_64-unknown-linux-gnu-core
           shared-key: "debug"
       - name: Test Clippy
         uses: actions-rs/clippy-check@v1

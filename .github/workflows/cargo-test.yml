@@ -11,15 +11,14 @@ jobs:
   cargo_test:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    env:
-      CACHE_KEY: >
-        ${{ fromJson('
-          "windows-latest": "windows",
-          "ubuntu-latest": "x86_64-unknown-linux-gnu"
-          "macos-latest": "x86_64-apple-darwin
-        ')[matrix.os] }}
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v1
       - name: Install Rust toolchain
@@ -30,7 +29,7 @@ jobs:
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ env.CACHE_KEY }}-client
+          key: ${{ matrix.target }}-core
           shared-key: "debug"
       - name: Cargo Test Backend
         uses: actions-rs/cargo@v1

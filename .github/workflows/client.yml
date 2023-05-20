@@ -35,21 +35,21 @@ jobs:
             os: "linux"
             arch: "x86_64"
             postfix: ""
-          # - platform: "ubuntu-latest"
-          #   target: "aarch64-unknown-linux-gnu"
-          #   os: "linux"
-          #   arch: "aarch64"
-          #   postfix: ""
+          - platform: "ubuntu-latest"
+            target: "aarch64-unknown-linux-gnu"
+            os: "linux"
+            arch: "aarch64"
+            postfix: ""
           - platform: "macos-latest"
             target: "x86_64-apple-darwin"
             os: "macos"
             arch: "x86_64"
             postfix: ""
-          # - platform: "macos-latest"
-          #   target: "aarch64-apple-darwin"
-          #   os: "macos"
-          #   arch: "aarch64"
-          #   postfix: ""
+          - platform: "macos-latest"
+            target: "aarch64-apple-darwin"
+            os: "macos"
+            arch: "aarch64"
+            postfix: ""
 
     runs-on: ${{ matrix.platform }}
     defaults:
@@ -58,6 +58,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -65,11 +66,12 @@ jobs:
           profile: minimal
           override: true
           target: ${{ matrix.target }}
+
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release"
-          key: ${{ matrix.platform }}-core
+          key: ${{ matrix.target }}-core
 
       - name: Build Lodestone Core
         uses: actions-rs/cargo@v1
