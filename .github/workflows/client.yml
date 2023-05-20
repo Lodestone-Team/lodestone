@@ -49,12 +49,6 @@ jobs:
             arch: "x86_64"
             postfix: ""
             cross: false
-          - platform: "macos-latest"
-            target: "aarch64-apple-darwin"
-            os: "macos"
-            arch: "aarch64"
-            postfix: ""
-            cross: true
 
     runs-on: ${{ matrix.platform }}
     defaults:
@@ -98,7 +92,7 @@ jobs:
           cargo install cargo-get
           VERSION=$(cargo get version)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_${VERSION}${{matrix.postfix}}"
+          FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_v${VERSION}${{matrix.postfix}}"
           echo "FILENAME=${FILENAME}" >> $GITHUB_ENV
 
 
