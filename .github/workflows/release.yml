@@ -1,0 +1,23 @@
+name: Release Draft Workflow
+
+on:
+    push:
+      tags: [ v\d+\.\d+\.\d+ ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  clippy_check:
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit
+
+  cargo_test:
+    uses: ./.github/workflows/cargo-test.yml
+    secrets: inherit
+
+  build:
+    uses: ./.github/workflows/client.yml
+    secrets: inherit
+    with:
+      release: true
