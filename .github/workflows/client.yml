@@ -81,9 +81,10 @@ jobs:
       - name: Find Version
         id: find_version
         run: |
-          VERSION=$(cat Cargo.toml | grep version | head -n 1 | cut -d '"' -f 2)
+          cargo install cargo-get
+          VERSION=$(cargo get version)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_${VERSION}.${{matrix.postfix}}"
+          FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_${VERSION}${{matrix.postfix}}"
           echo "FILENAME=${FILENAME}" >> $GITHUB_ENV
 
       - name: Rename File
