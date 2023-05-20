@@ -22,6 +22,7 @@ env:
 jobs:
   build_lodestone:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: "windows-latest"
