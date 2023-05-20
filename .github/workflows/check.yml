@@ -16,6 +16,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Use Node.js 18.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+          cache: 'npm'
+          cache-dependency-path: ./package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+      # - run: npm test
+
+      - name: Build dashboard
+        run: npm run build --if-present
+
       - name: Install Rust stable
         uses: actions-rs/toolchain@v1
         with:
@@ -33,7 +47,6 @@ jobs:
           prefix-key: rust-cache
           shared-key: ${{ runner.os }}-check
           key: 'v1'
-    
 
       - name: Cargo Check
         run: cargo check --release
