@@ -82,7 +82,7 @@ jobs:
       - name: Build Lodestone Core
         uses: actions-rs/cargo@v1
         with:
-          use-cross: true
+          use-cross: false
           command: build
           args: --release --features "vendored-openssl" --target ${{ matrix.target }}
 
