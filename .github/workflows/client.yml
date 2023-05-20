@@ -30,26 +30,31 @@ jobs:
             os: "windows"
             arch: "x86_64"
             postfix: ".exe"
+            cross: false
           - platform: "ubuntu-latest"
             target: "x86_64-unknown-linux-gnu"
             os: "linux"
             arch: "x86_64"
             postfix: ""
+            cross: false
           - platform: "self-hosted"
             target: "aarch64-unknown-linux-gnu"
             os: "linux"
             arch: "aarch64"
             postfix: ""
+            cross: false
           - platform: "macos-latest"
             target: "x86_64-apple-darwin"
             os: "macos"
             arch: "x86_64"
             postfix: ""
+            cross: false
           - platform: "macos-latest"
             target: "aarch64-apple-darwin"
             os: "macos"
             arch: "aarch64"
             postfix: ""
+            cross: true
 
     runs-on: ${{ matrix.platform }}
     defaults:
@@ -82,7 +87,7 @@ jobs:
       - name: Build Lodestone Core
         uses: actions-rs/cargo@v1
         with:
-          use-cross: true
+          use-cross: ${{ matrix.cross }}
           command: build
           args: --release --features "vendored-openssl" --target ${{ matrix.target }}
 
