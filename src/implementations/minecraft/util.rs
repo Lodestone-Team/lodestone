@@ -458,7 +458,11 @@ mod tests {
     }
     #[tokio::test]
     async fn test_get_jre_url() {
-        let os_str = std::env::consts::OS;
+        let os_str = if std::env::consts::OS == "macos" {
+            "mac"
+        } else {
+            std::env::consts::OS
+        };
         assert_eq!(super::get_jre_url("1.18.2").await, Some((format!("https://api.adoptium.net/v3/binary/latest/17/ga/{os_str}/x64/jre/hotspot/normal/eclipse"), 17)));
         assert_eq!(super::get_jre_url("21w44a").await, Some((format!("https://api.adoptium.net/v3/binary/latest/17/ga/{os_str}/x64/jre/hotspot/normal/eclipse"), 17)));
         assert_eq!(super::get_jre_url("1.8.4").await, Some((format!("https://api.adoptium.net/v3/binary/latest/8/ga/{os_str}/x64/jre/hotspot/normal/eclipse"), 8)));
