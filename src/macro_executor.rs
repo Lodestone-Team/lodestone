@@ -103,7 +103,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        _maybe_referrer: Option<ModuleSpecifier>,
+        _maybe_referrer: Option<&ModuleSpecifier>,
         _is_dyn_import: bool,
     ) -> Pin<Box<ModuleSourceFuture>> {
         let module_specifier = module_specifier.clone();
@@ -181,22 +181,12 @@ impl ModuleLoader for TypescriptModuleLoader {
                     scope_analysis: false,
                     maybe_syntax: None,
                 })?;
-                parsed
-                    .transpile(&Default::default())?
-                    .text
-                    .into_bytes()
-                    .into_boxed_slice()
+                parsed.transpile(&Default::default())?.text.into_boxed_str()
             } else {
-                code.into_bytes().into_boxed_slice()
-            }
-            .to_vec();
-
-            let module = ModuleSource {
-                code: ModuleCode::Owned(code),
-                module_type,
-                module_url_specified: module_specifier.to_string(),
-                module_url_found: module_specifier.to_string(),
+                code.into_boxed_str()
             };
+
+            let module = ModuleSource::new(module_type, ModuleCode::Owned(code), &module_specifier);
             Ok(module)
         }
         .boxed_local()
