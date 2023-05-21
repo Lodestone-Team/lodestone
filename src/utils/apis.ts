@@ -277,7 +277,7 @@ export const zipInstanceFiles = async (
     return;
   }
   else {
-    toast.info(`Zipping ${zipRequest.target_relative_paths.length} files...`);
+    toast.info(`Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''}...`);
   }
 }
 
@@ -461,7 +461,7 @@ export const createTask = async (
   uuid: string,
   macro_name: string,
   args: string[],
-  ) => {
+) => {
   queryClient.invalidateQueries(['instance', uuid, 'taskList']);
   return await catchAsyncToString(
     axiosWrapper<null>({
