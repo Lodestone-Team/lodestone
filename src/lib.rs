@@ -3,7 +3,7 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION, init_paths,
+    init_paths, lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -28,6 +28,7 @@ use axum::Router;
 
 use axum_server::tls_rustls::RustlsConfig;
 use color_eyre::eyre::Context;
+use color_eyre::Report;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
@@ -39,6 +40,7 @@ use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
+use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
@@ -261,6 +263,56 @@ fn output_sys_info() {
     );
 }
 
+async fn check_for_core_update() {
+    #[derive(serde::Deserialize)]
+    pub struct Release {
+        pub tag_name: String,
+    }
+    pub async fn get_latest_release() -> Result<Version, Report> {
+        let release_url =
+            "https://api.github.com/repos/Lodestone-Team/lodestone_core/releases/latest";
+        let client = reqwest::Client::new();
+
+        let response = client
+            .get(release_url)
+            .header("User-Agent", "lodestone_cli")
+            .send()
+            .await?;
+        response.error_for_status_ref()?;
+
+        let release: Release = response.json().await?;
+        // tag_name is prefixed with a v, so we need to remove it to get the version
+        let tag_name = release.tag_name.trim_start_matches('v');
+        let latest_version = Version::parse(tag_name)?;
+        Ok(latest_version)
+    }
+
+    let latest_version = match get_latest_release().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to get latest release: {}", e);
+            return;
+        }
+    };
+
+    if latest_version.pre.is_empty() {
+        // we don't want to update to a pre-release
+        let current_version = VERSION.with(|v| v.clone());
+        if current_version < latest_version {
+            info!(
+                "A new version of lodestone_core is available: {}",
+                latest_version
+            );
+            info!(
+                "Read how to update here: {url}",
+                url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+            );
+        } else {
+            info!("lodestone_core is up to date");
+        }
+    }
+}
+
 pub async fn run() -> (
     impl Future<Output = ()>,
     AppState,
@@ -281,8 +333,8 @@ pub async fn run() -> (
             .to_string(),
     }));
     let lodestone_path = lodestone_path();
-
     let guard = setup_tracing();
+    check_for_core_update().await;
     output_sys_info();
 
     let _ = migrate(lodestone_path).map_err(|e| {
