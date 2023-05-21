@@ -66,15 +66,13 @@ pub fn init_paths(lodestone_path: PathBuf) {
     // std::fs::File::create(&path_to_users).unwrap();
     // std::fs::File::create(&path_to_tmp).unwrap();
 
-    LODESTONE_PATH.set(lodestone_path).unwrap();
-    PATH_TO_INSTANCES.set(path_to_instances).unwrap();
-    PATH_TO_BINARIES.set(path_to_binaries).unwrap();
-    PATH_TO_STORES.set(path_to_stores).unwrap();
-    PATH_TO_GLOBAL_SETTINGS
-        .set(path_to_global_settings)
-        .unwrap();
-    PATH_TO_USERS.set(path_to_users).unwrap();
-    PATH_TO_TMP.set(path_to_tmp).unwrap();
+    let _ = LODESTONE_PATH.set(lodestone_path);
+    let _ = PATH_TO_INSTANCES.set(path_to_instances);
+    let _ = PATH_TO_BINARIES.set(path_to_binaries);
+    let _ = PATH_TO_STORES.set(path_to_stores);
+    let _ = PATH_TO_GLOBAL_SETTINGS.set(path_to_global_settings);
+    let _ = PATH_TO_USERS.set(path_to_users);
+    let _ = PATH_TO_TMP.set(path_to_tmp);
 }
 
 thread_local! {

@@ -333,6 +333,7 @@ pub async fn run() -> (
             .to_string(),
     }));
     let lodestone_path = lodestone_path();
+    std::env::set_current_dir(lodestone_path).unwrap();
     let guard = setup_tracing();
     check_for_core_update().await;
     output_sys_info();
