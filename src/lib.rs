@@ -161,7 +161,7 @@ async fn restore_instances(
 
 fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     let file_appender =
-        tracing_appender::rolling::hourly(lodestone_path().join("logs"), "lodestone_core.log");
+        tracing_appender::rolling::hourly(lodestone_path().join("log"), "lodestone_core.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // set up a subscriber that logs formatted tracing events to stdout without colors without setting it as the default
