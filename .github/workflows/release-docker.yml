@@ -51,7 +51,7 @@ jobs:
         env:
           VERSION: ${{ steps.release_asset.outputs.version }}
         id: substring
-        run: echo "name=version::${VERSION:1}" >> $GITHUB_OUTPUT
+        run: echo "version=${VERSION:1}" >> $GITHUB_OUTPUT
 
       -
         name: build and push
