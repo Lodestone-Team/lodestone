@@ -109,6 +109,9 @@ jobs:
       - name: Rename File
         run: |
           mv ./target/${{ matrix.target }}/release/main${{ matrix.postfix }} ./${FILENAME}
+          # for debugging, print to 
+          echo "::debug::Listing files in current directory"
+          echo "::debug::$(ls)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
