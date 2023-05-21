@@ -2,7 +2,9 @@
 
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
-use crate::prelude::{PATH_TO_TMP, VERSION};
+use crate::prelude::{
+    lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION, init_paths,
+};
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
 use crate::{
@@ -17,9 +19,6 @@ use crate::{
         instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
-    },
-    prelude::{
-        LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_GLOBAL_SETTINGS, PATH_TO_STORES, PATH_TO_USERS,
     },
     util::rand_alphanumeric,
 };
@@ -159,10 +158,8 @@ async fn restore_instances(
 }
 
 fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
-    let file_appender = tracing_appender::rolling::hourly(
-        LODESTONE_PATH.with(|v| v.join("log")),
-        "lodestone_core.log",
-    );
+    let file_appender =
+        tracing_appender::rolling::hourly(lodestone_path().join("logs"), "lodestone_core.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // set up a subscriber that logs formatted tracing events to stdout without colors without setting it as the default
@@ -272,42 +269,37 @@ pub async fn run() -> (
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
+    init_paths(PathBuf::from(match std::env::var("LODESTONE_PATH") {
+        Ok(v) => v,
+        Err(_) => home::home_dir()
+            .unwrap_or_else(|| {
+                std::env::current_dir().expect("what kinda os are you running lodestone on???")
+            })
+            .join(".lodestone")
+            .to_str()
+            .unwrap()
+            .to_string(),
+    }));
+    let lodestone_path = lodestone_path();
+
     let guard = setup_tracing();
     output_sys_info();
-    let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
-    let _ = migrate(&lodestone_path).map_err(|e| {
+
+    let _ = migrate(lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
     let path_to_instances = lodestone_path.join("instances");
-
-    std::fs::create_dir_all(&lodestone_path)
-        .and_then(|_| std::env::set_current_dir(&lodestone_path))
-        .and_then(|_| std::fs::create_dir_all(PATH_TO_BINARIES.with(|path| path.clone())))
-        .and_then(|_| std::fs::create_dir_all(PATH_TO_STORES.with(|path| path.clone())))
-        .and_then(|_| std::fs::create_dir_all(&path_to_instances))
-        .and_then(|_| std::fs::create_dir_all(PATH_TO_TMP.with(|path| path.clone())))
-        .map_err(|e| {
-            error!(
-                "Failed to create lodestone path: {}. Lodestone will now crash...",
-                e
-            );
-        })
-        .unwrap();
 
     info!("Lodestone path: {}", lodestone_path.display());
 
     let (tx, _rx) = EventBroadcaster::new(512);
 
-    let mut users_manager = UsersManager::new(
-        tx.clone(),
-        HashMap::new(),
-        PATH_TO_USERS.with(|path| path.clone()),
-    );
+    let mut users_manager = UsersManager::new(tx.clone(), HashMap::new(), path_to_users().clone());
 
     users_manager.load_users().await.unwrap();
 
     let mut global_settings = GlobalSettings::new(
-        PATH_TO_GLOBAL_SETTINGS.with(|path| path.clone()),
+        path_to_global_settings().clone(),
         tx.clone(),
         GlobalSettingsData::default(),
     );
@@ -374,7 +366,7 @@ pub async fn run() -> (
         sqlite_pool: Pool::connect_with(
             SqliteConnectOptions::from_str(&format!(
                 "sqlite://{}/data.db",
-                PATH_TO_STORES.with(|p| p.clone()).display()
+                path_to_stores().display()
             ))
             .unwrap()
             .create_if_missing(true),

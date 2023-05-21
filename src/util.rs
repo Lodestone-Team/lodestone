@@ -23,7 +23,7 @@ pub struct Authentication {
 }
 
 use crate::error::Error;
-use crate::prelude::{LODESTONE_PATH, PATH_TO_TMP};
+use crate::prelude::path_to_tmp;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -45,7 +45,7 @@ pub async fn download_file(
     on_download: &(dyn Fn(DownloadProgress) + Send + Sync),
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
-    let lodestone_tmp = PATH_TO_TMP.with(|p| p.clone());
+    let lodestone_tmp = path_to_tmp().clone();
     tokio::fs::create_dir_all(&lodestone_tmp)
         .await
         .context("Failed to create tmp dir")?;
@@ -229,7 +229,7 @@ pub fn unzip_file(
         UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
         UnzipOption::ToDir(ref d) => d.to_owned(),
     };
-    let lodestone_tmp = LODESTONE_PATH.with(|v| v.join("tmp"));
+    let lodestone_tmp = path_to_tmp().clone();
     std::fs::create_dir_all(&lodestone_tmp).context(format!(
         "Failed to create temporary directory {}",
         lodestone_tmp.display()
@@ -316,7 +316,7 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
     let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
-    let lodestone_tmp = LODESTONE_PATH.with(|v| v.join("tmp"));
+    let lodestone_tmp = path_to_tmp().clone();
     std::fs::create_dir_all(&lodestone_tmp).context(format!(
         "Failed to create temporary directory {}",
         lodestone_tmp.display()

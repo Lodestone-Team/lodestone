@@ -7,13 +7,11 @@ use crate::traits::t_configurable::GameType;
 use crate::AppState;
 use axum::extract::Path;
 use axum::routing::get;
+use axum::routing::put;
 use axum::Json;
 use axum::Router;
-use color_eyre::eyre::Context;
-use axum::routing::put;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::Value;
 use ts_rs::TS;
 
 #[allow(clippy::enum_variant_names)]
@@ -79,14 +77,10 @@ pub async fn get_generic_setup_manifest(
         .map(Json)
 }
 
-
 pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
     Router::new()
         .route("/games", get(get_available_games))
         .route("/setup_manifest/:game_type", get(get_setup_manifest))
-        .route(
-            "/generic_setup_manifest",
-            put(get_generic_setup_manifest),
-        )
+        .route("/generic_setup_manifest", put(get_generic_setup_manifest))
         .with_state(appstate)
 }

@@ -38,7 +38,7 @@ use crate::error::Error;
 use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{Event, ProgressionEventID};
 use crate::macro_executor::{MacroExecutor, MacroPID};
-use crate::prelude::PATH_TO_BINARIES;
+use crate::prelude::path_to_binaries;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
@@ -440,7 +440,7 @@ impl MinecraftInstance {
         let path_to_macros = path_to_instance.join("macros");
         let path_to_resources = path_to_instance.join("resources");
         let path_to_properties = path_to_instance.join("server.properties");
-        let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+        let path_to_runtimes = path_to_binaries().to_owned();
 
         let uuid = dot_lodestone_config.uuid().to_owned();
 
@@ -696,7 +696,7 @@ impl MinecraftInstance {
         let path_to_macros = path_to_instance.join("macros");
         let path_to_resources = path_to_instance.join("resources");
         let path_to_properties = path_to_instance.join("server.properties");
-        let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+        let path_to_runtimes = path_to_binaries().clone();
         // if the properties file doesn't exist, create it
         if !path_to_properties.exists() {
             tokio::fs::write(
@@ -835,7 +835,15 @@ impl MinecraftInstance {
 
     async fn sync_configurable_to_restore_config(&self) {
         let mut config_lock = self.config.lock().await;
+
         let configurable_map_lock = self.configurable_manifest.lock().await;
+        config_lock.port = configurable_map_lock
+            .get_unique_setting_key("server-port")
+            .expect("Programming error, value is not set")
+            .get_value()
+            .expect("Programming error, value is not set")
+            .try_as_unsigned_integer()
+            .expect("Programming error, value is not a unsigned integer");
         let configurable_map = configurable_map_lock
             .get_section(CmdArgSetting::get_section_id())
             .unwrap()

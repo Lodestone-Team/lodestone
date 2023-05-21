@@ -5,13 +5,12 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 
-use color_eyre::eyre::{eyre, ContextCompat};
+use color_eyre::eyre::eyre;
 use deno_core::anyhow::anyhow;
 use deno_core::{anyhow, op, OpState};
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock};
-use tracing::info;
+use tokio::sync::RwLock;
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};

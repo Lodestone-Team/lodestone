@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 
 use crate::error::{Error, ErrorKind};
-use crate::prelude::PATH_TO_TMP;
+use crate::prelude::path_to_tmp;
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SettingManifest,
 };
@@ -156,7 +156,7 @@ impl TConfigurable for MinecraftInstance {
                 })
             }
         };
-        let lodestone_tmp = PATH_TO_TMP.with(|p| p.clone());
+        let lodestone_tmp = path_to_tmp().clone();
         let temp_dir = tempfile::tempdir_in(lodestone_tmp).context("Failed to create temp dir")?;
         download_file(
             &url,

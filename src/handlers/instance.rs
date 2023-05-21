@@ -17,7 +17,7 @@ use crate::traits::t_configurable::GameType;
 use minecraft::FlavourKind;
 
 use crate::implementations::minecraft::MinecraftInstance;
-use crate::prelude::{GameInstance, PATH_TO_INSTANCES};
+use crate::prelude::{path_to_instances, GameInstance};
 use crate::traits::t_configurable::manifest::SetupValue;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 
@@ -94,13 +94,11 @@ pub async fn create_minecraft_instance(
 
     let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
 
-    let setup_path = PATH_TO_INSTANCES.with(|path| {
-        path.join(format!(
-            "{}-{}",
-            setup_config.name,
-            &instance_uuid.no_prefix()[0..8]
-        ))
-    });
+    let setup_path = path_to_instances().join(format!(
+        "{}-{}",
+        setup_config.name,
+        &instance_uuid.no_prefix()[0..8]
+    ));
 
     tokio::fs::create_dir_all(&setup_path)
         .await
@@ -228,13 +226,11 @@ pub async fn create_generic_instance(
 
     let instance_uuid = instance_uuid;
 
-    let setup_path = PATH_TO_INSTANCES.with(|path| {
-        path.join(format!(
-            "{}-{}",
-            "generic",
-            &instance_uuid.no_prefix()[0..8]
-        ))
-    });
+    let setup_path = path_to_instances().join(format!(
+        "{}-{}",
+        setup_config.setup_value.name,
+        &instance_uuid.no_prefix()[0..8]
+    ));
 
     tokio::fs::create_dir_all(&setup_path)
         .await

@@ -13,7 +13,7 @@ use headers::HeaderMap;
 use reqwest::header::CONTENT_LENGTH;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
-use tracing::{debug, error};
+use tracing::error;
 use ts_rs::TS;
 use walkdir::WalkDir;
 
@@ -21,7 +21,7 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEndValue},
-    prelude::PATH_TO_TMP,
+    prelude::path_to_tmp,
     traits::t_configurable::TConfigurable,
     types::InstanceUuid,
     util::{
@@ -308,8 +308,8 @@ async fn copy_instance_files(
         };
 
         let inner = || -> Result<(), Error> {
-            let tmp_dir = tempfile::tempdir_in(PATH_TO_TMP.with(|p| p.clone()))
-                .context("Failed to create temporary file")?;
+            let tmp_dir =
+                tempfile::tempdir_in(path_to_tmp()).context("Failed to create temporary file")?;
             let temp_dir_path = tmp_dir.path().to_owned();
 
             fs_extra::copy_items_with_progress(
@@ -501,7 +501,9 @@ async fn remove_instance_dir(
     }
 
     if requester.can_perform_action(&UserAction::WriteGlobalFile) {
-        crate::util::fs::remove_dir_all(&path).await?;
+        tokio::fs::remove_dir_all(&path)
+            .await
+            .context("Failed to remove directory")?;
     } else {
         // recursively access all files in the directory and check if they are protected
         for entry in WalkDir::new(path.clone()) {
@@ -510,11 +512,13 @@ async fn remove_instance_dir(
             if entry.file_type().is_file() && is_path_protected(entry.path()) {
                 return Err(Error {
                     kind: ErrorKind::PermissionDenied,
-                    source: eyre!("File extension is protected"),
+                    source: eyre!("Directory contains protected files"),
                 });
             }
         }
-        crate::util::fs::remove_dir_all(&path).await?;
+        tokio::fs::remove_dir_all(&path)
+            .await
+            .context("Failed to remove directory")?;
     }
 
     let caused_by = CausedBy::User {

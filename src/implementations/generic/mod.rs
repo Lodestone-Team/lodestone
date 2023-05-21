@@ -2,7 +2,7 @@ use std::{path::PathBuf, rc::Rc};
 
 use async_trait::async_trait;
 use color_eyre::eyre::Context;
-use tracing::{debug, error};
+use tracing::error;
 use url::Url;
 
 use self::{
