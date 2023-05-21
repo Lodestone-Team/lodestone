@@ -30,7 +30,7 @@ export default function DashboardLayout() {
   const [showMajorVersionModal, setShowMajorVersionModal] = useState(false);
   const [showCoreErrorModal, setShowCoreErrorModal] = useState(false);
   const dashboardVersion = packageinfo.version;
-  
+
   // open the error modal is coreConnectionStatus is error for more than 3 seconds
   useEffect(() => {
     if (coreConnectionStatus === 'error') {
@@ -38,17 +38,18 @@ export default function DashboardLayout() {
         setShowCoreErrorModal(true);
       }, 3000);
       return () => clearTimeout(timeout);
-    }else{
+    } else {
       setShowCoreErrorModal(false);
     }
   }, [coreConnectionStatus]);
 
   const versionMismatchModal = !coreInfoLoading && (
     <ConfirmDialog
-      title={`Major Version Mismatch`}
+      title={`Update Required!`}
       type={'danger'}
       isOpen={showMajorVersionModal}
       onClose={() => setShowMajorVersionModal(false)}
+      closeButtonText={'I understand, continue without updating'}
     >
       <div>
         <b>Core Version: </b>
@@ -58,8 +59,18 @@ export default function DashboardLayout() {
         {dashboardVersion}
       </div>
       <br />
-      Your dashboard and core have a version mismatch! Please consider
-      updating to stay up to date with our latest changes.
+      <p className="text-red-200">
+        Your dashboard and core is incompatible!
+      </p>
+      This can cause unexpected behavior. Please update your core to the latest
+      version. Visit{' '}
+      <a
+        href="https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+        className="text-blue-200"
+      >
+        the wiki
+      </a>{' '}
+      for more information.
     </ConfirmDialog>
   );
 
@@ -93,8 +104,12 @@ export default function DashboardLayout() {
         setShowMajorVersionModal(true);
       else if (patch(clientVersion) !== patch(dashboardVersion))
         toast.warn(
-          `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
-          { toastId: 'patchVersionMismatch' }
+          `Version mismatch! Is your core out of date? Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+          {
+            toastId: 'patchVersionMismatch',
+            autoClose: 10000,
+            position: 'top-center',
+          }
         );
     }
   }, [coreInfo?.version]);
