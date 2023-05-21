@@ -25,7 +25,7 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 ## Installation
 
 ### Windows
-You can download Lodestone Desktop from the [releases page](https://github.com/Lodestone-Team/lodestone/releases)
+You can download Lodestone Desktop for Windows from the [releases page](https://github.com/Lodestone-Team/lodestone/releases)
 
 ### Linux
 Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
