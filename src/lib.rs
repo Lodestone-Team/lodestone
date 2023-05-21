@@ -3,7 +3,7 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION, init_paths,
+    init_paths, lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -28,6 +28,7 @@ use axum::Router;
 
 use axum_server::tls_rustls::RustlsConfig;
 use color_eyre::eyre::Context;
+use color_eyre::Report;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
@@ -39,6 +40,7 @@ use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
+use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
@@ -159,7 +161,7 @@ async fn restore_instances(
 
 fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     let file_appender =
-        tracing_appender::rolling::hourly(lodestone_path().join("logs"), "lodestone_core.log");
+        tracing_appender::rolling::hourly(lodestone_path().join("log"), "lodestone_core.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // set up a subscriber that logs formatted tracing events to stdout without colors without setting it as the default
@@ -261,6 +263,56 @@ fn output_sys_info() {
     );
 }
 
+async fn check_for_core_update() {
+    #[derive(serde::Deserialize)]
+    pub struct Release {
+        pub tag_name: String,
+    }
+    pub async fn get_latest_release() -> Result<Version, Report> {
+        let release_url =
+            "https://api.github.com/repos/Lodestone-Team/lodestone_core/releases/latest";
+        let client = reqwest::Client::new();
+
+        let response = client
+            .get(release_url)
+            .header("User-Agent", "lodestone_cli")
+            .send()
+            .await?;
+        response.error_for_status_ref()?;
+
+        let release: Release = response.json().await?;
+        // tag_name is prefixed with a v, so we need to remove it to get the version
+        let tag_name = release.tag_name.trim_start_matches('v');
+        let latest_version = Version::parse(tag_name)?;
+        Ok(latest_version)
+    }
+
+    let latest_version = match get_latest_release().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to get latest release: {}", e);
+            return;
+        }
+    };
+
+    if latest_version.pre.is_empty() {
+        // we don't want to update to a pre-release
+        let current_version = VERSION.with(|v| v.clone());
+        if current_version < latest_version {
+            info!(
+                "A new version of lodestone_core is available: {}",
+                latest_version
+            );
+            info!(
+                "Read how to update here: {url}",
+                url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+            );
+        } else {
+            info!("lodestone_core is up to date");
+        }
+    }
+}
+
 pub async fn run() -> (
     impl Future<Output = ()>,
     AppState,
@@ -281,8 +333,9 @@ pub async fn run() -> (
             .to_string(),
     }));
     let lodestone_path = lodestone_path();
-
+    std::env::set_current_dir(lodestone_path).unwrap();
     let guard = setup_tracing();
+    check_for_core_update().await;
     output_sys_info();
 
     let _ = migrate(lodestone_path).map_err(|e| {
@@ -493,11 +546,11 @@ pub async fn run() -> (
                 tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
                     async move {
-                        info!("Lodestone Core live on {addr}");
-                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                         match tls_config_result {
                             Ok(config) => {
                                 info!("TLS enabled");
+                                info!("Lodestone Core live on {addr}");
+                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind_rustls(addr, config)
                                     .handle(axum_server_handle)
                                     .serve(app.into_make_service())
@@ -505,6 +558,8 @@ pub async fn run() -> (
                             }
                             Err(e) => {
                                 warn!("Invalid TLS config : {e}, using HTTP");
+                                info!("Lodestone Core live on {addr}");
+                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind(addr)
                                     .handle(axum_server_handle)
                                     .serve(app.into_make_service())

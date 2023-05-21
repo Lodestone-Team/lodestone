@@ -629,6 +629,7 @@ pub fn format_byte(mut bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::prelude::init_paths;
     use crate::util::{resolve_path_conflict, unzip_file, zip_files, UnzipOption};
     use std::collections::HashSet;
     use std::io::Read;
@@ -637,6 +638,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_unzip_file() {
+        let temp_lodestone_path = tempfile::tempdir().unwrap();
+        let temp_lodestone_path = temp_lodestone_path.path();
+        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let zip = PathBuf::from("testdata/sample.zip");
@@ -664,6 +668,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_unzip_file_3() {
+        let temp_lodestone_path = tempfile::tempdir().unwrap();
+        let temp_lodestone_path = temp_lodestone_path.path();
+        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
         let tar_gz = PathBuf::from("testdata/sample.gz");
@@ -693,6 +700,9 @@ mod tests {
 
     #[test]
     fn test_resolve_path_conflict() {
+        let temp_lodestone_path = tempfile::tempdir().unwrap();
+        let temp_lodestone_path = temp_lodestone_path.path();
+        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let txt_path = temp_path.join("test.txt");
