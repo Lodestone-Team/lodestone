@@ -21,17 +21,41 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 - [ ] Automated macros and tasks 🚧
 - [ ] Connecting without port forward 🚧
 
-![Lodestone Spring 2023 Roadmap](/public/assets/springRoadmap.png)
 
-## [Download](https://github.com/Lodestone-Team/dashboard/releases/latest)
+## Installation
 
-You can download the Lodestone client from our [release page](https://github.com/Lodestone-Team/dashboard/releases/latest).
+### Windows
+You can download Lodestone Desktop from the [releases page](https://github.com/Lodestone-Team/lodestone/releases)
 
-We also have a [webapp](https://www.lodestone.cc/) in early access for remote management.
+### Linux
+Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
 
-For any troubleshooting, see our [wiki](https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues).
+If you would like to use the dashboard:
+1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/](https://www.lodestone.cc/)
+2. Follow this [guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to enable mixed content for the site.
+3. If you have browser extensions such as HTTPS Everywhere, disable them for the site.
 
-For installing Lodestone Core, check out [here](https://github.com/Lodestone-Team/lodestone_core).
+To see why step 2 and 3 are necessary and some possible solutions, see [here](https://github.com/Lodestone-Team/lodestone/wiki/FAQ#why-do-i-need-to-enable-mixedinsecure-content-and-disable-https-is-this-safe)
+
+> **Note**
+> Lodestone Desktop for Linux is highly experimental and untested. We won't be able to provide support if you decide to use it.
+
+### MacOS (Intel)
+Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
+
+If you would like to use the dashboard:
+1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/](https://www.lodestone.cc/)
+2. Follow this [guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to enable mixed content for the site.
+3. If you have browser extensions such as HTTPS Everywhere, disable them for the site.
+
+To see why step 2 and 3 are necessary and some possible solutions, see [here](https://github.com/Lodestone-Team/lodestone/wiki/FAQ#why-do-i-need-to-enable-mixedinsecure-content-and-disable-https-is-this-safe)
+
+> **Note**
+> ARM Macs are not supported yet. See [this issue](https://github.com/Lodestone-Team/lodestone_core/issues/160) for more info.
+
+> **Note**
+> Lodestone Desktop for MacOs is highly experimental and untested. We won't be able to provide support if you decide to use it.
+
 
 ## Safety & Security
 
