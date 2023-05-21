@@ -109,7 +109,7 @@ jobs:
       - name: Rename File
         run: |
           mv ./target/${{ matrix.target }}/release/main${{ matrix.postfix }} ./${FILENAME}
-          # for debugging, print to 
+          # for debugging
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"
 
