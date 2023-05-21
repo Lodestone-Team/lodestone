@@ -58,7 +58,7 @@ export default function DashboardLayout() {
         {dashboardVersion}
       </div>
       <br />
-      Your dashboard and core have a major version mismatch! Please consider
+      Your dashboard and core have a version mismatch! Please consider
       updating to stay up to date with our latest changes.
     </ConfirmDialog>
   );
@@ -86,10 +86,11 @@ export default function DashboardLayout() {
       if (major(clientVersion) !== major(dashboardVersion))
         setShowMajorVersionModal(true);
       else if (minor(clientVersion) !== minor(dashboardVersion))
-        toast.warn(
-          `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
-          { toastId: 'minorVersionMismatch' }
-        );
+        // toast.warn(
+        //   `There is a minor version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+        //   { toastId: 'minorVersionMismatch' }
+        // );
+        setShowMajorVersionModal(true);
       else if (patch(clientVersion) !== patch(dashboardVersion))
         toast.warn(
           `There is a patch version mismatch! Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
