@@ -80,7 +80,7 @@ export const deleteInstanceFile = async (
     toast.error(error);
     return;
   } else {
-    toast.success(`Deleted ${file.name}`);
+    toast.success(`Deleted file: ${file.name}`);
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
@@ -107,6 +107,8 @@ export const deleteInstanceDirectory = async (
   if (error) {
     toast.error(error);
     return;
+  } else {
+    toast.success(`Deleted directory: ${directory}`);
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
