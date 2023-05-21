@@ -64,7 +64,7 @@ export const Default = Template.bind({});
 Default.args = {
   uuid: '1',
   name: 'Test Instance',
-  game_type: { MinecraftJava: { variant: 'Vanilla' } },
+  game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
   state: 'Running',
   player_count: 1,
   max_player_count: 12,
@@ -76,7 +76,7 @@ export const InvestigatingCrash = Template.bind({});
 InvestigatingCrash.args = {
   uuid: '2',
   name: 'Crashed Instance',
-  game_type: { MinecraftJava: { variant: 'Vanilla' } },
+  game_type:  { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
   state: 'Error',
   player_count: 0,
   max_player_count: 12,

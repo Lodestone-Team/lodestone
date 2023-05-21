@@ -30,7 +30,6 @@ const iconMap: { [key: string]: string } = {
   json: '/icons/json.svg',
   mcmeta: '/icons/json.svg',
   zip: '/icons/zip.svg',
-  rar: '/icons/zip.svg',
   gz: '/icons/zip.svg',
   tar: '/icons/zip.svg',
   jar: '/icons/jar.svg',

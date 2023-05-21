@@ -212,14 +212,16 @@ export const CoreSettings = () => {
         closeButtonText="Cancel"
         type={'info'}
       >
-        Are you sure you want to turn off safe mode? This will allow all you to
+        Are you sure you want to turn off safe mode? This will allow you to
         give users other than yourself the ability to run potentially dangerous
-        commands. Make sure you trust all users you give these permissions to
+        commands. Make sure you trust all the users you give these permissions to.
       </ConfirmDialog>
       {openPortModal}
-      <div className="flex w-full flex-col gap-4 @4xl:flex-row">
-        <div className="w-[28rem]">
-          <h2 className="text-h2 font-bold tracking-medium"> Core Settings </h2>
+      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container">
+        <div className="flex w-full flex-col gap-2 px-4 pt-8">
+          <div className="flex min-w-0 flex-row items-center gap-4">
+            <h1 className="dashboard-instance-heading">General Settings</h1>
+          </div>
           <h3 className="text-h3 font-medium italic tracking-normal text-white/50">
             These settings are for the core itself. They are not specific to any
             user

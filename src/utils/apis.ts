@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { ClientFile } from 'bindings/ClientFile';
+import { MacroEntry } from 'bindings/MacroEntry';
 import { LoginReply } from 'bindings/LoginReply';
 import { UserPermission } from 'bindings/UserPermission';
 import { Base64 } from 'js-base64';
@@ -18,6 +19,8 @@ import {
 import { UnzipOption } from 'bindings/UnzipOptions';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
+import { TaskEntry } from 'bindings/TaskEntry';
+import { HistoryEntry } from 'bindings/HistoryEntry';
 
 /***********************
  * Start Files API
@@ -77,7 +80,7 @@ export const deleteInstanceFile = async (
     toast.error(error);
     return;
   } else {
-    toast.success(`Deleted ${file.name}`);
+    toast.success(`Deleted file: ${file.name}`);
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
@@ -104,6 +107,8 @@ export const deleteInstanceDirectory = async (
   if (error) {
     toast.error(error);
     return;
+  } else {
+    toast.success(`Deleted directory: ${directory}`);
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
@@ -274,7 +279,7 @@ export const zipInstanceFiles = async (
     return;
   }
   else {
-    toast.info(`Zipping ${zipRequest.target_relative_paths.length} files...`);
+    toast.info(`Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''}...`);
   }
 }
 
@@ -421,3 +426,54 @@ export const openPort = async (port: number) => {
     })
   );
 };
+
+/***********************
+ * Start Tasks/Macro API
+ ***********************/
+
+export const getTasks = async (uuid: string,) => {
+  const taskList = await axiosWrapper<TaskEntry[]>({
+    method: 'get',
+    url: `/instance/${uuid}/task/list`,
+  });
+
+  return taskList;
+};
+
+export const getMacros = async (uuid: string,) => {
+  const macroList = await axiosWrapper<MacroEntry[]>({
+    method: 'get',
+    url: `/instance/${uuid}/macro/list`,
+  });
+
+  return macroList;
+};
+
+export const getInstanceHistory = async (uuid: string,) => {
+  const historyList = await axiosWrapper<HistoryEntry[]>({
+    method: 'get',
+    url: `/instance/${uuid}/history/list`,
+  });
+
+  return historyList;
+};
+
+export const createTask = async (
+  queryClient: QueryClient,
+  uuid: string,
+  macro_name: string,
+  args: string[],
+) => {
+  queryClient.invalidateQueries(['instance', uuid, 'taskList']);
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/macro/run/${macro_name}`,
+      data: args,
+    })
+  );
+};
+
+/***********************
+ * End Tasks/Macro API
+ ***********************/

@@ -5,7 +5,7 @@ import LoadingStatusIcon from './Atoms/LoadingStatusIcon';
 import { EventLevel } from 'bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 import ProgressBar from './Atoms/ProgressBar';
-import { GameType } from 'bindings/InstanceInfo';
+import { Game } from 'bindings/Game';
 
 const NotificationLevelToBgColorClass = (
   level: EventLevel,
@@ -45,7 +45,7 @@ export default function InstanceLoadingCard({
   uuid: string;
   name: string;
   port: number;
-  game_type: GameType;
+  game_type: Game;
   focus?: boolean;
   progress_percent?: number;
   progress_title: string;

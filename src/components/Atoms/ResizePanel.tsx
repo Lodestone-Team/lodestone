@@ -114,6 +114,15 @@ const ResizePanel = forwardRef(
       // initialSize is intentionally left out of the dependency array
     }, [isHorizontal]);
 
+    useEffect(() => {
+      if (size > maxSize && maxSize > minSizeProps) {
+        setSize(maxSize);
+      }
+      if (size < minSizeProps) {
+        setSize(minSizeProps);
+      }
+    }, [maxSize, minSizeProps, setSize, size]);
+
     const handleDrag = (e: DraggableEvent, ui: DraggableData) => {
       const factor = direction === 'e' || direction === 's' ? -1 : 1;
 

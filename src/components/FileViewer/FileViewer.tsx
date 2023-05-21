@@ -38,7 +38,7 @@ import {
   zipInstanceFiles,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
-import { useLocalStorage } from 'usehooks-ts';
+import { useElementSize, useLocalStorage } from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -77,11 +77,10 @@ export default function FileViewer() {
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
-  const boundingDivRef = useRef<HTMLDivElement>(null);
-  const [boundingDivDimensions, setBoundingDivDimensions] = useState({
-    height: 0,
-    width: 0,
-  });
+  const [
+    boundingDivRef,
+    { height: boundingDivHeight, width: boundingDivWidth },
+  ] = useElementSize();
 
   const tickFile = (file: ClientFile, ticked: boolean) => {
     if (ticked) {
@@ -90,15 +89,6 @@ export default function FileViewer() {
       setTickedFiles((files) => files.filter((f) => f.path !== file.path));
     }
   };
-
-  useEffect(() => {
-    if (boundingDivRef.current !== null) {
-      setBoundingDivDimensions({
-        height: boundingDivRef.current.offsetHeight,
-        width: boundingDivRef.current.offsetWidth,
-      });
-    }
-  }, [boundingDivRef]);
 
   const atTopLevel = path === '.';
   let directorySeparator = '\\';
@@ -359,6 +349,7 @@ export default function FileViewer() {
         </ul>
       </ConfirmDialog>
       <div
+        ref={boundingDivRef}
         className="relative flex h-full w-full grow flex-col gap-3"
         onDragEnter={(e) => {
           e.preventDefault();
@@ -655,7 +646,7 @@ export default function FileViewer() {
           >
             <ResizePanel
               direction="e"
-              maxSize={boundingDivDimensions.width - 200}
+              maxSize={boundingDivWidth - 200}
               minSize={200}
               size={fileListSize}
               validateSize={false}
