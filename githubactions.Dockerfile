@@ -1,10 +1,10 @@
 FROM debian:bullseye-slim as base
 
 FROM base AS production-amd64
-ENV binpath "./release/lodestone_core_"
+ENV binpath "./release/lodestone_core_linux_x86_64_*"
 
 FROM base as production-arm64
-ENV binpath "./release/lodestone_core_arm_"
+ENV binpath "./release/lodestone_core_linux_aarch64_*"
 
 ARG TARGETARCH
 FROM production-$TARGETARCH AS production
