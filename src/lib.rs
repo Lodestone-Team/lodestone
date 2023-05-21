@@ -546,11 +546,11 @@ pub async fn run() -> (
                 tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
                     async move {
-                        info!("Lodestone Core live on {addr}");
-                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                         match tls_config_result {
                             Ok(config) => {
                                 info!("TLS enabled");
+                                info!("Lodestone Core live on {addr}");
+                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind_rustls(addr, config)
                                     .handle(axum_server_handle)
                                     .serve(app.into_make_service())
@@ -558,6 +558,8 @@ pub async fn run() -> (
                             }
                             Err(e) => {
                                 warn!("Invalid TLS config : {e}, using HTTP");
+                                info!("Lodestone Core live on {addr}");
+                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind(addr)
                                     .handle(axum_server_handle)
                                     .serve(app.into_make_service())
