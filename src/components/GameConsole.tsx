@@ -57,6 +57,7 @@ export default function GameConsole() {
         'Content-Type': 'application/json',
       },
     });
+    scrollToBottom();
   };
 
   let consoleStatusMessage = '';
