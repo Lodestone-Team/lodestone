@@ -85,7 +85,7 @@ jobs:
           command: build
           args: --release --features "vendored-openssl" --target ${{ matrix.target }}
 
-      - name: Find Version
+      - name: Find Version (Linux, MacOS)
         id: find_version
         if: runner.os != 'Windows'
         run: |
@@ -96,7 +96,7 @@ jobs:
           echo "FILENAME=${FILENAME}" >> $GITHUB_ENV
 
 
-      - name: Find Version
+      - name: Find Version (Windows)
         id: find_version_windows
         if: runner.os == 'Windows'
         run: |
@@ -106,9 +106,15 @@ jobs:
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
           echo "FILENAME=$FILENAME" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Rename File
+      - name: Rename File (Linux, MacOS)
+        if: runner.os != 'Windows'
         run: |
           mv ./target/${{ matrix.target }}/release/main${{ matrix.postfix }} ./${FILENAME}
+
+      - name: Rename File (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          movev "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" "./${FILENAME}"
           # for debugging
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"
