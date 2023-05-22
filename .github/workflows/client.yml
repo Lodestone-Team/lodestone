@@ -114,7 +114,8 @@ jobs:
       - name: Rename File (Windows)
         if: runner.os == 'Windows'
         run: |
-          move "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" "./${FILENAME}"
+          echo "::debug::$(ls)"
+          Move-Item -Path "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" -Destination "./${FILENAME}"
           # for debugging
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"
