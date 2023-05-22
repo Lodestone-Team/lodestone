@@ -102,9 +102,9 @@ jobs:
         run: |
           cargo install cargo-get
           $VERSION = "v$(cargo get version)"
-          echo "VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VERSION=$VERSION" >> $env:GITHUB_ENV
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
-          echo "FILENAME=$FILENAME" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FILENAME=$FILENAME" >> $env:GITHUB_ENV
 
       - name: Rename File (Linux, MacOS)
         if: runner.os != 'Windows'
@@ -115,7 +115,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           echo "::debug::$(ls)"
-          Move-Item -Path "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" -Destination "./${FILENAME}"
+          Move-Item -Path "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" -Destination "./${{ env.FILENAME }"
           # for debugging
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"
