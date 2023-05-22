@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 as base
+FROM ubuntu:22.04 as base
 
 FROM base AS production-amd64
 ENV binpath "./release/lodestone_core_linux_x86_64_*"
