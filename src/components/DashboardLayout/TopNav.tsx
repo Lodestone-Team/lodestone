@@ -9,15 +9,14 @@ import {
   faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Menu, Popover, Transition } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
 import { AxiosError } from 'axios';
 import Label, { LabelColor } from 'components/Atoms/Label';
 
-import NotificationPanel from './NotificationPanel';
 import TopBanner from 'components/Atoms/TopBanner';
+import { NotificationPopover } from './NotificationPopover';
 
 export default function TopNav() {
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
@@ -92,17 +91,7 @@ export default function TopNav() {
             {statusMap[coreConnectionStatus]}
           </Label>
         </div>
-
-        <Popover className="relative">
-          <Popover.Button
-            as={FontAwesomeIcon}
-            icon={faBell}
-            className="w-4 select-none hover:cursor-pointer ui-open:text-gray-300 ui-not-open:text-white/50 ui-not-open:hover:text-white/75"
-          />
-          <Popover.Panel className="absolute right-0 z-40 mt-1 h-[80vh] w-[480px] rounded-lg drop-shadow-lg child:h-full">
-            <NotificationPanel className="rounded-lg border" />
-          </Popover.Panel>
-        </Popover>
+        <NotificationPopover />
       </div>
     </>
   );
