@@ -27,6 +27,7 @@ use auth::user::UsersManager;
 use axum::Router;
 
 use axum_server::tls_rustls::RustlsConfig;
+use clap::Parser;
 use color_eyre::eyre::Context;
 use color_eyre::Report;
 use error::Error;
@@ -138,20 +139,20 @@ async fn restore_instances(
         };
         debug!("restoring instance: {}", path.display());
         if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
-            let instance = minecraft::MinecraftInstance::restore(
+            let instance = match minecraft::MinecraftInstance::restore(
                 path.to_owned(),
                 dot_lodestone_config.clone(),
                 event_broadcaster.clone(),
                 macro_executor.clone(),
             )
             .await
-            .map_err(|e| {
-                error!(
-                    "Error while restoring instance {}, failed to restore instance : {e}",
-                    path.display()
-                );
-                e
-            })?;
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Error while restoring instance {} : {e}", path.display());
+                    continue;
+                }
+            };
             debug!("Restored successfully");
             ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
         }
@@ -313,7 +314,19 @@ async fn check_for_core_update() {
     }
 }
 
-pub async fn run() -> (
+#[derive(Debug, Parser)]
+pub struct Args {
+    #[arg(long, default_value = "false")]
+    pub is_cli: bool,
+    #[arg(long, default_value = "false")]
+    pub is_desktop: bool,
+    #[arg(short, long)]
+    pub lodestone_path: Option<PathBuf>,
+}
+
+pub async fn run(
+    args: Args,
+) -> (
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
@@ -321,20 +334,33 @@ pub async fn run() -> (
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
-    init_paths(PathBuf::from(match std::env::var("LODESTONE_PATH") {
-        Ok(v) => v,
-        Err(_) => home::home_dir()
-            .unwrap_or_else(|| {
-                std::env::current_dir().expect("what kinda os are you running lodestone on???")
-            })
-            .join(".lodestone")
-            .to_str()
-            .unwrap()
-            .to_string(),
-    }));
+    let lodestone_path_ = if let Some(path) = args.lodestone_path {
+        path
+    } else {
+        PathBuf::from(match std::env::var("LODESTONE_PATH") {
+            Ok(v) => v,
+            Err(_) => home::home_dir()
+                .unwrap_or_else(|| {
+                    std::env::current_dir().expect("what kinda os are you running lodestone on???")
+                })
+                .join(".lodestone")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        })
+    };
+    init_paths(lodestone_path_);
     let lodestone_path = lodestone_path();
+    info!("Lodestone path: {}", lodestone_path.display());
     std::env::set_current_dir(lodestone_path).unwrap();
     let guard = setup_tracing();
+    if args.is_desktop {
+        info!("Lodestone Core running in Tauri");
+    }
+    if !args.is_cli && !args.is_desktop {
+        warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
+        warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
+    }
     check_for_core_update().await;
     output_sys_info();
 
@@ -342,8 +368,6 @@ pub async fn run() -> (
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
     let path_to_instances = lodestone_path.join("instances");
-
-    info!("Lodestone path: {}", lodestone_path.display());
 
     let (tx, _rx) = EventBroadcaster::new(512);
 
