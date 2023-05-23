@@ -59,7 +59,7 @@ export default function CreateFolderForm({
                     size : 0,
                     creation_time: Date.now() / 1000,
                     modification_time: Date.now() / 1000,
-                    file_type: 'File' as FileType,
+                    file_type: 'Directory' as FileType,
                     
                   },
                 ].sort(fileSorter)

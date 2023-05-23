@@ -151,6 +151,30 @@ main {
   .gutter-both-stable {
     scrollbar-gutter: both-edges stable;
   }
+
+  .generic-gametype-hover{
+    border: double 2px transparent;
+    border-radius: 0.375rem;
+    background-image: linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top right, #2AF588, #334675);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+
+  .generic-gametype-selected {
+    border: double 2px transparent;
+    border-radius: 0.375rem;
+    background-image: linear-gradient(#303338, #303338), radial-gradient(circle at top right, #2AF588, #334675);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+
+  .generic-gametype-unselected{
+    border: double 2px transparent;
+    border-radius: 0.375rem;
+    background-image: linear-gradient( #2B2D32, #2B2D32), radial-gradient(circle at top right, #2B2D32, #2B2D32);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
 }
 
 /* Some libraries don't like class name */
@@ -273,4 +297,8 @@ main {
 
 .Toastify--animate {
   animation-duration: 0.1s !important;
+}
+
+::-ms-reveal {
+  display: none;
 }

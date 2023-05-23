@@ -9,7 +9,7 @@ on:
     tags: [ v\d+\.\d+\.\d+ ]
 
 jobs:
-  lodestone-desktop:
+  build_desktop:
     uses: ./.github/workflows/desktop.yml
     with:
       version: ${{ github.ref_name }}

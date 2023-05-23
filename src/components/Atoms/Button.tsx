@@ -126,7 +126,6 @@ const Button = forwardRef(
             <span className={clsx(loading && 'opacity-0')}>{label}</span>
           </div>
         </div>
-
         {iconRight && (
           <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />
         )}

@@ -22,7 +22,7 @@ export default function ErrorGraphic({
   return (
     <div
       className={clsx(
-        'flex h-full w-full grow flex-col items-center justify-center gap-4 bg-gray-800 break-all',
+        'flex h-full w-full grow flex-col items-center justify-center gap-4 break-all bg-gray-800',
         className
       )}
     >
@@ -35,7 +35,7 @@ export default function ErrorGraphic({
       </p>
       {message2 && (
         <p
-          className={clsx('text-center text-h3 font-medium mx-6', messageClassName)}
+          className={clsx('mx-6 text-center text-h3 font-medium', messageClassName)}
         >
           {message2}
         </p>

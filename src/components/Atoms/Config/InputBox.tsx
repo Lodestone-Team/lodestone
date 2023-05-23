@@ -145,6 +145,8 @@ export default function InputBox({
     const submitError = await catchAsyncToString(onSubmitProp(trimmed));
     setError(submitError);
     setIsLoading(false);
+    setTypeModified(type);
+    setTouched(false);
   };
 
   const onReset = (e: React.FormEvent<HTMLFormElement>) => {
@@ -168,12 +170,15 @@ export default function InputBox({
 
   let icons = [];
 
-  if (touched) {
+  if (typeModified !== 'password' && touched) {
     icons.push(
       <FontAwesomeIcon
         icon={faFloppyDisk}
         className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
-        onClick={() => formRef.current?.requestSubmit()}
+        onClick={() => {
+          formRef.current?.requestSubmit();
+          setTypeModified('password');
+        }}
         key="save"
       />
     );
@@ -191,11 +196,12 @@ export default function InputBox({
       <FontAwesomeIcon
         icon={typeModified === 'password' ? faEye : faEyeSlash}
         className="w-4 text-gray-faded/30 hover:cursor-pointer hover:text-gray-500"
-        onClick={() =>
+        onClick={() => {
           typeModified === 'password'
             ? setTypeModified('text')
-            : setTypeModified('password')
-        }
+            : setTypeModified('password');
+          formRef.current?.reset();
+        }}
         key="reveal password"
       />
     );
@@ -249,7 +255,7 @@ export default function InputBox({
           </div>
         </div>
         <input
-          value={value}
+          value={typeModified === 'password' ? 'xxxxxxxx' : value}
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
@@ -261,7 +267,7 @@ export default function InputBox({
           onBlur={() => {
             setValue(value.trim());
           }}
-          disabled={disabled}
+          disabled={typeModified === 'password' ? true : disabled}
           type={typeModified}
           autoComplete={DISABLE_AUTOFILL}
         />

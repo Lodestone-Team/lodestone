@@ -18,20 +18,20 @@ export const SettingsLayout = () => {
   const [leftNavSize, setLeftNavSize] = useLocalStorage('leftNavSize', 220);
   /* Start userList */
   const [queryUid, setQueryUid] = useQueryParam('user', '');
-  const [selectedUser, setSelectedUser] = useState<PublicUser | undefined>(
-    undefined
+  const [selectedUser, setSelectedUser] = useState<PublicUser | null>(
+    null
   );
   const userList = canManageUsers ? dataUserList : undefined;
   useEffect(() => {
     if (queryUid && userList && queryUid in userList) {
       setSelectedUser(userList[queryUid]);
-    } else setSelectedUser(undefined);
+    } else setSelectedUser(null);
   }, [userList, queryUid]);
 
-  function selectUser(user?: PublicUser) {
+  function selectUser(user: PublicUser | null) {
     console.log('selectUser', user);
-    if (user === undefined) {
-      setSelectedUser(undefined);
+    if (user === null) {
+      setSelectedUser(null);
       setQueryUid('');
     } else {
       setSelectedUser(user);

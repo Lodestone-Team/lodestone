@@ -1,4 +1,4 @@
-name: Developer Preview Workflow
+name: Developer Workflow
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - dev
 
 jobs:
-  lodestone-desktop:
-    uses: ./.github/workflows/desktop.yml
-    with:
-      version: dev
-      debug: true
-      release: false
+
+  check_rs:
+    uses: ./.github/workflows/check.yml
+    secrets: inherit
+  
+  build_dashboard:
+    uses: ./.github/workflows/dashboard.yml
     secrets: inherit

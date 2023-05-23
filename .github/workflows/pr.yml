@@ -5,10 +5,13 @@ on:
     branches: [main, dev, release/*]
 
 jobs:
-  lodestone-desktop:
+  build_desktop:
     uses: ./.github/workflows/desktop.yml
     with:
       version: pr
-      debug: true
+      debug: false
       release: false
     secrets: inherit
+  
+  lodestone-dashboard:
+    uses: ./.github/workflows/dashboard.yml

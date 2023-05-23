@@ -42,7 +42,12 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
 
 #[tokio::main]
 async fn main() {
-    let (core_fut, app_state, _guard) = lodestone_core::run().await;
+    let (core_fut, app_state, _guard) = lodestone_core::run(lodestone_core::Args {
+        is_cli: false,
+        is_desktop: true,
+        lodestone_path: None,
+    })
+    .await;
     tokio::spawn(async {
         core_fut.await;
         println!("Core has exited");

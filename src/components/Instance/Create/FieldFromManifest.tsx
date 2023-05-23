@@ -2,7 +2,7 @@ import { toast } from 'react-toastify';
 import FormComboField from './SetupFormFields/FormComboField';
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
-import { SettingManifest } from './form';
+import { SettingManifest } from 'bindings/SettingManifest';
 
 export const FieldFromManifest = ({
   setting,

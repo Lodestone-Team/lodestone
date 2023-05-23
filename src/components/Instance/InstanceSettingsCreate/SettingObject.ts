@@ -1,9 +1,7 @@
-import {
-  ConfigurableValueType,
-  ConfigurableValue,
-  SectionManifest,
-  ConfigurableManifest,
-} from '../Create/form';
+import { ConfigurableManifest } from 'bindings/ConfigurableManifest';
+import { ConfigurableValue } from 'bindings/ConfigurableValue';
+import { ConfigurableValueType } from 'bindings/ConfigurableValueType';
+import { SectionManifest } from 'bindings/SectionManifest';
 
 export type SectionFieldObject = {
   section_id: string;
@@ -13,14 +11,14 @@ export type SectionFieldObject = {
 };
 
 export type SettingFieldObject = {
-    name: string;
-    type: 'toggle' | 'number' | 'text' | 'dropdown' | 'password';
-    options?: string[];
-    description?: string;
-    value: ConfigurableValue | null;
-    min?: number | null;
-    max?: number | null;
-    is_mutable: boolean;
+  name: string;
+  type: 'toggle' | 'number' | 'text' | 'dropdown' | 'password';
+  options?: string[];
+  description?: string;
+  value: ConfigurableValue | null;
+  min?: number | null;
+  max?: number | null;
+  is_mutable: boolean;
 };
 
 export const generateSectionDataObject = (settingSection: SectionManifest) => {
@@ -57,7 +55,11 @@ export const generateSectionDataObject = (settingSection: SectionManifest) => {
     };
     if (setting.value_type.type === 'Enum')
       settingsObject[settingKey].options = setting.value_type.options;
-    if (setting.value_type.type === 'UnsignedInteger' || setting.value_type.type === 'Integer' || setting.value_type.type === 'Float'){
+    if (
+      setting.value_type.type === 'UnsignedInteger' ||
+      setting.value_type.type === 'Integer' ||
+      setting.value_type.type === 'Float'
+    ) {
       settingsObject[settingKey].min = setting.value_type.min;
       settingsObject[settingKey].max = setting.value_type.max;
     }
@@ -73,12 +75,11 @@ export const generateSectionDataObject = (settingSection: SectionManifest) => {
   return sectionDataObject;
 };
 
-
 export const iterateSections = (manifest: ConfigurableManifest) => {
-  const fieldSections:SectionFieldObject[] = []
-  Object.keys(manifest["setting_sections"]).forEach((sectionKey) => {
-    const section = manifest["setting_sections"][sectionKey];
+  const fieldSections: SectionFieldObject[] = [];
+  Object.keys(manifest['setting_sections']).forEach((sectionKey) => {
+    const section = manifest['setting_sections'][sectionKey];
     fieldSections.push(generateSectionDataObject(section));
-  })
-  return fieldSections
-}
+  });
+  return fieldSections;
+};

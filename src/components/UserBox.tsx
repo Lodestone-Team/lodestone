@@ -40,12 +40,10 @@ export default function UserBox({
   return (
     <div
       className={clsx(
-        'group relative flex cursor-pointer flex-row items-center justify-between',
+        'group relative flex flex-row items-center justify-between',
         'gap-4 bg-gray-800 px-4 py-3 text-h3',
-        'hover:bg-gray-700',
         className
       )}
-      onClick={onClick}
     >
       <Transition
         appear
@@ -125,7 +123,10 @@ export default function UserBox({
       <div className="flex min-w-0 flex-row items-center gap-4">
         <Avatar size={35} name={user.uid} />
         <div className="flex min-w-0 flex-col">
-          <h1 className="truncate text-h3 font-bold leading-tight text-gray-300">
+          <h1
+            className="cursor-pointer truncate text-h3 font-bold leading-tight text-gray-300 hover:underline"
+            onClick={onClick}
+          >
             {user.username}
             {/* this text is bigger then the one in inputbox on purpose */}
           </h1>

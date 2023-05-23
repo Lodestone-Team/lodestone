@@ -49,7 +49,7 @@ export const myTwMerge = extendTailwindMerge({
   },
 });
 
-export const supportedZip = ["rar", "zip", "gz", "tgz"];
+export const supportedZip = ["zip", "gz", "tgz"];
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -417,7 +417,7 @@ export function isLocalCore(core: CoreConnectionInfo) {
 }
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(...inputs));
+  return myTwMerge(clsx(...inputs));
 }
 
 // detect if we are in a browser that supports negative lookbehind
