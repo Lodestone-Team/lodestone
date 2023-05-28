@@ -4,34 +4,49 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Popover } from '@headlessui/react';
-import { NotificationContext } from 'data/NotificationContext';
+import { NotificationContext, NotificationItem } from 'data/NotificationContext';
 
 import NotificationPanel from './NotificationPanel';
-import { useContext, useEffect, useState } from 'react';
+import { forwardRef, useContext, useEffect, useState } from 'react';
 import clsx from 'clsx';
 
-const IconWithBadge = ({ 
-  icon, 
-  onClick,
-  className,
-} : {
-  icon: IconDefinition,
-  onClick: () => void,
-  className: string,
-}) => (
-  <div>
-    <FontAwesomeIcon icon={icon} className={className} onClick={onClick} />
-    <div className="absolute top-[4px] right-[1px] h-1.5 w-1.5 rounded-full bg-red" />
-  </div>
-);
+const IconWithBadge = forwardRef((
+  { 
+    icon, 
+    onClick,
+    className,
+  } : {
+    icon: IconDefinition,
+    onClick: () => void,
+    className: string,
+  }, 
+  ref: React.Ref<HTMLDivElement>) => {
+
+  return (
+    <div ref={ref}>
+      <FontAwesomeIcon icon={icon} className={className} onClick={onClick} />
+      <div className="absolute top-[4px] right-[1px] h-1.5 w-1.5 rounded-full bg-red" />
+    </div>
+  )
+});
+
+IconWithBadge.displayName = 'IconWithBadge';
 
 export const NotificationPopover = () => {
   const { notifications, ongoingNotifications } = useContext(NotificationContext);
   const [ newNotifications, setNewNotifications ] = useState<boolean>(false);
+  const [ previousNotifications, setPreviousNotifications ] = useState<NotificationItem[]>([]);
+
+  const shouldShowPopup = () => {
+    return newNotifications || 
+      ongoingNotifications.length > 0 || 
+      previousNotifications.map(n => n.fresh && !(notifications.includes(n))).length > 0;
+  };
 
   useEffect(() => {
     console.log(notifications, ongoingNotifications)
-    setNewNotifications(notifications.length > 0 || ongoingNotifications.length > 0);
+    setPreviousNotifications(notifications);
+    setNewNotifications(shouldShowPopup());
   }, [notifications, ongoingNotifications]);
     
 
