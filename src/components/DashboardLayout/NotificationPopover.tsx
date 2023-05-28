@@ -1,4 +1,5 @@
 import {
+  IconDefinition,
   faBell,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -9,18 +10,35 @@ import NotificationPanel from './NotificationPanel';
 import { useContext, useEffect, useState } from 'react';
 import clsx from 'clsx';
 
+const IconWithBadge = ({ 
+  icon, 
+  onClick,
+  className,
+} : {
+  icon: IconDefinition,
+  onClick: () => void,
+  className: string,
+}) => (
+  <div>
+    <FontAwesomeIcon icon={icon} className={className} onClick={onClick} />
+    <div className="absolute top-[4px] right-[1px] h-1.5 w-1.5 rounded-full bg-red" />
+  </div>
+);
+
 export const NotificationPopover = () => {
   const { notifications, ongoingNotifications } = useContext(NotificationContext);
   const [ newNotifications, setNewNotifications ] = useState<boolean>(false);
 
   useEffect(() => {
+    console.log(notifications, ongoingNotifications)
     setNewNotifications(notifications.length > 0 || ongoingNotifications.length > 0);
   }, [notifications, ongoingNotifications]);
     
+
   return (
     <Popover className="relative">
       <Popover.Button
-        as={FontAwesomeIcon}
+        as={newNotifications ? IconWithBadge : FontAwesomeIcon}
         icon={faBell}
         className={clsx(
           "w-4 select-none hover:cursor-pointer ui-open:text-gray-300",
