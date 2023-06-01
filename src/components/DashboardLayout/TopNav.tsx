@@ -79,7 +79,7 @@ export default function TopNav() {
             }}
           />
         </div>
-        <div className="flex flex-row flex-wrap items-baseline gap-1">
+        <div className="flex flex-row items-baseline gap-1">
           <p className="text-center text-medium font-medium text-white/50">
             {coreData?.core_name ?? '...'}:
           </p>

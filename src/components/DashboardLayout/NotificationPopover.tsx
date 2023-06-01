@@ -25,7 +25,7 @@ const IconWithBadge = forwardRef((
   return (
     <div ref={ref}>
       <FontAwesomeIcon icon={icon} className={className} onClick={onClick} />
-      <div className="absolute top-[4px] right-[1px] h-1.5 w-1.5 rounded-full bg-red" />
+      <div className="absolute top-[3px] right-[0px] h-2 w-2 rounded-full bg-red" />
     </div>
   )
 });
