@@ -114,7 +114,7 @@ export const useEventStream = () => {
                 }!`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
             InstanceWarning: () => {
@@ -125,7 +125,7 @@ export const useEventStream = () => {
                 title: `Instance ${name} encountered a warning`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
             InstanceError: () => {
@@ -134,7 +134,7 @@ export const useEventStream = () => {
                 title: `Instance ${name} encountered an error`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
             InstanceInput: ({ message }) => {
@@ -175,7 +175,7 @@ export const useEventStream = () => {
                   title,
                   event,
                   type: 'add',
-                  fresh: fresh,
+                  fresh,
                 });
             },
             PlayerMessage: ({ player, player_message }) => {
@@ -184,7 +184,7 @@ export const useEventStream = () => {
                 title: `${player} said ${player_message} on ${name}`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
           }),
@@ -274,7 +274,7 @@ export const useEventStream = () => {
                 title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
             MacroStopped: () => {
@@ -283,7 +283,7 @@ export const useEventStream = () => {
                 title: `Macro ${macro_pid} stopped on ${uuid}`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
             MacroErrored: ({ error_msg }) => {
@@ -294,7 +294,7 @@ export const useEventStream = () => {
                 title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
                 event,
                 type: 'add',
-                fresh: fresh,
+                fresh,
               });
             },
           }),

@@ -119,7 +119,7 @@ export const useOngoingNotificationReducer = () => {
               key: event_id,
               level,
               start_value: inner,
-              fresh: fresh,
+              fresh
             } as OngoingNotificationItem,
           ];
         },
