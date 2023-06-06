@@ -30,7 +30,7 @@ EXPOSE 16662
 
 RUN chmod +x ./main
 
-RUN groupadd -r user && useradd -r -g user user
+RUN groupadd user && useradd -g user user
 
 RUN mkdir -p /home/user/.lodestone
 RUN chown user /app
