@@ -2,4 +2,4 @@
 import type { GameType } from "./GameType";
 import type { InstanceUuid } from "./InstanceUuid";
 
-export interface DotLodestoneConfig { game_type: GameType, uuid: InstanceUuid, creation_time: bigint, lodestone_version: string, }
+export interface DotLodestoneConfig { game_type: GameType, uuid: InstanceUuid, creation_time: bigint, }
