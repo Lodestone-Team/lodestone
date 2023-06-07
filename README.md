@@ -89,8 +89,8 @@ docker run -d \
   --name lodestone \
   --restart unless-stopped \
   -p 16662:16662 \
-  -v lodestone:/root/.lodestone \
-  ghcr.io/Lodestone-Team/lodestone_core
+  -v lodestone:/home/user/.lodestone \
+  ghcr.io/lodestone-team/lodestone_core
 ```
 
 <!-- GETTING STARTED -->
