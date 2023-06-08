@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::error::ErrorKind;
 use crate::implementations::generic;
 use crate::implementations::minecraft;
 use crate::minecraft::FlavourKind;
@@ -10,18 +11,20 @@ use axum::routing::get;
 use axum::routing::put;
 use axum::Json;
 use axum::Router;
+use color_eyre::eyre::eyre;
 use serde::Deserialize;
 use serde::Serialize;
 use ts_rs::TS;
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Clone, Copy)]
 #[ts(export)]
 pub enum HandlerGameType {
     MinecraftJavaVanilla,
     MinecraftFabric,
     MinecraftForge,
     MinecraftPaper,
+    MinecraftBedrock,
 }
 
 impl From<HandlerGameType> for GameType {
@@ -31,18 +34,27 @@ impl From<HandlerGameType> for GameType {
             HandlerGameType::MinecraftFabric => Self::MinecraftJava,
             HandlerGameType::MinecraftForge => Self::MinecraftJava,
             HandlerGameType::MinecraftPaper => Self::MinecraftJava,
+            HandlerGameType::MinecraftBedrock => Self::MinecraftBedrock,
         }
     }
 }
 
-impl From<HandlerGameType> for FlavourKind {
-    fn from(value: HandlerGameType) -> Self {
-        match value {
+impl TryFrom<HandlerGameType> for FlavourKind {
+    type Error = Error;
+
+    fn try_from(value: HandlerGameType) -> Result<Self, Error> {
+        Ok(match value {
             HandlerGameType::MinecraftJavaVanilla => Self::Vanilla,
             HandlerGameType::MinecraftFabric => Self::Fabric,
             HandlerGameType::MinecraftForge => Self::Forge,
             HandlerGameType::MinecraftPaper => Self::Paper,
-        }
+            HandlerGameType::MinecraftBedrock => {
+                return Err(Error {
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("Programmer error: tried to convert HandlerGameType::MinecraftBedrock to FlavourKind"),
+                })
+            }
+        })
     }
 }
 
@@ -58,7 +70,7 @@ pub async fn get_available_games() -> Json<Vec<HandlerGameType>> {
 pub async fn get_setup_manifest(
     Path(game_type): Path<HandlerGameType>,
 ) -> Result<Json<SetupManifest>, Error> {
-    minecraft::MinecraftInstance::setup_manifest(&game_type.into())
+    minecraft::MinecraftInstance::setup_manifest(&game_type.try_into()?)
         .await
         .map(Json)
 }

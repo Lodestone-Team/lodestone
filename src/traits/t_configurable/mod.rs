@@ -31,6 +31,9 @@ pub enum MinecraftVariant {
     Other { name: String },
 }
 
+/// The type of game this instance is
+/// 
+/// Meant to be consumed by frontend to display the correct icon
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
 #[enum_kind(GameType, derive(Serialize, Deserialize, TS))]
 #[serde(tag = "type")]
@@ -39,6 +42,7 @@ pub enum Game {
     MinecraftJava {
         variant: MinecraftVariant,
     },
+    MinecraftBedrock,
     Generic {
         game_name: GameType,       //used for identifying the "game" ("Minecraft")
         game_display_name: String, //displaying to the user what on earth this is ("MinecraftGlowstone")

@@ -14,7 +14,6 @@ use crate::events::{CausedBy, Event, ProgressionEndValue, ProgressionStartValue}
 use crate::implementations::generic;
 use crate::traits::t_configurable::GameType;
 
-use minecraft::FlavourKind;
 
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::{path_to_instances, GameInstance};
@@ -85,12 +84,7 @@ pub async fn create_minecraft_instance(
 
     let instance_uuid = instance_uuid;
 
-    let flavour = match game_type {
-        HandlerGameType::MinecraftJavaVanilla => FlavourKind::Vanilla,
-        HandlerGameType::MinecraftForge => FlavourKind::Forge,
-        HandlerGameType::MinecraftFabric => FlavourKind::Fabric,
-        HandlerGameType::MinecraftPaper => FlavourKind::Paper,
-    };
+    let flavour = game_type.try_into()?;
 
     let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
 

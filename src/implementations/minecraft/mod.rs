@@ -76,6 +76,7 @@ pub struct PaperBuildVersion(i64);
 #[ts(export)]
 pub struct ForgeBuildVersion(String);
 
+/// A parameter for constructor of `MinecraftInstance`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, EnumKind)]
 #[serde(rename_all = "snake_case")]
 #[enum_kind(FlavourKind, derive(Serialize, Deserialize, TS))]
