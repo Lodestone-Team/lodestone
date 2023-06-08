@@ -5,7 +5,10 @@ use deno_core::{
     op, OpState,
 };
 
-use crate::{event_broadcaster::EventBroadcaster, events::Event, types::InstanceUuid};
+use crate::{
+    event_broadcaster::EventBroadcaster, events::Event, macro_executor::MacroPID,
+    types::InstanceUuid,
+};
 
 #[op]
 async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, anyhow::Error> {
@@ -19,9 +22,13 @@ async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, anyhow::Error>
 }
 
 #[op]
-fn broadcast_event(state: Rc<RefCell<OpState>>, event: Event) {
+fn emit_detach(
+    state: Rc<RefCell<OpState>>,
+    macro_pid: MacroPID,
+    instance_uuid: Option<InstanceUuid>,
+) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
-    tx.send(event);
+    tx.send(Event::new_macro_detach_event(instance_uuid, macro_pid));
 }
 
 #[op]
@@ -30,14 +37,13 @@ fn emit_console_out(
     line: String,
     instance_name: String,
     instance_uuid: InstanceUuid,
-) -> Result<(), anyhow::Error> {
+) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_instance_output(
         instance_uuid,
         instance_name,
         line,
     ));
-    Ok(())
 }
 
 pub fn register_all_event_ops(
@@ -48,8 +54,8 @@ pub fn register_all_event_ops(
         deno_core::Extension::builder("event_ops")
             .ops(vec![
                 next_event::decl(),
-                broadcast_event::decl(),
                 emit_console_out::decl(),
+                emit_detach::decl(),
             ])
             .state(|state| {
                 state.put(event_broadcaster);

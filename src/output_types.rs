@@ -38,6 +38,7 @@ impl From<&Event> for ClientEvent {
                     }
                 }
                 MacroEventInner::MainModuleExecuted => EventLevel::Info,
+                MacroEventInner::Detach => EventLevel::Info,
             },
             EventInner::ProgressionEvent(p) => match p.progression_event_inner() {
                 ProgressionEventInner::ProgressionStart { .. } => EventLevel::Info,

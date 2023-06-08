@@ -1,18 +1,20 @@
-import { ClientEvent } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/releases/0.5.0/deno_bindings/ClientEvent.ts"
+import { ClientEvent } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/main/bindings/ClientEvent.ts"
+import { MacroPID } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/main/bindings/MacroPID.ts";
 
 declare const Deno: any;
 const core = Deno.core;
 const { ops } = core;
 
-export async function nextEvent() : Promise<ClientEvent> {
+export async function nextEvent(): Promise<ClientEvent> {
     return core.opAsync("next_event");
 }
 
-export function broadcastEvent(event: ClientEvent) {
-    ops.broadcast_event(event);
+
+export function emiDetach(pid: MacroPID, instanceUuid: string | null) {
+    ops.emit_detach(pid, instanceUuid);
 }
 
-export function emitConsoleOut(line : string, instanceName : string, instanceUuid : string) {
+export function emitConsoleOut(line: string, instanceName: string, instanceUuid: string) {
     ops.emit_console_out(line, instanceName, instanceUuid);
 }
 

@@ -299,6 +299,23 @@ impl MacroExecutor {
                         worker_option,
                     );
 
+                    main_worker
+                        .execute_script(
+                            "deps_inject",
+                            deno_core::FastString::Owned(
+                                format!(
+                                    "const __macro_pid = {}; const __instance_uuid = \"{}\";",
+                                    pid.0,
+                                    instance_uuid
+                                        .clone()
+                                        .map(|uuid| uuid.to_string())
+                                        .unwrap_or_else(|| "null".to_string())
+                                )
+                                .into_boxed_str(),
+                            ),
+                        )
+                        .unwrap();
+
                     let isolate_handle = main_worker.js_runtime.v8_isolate().thread_safe_handle();
 
                     process_table.insert(pid, isolate_handle);
@@ -399,6 +416,8 @@ impl MacroExecutor {
                         }
                     }
 
+                    debug!("Macro event loop exited");
+
                     event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
@@ -468,6 +487,25 @@ impl MacroExecutor {
             })?
             .terminate_execution();
         Ok(())
+    }
+
+    pub async fn wait_for_detach(&self, target_macro_pid: MacroPID) {
+        let mut rx = self.event_broadcaster.subscribe();
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventInner::MacroEvent(MacroEvent {
+                macro_pid,
+                macro_event_inner,
+                ..
+            }) = event.event_inner
+            {
+                if target_macro_pid == macro_pid {
+                    if let MacroEventInner::Detach = macro_event_inner {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     async fn wait_for_main_module_executed(&self, taget_macro_pid: MacroPID) {
