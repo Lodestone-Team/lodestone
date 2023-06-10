@@ -19,12 +19,14 @@ use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
 use crate::{
-    deno_ops::events::register_all_event_ops,
+    deno_ops::{events::register_all_event_ops, prelude::register_prelude_ops},
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
+    prelude::GameInstance,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
+    AppState,
 };
 
 use color_eyre::eyre::eyre;
@@ -289,6 +291,7 @@ impl MacroExecutor {
                 local.spawn_local(async move {
                     let mut worker_option = worker_options_generator.generate();
                     register_all_event_ops(&mut worker_option, event_broadcaster.clone());
+                    register_prelude_ops(&mut worker_option);
                     worker_option.bootstrap.args = args;
 
                     let mut main_worker = deno_runtime::worker::MainWorker::from_options(
