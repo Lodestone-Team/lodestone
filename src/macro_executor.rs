@@ -292,7 +292,6 @@ impl MacroExecutor {
                     let mut worker_option = worker_options_generator.generate();
                     register_all_event_ops(&mut worker_option, event_broadcaster.clone());
                     register_prelude_ops(&mut worker_option);
-                    worker_option.bootstrap.args = args;
 
                     let mut main_worker = deno_runtime::worker::MainWorker::from_options(
                         main_module,
@@ -301,7 +300,10 @@ impl MacroExecutor {
                         ),
                         worker_option,
                     );
-                    main_worker.bootstrap(&deno_runtime::BootstrapOptions::default());
+                    main_worker.bootstrap(&deno_runtime::BootstrapOptions {
+                        args,
+                        ..Default::default()
+                    });
                     main_worker
                         .execute_script(
                             "deps_inject",
