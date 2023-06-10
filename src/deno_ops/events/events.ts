@@ -2,7 +2,7 @@ import { ClientEvent } from "https://raw.githubusercontent.com/Lodestone-Team/lo
 import { MacroPID } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/main/bindings/MacroPID.ts";
 
 declare const Deno: any;
-const core = Deno.core;
+const core = Deno[Deno.internal].core;
 const { ops } = core;
 
 export async function nextEvent(): Promise<ClientEvent> {

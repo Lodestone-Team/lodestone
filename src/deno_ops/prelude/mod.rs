@@ -37,6 +37,7 @@ pub fn register_prelude_ops(worker_options: &mut deno_runtime::worker::WorkerOpt
     worker_options.extensions.push(
         deno_core::Extension::builder("prelude_ops")
             .ops(vec![get_instance_state::decl(), get_instance_path::decl()])
+            .force_op_registration()
             .build(),
     );
 }

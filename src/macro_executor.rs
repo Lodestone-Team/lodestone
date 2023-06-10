@@ -301,7 +301,7 @@ impl MacroExecutor {
                         ),
                         worker_option,
                     );
-
+                    main_worker.bootstrap(&deno_runtime::BootstrapOptions::default());
                     main_worker
                         .execute_script(
                             "deps_inject",

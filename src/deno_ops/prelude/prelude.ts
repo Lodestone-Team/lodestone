@@ -3,7 +3,7 @@ import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 import { emiDetach } from "../events/events.ts";
 
 declare const Deno: any;
-const core = Deno.core;
+const core = Deno[Deno.internal].core;
 const { ops } = core;
 
 declare const __macro_pid: MacroPID;
