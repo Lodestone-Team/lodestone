@@ -20,6 +20,10 @@ export async function getInstanceState(instanceUuid: string): Promise<InstanceSt
     return core.opAsync("get_instance_state", instanceUuid);
 }
 
+export async function getInstancePath(instanceUuid: string): Promise<string> {
+    return core.opAsync("get_instance_path", instanceUuid);
+}
+
 // Notifies the caller that the macro wishes to be run in the background.
 // This is a no-op if the macro is already running in the background, or called multiple times.
 // This function DOES NOT exit the macro.
