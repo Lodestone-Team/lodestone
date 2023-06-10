@@ -450,8 +450,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_vanilla_jar_url() {
-        assert_eq!(super::get_vanilla_jar_url("1.18.2").await, Some(("https://launcher.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar".to_string(), Flavour::Vanilla)));
-        assert_eq!(super::get_vanilla_jar_url("21w44a").await, Some(("https://launcher.mojang.com/v1/objects/ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d/server.jar".to_string(), Flavour::Vanilla)));
+        assert_eq!(super::get_vanilla_jar_url("1.18.2").await, Some(("https://piston-data.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar".to_string(), Flavour::Vanilla)));
+        assert_eq!(super::get_vanilla_jar_url("21w44a").await, Some(("https://piston-data.mojang.com/v1/objects/ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d/server.jar".to_string(), Flavour::Vanilla)));
         assert_eq!(super::get_vanilla_jar_url("1.8.4").await, Some(("https://launcher.mojang.com/v1/objects/dd4b5eba1c79500390e0b0f45162fa70d38f8a3d/server.jar".to_string(), Flavour::Vanilla)));
 
         assert_eq!(super::get_vanilla_jar_url("1.8.4asdasd").await, None);
