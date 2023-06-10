@@ -115,7 +115,6 @@ pub fn migrate(lodestone_path: &Path) -> Result<(), Error> {
         }
         None => {
             info!("No migration needed");
-            return Ok(());
         }
     }
     let version_path = lodestone_path.join(".lodestone_metadata.json");

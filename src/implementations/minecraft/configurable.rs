@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 
 use crate::error::{Error, ErrorKind};
-use crate::prelude::LODESTONE_PATH;
+use crate::prelude::path_to_tmp;
 use crate::traits::t_configurable::manifest::{
     ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SettingManifest,
 };
@@ -34,10 +34,6 @@ impl TConfigurable for MinecraftInstance {
 
     async fn version(&self) -> String {
         self.config.lock().await.version.clone()
-    }
-
-    async fn flavour(&self) -> String {
-        self.config.lock().await.flavour.to_string()
     }
 
     async fn description(&self) -> String {
@@ -160,7 +156,7 @@ impl TConfigurable for MinecraftInstance {
                 })
             }
         };
-        let lodestone_tmp = LODESTONE_PATH.with(|p| p.join("tmp"));
+        let lodestone_tmp = path_to_tmp().clone();
         let temp_dir = tempfile::tempdir_in(lodestone_tmp).context("Failed to create temp dir")?;
         download_file(
             &url,
@@ -176,7 +172,12 @@ impl TConfigurable for MinecraftInstance {
         self.write_config_to_file().await
     }
 
-    async fn configurable_manifest(&self) -> ConfigurableManifest {
+    async fn configurable_manifest(&mut self) -> ConfigurableManifest {
+        self.configurable_manifest
+            .lock()
+            .await
+            .clear_section(ServerPropertySetting::get_section_id());
+        let _ = self.read_properties().await;
         self.configurable_manifest.lock().await.clone()
     }
 
@@ -186,6 +187,7 @@ impl TConfigurable for MinecraftInstance {
         setting_id: &str,
         value: ConfigurableValue,
     ) -> Result<(), Error> {
+        let _ = self.read_properties().await;
         self.configurable_manifest
             .lock()
             .await

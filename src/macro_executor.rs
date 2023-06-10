@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    fmt::Debug,
+    fmt::{Debug, Display},
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -10,17 +9,21 @@ use std::{
 };
 
 use color_eyre::eyre::Context;
-use tokio::{
-    runtime::Builder,
-    sync::{oneshot, Mutex},
-    task::LocalSet,
-};
-use tracing::{debug, error};
+use dashmap::DashMap;
+use deno_runtime::permissions::Permissions;
+use futures_util::Future;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::{runtime::Builder, sync::mpsc, task::LocalSet};
+use tracing::{debug, error, log::warn};
+use ts_rs::TS;
 
 use crate::{
+    deno_ops::events::register_all_event_ops,
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
+    traits::t_macro::ExitStatus,
     types::InstanceUuid,
 };
 
@@ -32,7 +35,6 @@ use anyhow::bail;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceTextInfo;
-use deno_core::resolve_import;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
@@ -40,14 +42,44 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use deno_core::{anyhow, error::generic_error};
+use deno_core::{resolve_import, ModuleCode};
 
 use futures::FutureExt;
 
-pub trait MainWorkerGenerator: Send + Sync {
-    fn generate(&self, args: Vec<String>, caused_by: CausedBy) -> deno_runtime::worker::MainWorker;
+pub trait WorkerOptionGenerator: Send + Sync {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions;
 }
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash, TS)]
+#[serde(transparent)]
+#[ts(export)]
+pub struct MacroPID(pub usize); // todo remove pub
+
+impl From<MacroPID> for usize {
+    fn from(uid: MacroPID) -> Self {
+        uid.0
+    }
+}
+
+impl From<&MacroPID> for usize {
+    fn from(uid: &MacroPID) -> Self {
+        uid.0
+    }
+}
+
+impl AsRef<usize> for MacroPID {
+    fn as_ref(&self) -> &usize {
+        &self.0
+    }
+}
+
+impl Display for MacroPID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MacroPID({})", self.0)
+    }
 }
 
 impl Default for TypescriptModuleLoader {
@@ -71,7 +103,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        _maybe_referrer: Option<ModuleSpecifier>,
+        _maybe_referrer: Option<&ModuleSpecifier>,
         _is_dyn_import: bool,
     ) -> Pin<Box<ModuleSourceFuture>> {
         let module_specifier = module_specifier.clone();
@@ -81,7 +113,7 @@ impl ModuleLoader for TypescriptModuleLoader {
                 .to_file_path()
             {
                 Ok(path) => {
-                    let media_type = MediaType::from(&path);
+                    let media_type = MediaType::from_path(&path);
                     let (module_type, should_transpile) = match media_type {
                         MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
                             (ModuleType::JavaScript, false)
@@ -149,21 +181,12 @@ impl ModuleLoader for TypescriptModuleLoader {
                     scope_analysis: false,
                     maybe_syntax: None,
                 })?;
-                parsed
-                    .transpile(&Default::default())?
-                    .text
-                    .into_bytes()
-                    .into_boxed_slice()
+                parsed.transpile(&Default::default())?.text.into_boxed_str()
             } else {
-                code.into_bytes().into_boxed_slice()
+                code.into_boxed_str()
             };
 
-            let module = ModuleSource {
-                code,
-                module_type,
-                module_url_specified: module_specifier.to_string(),
-                module_url_found: module_specifier.to_string(),
-            };
+            let module = ModuleSource::new(module_type, ModuleCode::Owned(code), &module_specifier);
             Ok(module)
         }
         .boxed_local()
@@ -172,32 +195,91 @@ impl ModuleLoader for TypescriptModuleLoader {
 
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
-    macro_process_table: Arc<Mutex<HashMap<usize, deno_core::v8::IsolateHandle>>>,
+    macro_process_table: Arc<DashMap<MacroPID, deno_core::v8::IsolateHandle>>,
+    exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
+    channel_table:
+        Arc<DashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
 }
 
+pub struct SpawnResult {
+    pub macro_pid: MacroPID,
+    pub main_module_future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    pub exit_future: Pin<Box<dyn Future<Output = Result<ExitStatus, Error>> + Send>>,
+}
+
 impl MacroExecutor {
     pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
-        let process_table = Arc::new(Mutex::new(HashMap::new()));
+        let process_table = Arc::new(DashMap::new());
         let process_id = Arc::new(AtomicUsize::new(0));
+        let exit_status_table = Arc::new(DashMap::new());
+
+        // spawn a task to listen for exit events and update the exit status table
+        tokio::task::spawn({
+            let exit_status_table = exit_status_table.clone();
+            let mut rx = event_broadcaster.subscribe();
+            async move {
+                loop {
+                    if let Ok(event) = rx.recv().await {
+                        if let Some(MacroEvent {
+                            macro_pid,
+                            macro_event_inner: MacroEventInner::Stopped { exit_status },
+                            ..
+                        }) = event.try_macro_event()
+                        {
+                            exit_status_table.insert(*macro_pid, exit_status.clone());
+                        }
+                    }
+                }
+            }
+        });
+
         MacroExecutor {
             macro_process_table: process_table,
             event_broadcaster,
+            channel_table: Arc::new(DashMap::new()),
+            exit_status_table,
             next_process_id: process_id,
         }
     }
 
+    /// For timeout:
+    ///
+    /// If `None`, the handle will never timeout.
+    ///
+    /// If `Some(Duration)`, the handle will timeout after the duration.
+    ///
+    /// Note that this does not terminate the process, it just stops the handle from waiting for it.
+    ///
+    /// It is up to the caller to terminate the process if it is still running.
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         &self,
         path_to_main_module: PathBuf,
         args: Vec<String>,
-        caused_by: CausedBy,
-        main_worker_generator: Box<dyn MainWorkerGenerator>,
+        _caused_by: CausedBy,
+        worker_options_generator: Box<dyn WorkerOptionGenerator>,
+        permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
-    ) -> Result<usize, Error> {
-        let pid = self.next_process_id.fetch_add(1, Ordering::SeqCst);
-
+        timeout: Option<Duration>,
+    ) -> Result<SpawnResult, Error> {
+        let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
+        let exit_future = Box::pin({
+            let __self = self.clone();
+            async move { __self.wait_with_timeout(pid, timeout).await }
+        });
+        let main_module_future = Box::pin({
+            let __self = self.clone();
+            async move {
+                __self.wait_for_main_module_executed(pid).await;
+            }
+        });
+        let main_module = deno_core::resolve_path(
+            ".",
+            &std::env::current_dir().context("Failed to get current directory")?,
+        )
+        .context("Failed to resolve path")?;
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
@@ -205,46 +287,126 @@ impl MacroExecutor {
             move || {
                 let local = LocalSet::new();
                 local.spawn_local(async move {
-                    let mut runtime = main_worker_generator.generate(args, caused_by);
+                    let mut worker_option = worker_options_generator.generate();
+                    register_all_event_ops(&mut worker_option, event_broadcaster.clone());
+                    worker_option.bootstrap.args = args;
 
-                    let isolate_handle = runtime.js_runtime.v8_isolate().thread_safe_handle();
+                    let mut main_worker = deno_runtime::worker::MainWorker::from_options(
+                        main_module,
+                        deno_runtime::permissions::PermissionsContainer::new(
+                            permissions.unwrap_or_else(Permissions::allow_all),
+                        ),
+                        worker_option,
+                    );
 
-                    let main_module =
-                        match deno_core::resolve_path(&path_to_main_module.to_string_lossy()) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                error!("Error resolving main module: {}", e);
-                                return;
-                            }
-                        };
-                    process_table.lock().await.insert(pid, isolate_handle);
+                    let isolate_handle = main_worker.js_runtime.v8_isolate().thread_safe_handle();
+
+                    process_table.insert(pid, isolate_handle);
+
+                    let main_module = match deno_core::resolve_path(
+                        &path_to_main_module.to_string_lossy(),
+                        &std::env::current_dir().unwrap(),
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("Error resolving main module: {}", e);
+                            return;
+                        }
+                    };
 
                     event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
-                            macro_event_inner: MacroEventInner::MacroStarted,
+                            macro_event_inner: MacroEventInner::Started,
                             instance_uuid: instance_uuid.clone(),
                         }
                         .into(),
                     );
 
-                    let _ = runtime
-                        .execute_main_module(&main_module)
-                        .await
-                        .map_err(|e| {
-                            println!("Error executing main module: {}", e);
-                            e
-                        });
-                    let event_broadcaster = event_broadcaster.clone();
-
-                    let _ = runtime.run_event_loop(false).await.map_err(|e| {
-                        println!("Error while running event loop: {}", e);
-                    });
+                    if let Err(e) = main_worker.execute_main_module(&main_module).await {
+                        if e.to_string() == "Uncaught Error: execution terminated" {
+                            warn!("User terminated macro execution");
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Killed {
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid,
+                                }
+                                .into(),
+                            );
+                        } else {
+                            error!("Error executing main module {main_module}: {}", e);
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Error {
+                                            error_msg: e.to_string(),
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid,
+                                }
+                                .into(),
+                            );
+                        }
+                        return;
+                    }
 
                     event_broadcaster.send(
                         MacroEvent {
                             macro_pid: pid,
-                            macro_event_inner: MacroEventInner::MacroStopped,
+                            macro_event_inner: MacroEventInner::MainModuleExecuted,
+                            instance_uuid: instance_uuid.clone(),
+                        }
+                        .into(),
+                    );
+
+                    if let Err(e) = main_worker.run_event_loop(false).await {
+                        if e.to_string() == "Uncaught Error: execution terminated" {
+                            warn!("User terminated macro execution");
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Killed {
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid: instance_uuid.clone(),
+                                }
+                                .into(),
+                            );
+                        } else {
+                            error!("Error running event loops: {}", e);
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Stopped {
+                                        exit_status: ExitStatus::Error {
+                                            error_msg: e.to_string(),
+                                            time: chrono::Utc::now().timestamp(),
+                                        },
+                                    },
+                                    instance_uuid: instance_uuid.clone(),
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+
+                    event_broadcaster.send(
+                        MacroEvent {
+                            macro_pid: pid,
+                            macro_event_inner: MacroEventInner::Stopped {
+                                exit_status: ExitStatus::Success {
+                                    time: chrono::Utc::now().timestamp(),
+                                },
+                            },
                             instance_uuid,
                         }
                         .into(),
@@ -272,7 +434,7 @@ impl MacroExecutor {
                 if let Ok(event) = rx.recv().await {
                     if let EventInner::MacroEvent(MacroEvent {
                         macro_pid,
-                        macro_event_inner: MacroEventInner::MacroStarted,
+                        macro_event_inner: MacroEventInner::Started,
                         ..
                     }) = event.event_inner
                     {
@@ -289,15 +451,17 @@ impl MacroExecutor {
         tokio::time::timeout(Duration::from_secs(1), fut)
             .await
             .context("Failed to spawn macro")??;
-        Ok(pid)
+        Ok(SpawnResult {
+            macro_pid: pid,
+            main_module_future,
+            exit_future,
+        })
     }
 
     /// abort a macro execution
-    pub async fn abort_macro(&self, pid: &usize) -> Result<(), Error> {
+    pub fn abort_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_process_table
-            .lock()
-            .await
-            .get(pid)
+            .get(&pid)
             .ok_or_else(|| Error {
                 kind: ErrorKind::NotFound,
                 source: eyre!("Macro with pid {} not found", pid),
@@ -305,106 +469,106 @@ impl MacroExecutor {
             .terminate_execution();
         Ok(())
     }
-    /// wait for a macro to finish
-    ///
-    /// if timeout is None, wait forever
-    ///
-    /// if timeout is Some, wait for the specified amount of time
-    ///
-    /// returns true if the macro finished, false if the timeout was reached
-    pub async fn wait_with_timeout(&self, taget_macro_pid: usize, timeout: Option<f64>) -> bool {
-        let mut rx = self.event_broadcaster.subscribe();
-        tokio::select! {
-            _ = async {
-                if let Some(timeout) = timeout {
-                    tokio::time::sleep(Duration::from_secs_f64(timeout)).await;
-                } else {
-                    // create a future that never resolves
-                    let (_tx, rx) = oneshot::channel::<()>();
-                    let _ = rx.await;
 
-                }
-            } => {
-                false
-            }
-            _ = {
-                async {
-                    loop {
-                    let event = rx.recv().await.unwrap();
-                    if let EventInner::MacroEvent(MacroEvent { macro_pid, macro_event_inner, .. }) = event.event_inner {
-                        if taget_macro_pid == macro_pid {
-                           if let MacroEventInner::MacroStopped = macro_event_inner {
-                               break;
-                           }
-                        }
+    async fn wait_for_main_module_executed(&self, taget_macro_pid: MacroPID) {
+        let mut rx = self.event_broadcaster.subscribe();
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventInner::MacroEvent(MacroEvent {
+                macro_pid,
+                macro_event_inner,
+                ..
+            }) = event.event_inner
+            {
+                if taget_macro_pid == macro_pid {
+                    if let MacroEventInner::MainModuleExecuted = macro_event_inner {
+                        return;
                     }
                 }
-            }} => {
-                true
             }
         }
     }
 
-    pub async fn get_macro_status(&self, pid: usize) -> Result<bool, Error> {
-        let table = self.macro_process_table.lock().await;
-        let handle = table.get(&pid).ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Macro with pid {} not found", pid),
-        })?;
-        Ok(!handle.is_execution_terminating())
+    /// wait for a macro to finish
+    async fn wait_with_timeout(
+        &self,
+        taget_macro_pid: MacroPID,
+        timeout: Option<Duration>,
+    ) -> Result<ExitStatus, Error> {
+        let mut rx = self.event_broadcaster.subscribe();
+        let fut = async {
+            loop {
+                let event = rx.recv().await.unwrap();
+                if let EventInner::MacroEvent(MacroEvent {
+                    macro_pid,
+                    macro_event_inner,
+                    ..
+                }) = event.event_inner
+                {
+                    if taget_macro_pid == macro_pid {
+                        if let MacroEventInner::Stopped { exit_status } = macro_event_inner {
+                            break Ok(exit_status);
+                        }
+                    }
+                }
+            }
+        };
+        if let Some(timeout) = timeout {
+            tokio::time::timeout(timeout, fut)
+                .await
+                .context("Macro execution timed out")?
+        } else {
+            fut.await
+        }
+    }
+
+    pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
+        self.exit_status_table.get(&pid).map(|v| v.clone())
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use std::rc::Rc;
 
-    use super::{MainWorkerGenerator, TypescriptModuleLoader};
+    use deno_core::op;
+
+    use super::{TypescriptModuleLoader, WorkerOptionGenerator};
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
+    use crate::macro_executor::SpawnResult;
 
-    use deno_runtime::permissions::{Permissions, PermissionsContainer};
     struct BasicMainWorkerGenerator;
 
-    impl MainWorkerGenerator for BasicMainWorkerGenerator {
-        fn generate(
-            &self,
-            args: Vec<String>,
-            caused_by: CausedBy,
-        ) -> deno_runtime::worker::MainWorker {
-            let bootstrap_options = deno_runtime::BootstrapOptions {
-                args,
+    #[op]
+    fn hello_world() -> String {
+        "Hello World".to_string()
+    }
+
+    #[op]
+    async fn async_hello_world() -> String {
+        "async Hello World".to_string()
+    }
+
+    impl WorkerOptionGenerator for BasicMainWorkerGenerator {
+        fn generate(&self) -> deno_runtime::worker::WorkerOptions {
+            let ext = deno_core::Extension::builder("generic_deno_extension_builder")
+                .ops(vec![hello_world::decl(), async_hello_world::decl()])
+                .force_op_registration()
+                .build();
+            deno_runtime::worker::WorkerOptions {
+                module_loader: Rc::new(TypescriptModuleLoader::default()),
+                extensions: vec![ext],
                 ..Default::default()
-            };
-
-            let mut worker_options = deno_runtime::worker::WorkerOptions {
-                bootstrap: bootstrap_options,
-                ..Default::default()
-            };
-
-            worker_options.module_loader = Rc::new(TypescriptModuleLoader::default());
-            let mut worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-                deno_core::resolve_path(".").unwrap(),
-                PermissionsContainer::new(Permissions::allow_all()),
-                worker_options,
-            );
-
-            worker
-                .execute_script(
-                    "[dep_inject]",
-                    format!(
-                        "const caused_by = {};",
-                        serde_json::to_string(&caused_by).unwrap()
-                    )
-                    .as_str(),
-                )
-                .unwrap();
-            worker
+            }
         }
     }
     #[tokio::test]
     async fn basic_execution() {
+        // init tracing
+        tracing_subscriber::fmt::init();
         let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
@@ -419,24 +583,29 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            console.log("hello world");
+            const { core } = Deno;
+            const { ops } = core;
+            console.log(ops.hello_world())
+            console.log(await core.opAsync("async_hello_world"))
             "#,
         )
         .unwrap();
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
-        let pid = executor
+        let SpawnResult { exit_future, .. } = executor
             .spawn(
                 path_to_macro,
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
                 None,
+                None,
+                None,
             )
             .await
             .unwrap();
-        assert!(executor.wait_with_timeout(pid, None).await);
+        exit_future.await.unwrap();
     }
 
     #[tokio::test]
@@ -456,23 +625,25 @@ mod tests {
             &path_to_macro,
             r#"
             import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
-            console.log("hello world");
+            console.log(readLines);
             "#,
         )
         .unwrap();
 
         let basic_worker_generator = BasicMainWorkerGenerator;
 
-        let pid = executor
+        let SpawnResult { exit_future, .. } = executor
             .spawn(
                 path_to_macro,
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
                 None,
+                None,
+                None,
             )
             .await
             .unwrap();
-        assert!(executor.wait_with_timeout(pid, None).await);
+        exit_future.await.unwrap();
     }
 }

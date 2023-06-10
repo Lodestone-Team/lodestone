@@ -1,10 +1,10 @@
-FROM debian:bullseye-slim as base
+FROM ubuntu:22.04 as base
 
 FROM base AS production-amd64
-ENV binpath "./release/lodestone_core_"
+ENV binpath "./release/lodestone_core_linux_x86_64_*"
 
 FROM base as production-arm64
-ENV binpath "./release/lodestone_core_arm_"
+ENV binpath "./release/lodestone_core_linux_aarch64_*"
 
 ARG TARGETARCH
 FROM production-$TARGETARCH AS production
@@ -30,7 +30,7 @@ EXPOSE 16662
 
 RUN chmod +x ./main
 
-RUN groupadd -r user && useradd -r -g user user
+RUN groupadd user && useradd -g user user
 
 RUN mkdir -p /home/user/.lodestone
 RUN chown user /app

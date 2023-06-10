@@ -1,7 +1,80 @@
 use lazy_static::lazy_static;
 use std::path::PathBuf;
 
+use once_cell::sync::OnceCell;
 use semver::{BuildMetadata, Prerelease};
+
+static LODESTONE_PATH: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn lodestone_path() -> &'static PathBuf {
+    LODESTONE_PATH.get().unwrap()
+}
+
+static PATH_TO_INSTANCES: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn path_to_instances() -> &'static PathBuf {
+    PATH_TO_INSTANCES.get().unwrap()
+}
+
+static PATH_TO_BINARIES: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn path_to_binaries() -> &'static PathBuf {
+    PATH_TO_BINARIES.get().unwrap()
+}
+
+static PATH_TO_STORES: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn path_to_stores() -> &'static PathBuf {
+    PATH_TO_STORES.get().unwrap()
+}
+
+static PATH_TO_GLOBAL_SETTINGS: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn path_to_global_settings() -> &'static PathBuf {
+    PATH_TO_GLOBAL_SETTINGS.get().unwrap()
+}
+
+static PATH_TO_USERS: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn path_to_users() -> &'static PathBuf {
+    PATH_TO_USERS.get().unwrap()
+}
+
+static PATH_TO_TMP: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn path_to_tmp() -> &'static PathBuf {
+    PATH_TO_TMP.get().unwrap()
+}
+
+/// Initialize the paths for the lodestone instance.
+/// This function should only be called once.
+///
+/// Also creates the directories if they don't exist.
+pub fn init_paths(lodestone_path: PathBuf) {
+    let path_to_instances = lodestone_path.join("instances");
+    let path_to_binaries = lodestone_path.join("bin");
+    let path_to_stores = lodestone_path.join("stores");
+    let path_to_global_settings = lodestone_path.join("global_settings.json");
+    let path_to_users = lodestone_path.join("stores").join("users.json");
+    let path_to_tmp = lodestone_path.join("tmp");
+
+    std::fs::create_dir_all(&path_to_instances).unwrap();
+    std::fs::create_dir_all(&path_to_binaries).unwrap();
+    std::fs::create_dir_all(&path_to_stores).unwrap();
+    std::fs::create_dir_all(&path_to_tmp).unwrap();
+    // std::fs::File::create(&path_to_global_settings).unwrap();
+    // std::fs::File::create(&path_to_users).unwrap();
+    // std::fs::File::create(&path_to_tmp).unwrap();
+
+    let _ = LODESTONE_PATH.set(lodestone_path);
+    let _ = PATH_TO_INSTANCES.set(path_to_instances);
+    let _ = PATH_TO_BINARIES.set(path_to_binaries);
+    let _ = PATH_TO_STORES.set(path_to_stores);
+    let _ = PATH_TO_GLOBAL_SETTINGS.set(path_to_global_settings);
+    let _ = PATH_TO_USERS.set(path_to_users);
+    let _ = PATH_TO_TMP.set(path_to_tmp);
+}
+
 thread_local! {
     pub static VERSION: semver::Version = semver::Version {
         major: 0,
@@ -10,17 +83,7 @@ thread_local! {
         pre: Prerelease::new("").unwrap(),
         build: BuildMetadata::EMPTY,
     };
-    pub static LODESTONE_PATH : PathBuf = PathBuf::from(
-        match std::env::var("LODESTONE_PATH") {
-    Ok(v) => v,
-    Err(_) => home::home_dir().unwrap_or_else(|| std::env::current_dir().expect("what kinda os are you running lodestone on???")).join(".lodestone").to_str().unwrap().to_string(),
-}
-    );
-    pub static PATH_TO_INSTANCES : PathBuf = LODESTONE_PATH.with(|p| p.join("instances"));
-    pub static PATH_TO_BINARIES : PathBuf = LODESTONE_PATH.with(|p| p.join("bin"));
-    pub static PATH_TO_STORES : PathBuf = LODESTONE_PATH.with(|p| p.join("stores"));
-    pub static PATH_TO_GLOBAL_SETTINGS : PathBuf = LODESTONE_PATH.with(|p| p.join("global_settings.json"));
-    pub static PATH_TO_USERS : PathBuf = PATH_TO_STORES.with(|p| p.join("users.json"));
+
     pub static LODESTONE_EPOCH_SEC: i64 = 1667530800;
     pub static LODESTONE_EPOCH_MIL: i64 = 1667530800000;
 }
@@ -34,6 +97,7 @@ lazy_static! {
         ));
 }
 
+use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
 #[enum_dispatch::enum_dispatch(
     TInstance,
@@ -47,4 +111,5 @@ use crate::minecraft::MinecraftInstance;
 #[derive(Clone)]
 pub enum GameInstance {
     MinecraftInstance,
+    GenericInstance,
 }

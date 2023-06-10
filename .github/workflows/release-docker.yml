@@ -3,6 +3,7 @@ name: publish docker image
 on:
   release:
     types: [ published ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -40,7 +41,7 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@master
         with:
           regex: true
-          file: "lodestone_core_.*"
+          file: "lodestone_core_*"
           target: release/
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -50,7 +51,7 @@ jobs:
         env:
           VERSION: ${{ steps.release_asset.outputs.version }}
         id: substring
-        run: echo "name=version::${VERSION:1}" >> $GITHUB_OUTPUT
+        run: echo "version=${VERSION:1}" >> $GITHUB_OUTPUT
 
       -
         name: build and push

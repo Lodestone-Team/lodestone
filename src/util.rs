@@ -2,7 +2,6 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::{Read, Write};
-use tokio::fs::File;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -10,7 +9,6 @@ use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -25,7 +23,7 @@ pub struct Authentication {
 }
 
 use crate::error::Error;
-use crate::prelude::LODESTONE_PATH;
+use crate::prelude::path_to_tmp;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -47,6 +45,17 @@ pub async fn download_file(
     on_download: &(dyn Fn(DownloadProgress) + Send + Sync),
     overwrite_old: bool,
 ) -> Result<PathBuf, Error> {
+    let lodestone_tmp = path_to_tmp().clone();
+    tokio::fs::create_dir_all(&lodestone_tmp)
+        .await
+        .context("Failed to create tmp dir")?;
+    let temp_file_path = tempfile::NamedTempFile::new_in(lodestone_tmp)
+        .context("Failed to create temporary file")?
+        .path()
+        .to_owned();
+    let mut temp_file = tokio::fs::File::create(&temp_file_path)
+        .await
+        .context("Failed to create temporary file")?;
     let client = Client::new();
     let response = client
         .get(url)
@@ -88,24 +97,15 @@ pub async fn download_file(
     if !overwrite_old && path.join(&file_name).exists() {
         return Err(eyre!("File {} already exists", path.join(&file_name).display()).into());
     }
-    fs::remove_file(path.join(&file_name)).await.ok();
     let total_size = response.content_length();
-    let pb = ProgressBar::new(total_size.unwrap_or(0));
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
-        .progress_chars("#>-"));
-    pb.set_message(&format!("Downloading {}", url));
 
-    let mut downloaded_file = File::create(path.join(&file_name))
-        .await
-        .context(format!("Failed to create file {}", &path.display()))?;
     let mut downloaded: u64 = 0;
     let mut new_downloaded: u64 = 0;
     let threshold = total_size.unwrap_or(500000) / 100;
     let mut stream = response.bytes_stream();
     while let Some(item) = stream.next().await {
-        let chunk = item.expect("Error while downloading file");
-        downloaded_file
+        let chunk = item.context("Failed to read response")?;
+        temp_file
             .write_all(&chunk)
             .await
             .context(format!("Failed to write to file {}", &file_name))?;
@@ -120,9 +120,10 @@ pub async fn download_file(
             });
             downloaded = new_downloaded;
         }
-
-        pb.set_position(new_downloaded);
     }
+    tokio::fs::rename(temp_file_path, path.join(&file_name))
+        .await
+        .context(format!("Failed to rename file {}", &file_name))?;
     Ok(path.join(&file_name))
 }
 
@@ -208,11 +209,7 @@ pub fn unzip_file(
     let file_extension = file
         .extension()
         .ok_or_else(|| eyre!("Failed to get file extension for {}", file.display()))?;
-    if file_extension != "gz"
-        && file_extension != "tgz"
-        && file_extension != "zip"
-        && file_extension != "rar"
-    {
+    if file_extension != "gz" && file_extension != "tgz" && file_extension != "zip" {
         return Err(eyre!("Unsupported extension for {}", file.display()).into());
     }
 
@@ -232,7 +229,7 @@ pub fn unzip_file(
         UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
         UnzipOption::ToDir(ref d) => d.to_owned(),
     };
-    let lodestone_tmp = LODESTONE_PATH.with(|v| v.join("tmp"));
+    let lodestone_tmp = path_to_tmp().clone();
     std::fs::create_dir_all(&lodestone_tmp).context(format!(
         "Failed to create temporary directory {}",
         lodestone_tmp.display()
@@ -260,24 +257,6 @@ pub fn unzip_file(
         archive
             .extract(temp_dest)
             .context(format!("Failed to decompress file {}", file.display()))?;
-    } else if file_extension == "rar" {
-        let archive = unrar::Archive::new(
-            file.to_str()
-                .ok_or_else(|| eyre!("Non-unicode character in file name {}", file.display()))?
-                .to_string(),
-        );
-        archive
-            .extract_to(
-                temp_dest
-                    .to_str()
-                    .ok_or_else(|| {
-                        eyre!("Non-unicode character in file name {}", temp_dest.display())
-                    })?
-                    .to_string(),
-            )
-            .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?
-            .process()
-            .map_err(|_| eyre!("Failed to decompress file {}", file.display()))?;
     }
 
     let mut ret: HashSet<PathBuf> = HashSet::new();
@@ -337,7 +316,7 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
     let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
-    let lodestone_tmp = LODESTONE_PATH.with(|v| v.join("tmp"));
+    let lodestone_tmp = path_to_tmp().clone();
     std::fs::create_dir_all(&lodestone_tmp).context(format!(
         "Failed to create temporary directory {}",
         lodestone_tmp.display()
@@ -566,86 +545,83 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
     cmd
 }
 
-pub fn format_byte_download(bytes: u64, total: u64) -> String {
-    let mut bytes = bytes as f64;
-    let mut total = total as f64;
+pub fn format_byte_download(mut bytes: u64, mut total: u64) -> String {
     let mut unit = "B";
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "KB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "MB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "GB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "TB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "PB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "EB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "ZB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
-        total /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
+        total /= 1024;
         unit = "YB";
     }
     format!("{:.1} / {:.1} {}", bytes, total, unit)
 }
 
-pub fn format_byte(bytes: u64) -> String {
-    let mut bytes = bytes as f64;
+pub fn format_byte(mut bytes: u64) -> String {
     let mut unit = "B";
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "KB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "MB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "GB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "TB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "PB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "EB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "ZB";
     }
-    if bytes > 1024.0 {
-        bytes /= 1024.0;
+    if bytes > 1024 {
+        bytes /= 1024;
         unit = "YB";
     }
     format!("{:.1} {}", bytes, unit)
@@ -653,6 +629,7 @@ pub fn format_byte(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::prelude::init_paths;
     use crate::util::{resolve_path_conflict, unzip_file, zip_files, UnzipOption};
     use std::collections::HashSet;
     use std::io::Read;
@@ -661,6 +638,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_unzip_file() {
+        let temp_lodestone_path = tempfile::tempdir().unwrap();
+        let temp_lodestone_path = temp_lodestone_path.path();
+        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let zip = PathBuf::from("testdata/sample.zip");
@@ -687,30 +667,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_unzip_file_2() {
-        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
-        let temp_path = temp.path();
-        let rar = PathBuf::from("testdata/sample-1.rar");
-
-        let mut test: HashSet<PathBuf> = HashSet::new();
-        test.insert(temp_path.join("hi").join("sample-1_1.webp"));
-
-        assert_eq!(
-            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi"))).unwrap(),
-            test
-        );
-
-        let mut test: HashSet<PathBuf> = HashSet::new();
-        test.insert(temp_path.join("hi").join("sample-1_1_1.webp"));
-
-        assert_eq!(
-            unzip_file(&rar, UnzipOption::ToDir(temp_path.join("hi"))).unwrap(),
-            test
-        );
-    }
-
-    #[tokio::test]
     async fn test_unzip_file_3() {
+        let temp_lodestone_path = tempfile::tempdir().unwrap();
+        let temp_lodestone_path = temp_lodestone_path.path();
+        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
         let tar_gz = PathBuf::from("testdata/sample.gz");
@@ -740,6 +700,9 @@ mod tests {
 
     #[test]
     fn test_resolve_path_conflict() {
+        let temp_lodestone_path = tempfile::tempdir().unwrap();
+        let temp_lodestone_path = temp_lodestone_path.path();
+        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let txt_path = temp_path.join("test.txt");

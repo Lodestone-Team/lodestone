@@ -16,6 +16,7 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use enum_kinds::EnumKind;
 use indexmap::IndexMap;
 
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -35,19 +36,20 @@ use ts_rs::TS;
 
 use crate::error::Error;
 use crate::event_broadcaster::EventBroadcaster;
-use crate::events::{CausedBy, Event, EventInner, ProgressionEvent, ProgressionEventInner};
-use crate::macro_executor::MacroExecutor;
-use crate::prelude::PATH_TO_BINARIES;
+use crate::events::{Event, ProgressionEventID};
+use crate::macro_executor::{MacroExecutor, MacroPID};
+use crate::prelude::path_to_binaries;
 use crate::traits::t_configurable::PathBuf;
 
 use crate::traits::t_configurable::manifest::{
-    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, ManifestValue, SectionManifest,
-    SectionManifestValue, SettingManifest,
+    ConfigurableManifest, ConfigurableValue, ConfigurableValueType, SectionManifest,
+    SettingManifest, SetupManifest, SetupValue,
 };
 
+use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::State;
 use crate::traits::TInstance;
-use crate::types::{DotLodestoneConfig, InstanceUuid, Snowflake};
+use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::util::{
     dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file_async,
     UnzipOption,
@@ -123,6 +125,18 @@ impl ToString for Flavour {
     }
 }
 
+impl ToString for FlavourKind {
+    fn to_string(&self) -> String {
+        match self {
+            FlavourKind::Vanilla => "vanilla".to_string(),
+            FlavourKind::Fabric => "fabric".to_string(),
+            FlavourKind::Paper => "paper".to_string(),
+            FlavourKind::Spigot => "spigot".to_string(),
+            FlavourKind::Forge => "forge".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetupConfig {
     pub name: String,
@@ -135,7 +149,6 @@ pub struct SetupConfig {
     pub max_ram: Option<u32>,
     pub auto_start: Option<bool>,
     pub restart_on_crash: Option<bool>,
-    pub start_on_connection: Option<bool>,
     pub backup_period: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -184,6 +197,8 @@ pub struct MinecraftInstance {
     configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
     macro_executor: MacroExecutor,
     rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
+    macro_name_to_last_run: Arc<Mutex<HashMap<String, i64>>>,
+    pid_to_task_entry: Arc<Mutex<IndexMap<MacroPID, TaskEntry>>>,
 }
 
 #[tokio::test]
@@ -196,7 +211,7 @@ async fn test_setup_manifest() {
 }
 
 impl MinecraftInstance {
-    pub async fn setup_manifest(flavour: &FlavourKind) -> Result<ConfigurableManifest, Error> {
+    pub async fn setup_manifest(flavour: &FlavourKind) -> Result<SetupManifest, Error> {
         let versions = match flavour {
             FlavourKind::Vanilla => get_vanilla_minecraft_versions().await,
             FlavourKind::Fabric => get_fabric_minecraft_versions().await,
@@ -205,27 +220,6 @@ impl MinecraftInstance {
             FlavourKind::Forge => get_forge_minecraft_versions().await,
         }
         .context("Failed to get minecraft versions")?;
-
-        let name_setting = SettingManifest::new_required_value(
-            "name".to_string(),
-            "Server Name".to_string(),
-            "The name of the server instance".to_string(),
-            ConfigurableValue::String("Minecraft Server".to_string()),
-            None,
-            false,
-            true,
-        );
-
-        let description_setting = SettingManifest::new_optional_value(
-            "description".to_string(),
-            "Description".to_string(),
-            "A description of the server instance".to_string(),
-            None,
-            ConfigurableValueType::String { regex: None },
-            None,
-            false,
-            true,
-        );
 
         let version_setting = SettingManifest::new_value_with_type(
             "version".to_string(),
@@ -284,8 +278,6 @@ impl MinecraftInstance {
         );
 
         let mut section_1_map = IndexMap::new();
-        section_1_map.insert("name".to_string(), name_setting);
-        section_1_map.insert("description".to_string(), description_setting);
 
         section_1_map.insert("version".to_string(), version_setting);
         section_1_map.insert("port".to_string(), port_setting);
@@ -317,47 +309,25 @@ impl MinecraftInstance {
         sections.insert("section_1".to_string(), section_1);
         sections.insert("section_2".to_string(), section_2);
 
-        Ok(ConfigurableManifest::new(false, false, false, sections))
-    }
-
-    pub async fn validate_section(
-        flavour: &FlavourKind,
-        section_id: &str,
-        section_value: &SectionManifestValue,
-    ) -> Result<(), Error> {
-        let manifest = Self::setup_manifest(flavour).await?;
-        if let Some(section) = manifest.get_section(section_id) {
-            section.validate_section(section_value)?;
-            Ok(())
-        } else {
-            Err(eyre!("Section {} does not exist", section_id).into())
-        }
+        Ok(SetupManifest {
+            setting_sections: sections,
+        })
     }
 
     pub async fn construct_setup_config(
-        manifest_value: ManifestValue,
+        setup_value: SetupValue,
         flavour: FlavourKind,
     ) -> Result<SetupConfig, Error> {
         Self::setup_manifest(&flavour)
             .await?
-            .validate_manifest_value(&manifest_value)?;
+            .validate_setup_value(&setup_value)?;
 
         // ALL of the following unwraps are safe because we just validated the manifest value
-        let description = manifest_value
-            .get_unique_setting("description")
-            .unwrap()
-            .get_value()
-            .map(|v| v.try_as_string().unwrap());
+        let description = setup_value.description.clone();
 
-        let name = manifest_value
-            .get_unique_setting("name")
-            .unwrap()
-            .get_value()
-            .unwrap()
-            .try_as_string()
-            .unwrap();
+        let name = setup_value.name.clone();
 
-        let version = manifest_value
+        let version = setup_value
             .get_unique_setting("version")
             .unwrap()
             .get_value()
@@ -365,7 +335,7 @@ impl MinecraftInstance {
             .try_as_enum()
             .unwrap();
 
-        let port = manifest_value
+        let port = setup_value
             .get_unique_setting("port")
             .unwrap()
             .get_value()
@@ -373,7 +343,7 @@ impl MinecraftInstance {
             .try_as_unsigned_integer()
             .unwrap();
 
-        let min_ram = manifest_value
+        let min_ram = setup_value
             .get_unique_setting("min_ram")
             .unwrap()
             .get_value()
@@ -381,7 +351,7 @@ impl MinecraftInstance {
             .try_as_unsigned_integer()
             .unwrap();
 
-        let max_ram = manifest_value
+        let max_ram = setup_value
             .get_unique_setting("max_ram")
             .unwrap()
             .get_value()
@@ -389,7 +359,7 @@ impl MinecraftInstance {
             .try_as_unsigned_integer()
             .unwrap();
 
-        let cmd_args: Vec<String> = manifest_value
+        let cmd_args: Vec<String> = setup_value
             .get_unique_setting("cmd_args")
             .unwrap()
             .get_value()
@@ -400,17 +370,16 @@ impl MinecraftInstance {
             .collect();
 
         Ok(SetupConfig {
-            name: name.clone(),
-            description: description.cloned(),
+            name,
+            description,
             version: version.clone(),
             port,
             min_ram: Some(min_ram),
             max_ram: Some(max_ram),
             cmd_args,
             flavour: flavour.into(),
-            auto_start: Some(manifest_value.get_auto_start()),
-            restart_on_crash: Some(manifest_value.get_restart_on_crash()),
-            start_on_connection: Some(manifest_value.get_start_on_connection()),
+            auto_start: Some(setup_value.auto_start),
+            restart_on_crash: Some(setup_value.restart_on_crash),
             backup_period: None,
         })
     }
@@ -455,14 +424,14 @@ impl MinecraftInstance {
             server_properties_section_manifest,
         );
 
-        ConfigurableManifest::new(false, false, false, setting_sections)
+        ConfigurableManifest::new(false, false, setting_sections)
     }
 
     pub async fn new(
         config: SetupConfig,
         dot_lodestone_config: DotLodestoneConfig,
         path_to_instance: PathBuf,
-        progression_event_id: Snowflake,
+        progression_event_id: &ProgressionEventID,
         event_broadcaster: EventBroadcaster,
         macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
@@ -471,23 +440,16 @@ impl MinecraftInstance {
         let path_to_macros = path_to_instance.join("macros");
         let path_to_resources = path_to_instance.join("resources");
         let path_to_properties = path_to_instance.join("server.properties");
-        let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+        let path_to_runtimes = path_to_binaries().to_owned();
 
         let uuid = dot_lodestone_config.uuid().to_owned();
 
         // Step 1: Create Directories
-        event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id,
-                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1.0,
-                    progress_message: "1/4: Creating directories".to_string(),
-                },
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by: CausedBy::Unknown,
-        });
+        event_broadcaster.send(Event::new_progression_event_update(
+            progression_event_id,
+            "1/4: Creating directories",
+            1.0,
+        ));
         tokio::fs::create_dir_all(&path_to_instance)
             .await
             .and(tokio::fs::create_dir_all(&path_to_macros).await)
@@ -513,33 +475,22 @@ impl MinecraftInstance {
             .join(format!("jre{}", jre_major_version))
             .exists()
         {
-            let _progression_parent_id = progression_event_id;
             let downloaded = download_file(
                 &url,
                 &path_to_runtimes.join("java"),
                 None,
                 {
                     let event_broadcaster = event_broadcaster.clone();
-                    let _uuid = uuid.clone();
-                    let progression_event_id = progression_event_id;
                     &move |dl| {
                         if let Some(total) = dl.total {
-                            event_broadcaster.send(Event {
-                                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                    event_id: progression_event_id,
-                                    progression_event_inner:
-                                        ProgressionEventInner::ProgressionUpdate {
-                                            progress: (dl.step as f64 / total as f64) * 4.0,
-                                            progress_message: format!(
-                                                "2/4: Downloading JRE {}",
-                                                format_byte_download(dl.downloaded, total)
-                                            ),
-                                        },
-                                }),
-                                details: "".to_string(),
-                                snowflake: Snowflake::default(),
-                                caused_by: CausedBy::Unknown,
-                            });
+                            event_broadcaster.send(Event::new_progression_event_update(
+                                progression_event_id,
+                                format!(
+                                    "2/4: Downloading JRE {}",
+                                    format_byte_download(dl.downloaded, total)
+                                ),
+                                (dl.step as f64 / total as f64) * 4.0,
+                            ));
                         }
                     }
                 },
@@ -577,18 +528,11 @@ impl MinecraftInstance {
                 unzipped_content.iter().last().unwrap().display()
             ))?;
         } else {
-            event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id,
-                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 4.0,
-                        progress_message: "2/4: JRE already downloaded".to_string(),
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: Snowflake::default(),
-                caused_by: CausedBy::Unknown,
-            });
+            event_broadcaster.send(Event::new_progression_event_update(
+                progression_event_id,
+                "2/4: JRE already downloaded",
+                4.0,
+            ));
         }
 
         // Step 3: Download server.jar
@@ -615,44 +559,29 @@ impl MinecraftInstance {
             Some(jar_name),
             {
                 let event_broadcaster = event_broadcaster.clone();
-                let progression_event_id = progression_event_id;
                 &move |dl| {
                     if let Some(total) = dl.total {
-                        event_broadcaster.send(Event {
-                            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                event_id: progression_event_id,
-                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                                    progress: (dl.step as f64 / total as f64) * 3.0,
-                                    progress_message: format!(
-                                        "3/4: Downloading {} {} {}",
-                                        flavour_name,
-                                        jar_name,
-                                        format_byte_download(dl.downloaded, total),
-                                    ),
-                                },
-                            }),
-                            details: "".to_string(),
-                            snowflake: Snowflake::default(),
-                            caused_by: CausedBy::Unknown,
-                        });
+                        event_broadcaster.send(Event::new_progression_event_update(
+                            progression_event_id,
+                            format!(
+                                "3/4: Downloading {} {} {}",
+                                flavour_name,
+                                jar_name,
+                                format_byte_download(dl.downloaded, total),
+                            ),
+                            (dl.step as f64 / total as f64) * 3.0,
+                        ));
                     } else {
-                        event_broadcaster.send(Event {
-                            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                                event_id: progression_event_id,
-                                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                                    progress: 0.0,
-                                    progress_message: format!(
-                                        "3/4: Downloading {} {} {}",
-                                        flavour_name,
-                                        jar_name,
-                                        format_byte(dl.downloaded),
-                                    ),
-                                },
-                            }),
-                            details: "".to_string(),
-                            snowflake: Snowflake::default(),
-                            caused_by: CausedBy::Unknown,
-                        });
+                        event_broadcaster.send(Event::new_progression_event_update(
+                            progression_event_id,
+                            format!(
+                                "3/4: Downloading {} {} {}",
+                                flavour_name,
+                                jar_name,
+                                format_byte(dl.downloaded),
+                            ),
+                            0.0,
+                        ));
                     }
                 }
             },
@@ -670,18 +599,11 @@ impl MinecraftInstance {
             .join("java");
         // Step 3 (part 2): Forge Setup
         if let Flavour::Forge { .. } = flavour.clone() {
-            event_broadcaster.send(Event {
-                event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                    event_id: progression_event_id,
-                    progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                        progress: 1.0,
-                        progress_message: "3/4: Installing Forge Server".to_string(),
-                    },
-                }),
-                details: "".to_string(),
-                snowflake: Snowflake::default(),
-                caused_by: CausedBy::Unknown,
-            });
+            event_broadcaster.send(Event::new_progression_event_update(
+                progression_event_id,
+                "3/4: Installing Forge Server",
+                1.0,
+            ));
 
             if !dont_spawn_terminal(
                 Command::new(&jre)
@@ -713,18 +635,11 @@ impl MinecraftInstance {
         }
 
         // Step 4: Finishing Up
-        event_broadcaster.send(Event {
-            event_inner: EventInner::ProgressionEvent(ProgressionEvent {
-                event_id: progression_event_id,
-                progression_event_inner: ProgressionEventInner::ProgressionUpdate {
-                    progress: 1.0,
-                    progress_message: "4/4: Finishing up".to_string(),
-                },
-            }),
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            caused_by: CausedBy::Unknown,
-        });
+        event_broadcaster.send(Event::new_progression_event_update(
+            progression_event_id,
+            "4/4: Finishing up",
+            1.0,
+        ));
 
         let restore_config = RestoreConfig {
             name: config.name,
@@ -757,7 +672,6 @@ impl MinecraftInstance {
         MinecraftInstance::restore(
             path_to_instance,
             dot_lodestone_config,
-            uuid,
             event_broadcaster,
             macro_executor,
         )
@@ -767,9 +681,8 @@ impl MinecraftInstance {
     pub async fn restore(
         path_to_instance: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
-        instance_uuid: InstanceUuid,
         event_broadcaster: EventBroadcaster,
-        _macro_executor: MacroExecutor,
+        macro_executor: MacroExecutor,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
         let restore_config: RestoreConfig =
@@ -783,7 +696,7 @@ impl MinecraftInstance {
         let path_to_macros = path_to_instance.join("macros");
         let path_to_resources = path_to_instance.join("resources");
         let path_to_properties = path_to_instance.join("server.properties");
-        let path_to_runtimes = PATH_TO_BINARIES.with(|path| path.clone());
+        let path_to_runtimes = path_to_binaries().clone();
         // if the properties file doesn't exist, create it
         if !path_to_properties.exists() {
             tokio::fs::write(
@@ -810,14 +723,14 @@ impl MinecraftInstance {
 
         let mut instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
-            uuid: instance_uuid.clone(),
+            uuid: dot_lodestone_config.uuid().clone(),
             creation_time: dot_lodestone_config.creation_time(),
             auto_start: Arc::new(AtomicBool::new(restore_config.auto_start)),
             restart_on_crash: Arc::new(AtomicBool::new(restore_config.restart_on_crash)),
             backup_period: restore_config.backup_period,
             players_manager: Arc::new(Mutex::new(PlayersManager::new(
                 event_broadcaster.clone(),
-                instance_uuid,
+                dot_lodestone_config.uuid().clone(),
             ))),
             config: Arc::new(Mutex::new(restore_config)),
             path_to_instance,
@@ -825,7 +738,7 @@ impl MinecraftInstance {
             path_to_properties,
             path_to_macros,
             path_to_resources,
-            macro_executor: MacroExecutor::new(event_broadcaster.clone()),
+            macro_executor,
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
@@ -833,6 +746,8 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             rcon_conn: Arc::new(Mutex::new(None)),
             configurable_manifest,
+            macro_name_to_last_run: Arc::new(Mutex::new(HashMap::new())),
+            pid_to_task_entry: Arc::new(Mutex::new(IndexMap::new())),
         };
         instance
             .read_properties()
@@ -920,7 +835,15 @@ impl MinecraftInstance {
 
     async fn sync_configurable_to_restore_config(&self) {
         let mut config_lock = self.config.lock().await;
+
         let configurable_map_lock = self.configurable_manifest.lock().await;
+        config_lock.port = configurable_map_lock
+            .get_unique_setting_key("server-port")
+            .expect("Programming error, value is not set")
+            .get_value()
+            .expect("Programming error, value is not set")
+            .try_as_unsigned_integer()
+            .expect("Programming error, value is not a unsigned integer");
         let configurable_map = configurable_map_lock
             .get_section(CmdArgSetting::get_section_id())
             .unwrap()

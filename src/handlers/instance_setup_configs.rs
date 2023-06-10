@@ -1,18 +1,19 @@
 use crate::error::Error;
+use crate::implementations::generic;
 use crate::implementations::minecraft;
 use crate::minecraft::FlavourKind;
-use crate::traits::t_configurable::manifest::ConfigurableManifest;
+use crate::traits::t_configurable::manifest::SetupManifest;
 use crate::traits::t_configurable::GameType;
+use crate::AppState;
 use axum::extract::Path;
 use axum::routing::get;
 use axum::routing::put;
 use axum::Json;
 use axum::Router;
-use color_eyre::eyre::Context;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::Value;
 use ts_rs::TS;
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -56,30 +57,30 @@ pub async fn get_available_games() -> Json<Vec<HandlerGameType>> {
 
 pub async fn get_setup_manifest(
     Path(game_type): Path<HandlerGameType>,
-) -> Result<Json<ConfigurableManifest>, Error> {
-    Ok(Json(
-        minecraft::MinecraftInstance::setup_manifest(&game_type.into()).await?,
-    ))
+) -> Result<Json<SetupManifest>, Error> {
+    minecraft::MinecraftInstance::setup_manifest(&game_type.into())
+        .await
+        .map(Json)
 }
 
-pub async fn validate_section(
-    Path((game_type, section_id)): Path<(HandlerGameType, String)>,
-    Json(section): Json<Value>,
-) -> Result<Json<()>, Error> {
-    let section = serde_json::from_value(section).context("Form error")?;
-    Ok(Json(
-        minecraft::MinecraftInstance::validate_section(&game_type.into(), &section_id, &section)
-            .await?,
-    ))
+#[derive(Deserialize)]
+pub struct GenericSetupManifestBody {
+    pub url: String,
 }
 
-pub fn get_instance_setup_config_routes() -> Router {
+pub async fn get_generic_setup_manifest(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<GenericSetupManifestBody>,
+) -> Result<Json<SetupManifest>, Error> {
+    generic::GenericInstance::setup_manifest(&body.url, state.macro_executor)
+        .await
+        .map(Json)
+}
+
+pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
     Router::new()
         .route("/games", get(get_available_games))
         .route("/setup_manifest/:game_type", get(get_setup_manifest))
-        .route(
-            "/setup_manifest/:game_type/:section_id",
-            put(validate_section),
-        )
-        .with_state(())
+        .route("/generic_setup_manifest", put(get_generic_setup_manifest))
+        .with_state(appstate)
 }

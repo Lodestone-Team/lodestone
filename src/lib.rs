@@ -2,8 +2,11 @@
 
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
-use crate::prelude::VERSION;
+use crate::prelude::{
+    init_paths, lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION,
+};
 use crate::traits::t_configurable::GameType;
+use crate::traits::t_server::State;
 use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
@@ -17,9 +20,6 @@ use crate::{
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
-    prelude::{
-        LODESTONE_PATH, PATH_TO_BINARIES, PATH_TO_GLOBAL_SETTINGS, PATH_TO_STORES, PATH_TO_USERS,
-    },
     util::rand_alphanumeric,
 };
 
@@ -27,18 +27,21 @@ use auth::user::UsersManager;
 use axum::Router;
 
 use axum_server::tls_rustls::RustlsConfig;
+use clap::Parser;
 use color_eyre::eyre::Context;
+use color_eyre::Report;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
-use implementations::minecraft;
+use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
 use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
+use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
@@ -65,6 +68,7 @@ use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 pub mod auth;
 pub mod db;
+mod deno_ops;
 pub mod error;
 mod event_broadcaster;
 mod events;
@@ -135,15 +139,20 @@ async fn restore_instances(
         };
         debug!("restoring instance: {}", path.display());
         if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
-            let instance = minecraft::MinecraftInstance::restore(
+            let instance = match minecraft::MinecraftInstance::restore(
                 path.to_owned(),
                 dot_lodestone_config.clone(),
-                dot_lodestone_config.uuid().to_owned(),
                 event_broadcaster.clone(),
                 macro_executor.clone(),
             )
             .await
-            .unwrap();
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Error while restoring instance {} : {e}", path.display());
+                    continue;
+                }
+            };
             debug!("Restored successfully");
             ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
         }
@@ -152,10 +161,8 @@ async fn restore_instances(
 }
 
 fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
-    let file_appender = tracing_appender::rolling::hourly(
-        LODESTONE_PATH.with(|v| v.join("log")),
-        "lodestone_core.log",
-    );
+    let file_appender =
+        tracing_appender::rolling::hourly(lodestone_path().join("log"), "lodestone_core.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // set up a subscriber that logs formatted tracing events to stdout without colors without setting it as the default
@@ -257,7 +264,69 @@ fn output_sys_info() {
     );
 }
 
-pub async fn run() -> (
+async fn check_for_core_update() {
+    #[derive(serde::Deserialize)]
+    pub struct Release {
+        pub tag_name: String,
+    }
+    pub async fn get_latest_release() -> Result<Version, Report> {
+        let release_url =
+            "https://api.github.com/repos/Lodestone-Team/lodestone_core/releases/latest";
+        let client = reqwest::Client::new();
+
+        let response = client
+            .get(release_url)
+            .header("User-Agent", "lodestone_cli")
+            .send()
+            .await?;
+        response.error_for_status_ref()?;
+
+        let release: Release = response.json().await?;
+        // tag_name is prefixed with a v, so we need to remove it to get the version
+        let tag_name = release.tag_name.trim_start_matches('v');
+        let latest_version = Version::parse(tag_name)?;
+        Ok(latest_version)
+    }
+
+    let latest_version = match get_latest_release().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to get latest release: {}", e);
+            return;
+        }
+    };
+
+    if latest_version.pre.is_empty() {
+        // we don't want to update to a pre-release
+        let current_version = VERSION.with(|v| v.clone());
+        if current_version < latest_version {
+            info!(
+                "A new version of lodestone_core is available: {}",
+                latest_version
+            );
+            info!(
+                "Read how to update here: {url}",
+                url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+            );
+        } else {
+            info!("lodestone_core is up to date");
+        }
+    }
+}
+
+#[derive(Debug, Parser)]
+pub struct Args {
+    #[arg(long, default_value = "false")]
+    pub is_cli: bool,
+    #[arg(long, default_value = "false")]
+    pub is_desktop: bool,
+    #[arg(short, long)]
+    pub lodestone_path: Option<PathBuf>,
+}
+
+pub async fn run(
+    args: Args,
+) -> (
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
@@ -265,42 +334,49 @@ pub async fn run() -> (
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
+    let lodestone_path_ = if let Some(path) = args.lodestone_path {
+        path
+    } else {
+        PathBuf::from(match std::env::var("LODESTONE_PATH") {
+            Ok(v) => v,
+            Err(_) => home::home_dir()
+                .unwrap_or_else(|| {
+                    std::env::current_dir().expect("what kinda os are you running lodestone on???")
+                })
+                .join(".lodestone")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        })
+    };
+    init_paths(lodestone_path_);
+    let lodestone_path = lodestone_path();
+    info!("Lodestone path: {}", lodestone_path.display());
+    std::env::set_current_dir(lodestone_path).unwrap();
     let guard = setup_tracing();
+    if args.is_desktop {
+        info!("Lodestone Core running in Tauri");
+    }
+    if !args.is_cli && !args.is_desktop {
+        warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
+        warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
+    }
+    check_for_core_update().await;
     output_sys_info();
-    let lodestone_path = LODESTONE_PATH.with(|path| path.clone());
-    let _ = migrate(&lodestone_path).map_err(|e| {
+
+    let _ = migrate(lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
     let path_to_instances = lodestone_path.join("instances");
 
-    std::fs::create_dir_all(&lodestone_path)
-        .and_then(|_| std::env::set_current_dir(&lodestone_path))
-        .and_then(|_| std::fs::create_dir_all(PATH_TO_BINARIES.with(|path| path.clone())))
-        .and_then(|_| std::fs::create_dir_all(PATH_TO_STORES.with(|path| path.clone())))
-        .and_then(|_| std::fs::create_dir_all(&path_to_instances))
-        .and_then(|_| std::fs::create_dir_all(lodestone_path.join("tmp")))
-        .map_err(|e| {
-            error!(
-                "Failed to create lodestone path: {}. Lodestone will now crash...",
-                e
-            );
-        })
-        .unwrap();
-
-    info!("Lodestone path: {}", lodestone_path.display());
-
     let (tx, _rx) = EventBroadcaster::new(512);
 
-    let mut users_manager = UsersManager::new(
-        tx.clone(),
-        HashMap::new(),
-        PATH_TO_USERS.with(|path| path.clone()),
-    );
+    let mut users_manager = UsersManager::new(tx.clone(), HashMap::new(), path_to_users().clone());
 
     users_manager.load_users().await.unwrap();
 
     let mut global_settings = GlobalSettings::new(
-        PATH_TO_GLOBAL_SETTINGS.with(|path| path.clone()),
+        path_to_global_settings().clone(),
         tx.clone(),
         GlobalSettingsData::default(),
     );
@@ -367,7 +443,7 @@ pub async fn run() -> (
         sqlite_pool: Pool::connect_with(
             SqliteConnectOptions::from_str(&format!(
                 "sqlite://{}/data.db",
-                PATH_TO_STORES.with(|p| p.clone()).display()
+                path_to_stores().display()
             ))
             .unwrap()
             .create_if_missing(true),
@@ -458,7 +534,7 @@ pub async fn run() -> (
 
                 let api_routes = Router::new()
                     .merge(get_events_routes(shared_state.clone()))
-                    .merge(get_instance_setup_config_routes())
+                    .merge(get_instance_setup_config_routes(shared_state.clone()))
                     .merge(get_instance_server_routes(shared_state.clone()))
                     .merge(get_instance_config_routes(shared_state.clone()))
                     .merge(get_instance_players_routes(shared_state.clone()))
@@ -494,11 +570,11 @@ pub async fn run() -> (
                 tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
                     async move {
-                        info!("Lodestone Core live on {addr}");
-                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                         match tls_config_result {
                             Ok(config) => {
                                 info!("TLS enabled");
+                                info!("Lodestone Core live on {addr}");
+                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind_rustls(addr, config)
                                     .handle(axum_server_handle)
                                     .serve(app.into_make_service())
@@ -506,6 +582,8 @@ pub async fn run() -> (
                             }
                             Err(e) => {
                                 warn!("Invalid TLS config : {e}, using HTTP");
+                                info!("Lodestone Core live on {addr}");
+                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind(addr)
                                     .handle(axum_server_handle)
                                     .serve(app.into_make_service())
@@ -527,6 +605,9 @@ pub async fn run() -> (
                 // cleanup
                 let mut instances = shared_state.instances.lock().await;
                 for (_, instance) in instances.iter_mut() {
+                    if instance.state().await == State::Stopped {
+                        continue;
+                    }
                     if let Err(e) = instance.stop(CausedBy::System, false).await {
                         error!(
                             "Failed to stop instance {} : {}. Instance may need manual cleanup",

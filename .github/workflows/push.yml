@@ -1,0 +1,31 @@
+name: Developer Preview Workflow
+
+on:
+  push:
+    branches:
+      - main
+      - releases/**
+
+  pull_request:
+    branches:
+      - main
+      - releases/**
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  clippy_check:
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit
+
+  cargo_test:
+    uses: ./.github/workflows/cargo-test.yml
+    secrets: inherit
+
+  build:
+    uses: ./.github/workflows/client.yml
+    needs: [clippy_check, cargo_test]
+    secrets: inherit
+    with:
+      release: false

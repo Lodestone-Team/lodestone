@@ -24,8 +24,8 @@ pub async fn get_instance_configurable_manifest(
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let mut instances = state.instances.lock().await;
+    let instance = instances.get_mut(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
@@ -39,8 +39,8 @@ pub async fn get_instance_settings(
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let mut instances = state.instances.lock().await;
+    let instance = instances.get_mut(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;

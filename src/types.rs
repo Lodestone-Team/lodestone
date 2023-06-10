@@ -124,7 +124,8 @@ pub struct LodestoneMetadata {
 }
 
 /// A marker file to indicate to lodestone that the directory contains a lodestone instance
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DotLodestoneConfig {
     game_type: GameType,
     uuid: InstanceUuid,
