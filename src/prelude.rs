@@ -46,6 +46,16 @@ pub fn path_to_tmp() -> &'static PathBuf {
     PATH_TO_TMP.get().unwrap()
 }
 
+static APP_STATE: OnceCell<AppState> = OnceCell::new();
+
+pub fn init_app_state(app_state: AppState) {
+    let _ = APP_STATE.set(app_state);
+}
+
+pub fn app_state() -> &'static AppState {
+    APP_STATE.get().unwrap()
+}
+
 /// Initialize the paths for the lodestone instance.
 /// This function should only be called once.
 ///
@@ -99,6 +109,7 @@ lazy_static! {
 
 use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
+use crate::AppState;
 #[enum_dispatch::enum_dispatch(
     TInstance,
     TConfigurable,

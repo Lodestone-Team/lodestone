@@ -3,7 +3,8 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_paths, lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION,
+    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
+    path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -400,7 +401,7 @@ pub async fn run(
         None
     };
     let macro_executor = MacroExecutor::new(tx.clone());
-    let mut instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
+    let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
         .map_err(|e| {
             error!(
@@ -409,18 +410,7 @@ pub async fn run(
             );
         })
         .unwrap();
-    for (_, instance) in instances.iter_mut() {
-        if instance.auto_start().await {
-            info!("Auto starting instance {}", instance.name().await);
-            if let Err(e) = instance.start(CausedBy::System, false).await {
-                error!(
-                    "Failed to start instance {}: {:?}",
-                    instance.name().await,
-                    e
-                );
-            }
-        }
-    }
+
     let mut allocated_ports = HashSet::new();
     for (_, instance) in instances.iter() {
         allocated_ports.insert(instance.port().await);
@@ -451,6 +441,21 @@ pub async fn run(
         .await
         .unwrap(),
     };
+
+    init_app_state(shared_state.clone());
+
+    for (_, instance) in shared_state.instances.lock().await.iter_mut() {
+        if instance.auto_start().await {
+            info!("Auto starting instance {}", instance.name().await);
+            if let Err(e) = instance.start(CausedBy::System, false).await {
+                error!(
+                    "Failed to start instance {}: {:?}",
+                    instance.name().await,
+                    e
+                );
+            }
+        }
+    }
 
     let event_buffer_task = {
         let event_buffer = shared_state.events_buffer.clone();
