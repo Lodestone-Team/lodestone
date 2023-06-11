@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use axum::{
     body::{Bytes, StreamBody},
@@ -22,11 +23,12 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget},
-    util::{list_dir, rand_alphanumeric},
-    AppState,
+    util::{list_dir, rand_alphanumeric, DownloadProgress, zip_files_async},
+    AppState, DownloadableFile,
 };
 
 use super::util::decode_base64;
+use crate::prelude::path_to_tmp;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -407,13 +409,25 @@ async fn download_file(
         })?;
     requester.try_action(&UserAction::ReadGlobalFile)?;
     let path = PathBuf::from(absolute_path);
+    let downloadable_file = if fs::metadata(path.clone()).unwrap().is_dir() {
+        let lodestone_tmp = path_to_tmp().clone();
+        let temp_file = tempfile::NamedTempFile::new_in(lodestone_tmp)
+            .context("Failed to create temporary file")?;
+        let files = Vec::from([path.clone()]);
+        zip_files_async(&files, temp_file.path())
+            .await
+            .context("Failed to zip file")?;
+        DownloadableFile::ZippedFile(temp_file)
+    } else {
+        DownloadableFile::NormalFile(path.clone())
+    };
 
     let key = rand_alphanumeric(32);
     state
         .download_urls
         .lock()
         .await
-        .insert(key.clone(), path.clone());
+        .insert(key.clone(), downloadable_file);
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username.clone(),
@@ -567,7 +581,12 @@ async fn download(
     ),
     Error,
 > {
-    if let Some(path) = state.download_urls.lock().await.get(&key) {
+    if let Some(downloadable_file) = state.download_urls.lock().await.get(&key) {
+        let path = match downloadable_file {
+            DownloadableFile::NormalFile(path) => path,
+            DownloadableFile::ZippedFile(tmp_file) => tmp_file.path(),
+        };
+
         let file = tokio::fs::File::open(&path)
             .await
             .context(format!("Failed to open file {}", path.display()))?;

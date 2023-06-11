@@ -45,6 +45,7 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
+use tempfile::NamedTempFile;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -87,6 +88,12 @@ mod traits;
 pub mod types;
 pub mod util;
 
+
+pub enum DownloadableFile {
+    NormalFile(PathBuf),
+    ZippedFile(NamedTempFile),
+}
+
 #[derive(Clone)]
 pub struct AppState {
     instances: Arc<DashMap<InstanceUuid, GameInstance>>,
@@ -101,7 +108,7 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
-    download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
+    download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
 }

@@ -28,6 +28,7 @@ use crate::{
         format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
         scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption,
     },
+    DownloadableFile,
     AppState,
 };
 
@@ -583,7 +584,7 @@ async fn get_instance_file_url(
         .download_urls
         .lock()
         .await
-        .insert(key.clone(), path.clone());
+        .insert(key.clone(), DownloadableFile::NormalFile(path.clone()));
 
     state.download_urls.lock().await.get(&key).unwrap();
 
