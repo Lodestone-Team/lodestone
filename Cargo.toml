@@ -32,6 +32,8 @@ color-eyre = "0.6.2"
 dashmap = "5.4.0"
 deno_ast = { version = "0.26.0", features = ["transpiling"] }
 deno_core = "0.187.0"
+deno_graph = "0.48.0"
+
 deno_runtime = "0.113.0"
 dotenvy = { version = "0.15" }
 enum-kinds = "0.5.1"
@@ -91,8 +93,9 @@ openssl = { version = "0.10.45", features = ["vendored"], optional = true }
 flate2 = "1.0.24"
 tar = "0.4.38"
 tempfile = "3.5.0"
-clap = { version = "4.3.0", features = ["derive"] }
+clap = { features = ["derive"] }
 once_cell = "1.17.1"
+import_map = "0.15.0"
 [dependencies.uuid]
 version = "1.1.2"
 features = [

@@ -11,24 +11,19 @@ use crate::{
 
 #[op]
 async fn get_instance_state(instance_uuid: InstanceUuid) -> Result<State, anyhow::Error> {
-    let instance = app_state()
-        .instances
-        .lock()
-        .await
+    let instances = app_state().instances.lock().await;
+    let instance = instances
         .get(&instance_uuid)
-        .cloned()
         .ok_or(anyhow::anyhow!("Instance not found"))?;
+
     Ok(instance.state().await)
 }
 
 #[op]
 async fn get_instance_path(instance_uuid: InstanceUuid) -> Result<String, anyhow::Error> {
-    let instance = app_state()
-        .instances
-        .lock()
-        .await
+    let app_state = app_state().instances.lock().await;
+    let instance = app_state
         .get(&instance_uuid)
-        .cloned()
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     Ok(instance.path().await.to_string_lossy().to_string())
 }

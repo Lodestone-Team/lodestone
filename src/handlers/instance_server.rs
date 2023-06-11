@@ -33,11 +33,16 @@ pub async fn start_instance(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    let mut instance_list = state.instances.lock().await;
-    let instance = instance_list.get_mut(&uuid).ok_or_else(|| Error {
-        kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
-    })?;
+    let mut instance = state
+        .instances
+        .lock()
+        .await
+        .get(&uuid)
+        .cloned()
+        .ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Instance not found"),
+        })?;
     let port = instance.port().await;
 
     if state.port_manager.lock().await.port_status(port).is_in_use {

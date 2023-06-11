@@ -73,7 +73,7 @@ impl TServer for MinecraftInstance {
             if let Ok(SpawnResult {
                 macro_pid: pid,
                 exit_future,
-                ..
+                detach_future,
             }) = res
             {
                 self.pid_to_task_entry.lock().await.insert(
@@ -88,7 +88,7 @@ impl TServer for MinecraftInstance {
                     _ = exit_future => {
                         info!("Prelaunch script exited");
                     }
-                    _ = self.macro_executor.wait_for_detach(pid) => {
+                    _ = detach_future => {
                         info!("Prelaunch script requested detach");
                     }
                 }
