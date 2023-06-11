@@ -31,6 +31,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use color_eyre::eyre::Context;
 use color_eyre::Report;
+use dashmap::DashMap;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
@@ -88,7 +89,7 @@ pub mod util;
 
 #[derive(Clone)]
 pub struct AppState {
-    instances: Arc<Mutex<HashMap<InstanceUuid, GameInstance>>>,
+    instances: Arc<DashMap<InstanceUuid, GameInstance>>,
     users_manager: Arc<RwLock<UsersManager>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
@@ -108,8 +109,8 @@ async fn restore_instances(
     instances_path: &Path,
     event_broadcaster: EventBroadcaster,
     macro_executor: MacroExecutor,
-) -> Result<HashMap<InstanceUuid, GameInstance>, Error> {
-    let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
+) -> Result<DashMap<InstanceUuid, GameInstance>, Error> {
+    let ret: DashMap<InstanceUuid, GameInstance> = DashMap::new();
 
     for entry in instances_path
         .read_dir()
@@ -412,11 +413,11 @@ pub async fn run(
         .unwrap();
 
     let mut allocated_ports = HashSet::new();
-    for (_, instance) in instances.iter() {
-        allocated_ports.insert(instance.port().await);
+    for instance_entry in instances.iter() {
+        allocated_ports.insert(instance_entry.value().port().await);
     }
     let shared_state = AppState {
-        instances: Arc::new(Mutex::new(instances)),
+        instances: Arc::new(instances),
         users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
@@ -444,13 +445,14 @@ pub async fn run(
 
     init_app_state(shared_state.clone());
 
-    for (_, instance) in shared_state.instances.lock().await.iter_mut() {
+    for mut entry in shared_state.instances.iter_mut() {
+        let instance = entry.value_mut();
         if instance.auto_start().await {
             info!("Auto starting instance {}", instance.name().await);
             if let Err(e) = instance.start(CausedBy::System, false).await {
                 error!(
                     "Failed to start instance {}: {:?}",
-                    instance.name().await,
+                    entry.value().name().await,
                     e
                 );
             }
@@ -499,12 +501,12 @@ pub async fn run(
         async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             loop {
-                for (uuid, instance) in instances.lock().await.iter() {
-                    let report = instance.monitor().await;
+                for entry in instances.iter() {
+                    let report = entry.value().monitor().await;
                     monitor_buffer
                         .lock()
                         .await
-                        .entry(uuid.to_owned())
+                        .entry(entry.key().to_owned())
                         .or_insert_with(|| AllocRingBuffer::with_capacity(64))
                         .push(report);
                 }
@@ -608,15 +610,15 @@ pub async fn run(
                 axum_server_handle.shutdown();
                 info!("Signalling all instances to stop");
                 // cleanup
-                let mut instances = shared_state.instances.lock().await;
-                for (_, instance) in instances.iter_mut() {
+                for mut entry in shared_state.instances.iter_mut() {
+                    let instance = entry.value_mut();
                     if instance.state().await == State::Stopped {
                         continue;
                     }
                     if let Err(e) = instance.stop(CausedBy::System, false).await {
                         error!(
                             "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                            instance.uuid().await,
+                            entry.value().uuid().await,
                             e
                         );
                     }

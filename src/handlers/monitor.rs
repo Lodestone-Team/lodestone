@@ -27,8 +27,6 @@ pub async fn monitor(
 ) -> Result<Response, Error> {
     let instance = state
         .instances
-        .lock()
-        .await
         .get(&uuid)
         .ok_or_else(|| Error {
             kind: crate::error::ErrorKind::NotFound,

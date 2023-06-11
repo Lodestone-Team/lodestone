@@ -24,8 +24,7 @@ pub async fn get_instance_configurable_manifest(
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
-    let mut instances = state.instances.lock().await;
-    let instance = instances.get_mut(&uuid).ok_or_else(|| Error {
+    let mut instance = state.instances.get_mut(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
@@ -39,8 +38,7 @@ pub async fn get_instance_settings(
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
-    let mut instances = state.instances.lock().await;
-    let instance = instances.get_mut(&uuid).ok_or_else(|| Error {
+    let mut instance = state.instances.get_mut(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
@@ -55,8 +53,7 @@ pub async fn set_instance_setting(
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
-    let mut instances = state.instances.lock().await;
-    let instance = instances.get_mut(&uuid).ok_or(Error {
+    let mut instance = state.instances.get_mut(&uuid).ok_or(Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
@@ -78,8 +75,6 @@ pub async fn set_instance_name(
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     state
         .instances
-        .lock()
-        .await
         .get_mut(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
@@ -100,8 +95,6 @@ pub async fn set_instance_description(
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     state
         .instances
-        .lock()
-        .await
         .get_mut(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
@@ -121,8 +114,6 @@ pub async fn change_version(
     requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
     state
         .instances
-        .lock()
-        .await
         .get_mut(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,

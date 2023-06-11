@@ -73,13 +73,12 @@ async fn list_instance_files(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
 
     requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
 
     let ret: Vec<FileEntry> = list_dir(&path, None)
@@ -112,13 +111,12 @@ async fn read_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
 
     let ret = tokio::fs::read_to_string(&path)
@@ -145,13 +143,12 @@ async fn write_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
@@ -187,13 +184,12 @@ async fn make_instance_directory(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
     // create the file if it doesn't exist
     crate::util::fs::create_dir_all(&path).await?;
@@ -228,13 +224,12 @@ async fn copy_instance_files(
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     // join each path to the root
     let paths_source = relative_paths_source
         .iter()
@@ -372,13 +367,12 @@ async fn move_instance_file(
     let relative_path_dest = decode_base64(&base64_relative_path_dest)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path_source = scoped_join_win_safe(&root, relative_path_source)?;
     let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
 
@@ -440,13 +434,12 @@ async fn remove_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
@@ -478,13 +471,12 @@ async fn remove_instance_dir(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if path == root {
         return Err(Error {
@@ -541,13 +533,12 @@ async fn new_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !requester.can_perform_action(&UserAction::WriteGlobalFile) && is_path_protected(&path) {
@@ -579,13 +570,12 @@ async fn get_instance_file_url(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
 
     let key = rand_alphanumeric(32);
@@ -623,13 +613,12 @@ async fn upload_instance_file(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
     crate::util::fs::create_dir_all(&path_to_dir).await?;
 
@@ -756,13 +745,12 @@ pub async fn unzip_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let path_to_zip_file = scoped_join_win_safe(root, &relative_path)?;
 
     if let UnzipOption::ToDir(ref dir) = unzip_option {
@@ -830,13 +818,12 @@ async fn zip_instance_files(
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
-    let instances = state.instances.lock().await;
-    let instance = instances.get(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
     let root = instance.path().await;
-    drop(instances);
+    drop(instance);
     let ZipRequest {
         mut target_relative_paths,
         mut destination_relative_path,
