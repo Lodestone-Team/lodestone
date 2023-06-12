@@ -606,24 +606,30 @@ impl TServer for MinecraftInstance {
             warn!("[{}] Instance is already stopped", config.name.clone());
             return Err(eyre!("Instance is already stopped").into());
         }
-        self.process
-            .lock()
-            .await
-            .as_mut()
-            .ok_or_else(|| {
-                error!(
-                    "[{}] Failed to kill instance: process not available",
-                    config.name.clone()
-                );
-                eyre!("Failed to kill instance: process not available")
-            })?
-            .kill()
-            .await
-            .context("Failed to kill process")
-            .map_err(|e| {
-                error!("[{}] Failed to kill instance: {}", config.name.clone(), e);
-                e
-            })?;
+        if let Some(process) = self.process.lock().await.as_mut() {
+            process
+                .kill()
+                .await
+                .context("Failed to kill process")
+                .map_err(|e| {
+                    error!("[{}] Failed to kill instance: {}", config.name.clone(), e);
+                    e
+                })?;
+        }
+        {
+            error!(
+                "[{}] Process not available, assuming instance is stopped",
+                config.name.clone()
+            );
+            *self.state.lock().await = State::Stopped;
+            self.event_broadcaster
+                .send(Event::new_instance_state_transition(
+                    self.uuid.clone(),
+                    config.name.clone(),
+                    State::Stopped,
+                ));
+            Err(eyre!("Process not available, assuming instance is stopped"))?;
+        }
         Ok(())
     }
 
