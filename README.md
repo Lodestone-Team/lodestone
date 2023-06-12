@@ -94,7 +94,15 @@ docker run -d \
 ```
 Docker Compose example:
 
-Download the docker-compose.yml file from this repo using 
+Download the docker-compose.yml file from this repo using
+```sh
+wget https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/main/docker-compose.yml
+```
+and then run it using
+```sh
+docker compose up -d
+```
+Alternatively, create docker-compose.yml yourself:
 ```yml
 version: '3.8'
 services:
@@ -110,11 +118,6 @@ services:
 volumes:
   lodestone:
 ```
-Copy into docker-compose.yml and run
-```sh
-docker compose up -d
-```
-Alternatively, 
 
 <!-- GETTING STARTED -->
 ## Getting Started (development)
