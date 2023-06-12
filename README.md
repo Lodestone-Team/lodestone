@@ -83,7 +83,7 @@ Alternatively, you may build your own image using the default `Dockerfile`, not 
 > You may add additional ports as you wish to forward, but 16662 is the default port served in the image.
 > You may add a volume for your lodestone instance to be accessible, in the example below, you can create a volume first by using `docker volume create lodestone`.
 
-To use:
+Docker CLI example:
 ```sh
 docker run -d \
   --name lodestone \
@@ -92,6 +92,29 @@ docker run -d \
   -v lodestone:/home/user/.lodestone \
   ghcr.io/lodestone-team/lodestone_core
 ```
+Docker Compose example:
+
+Download the docker-compose.yml file from this repo using 
+```yml
+version: '3.8'
+services:
+  lodestone:
+    container_name: lodestone
+    image: ghcr.io/lodestone-team/lodestone_core
+    restart: unless-stopped
+    ports:
+      - "16662:16662"
+    volumes:
+      - lodestone:/home/user/.lodestone
+
+volumes:
+  lodestone:
+```
+Copy into docker-compose.yml and run
+```sh
+docker compose up -d
+```
+Alternatively, 
 
 <!-- GETTING STARTED -->
 ## Getting Started (development)
