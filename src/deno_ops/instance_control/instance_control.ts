@@ -6,15 +6,15 @@ import { Player } from "../../../deno_bindings/Player.ts";
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
 
-export function startInstance(instanceUuid: string = instanceUUID()!, block: boolean): Promise<void> {
+export function startInstance(block: boolean, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("start_instance", instanceUuid, taskPid(), block);
 }
 
-export function stopInstance(instanceUuid: string = instanceUUID()!, block: boolean): Promise<void> {
+export function stopInstance(block: boolean, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("stop_instance", instanceUuid, taskPid(), block);
 }
 
-export function restartInstance(instanceUuid: string = instanceUUID()!, block: boolean): Promise<void> {
+export function restartInstance(block: boolean, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("restart_instance", instanceUuid, taskPid(), block);
 }
 
@@ -26,7 +26,7 @@ export function getInstanceState(instanceUuid: string = instanceUUID()!): Promis
     return core.opAsync("get_instance_state", instanceUuid);
 }
 
-export function sendCommand(instanceUuid: string = instanceUUID()!, command: string): Promise<void> {
+export function sendCommand(command: string, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("send_command", instanceUuid, command);
 }
 
@@ -70,18 +70,18 @@ export function getInstancePath(instanceUuid: string = instanceUUID()!): Promise
     return core.opAsync("get_instance_path", instanceUuid);
 }
 
-export function setInstanceName(instanceUuid: string = instanceUUID()!, name: string): Promise<void> {
+export function setInstanceName(name: string, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("set_instance_name", instanceUuid, name);
 }
 
-export function setInstanceDescription(instanceUuid: string = instanceUUID()!, description: string): Promise<void> {
+export function setInstanceDescription(description: string, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("set_instance_description", instanceUuid, description);
 }
 
-export function setInstancePort(instanceUuid: string = instanceUUID()!, port: number): Promise<void> {
+export function setInstancePort(port: number, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("set_instance_port", instanceUuid, port);
 }
 
-export function setInstanceAutoStart(instanceUuid: string = instanceUUID()!, autoStart: boolean): Promise<void> {
+export function setInstanceAutoStart(autoStart: boolean, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("set_instance_auto_start", instanceUuid, autoStart);
 }

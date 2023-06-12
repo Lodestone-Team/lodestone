@@ -31,11 +31,11 @@ export function detach() {
     emitDetach();
 }
 
-export function emitDetach(instanceUuid: string = prelude.instanceUUID()!, pid: TaskPID = prelude.taskPid()) {
+export function emitDetach(pid: TaskPID = prelude.taskPid(), instanceUuid: string = prelude.instanceUUID()!) {
     ops.emit_detach(pid, instanceUuid);
 }
 
-export function emitConsoleOut(instanceUuid: string = prelude.instanceUUID()!, line: string) {
+export function emitConsoleOut(line: string, instanceUuid: string = prelude.instanceUUID()!,) {
     InstanceControl.getInstanceName().then((name) => {
         ops.emit_console_out(instanceUuid, name, line);
     }
