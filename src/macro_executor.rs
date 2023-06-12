@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
+    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -49,6 +50,18 @@ use futures::FutureExt;
 pub trait WorkerOptionGenerator: Send + Sync {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions;
 }
+
+pub struct DefaultWorkerOptionGenerator;
+
+impl WorkerOptionGenerator for DefaultWorkerOptionGenerator {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions {
+        deno_runtime::worker::WorkerOptions {
+            module_loader: Rc::new(TypescriptModuleLoader::default()),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
 }

@@ -15,7 +15,7 @@ use crate::implementations::minecraft::line_parser::{
 };
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
-use crate::macro_executor::SpawnResult;
+use crate::macro_executor::{DefaultWorkerOptionGenerator, SpawnResult};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
@@ -23,7 +23,7 @@ use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 use crate::types::Snowflake;
 use crate::util::{dont_spawn_terminal, list_dir};
 
-use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
+use super::r#macro::resolve_macro_invocation;
 use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
 use tracing::{error, info, warn};
 
@@ -56,14 +56,13 @@ impl TServer for MinecraftInstance {
 
         let prelaunch = resolve_macro_invocation(&self.path_to_instance, "prelaunch");
         if let Some(prelaunch) = prelaunch {
-            let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
             let res: Result<SpawnResult, Error> = self
                 .macro_executor
                 .spawn(
                     prelaunch,
                     Vec::new(),
                     CausedBy::System,
-                    Box::new(main_worker_generator),
+                    Box::new(DefaultWorkerOptionGenerator),
                     None,
                     Some(self.uuid.clone()),
                 )

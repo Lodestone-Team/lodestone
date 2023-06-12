@@ -1,7 +1,11 @@
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
 
-use crate::events::Event;
+use crate::{
+    events::{Event, EventInner, InstanceEvent, InstanceEventInner},
+    traits::t_server::State,
+    types::InstanceUuid,
+};
 
 #[derive(Debug, Clone)]
 pub struct EventBroadcaster {
@@ -23,6 +27,40 @@ impl EventBroadcaster {
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Event> {
         self.event_tx.subscribe()
     }
+
+    pub async fn next_instance_event(&self, instance_uuid: &InstanceUuid) -> InstanceEvent {
+        let mut rx = self.subscribe();
+        loop {
+            let event = rx.recv().await.expect("Infallible");
+            if let EventInner::InstanceEvent(inner) = &event.event_inner {
+                if inner.instance_uuid == instance_uuid {
+                    return inner.to_owned();
+                }
+            }
+        }
+    }
+
+    pub async fn next_instance_output(&self, instance_uuid: &InstanceUuid) -> String {
+        loop {
+            let instance_event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::InstanceOutput { message } =
+                instance_event.instance_event_inner
+            {
+                return message;
+            }
+        }
+    }
+
+    pub async fn next_instance_state_change(&self, instance_uuid: &InstanceUuid) -> State {
+        loop {
+            let instance_event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::StateTransition { to } = instance_event.instance_event_inner
+            {
+                return to;
+            }
+        }
+    }
+
 }
 
 impl From<EventBroadcaster> for Sender<Event> {
