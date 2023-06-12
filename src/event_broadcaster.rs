@@ -28,6 +28,9 @@ impl EventBroadcaster {
         self.event_tx.subscribe()
     }
 
+    /// Returns the next event that matches the given instance uuid.
+    ///
+    /// Will block forever if instance_uuid is not found.
     pub async fn next_instance_event(&self, instance_uuid: &InstanceUuid) -> InstanceEvent {
         let mut rx = self.subscribe();
         loop {
@@ -40,6 +43,9 @@ impl EventBroadcaster {
         }
     }
 
+    /// Returns the next instance output event that matches the given instance uuid.
+    ///
+    /// Will block forever if instance_uuid is not found.
     pub async fn next_instance_output(&self, instance_uuid: &InstanceUuid) -> String {
         loop {
             let instance_event = self.next_instance_event(instance_uuid).await;
@@ -51,6 +57,9 @@ impl EventBroadcaster {
         }
     }
 
+    /// Returns the next instance state change event that matches the given instance uuid.
+    ///
+    /// Will block forever if instance_uuid is not found.
     pub async fn next_instance_state_change(&self, instance_uuid: &InstanceUuid) -> State {
         loop {
             let instance_event = self.next_instance_event(instance_uuid).await;
@@ -60,7 +69,6 @@ impl EventBroadcaster {
             }
         }
     }
-
 }
 
 impl From<EventBroadcaster> for Sender<Event> {

@@ -6,7 +6,10 @@ use deno_core::{
 };
 
 use crate::{
-    event_broadcaster::EventBroadcaster, events::Event, macro_executor::MacroPID,
+    event_broadcaster::EventBroadcaster,
+    events::{Event, InstanceEvent},
+    macro_executor::MacroPID,
+    traits::t_server::State,
     types::InstanceUuid,
 };
 
@@ -19,6 +22,26 @@ async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, anyhow::Error>
         .await
         .context("Failed to receive event")?;
     Ok(event)
+}
+
+#[op]
+async fn next_instance_event(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> InstanceEvent {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster.next_instance_event(&instance_uuid).await
+}
+
+#[op]
+async fn next_instance_state_change(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> State {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_state_change(&instance_uuid)
+        .await
 }
 
 #[op]
@@ -56,6 +79,8 @@ pub fn register_all_event_ops(
                 next_event::decl(),
                 emit_console_out::decl(),
                 emit_detach::decl(),
+                next_instance_event::decl(),
+                next_instance_state_change::decl(),
             ])
             .state(|state| {
                 state.put(event_broadcaster);
