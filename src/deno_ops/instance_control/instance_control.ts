@@ -1,0 +1,87 @@
+import { instanceUUID, taskPid } from "../prelude/prelude.ts";
+import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
+import { PerformanceReport } from "../../../deno_bindings/PerformanceReport.ts";
+import { Player } from "../../../deno_bindings/Player.ts";
+
+declare const Deno: any;
+const core = Deno[Deno.internal].core;
+
+export function startInstance(instanceUuid: string = instanceUUID()!, block: boolean): Promise<void> {
+    return core.opAsync("start_instance", instanceUuid, taskPid(), block);
+}
+
+export function stopInstance(instanceUuid: string = instanceUUID()!, block: boolean): Promise<void> {
+    return core.opAsync("stop_instance", instanceUuid, taskPid(), block);
+}
+
+export function restartInstance(instanceUuid: string = instanceUUID()!, block: boolean): Promise<void> {
+    return core.opAsync("restart_instance", instanceUuid, taskPid(), block);
+}
+
+export function killInstance(instanceUuid: string = instanceUUID()!): Promise<void> {
+    return core.opAsync("kill_instance", instanceUuid, taskPid());
+}
+
+export function getInstanceState(instanceUuid: string = instanceUUID()!): Promise<InstanceState> {
+    return core.opAsync("get_instance_state", instanceUuid);
+}
+
+export function sendCommand(instanceUuid: string = instanceUUID()!, command: string): Promise<void> {
+    return core.opAsync("send_command", instanceUuid, command);
+}
+
+export function monitorInstance(instanceUuid: string = instanceUUID()!): Promise<PerformanceReport> {
+    return core.opAsync("monitor_instance", instanceUuid);
+}
+
+export function getInstancePlayerCount(instanceUuid: string = instanceUUID()!): Promise<number> {
+    return core.opAsync("get_instance_player_count", instanceUuid);
+}
+
+export function getInstanceMaxPlayers(instanceUuid: string = instanceUUID()!): Promise<number> {
+    return core.opAsync("get_instance_max_players", instanceUuid);
+}
+
+export function getInstancePlayerList(instanceUuid: string = instanceUUID()!): Promise<Player[]> {
+    return core.opAsync("get_instance_player_list", instanceUuid);
+}
+
+export function getInstanceName(instanceUuid: string = instanceUUID()!): Promise<string> {
+    return core.opAsync("get_instance_name", instanceUuid);
+}
+
+export function getInstanceGame(instanceUuid: string = instanceUUID()!): Promise<string> {
+    return core.opAsync("get_instance_game", instanceUuid);
+}
+
+export function getInstanceGameVersion(instanceUuid: string = instanceUUID()!): Promise<string> {
+    return core.opAsync("get_instance_game_version", instanceUuid);
+}
+
+export function getInstanceDescription(instanceUuid: string = instanceUUID()!): Promise<string> {
+    return core.opAsync("get_instance_description", instanceUuid);
+}
+
+export function getInstancePort(instanceUuid: string = instanceUUID()!): Promise<number> {
+    return core.opAsync("get_instance_port", instanceUuid);
+}
+
+export function getInstancePath(instanceUuid: string = instanceUUID()!): Promise<string> {
+    return core.opAsync("get_instance_path", instanceUuid);
+}
+
+export function setInstanceName(instanceUuid: string = instanceUUID()!, name: string): Promise<void> {
+    return core.opAsync("set_instance_name", instanceUuid, name);
+}
+
+export function setInstanceDescription(instanceUuid: string = instanceUUID()!, description: string): Promise<void> {
+    return core.opAsync("set_instance_description", instanceUuid, description);
+}
+
+export function setInstancePort(instanceUuid: string = instanceUUID()!, port: number): Promise<void> {
+    return core.opAsync("set_instance_port", instanceUuid, port);
+}
+
+export function setInstanceAutoStart(instanceUuid: string = instanceUUID()!, autoStart: boolean): Promise<void> {
+    return core.opAsync("set_instance_auto_start", instanceUuid, autoStart);
+}

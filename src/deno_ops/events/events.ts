@@ -9,8 +9,7 @@ export async function nextEvent(): Promise<ClientEvent> {
     return core.opAsync("next_event");
 }
 
-
-export function emiDetach(pid: MacroPID, instanceUuid: string | null) {
+export function emitDetach(pid: MacroPID, instanceUuid: string | null) {
     ops.emit_detach(pid, instanceUuid);
 }
 

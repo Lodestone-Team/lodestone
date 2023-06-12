@@ -19,7 +19,7 @@ use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
 use crate::{
-    deno_ops::{events::register_all_event_ops, prelude::register_prelude_ops},
+    deno_ops::{events::register_all_event_ops, instance_control::register_instance_control_ops},
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
@@ -293,10 +293,9 @@ impl MacroExecutor {
                     let instance_uuid = instance_uuid.clone();
                     async move {
                         let mut worker_option = worker_options_generator.generate();
-                        worker_option.get_error_class_fn =
-                            Some(&deno_errors::get_error_class_name);
+                        worker_option.get_error_class_fn = Some(&deno_errors::get_error_class_name);
                         register_all_event_ops(&mut worker_option, event_broadcaster.clone());
-                        register_prelude_ops(&mut worker_option);
+                        register_instance_control_ops(&mut worker_option);
 
                         let mut main_worker = deno_runtime::worker::MainWorker::from_options(
                             main_module,
