@@ -66,7 +66,6 @@ impl TServer for MinecraftInstance {
                     Box::new(main_worker_generator),
                     None,
                     Some(self.uuid.clone()),
-                    None,
                 )
                 .await;
 

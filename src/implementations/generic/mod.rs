@@ -129,7 +129,6 @@ impl GenericInstance {
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
-                None,
             )
             .await?;
         detach_future.await;
@@ -169,7 +168,6 @@ impl GenericInstance {
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
-                None,
             )
             .await?;
 
@@ -220,7 +218,6 @@ impl GenericInstance {
                 Box::new(InitWorkerGenerator {
                     bridge: procedure_bridge.clone(),
                 }),
-                None,
                 None,
                 None,
             )

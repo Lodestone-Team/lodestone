@@ -23,10 +23,8 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
-    prelude::GameInstance,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
-    AppState,
 };
 
 use color_eyre::eyre::eyre;
@@ -264,7 +262,6 @@ impl MacroExecutor {
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
-        timeout: Option<Duration>,
     ) -> Result<SpawnResult, Error> {
         let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
         let exit_future = Box::pin({
@@ -605,7 +602,7 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            const { core } = Deno;
+            const core = Deno[Deno.internal].core;
             const { ops } = core;
             console.log(ops.hello_world())
             console.log(await core.opAsync("async_hello_world"))
@@ -621,7 +618,6 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
-                None,
                 None,
                 None,
             )
@@ -660,7 +656,6 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
-                None,
                 None,
                 None,
             )

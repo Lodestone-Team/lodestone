@@ -1,7 +1,6 @@
 import { MacroPID } from "../../../deno_bindings/MacroPID.ts";
 import { emitDetach } from "../events/events.ts";
 
-declare const Deno: any;
 
 declare const __macro_pid: MacroPID;
 declare const __instance_uuid: string | null;
