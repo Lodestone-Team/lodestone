@@ -588,7 +588,6 @@ mod tests {
         fn generate(&self) -> deno_runtime::worker::WorkerOptions {
             let ext = deno_core::Extension::builder("generic_deno_extension_builder")
                 .ops(vec![hello_world::decl(), async_hello_world::decl()])
-                .force_op_registration()
                 .build();
             deno_runtime::worker::WorkerOptions {
                 module_loader: Rc::new(TypescriptModuleLoader::default()),

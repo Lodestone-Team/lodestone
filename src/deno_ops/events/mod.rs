@@ -45,14 +45,9 @@ async fn next_instance_state_change(
 }
 
 #[op]
-async fn next_instance_output(
-    state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
-) -> String {
+async fn next_instance_output(state: Rc<RefCell<OpState>>, instance_uuid: InstanceUuid) -> String {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster
-        .next_instance_output(&instance_uuid)
-        .await
+    event_broadcaster.next_instance_output(&instance_uuid).await
 }
 
 #[op]
@@ -97,7 +92,6 @@ pub fn register_all_event_ops(
             .state(|state| {
                 state.put(event_broadcaster);
             })
-            .force_op_registration()
             .build(),
     );
 }

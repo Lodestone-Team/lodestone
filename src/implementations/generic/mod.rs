@@ -62,7 +62,6 @@ impl WorkerOptionGenerator for InitWorkerGenerator {
                     state.put(brige);
                 }
             })
-            .force_op_registration()
             .build();
         deno_runtime::worker::WorkerOptions {
             extensions: vec![ext],

@@ -303,7 +303,6 @@ pub fn register_instance_control_ops(worker_options: &mut deno_runtime::worker::
                 send_command::decl(),
                 kill_instance::decl(),
             ])
-            .force_op_registration()
             .build(),
     );
 }
