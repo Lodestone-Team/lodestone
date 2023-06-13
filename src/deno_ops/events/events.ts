@@ -5,6 +5,7 @@ import * as InstanceControl from "../instance_control/instance_control.ts"
 import { InstanceEvent } from "../../../deno_bindings/InstanceEvent.ts";
 import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 
+// deno-lint-ignore no-explicit-any
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
 const { ops } = core;

@@ -3,6 +3,7 @@ import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 import { PerformanceReport } from "../../../deno_bindings/PerformanceReport.ts";
 import { Player } from "../../../deno_bindings/Player.ts";
 
+// deno-lint-ignore no-explicit-any
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
 
