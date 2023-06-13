@@ -9,6 +9,11 @@ declare const Deno: any;
 const core = Deno[Deno.internal].core;
 const { ops } = core;
 
+export interface PlayerMessage {
+    player: string;
+    message: string;
+}
+
 export function nextEvent(): Promise<ClientEvent> {
     return core.opAsync("next_event");
 }
@@ -19,6 +24,10 @@ export function nextInstanceEvent(instanceUuid: string = prelude.instanceUUID()!
 
 export function nextInstanceStateChange(instanceUuid: string = prelude.instanceUUID()!): Promise<InstanceState> {
     return core.opAsync("next_instance_state_change", instanceUuid);
+}
+
+export function nextInstanceConsoleOut(instanceUuid: string = prelude.instanceUUID()!): Promise<string> {
+    return core.opAsync("next_instance_output", instanceUuid);
 }
 
 /**  Notifies the caller that the macro wishes to be run in the background.

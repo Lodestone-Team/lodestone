@@ -45,6 +45,17 @@ async fn next_instance_state_change(
 }
 
 #[op]
+async fn next_instance_output(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> String {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_output(&instance_uuid)
+        .await
+}
+
+#[op]
 fn emit_detach(
     state: Rc<RefCell<OpState>>,
     macro_pid: MacroPID,
@@ -57,9 +68,9 @@ fn emit_detach(
 #[op]
 fn emit_console_out(
     state: Rc<RefCell<OpState>>,
-    line: String,
-    instance_name: String,
     instance_uuid: InstanceUuid,
+    instance_name: String,
+    line: String,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_instance_output(
@@ -81,6 +92,7 @@ pub fn register_all_event_ops(
                 emit_detach::decl(),
                 next_instance_event::decl(),
                 next_instance_state_change::decl(),
+                next_instance_output::decl(),
             ])
             .state(|state| {
                 state.put(event_broadcaster);
