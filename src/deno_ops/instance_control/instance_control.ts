@@ -2,7 +2,7 @@ import { instanceUUID, taskPid } from "../prelude/prelude.ts";
 import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 import { PerformanceReport } from "../../../deno_bindings/PerformanceReport.ts";
 import { Player } from "../../../deno_bindings/Player.ts";
-
+import { Game } from "../../../deno_bindings/Game.ts";
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
@@ -51,7 +51,7 @@ export function getInstanceName(instanceUuid: string = instanceUUID()!): Promise
     return core.opAsync("get_instance_name", instanceUuid);
 }
 
-export function getInstanceGame(instanceUuid: string = instanceUUID()!): Promise<string> {
+export function getInstanceGame(instanceUuid: string = instanceUUID()!): Promise<Game> {
     return core.opAsync("get_instance_game", instanceUuid);
 }
 
@@ -85,4 +85,16 @@ export function setInstancePort(port: number, instanceUuid: string = instanceUUI
 
 export function setInstanceAutoStart(autoStart: boolean, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("set_instance_auto_start", instanceUuid, autoStart);
+}
+
+export function isRconAvailable(instanceUuid: string = instanceUUID()!): Promise<boolean> {
+    return core.opAsync("is_rcon_available", instanceUuid);
+}
+
+export function sendRconCommand(command: string, instanceUuid: string = instanceUUID()!): Promise<string> {
+    return core.opAsync("send_rcon_command", instanceUuid, command);
+}
+
+export function waitTillRconAvailable(instanceUuid: string = instanceUUID()!): Promise<void> {
+    return core.opAsync("wait_till_rcon_available", instanceUuid);
 }

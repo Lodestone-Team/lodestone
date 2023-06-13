@@ -460,6 +460,7 @@ impl TServer for MinecraftInstance {
                             )
                             .unwrap();
                         self.players_manager.lock().await.clear(name);
+                        self.rcon_conn.lock().await.take();
                     }
                 });
                 self.config.lock().await.has_started = true;

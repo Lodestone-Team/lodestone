@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use deno_core::{
-    anyhow::{self, Context},
+    anyhow::{self, bail, Context},
     op,
 };
 
@@ -278,6 +278,56 @@ async fn set_instance_auto_start(
         .context("Failed to set instance auto start")
 }
 
+#[op]
+async fn is_rcon_available(instance_uuid: InstanceUuid) -> Result<bool, anyhow::Error> {
+    let instance = app_state()
+        .instances
+        .get_mut(&instance_uuid)
+        .ok_or(anyhow::anyhow!("Instance not found"))?;
+    match instance.value() {
+        crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.is_rcon_available().await),
+        crate::prelude::GameInstance::GenericInstance(_) => {
+            bail!("RCON not available for atom instances")
+        }
+    }
+}
+
+#[op]
+async fn send_rcon_command(
+    instance_uuid: InstanceUuid,
+    command: String,
+) -> Result<String, anyhow::Error> {
+    let instance = app_state()
+        .instances
+        .get_mut(&instance_uuid)
+        .ok_or(anyhow::anyhow!("Instance not found"))?;
+    match instance.value() {
+        crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.send_rcon(&command).await?),
+        crate::prelude::GameInstance::GenericInstance(_) => {
+            bail!("RCON not available for atom instances")
+        }
+    }
+}
+
+#[op]
+async fn wait_till_rcon_available(instance_uuid: InstanceUuid) -> Result<(), anyhow::Error> {
+    let instance = app_state()
+        .instances
+        .get_mut(&instance_uuid)
+        .ok_or(anyhow::anyhow!("Instance not found"))?;
+    match instance.value() {
+        crate::prelude::GameInstance::MinecraftInstance(v) => loop {
+            if v.is_rcon_available().await {
+                break Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        },
+        crate::prelude::GameInstance::GenericInstance(_) => {
+            bail!("RCON not available for atom instances")
+        }
+    }
+}
+
 pub fn register_instance_control_ops(worker_options: &mut deno_runtime::worker::WorkerOptions) {
     worker_options.extensions.push(
         deno_core::Extension::builder("prelude_ops")
@@ -302,6 +352,9 @@ pub fn register_instance_control_ops(worker_options: &mut deno_runtime::worker::
                 monitor_instance::decl(),
                 send_command::decl(),
                 kill_instance::decl(),
+                is_rcon_available::decl(),
+                send_rcon_command::decl(),
+                wait_till_rcon_available::decl(),
             ])
             .build(),
     );
