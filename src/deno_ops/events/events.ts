@@ -32,7 +32,7 @@ export function nextInstanceConsoleOut(instanceUuid: string = prelude.instanceUU
 }
 
 export function nextPlayerMessage(): Promise<PlayerMessage> {
-    return core.opAsync("next_player_message");
+    return core.opAsync("next_intance_player_message");
 }
 
 export function nextInstanceSystemMessage(): Promise<string> {
