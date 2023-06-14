@@ -2,7 +2,7 @@ name: Release Draft Workflow
 
 on:
     push:
-      tags: [ v\d+\.\d+\.\d+ ]
+      tags: [ v* ]
 
 env:
   CARGO_TERM_COLOR: always
