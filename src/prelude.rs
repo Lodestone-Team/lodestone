@@ -87,10 +87,11 @@ pub fn init_paths(lodestone_path: PathBuf) {
 
 thread_local! {
     pub static VERSION: semver::Version = semver::Version {
+        // 0.5.0-beta.1
         major: 0,
-        minor: 4,
-        patch: 4,
-        pre: Prerelease::new("").unwrap(),
+        minor: 5,
+        patch: 0,
+        pre: Prerelease::new("beta.1").unwrap(),
         build: BuildMetadata::EMPTY,
     };
 
