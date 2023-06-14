@@ -12,6 +12,12 @@ pub struct EventBroadcaster {
     event_tx: Sender<Event>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PlayerMessage {
+    pub player: String,
+    pub message: String,
+}
+
 impl EventBroadcaster {
     pub fn new(capacity: usize) -> (Self, Receiver<Event>) {
         let (event_tx, rx) = tokio::sync::broadcast::channel(capacity);
@@ -66,6 +72,36 @@ impl EventBroadcaster {
             if let InstanceEventInner::StateTransition { to } = instance_event.instance_event_inner
             {
                 return to;
+            }
+        }
+    }
+
+    pub async fn next_instance_system_message(&self, instance_uuid: &InstanceUuid) -> String {
+        loop {
+            let instance_event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::SystemMessage { message } =
+                instance_event.instance_event_inner
+            {
+                return message;
+            }
+        }
+    }
+
+    pub async fn next_instance_player_message(
+        &self,
+        instance_uuid: &InstanceUuid,
+    ) -> PlayerMessage {
+        loop {
+            let event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::PlayerMessage {
+                player,
+                player_message,
+            } = event.instance_event_inner
+            {
+                return PlayerMessage {
+                    player,
+                    message: player_message,
+                };
             }
         }
     }

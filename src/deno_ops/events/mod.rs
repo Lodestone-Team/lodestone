@@ -6,7 +6,7 @@ use deno_core::{
 };
 
 use crate::{
-    event_broadcaster::EventBroadcaster,
+    event_broadcaster::{EventBroadcaster, PlayerMessage},
     events::{Event, InstanceEvent},
     macro_executor::MacroPID,
     traits::t_server::State,
@@ -51,6 +51,28 @@ async fn next_instance_output(state: Rc<RefCell<OpState>>, instance_uuid: Instan
 }
 
 #[op]
+async fn next_instance_player_message(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> PlayerMessage {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_player_message(&instance_uuid)
+        .await
+}
+
+#[op]
+async fn next_instance_system_message(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> String {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_system_message(&instance_uuid)
+        .await
+}
+
+#[op]
 fn emit_detach(
     state: Rc<RefCell<OpState>>,
     macro_pid: MacroPID,
@@ -88,6 +110,8 @@ pub fn register_all_event_ops(
                 next_instance_event::decl(),
                 next_instance_state_change::decl(),
                 next_instance_output::decl(),
+                next_instance_player_message::decl(),
+                next_instance_system_message::decl(),
             ])
             .state(|state| {
                 state.put(event_broadcaster);

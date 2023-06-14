@@ -31,6 +31,14 @@ export function nextInstanceConsoleOut(instanceUuid: string = prelude.instanceUU
     return core.opAsync("next_instance_output", instanceUuid);
 }
 
+export function nextPlayerMessage(): Promise<PlayerMessage> {
+    return core.opAsync("next_player_message");
+}
+
+export function nextInstanceSystemMessage(): Promise<string> {
+    return core.opAsync("next_instance_system_message");
+}
+
 /**  Notifies the caller that the macro wishes to be run in the background.
  * 
 * This is a no-op if the macro is already running in the background, or called multiple times.
