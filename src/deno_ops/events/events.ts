@@ -31,12 +31,12 @@ export function nextInstanceConsoleOut(instanceUuid: string = prelude.instanceUU
     return core.opAsync("next_instance_output", instanceUuid);
 }
 
-export function nextPlayerMessage(): Promise<PlayerMessage> {
-    return core.opAsync("next_intance_player_message");
+export function nextPlayerMessage(instanceUuid: string = prelude.instanceUUID()!): Promise<PlayerMessage> {
+    return core.opAsync("next_instance_player_message", instanceUuid);
 }
 
-export function nextInstanceSystemMessage(): Promise<string> {
-    return core.opAsync("next_instance_system_message");
+export function nextInstanceSystemMessage(instanceUuid: string = prelude.instanceUUID()!): Promise<string> {
+    return core.opAsync("next_instance_system_message", instanceUuid);
 }
 
 /**  Notifies the caller that the macro wishes to be run in the background.
