@@ -330,7 +330,7 @@ async fn wait_till_rcon_available(instance_uuid: InstanceUuid) -> Result<(), any
 
 pub fn register_instance_control_ops(worker_options: &mut deno_runtime::worker::WorkerOptions) {
     worker_options.extensions.push(
-        deno_core::Extension::builder("prelude_ops")
+        deno_core::Extension::builder("instance_control_ops")
             .ops(vec![
                 get_instance_state::decl(),
                 get_instance_path::decl(),
