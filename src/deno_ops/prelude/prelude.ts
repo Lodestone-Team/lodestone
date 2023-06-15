@@ -7,6 +7,7 @@ declare const __instance_uuid: string | null;
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
+const { ops } = core;
 
 export function taskPid(): TaskPID {
     return __macro_pid;
@@ -17,5 +18,5 @@ export function instanceUUID(): string | null {
 }
 
 export function lodestoneVersion(): string {
-    return core.get_lodestone_version();
+    return ops.get_lodestone_version();
 }
