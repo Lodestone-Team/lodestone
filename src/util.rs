@@ -22,7 +22,7 @@ pub struct Authentication {
     password: String,
 }
 
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::prelude::path_to_tmp;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -312,7 +312,7 @@ pub async fn unzip_file_async(
         ))?
 }
 
-pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<PathBuf, Error> {
+pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>, overwrite_dest: bool) -> Result<PathBuf, Error> {
     let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
@@ -418,7 +418,12 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
     }
 
     writer.finish().context("Zip failed")?;
-    let dest = resolve_path_conflict(dest.into(), None);
+    let dest = if overwrite_dest{
+        dest.into()
+    } else { 
+        resolve_path_conflict(dest.into(), None)
+    };
+
     std::fs::rename(tmp_archive.path(), &dest).context(format!(
         "Failed to move {} to {}",
         tmp_archive.path().display(),
@@ -430,13 +435,14 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>) -> Result<P
 pub async fn zip_files_async(
     files: &[impl AsRef<Path>],
     dest: impl AsRef<Path>,
+    overwrite_dest: bool,
 ) -> Result<PathBuf, Error> {
     let _files = files
         .iter()
         .map(|f| f.as_ref().to_owned())
         .collect::<Vec<_>>();
     let _dest = dest.as_ref().to_owned();
-    tokio::task::spawn_blocking(move || zip_files(&_files, &_dest))
+    tokio::task::spawn_blocking(move || zip_files(&_files, &_dest, overwrite_dest))
         .await
         .context("Failed to spawn blocking task")?
 }
@@ -738,7 +744,8 @@ mod tests {
         assert_eq!(
             zip_files(
                 &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
-                dest_path.join("test_dest.zip")
+                dest_path.join("test_dest.zip"),
+                false,
             )
             .unwrap(),
             dest_path.join("test_dest.zip")
@@ -746,7 +753,8 @@ mod tests {
         assert_eq!(
             zip_files(
                 &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
-                dest_path.join("test_dest.zip")
+                dest_path.join("test_dest.zip"),
+                false,
             )
             .unwrap(),
             dest_path.join("test_dest_1.zip")
@@ -754,7 +762,8 @@ mod tests {
         assert_eq!(
             zip_files(
                 &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
-                dest_path.join("test_dest.zip")
+                dest_path.join("test_dest.zip"),
+                false,
             )
             .unwrap(),
             dest_path.join("test_dest_2.zip")
