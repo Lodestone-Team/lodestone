@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use axum::{
     body::Bytes,
@@ -26,7 +27,7 @@ use crate::{
     types::InstanceUuid,
     util::{
         format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
-        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption,
+        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption, zip_files,
     },
     DownloadableFile,
     AppState,
@@ -584,7 +585,20 @@ async fn get_instance_file_url(
         .download_urls
         .lock()
         .await
-        .insert(key.clone(), DownloadableFile::NormalFile(path.clone()));
+        .insert(
+            key.clone(), 
+            if fs::metadata(path.clone()).unwrap().is_dir() {
+                let lodestone_tmp = path_to_tmp().clone();
+                let temp_file = tempfile::NamedTempFile::new_in(lodestone_tmp)
+                    .context("Failed to create temporary file")?;
+                let files = Vec::from([path.clone()]);
+                zip_files(&files, temp_file.path().to_owned())
+                    .context("Failed to zip file")?;
+                DownloadableFile::ZippedFile(temp_file)
+            } else {
+                DownloadableFile::NormalFile(path.clone())
+            }
+        );
 
     state.download_urls.lock().await.get(&key).unwrap();
 
