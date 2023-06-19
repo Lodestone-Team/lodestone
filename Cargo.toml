@@ -3,7 +3,7 @@ name = "lodestone_core"
 description = "The backend for Lodestone"
 homepage = "https://github.com/Lodestone-Team"
 readme = "README.md"
-version = "0.4.4"
+version = "0.5.0-beta.1"
 edition = "2021"
 license = "APGL-3.0"
 exclude = ["target/*", "InstanceTest/*"]
@@ -30,11 +30,10 @@ base64 = "0.20.0"
 chrono = "0.4.22"
 color-eyre = "0.6.2"
 dashmap = "5.4.0"
-deno_ast = { version = "0.26.0", features = ["transpiling"] }
-deno_core = "0.187.0"
-deno_graph = "0.48.0"
-
-deno_runtime = "0.113.0"
+deno_ast = { version = "0.27.0", features = ["transpiling"] }
+deno_core = "0.190.0"
+deno_graph = "0.49.0"
+deno_runtime = "0.116.0"
 dotenvy = { version = "0.15" }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.8"

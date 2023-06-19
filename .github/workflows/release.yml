@@ -2,7 +2,7 @@ name: Release Draft Workflow
 
 on:
     push:
-      tags: [ v\d+\.\d+\.\d+ ]
+      tags: [ v* ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,7 +17,7 @@ jobs:
     secrets: inherit
 
   build:
-    uses: ./.github/workflows/client.yml
+    uses: ./.github/workflows/core.yml
     needs: [clippy_check, cargo_test]
     secrets: inherit
     with:

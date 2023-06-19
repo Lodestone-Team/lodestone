@@ -443,8 +443,6 @@ impl MinecraftInstance {
         let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = path_to_binaries().to_owned();
 
-        let uuid = dot_lodestone_config.uuid().to_owned();
-
         // Step 1: Create Directories
         event_broadcaster.send(Event::new_progression_event_update(
             progression_event_id,
@@ -890,6 +888,10 @@ impl MinecraftInstance {
                 .expect("Programming error, value is not a string")
                 .to_owned(),
         );
+    }
+
+    pub async fn is_rcon_available(&self) -> bool {
+        self.rcon_conn.lock().await.is_some()
     }
 
     pub async fn send_rcon(&self, cmd: &str) -> Result<String, Error> {

@@ -1,11 +1,21 @@
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
 
-use crate::events::Event;
+use crate::{
+    events::{Event, EventInner, InstanceEvent, InstanceEventInner},
+    traits::t_server::State,
+    types::InstanceUuid,
+};
 
 #[derive(Debug, Clone)]
 pub struct EventBroadcaster {
     event_tx: Sender<Event>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PlayerMessage {
+    pub player: String,
+    pub message: String,
 }
 
 impl EventBroadcaster {
@@ -22,6 +32,78 @@ impl EventBroadcaster {
 
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Event> {
         self.event_tx.subscribe()
+    }
+
+    /// Returns the next event that matches the given instance uuid.
+    ///
+    /// Will block forever if instance_uuid is not found.
+    pub async fn next_instance_event(&self, instance_uuid: &InstanceUuid) -> InstanceEvent {
+        let mut rx = self.subscribe();
+        loop {
+            let event = rx.recv().await.expect("Infallible");
+            if let EventInner::InstanceEvent(inner) = &event.event_inner {
+                if inner.instance_uuid == instance_uuid {
+                    return inner.to_owned();
+                }
+            }
+        }
+    }
+
+    /// Returns the next instance output event that matches the given instance uuid.
+    ///
+    /// Will block forever if instance_uuid is not found.
+    pub async fn next_instance_output(&self, instance_uuid: &InstanceUuid) -> String {
+        loop {
+            let instance_event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::InstanceOutput { message } =
+                instance_event.instance_event_inner
+            {
+                return message;
+            }
+        }
+    }
+
+    /// Returns the next instance state change event that matches the given instance uuid.
+    ///
+    /// Will block forever if instance_uuid is not found.
+    pub async fn next_instance_state_change(&self, instance_uuid: &InstanceUuid) -> State {
+        loop {
+            let instance_event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::StateTransition { to } = instance_event.instance_event_inner
+            {
+                return to;
+            }
+        }
+    }
+
+    pub async fn next_instance_system_message(&self, instance_uuid: &InstanceUuid) -> String {
+        loop {
+            let instance_event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::SystemMessage { message } =
+                instance_event.instance_event_inner
+            {
+                return message;
+            }
+        }
+    }
+
+    pub async fn next_instance_player_message(
+        &self,
+        instance_uuid: &InstanceUuid,
+    ) -> PlayerMessage {
+        loop {
+            let event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::PlayerMessage {
+                player,
+                player_message,
+            } = event.instance_event_inner
+            {
+                return PlayerMessage {
+                    player,
+                    message: player_message,
+                };
+            }
+        }
     }
 }
 

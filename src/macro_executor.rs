@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
+    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -19,14 +20,15 @@ use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
 use crate::{
-    deno_ops::{events::register_all_event_ops, prelude::register_prelude_ops},
+    deno_ops::{
+        events::register_all_event_ops, instance_control::register_instance_control_ops,
+        prelude::register_prelude_ops,
+    },
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
-    prelude::GameInstance,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
-    AppState,
 };
 
 use color_eyre::eyre::eyre;
@@ -51,6 +53,18 @@ use futures::FutureExt;
 pub trait WorkerOptionGenerator: Send + Sync {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions;
 }
+
+pub struct DefaultWorkerOptionGenerator;
+
+impl WorkerOptionGenerator for DefaultWorkerOptionGenerator {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions {
+        deno_runtime::worker::WorkerOptions {
+            module_loader: Rc::new(TypescriptModuleLoader::default()),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
 }
@@ -264,7 +278,6 @@ impl MacroExecutor {
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
-        timeout: Option<Duration>,
     ) -> Result<SpawnResult, Error> {
         let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
         let exit_future = Box::pin({
@@ -293,10 +306,10 @@ impl MacroExecutor {
                     let instance_uuid = instance_uuid.clone();
                     async move {
                         let mut worker_option = worker_options_generator.generate();
-                        worker_option.get_error_class_fn =
-                            Some(&deno_errors::get_error_class_name);
-                        register_all_event_ops(&mut worker_option, event_broadcaster.clone());
+                        worker_option.get_error_class_fn = Some(&deno_errors::get_error_class_name);
                         register_prelude_ops(&mut worker_option);
+                        register_all_event_ops(&mut worker_option, event_broadcaster.clone());
+                        register_instance_control_ops(&mut worker_option);
 
                         let mut main_worker = deno_runtime::worker::MainWorker::from_options(
                             main_module,
@@ -579,7 +592,6 @@ mod tests {
         fn generate(&self) -> deno_runtime::worker::WorkerOptions {
             let ext = deno_core::Extension::builder("generic_deno_extension_builder")
                 .ops(vec![hello_world::decl(), async_hello_world::decl()])
-                .force_op_registration()
                 .build();
             deno_runtime::worker::WorkerOptions {
                 module_loader: Rc::new(TypescriptModuleLoader::default()),
@@ -606,7 +618,7 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            const { core } = Deno;
+            const core = Deno[Deno.internal].core;
             const { ops } = core;
             console.log(ops.hello_world())
             console.log(await core.opAsync("async_hello_world"))
@@ -622,7 +634,6 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
-                None,
                 None,
                 None,
             )
@@ -661,7 +672,6 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
-                None,
                 None,
                 None,
             )

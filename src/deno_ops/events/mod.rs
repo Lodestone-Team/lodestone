@@ -6,7 +6,10 @@ use deno_core::{
 };
 
 use crate::{
-    event_broadcaster::EventBroadcaster, events::Event, macro_executor::MacroPID,
+    event_broadcaster::{EventBroadcaster, PlayerMessage},
+    events::{Event, InstanceEvent},
+    macro_executor::MacroPID,
+    traits::t_server::State,
     types::InstanceUuid,
 };
 
@@ -22,6 +25,54 @@ async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, anyhow::Error>
 }
 
 #[op]
+async fn next_instance_event(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> InstanceEvent {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster.next_instance_event(&instance_uuid).await
+}
+
+#[op]
+async fn next_instance_state_change(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> State {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_state_change(&instance_uuid)
+        .await
+}
+
+#[op]
+async fn next_instance_output(state: Rc<RefCell<OpState>>, instance_uuid: InstanceUuid) -> String {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster.next_instance_output(&instance_uuid).await
+}
+
+#[op]
+async fn next_instance_player_message(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> PlayerMessage {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_player_message(&instance_uuid)
+        .await
+}
+
+#[op]
+async fn next_instance_system_message(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+) -> String {
+    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
+    event_broadcaster
+        .next_instance_system_message(&instance_uuid)
+        .await
+}
+
+#[op]
 fn emit_detach(
     state: Rc<RefCell<OpState>>,
     macro_pid: MacroPID,
@@ -34,9 +85,9 @@ fn emit_detach(
 #[op]
 fn emit_console_out(
     state: Rc<RefCell<OpState>>,
-    line: String,
-    instance_name: String,
     instance_uuid: InstanceUuid,
+    instance_name: String,
+    line: String,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_instance_output(
@@ -56,11 +107,15 @@ pub fn register_all_event_ops(
                 next_event::decl(),
                 emit_console_out::decl(),
                 emit_detach::decl(),
+                next_instance_event::decl(),
+                next_instance_state_change::decl(),
+                next_instance_output::decl(),
+                next_instance_player_message::decl(),
+                next_instance_system_message::decl(),
             ])
             .state(|state| {
                 state.put(event_broadcaster);
             })
-            .force_op_registration()
             .build(),
     );
 }
