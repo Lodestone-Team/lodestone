@@ -23,7 +23,7 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget},
-    util::{list_dir, rand_alphanumeric, DownloadProgress, zip_files_async},
+    util::{list_dir, rand_alphanumeric, DownloadProgress, zip_files_async, zip_files},
     AppState, DownloadableFile,
 };
 
@@ -409,16 +409,21 @@ async fn download_file(
         })?;
     requester.try_action(&UserAction::ReadGlobalFile)?;
     let path = PathBuf::from(absolute_path);
+    let downloadable_file_path: PathBuf;
     let downloadable_file = if fs::metadata(path.clone()).unwrap().is_dir() {
         let lodestone_tmp = path_to_tmp().clone();
-        let temp_file = tempfile::NamedTempFile::new_in(lodestone_tmp)
+        let temp_dir = tempfile::tempdir_in(lodestone_tmp)
             .context("Failed to create temporary file")?;
+        let mut temp_file_path: PathBuf = temp_dir.path().into();
+        temp_file_path.push(path.file_name().unwrap());
+        temp_file_path.set_extension(".zip");
         let files = Vec::from([path.clone()]);
-        zip_files_async(&files, temp_file.path())
-            .await
+        zip_files(&files, temp_file_path.to_owned(), true)
             .context("Failed to zip file")?;
-        DownloadableFile::ZippedFile(temp_file)
+        downloadable_file_path = temp_file_path.clone();
+        DownloadableFile::ZippedFile(temp_dir)
     } else {
+        downloadable_file_path = path.clone();
         DownloadableFile::NormalFile(path.clone())
     };
 
@@ -434,7 +439,7 @@ async fn download_file(
     };
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
-        FSTarget::File(path),
+        FSTarget::File(downloadable_file_path),
         caused_by,
     ));
     Ok(key)

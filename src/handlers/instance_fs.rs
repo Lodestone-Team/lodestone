@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, env::temp_dir};
 use std::fs;
 
 use axum::{
@@ -579,7 +579,7 @@ async fn get_instance_file_url(
     let root = instance.path().await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
-
+    let downloadable_file_path: PathBuf;
     let key = rand_alphanumeric(32);
     state
         .download_urls
@@ -589,13 +589,18 @@ async fn get_instance_file_url(
             key.clone(), 
             if fs::metadata(path.clone()).unwrap().is_dir() {
                 let lodestone_tmp = path_to_tmp().clone();
-                let temp_file = tempfile::NamedTempFile::new_in(lodestone_tmp)
+                let temp_dir = tempfile::tempdir_in(lodestone_tmp)
                     .context("Failed to create temporary file")?;
+                let mut temp_file_path: PathBuf = temp_dir.path().into();
+                temp_file_path.push(path.file_name().unwrap());
+                temp_file_path.set_extension("zip");
                 let files = Vec::from([path.clone()]);
-                zip_files(&files, temp_file.path().to_owned())
+                zip_files(&files, temp_file_path.to_owned(), true)
                     .context("Failed to zip file")?;
-                DownloadableFile::ZippedFile(temp_file)
+                downloadable_file_path = temp_file_path.clone();
+                DownloadableFile::ZippedFile(temp_dir)
             } else {
+                downloadable_file_path = path.clone();
                 DownloadableFile::NormalFile(path.clone())
             }
         );
@@ -608,7 +613,7 @@ async fn get_instance_file_url(
     };
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
-        FSTarget::File(path),
+        FSTarget::File(downloadable_file_path),
         caused_by,
     ));
     Ok(key)

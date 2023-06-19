@@ -45,7 +45,7 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
-use tempfile::NamedTempFile;
+use tempfile::TempDir;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -91,7 +91,7 @@ pub mod util;
 
 pub enum DownloadableFile {
     NormalFile(PathBuf),
-    ZippedFile(NamedTempFile),
+    ZippedFile(TempDir),
 }
 
 #[derive(Clone)]
