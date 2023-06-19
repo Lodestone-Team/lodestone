@@ -885,7 +885,7 @@ async fn zip_instance_files(
         );
         event_broadcaster.send(progression_start_event);
 
-        if let Err(e) = zip_files_async(&target_relative_paths, destination_relative_path).await {
+        if let Err(e) = zip_files_async(&target_relative_paths, destination_relative_path, false).await {
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,
                 false,
