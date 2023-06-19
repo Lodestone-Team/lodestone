@@ -416,7 +416,7 @@ async fn download_file(
             .context("Failed to create temporary file")?;
         let mut temp_file_path: PathBuf = temp_dir.path().into();
         temp_file_path.push(path.file_name().unwrap());
-        temp_file_path.set_extension(".zip");
+        temp_file_path.set_extension("zip");
         let files = Vec::from([path.clone()]);
         zip_files(&files, temp_file_path.to_owned(), true)
             .context("Failed to zip file")?;
