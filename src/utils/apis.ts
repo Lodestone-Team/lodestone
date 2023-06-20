@@ -122,11 +122,10 @@ export const requestInstanceFileUrl = async (
   uuid: string,
   file: ClientFile
 ): Promise<string> => {
-  const tokenResponse = await
-    axiosWrapper<string>({
-      method: 'get',
-      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/url`,
-    });
+  const tokenResponse = await axiosWrapper<string>({
+    method: 'get',
+    url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/url`,
+  });
   return axios.defaults.baseURL + `/file/${tokenResponse}`;
 };
 
@@ -219,7 +218,7 @@ export const copyRecursive = async (
     'fileList',
     parentPath(request.relative_path_dest, direcotrySeparator),
   ]);
-}
+};
 
 export const moveInstanceFileOrDirectory = async (
   uuid: string,
@@ -277,24 +276,24 @@ export const zipInstanceFiles = async (
   if (error) {
     toast.error(`Failed to initiate zip: ${error}`);
     return;
+  } else {
+    toast.info(
+      `Zipping ${zipRequest.target_relative_paths.length} item${
+        zipRequest.target_relative_paths.length > 1 ? 's' : ''
+      }...`
+    );
   }
-  else {
-    toast.info(`Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''}...`);
-  }
-}
+};
 
 export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
-  unzipOption: UnzipOption,
+  unzipOption: UnzipOption
 ) => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
-      url: `/instance/${uuid}/fs/${Base64.encode(
-        file.path,
-        true
-      )}/unzip`,
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/unzip`,
       data: unzipOption,
       headers: {
         'Content-Type': 'application/json',
@@ -305,8 +304,7 @@ export const unzipInstanceFile = async (
   if (error) {
     toast.error(`Failed to unzip ${file.name}: ${error}`);
     return;
-  }
-  else {
+  } else {
     toast.info(`Unzipping ${file.name}...`);
   }
 };
@@ -431,7 +429,7 @@ export const openPort = async (port: number) => {
  * Start Tasks/Macro API
  ***********************/
 
-export const getTasks = async (uuid: string,) => {
+export const getTasks = async (uuid: string) => {
   const taskList = await axiosWrapper<TaskEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/task/list`,
@@ -440,7 +438,7 @@ export const getTasks = async (uuid: string,) => {
   return taskList;
 };
 
-export const getMacros = async (uuid: string,) => {
+export const getMacros = async (uuid: string) => {
   const macroList = await axiosWrapper<MacroEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/macro/list`,
@@ -449,7 +447,7 @@ export const getMacros = async (uuid: string,) => {
   return macroList;
 };
 
-export const getInstanceHistory = async (uuid: string,) => {
+export const getInstanceHistory = async (uuid: string) => {
   const historyList = await axiosWrapper<HistoryEntry[]>({
     method: 'get',
     url: `/instance/${uuid}/history/list`,
@@ -458,11 +456,12 @@ export const getInstanceHistory = async (uuid: string,) => {
   return historyList;
 };
 
+//run macro
 export const createTask = async (
   queryClient: QueryClient,
   uuid: string,
   macro_name: string,
-  args: string[],
+  args: string[]
 ) => {
   queryClient.invalidateQueries(['instance', uuid, 'taskList']);
   return await catchAsyncToString(
@@ -474,6 +473,19 @@ export const createTask = async (
   );
 };
 
+//run macro
+export const killTask = async (
+  queryClient: QueryClient,
+  uuid: string,
+  pid: string
+) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/macro/kill/${pid}`,
+    })
+  );
+};
 /***********************
  * End Tasks/Macro API
  ***********************/

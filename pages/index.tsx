@@ -62,7 +62,7 @@ const InstanceTabList = [
   'settings',
   'console',
   'files',
-  'tasks',
+  'macros',
   'logs',
 ];
 
