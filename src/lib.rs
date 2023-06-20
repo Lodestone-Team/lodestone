@@ -45,7 +45,6 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
-use tempfile::TempDir;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -87,12 +86,7 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 pub mod util;
-
-
-pub enum DownloadableFile {
-    NormalFile(PathBuf),
-    ZippedFile((PathBuf, TempDir)),
-}
+use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
 pub struct AppState {

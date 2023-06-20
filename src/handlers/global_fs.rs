@@ -24,11 +24,17 @@ use crate::{
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget},
     util::{list_dir, rand_alphanumeric, DownloadProgress, zip_files_async, zip_files},
-    AppState, DownloadableFile,
+    AppState,
 };
 
 use super::util::decode_base64;
 use crate::prelude::path_to_tmp;
+use tempfile::TempDir;
+
+pub enum DownloadableFile {
+    NormalFile(PathBuf),
+    ZippedFile((PathBuf, TempDir)),
+}
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]

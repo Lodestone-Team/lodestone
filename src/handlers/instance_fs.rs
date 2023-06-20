@@ -29,7 +29,6 @@ use crate::{
         format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
         scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption, zip_files,
     },
-    DownloadableFile,
     AppState,
 };
 
@@ -64,7 +63,7 @@ fn is_path_protected(path: impl AsRef<std::path::Path>) -> bool {
     }
 }
 
-use super::{global_fs::FileEntry, util::decode_base64};
+use super::{global_fs::{FileEntry, DownloadableFile}, util::decode_base64};
 
 async fn list_instance_files(
     axum::extract::State(state): axum::extract::State<AppState>,
