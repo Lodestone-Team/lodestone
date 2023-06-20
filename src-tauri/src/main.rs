@@ -11,6 +11,8 @@ use lodestone_core::auth::jwt_token::JwtToken;
 use lodestone_core::tauri_export::is_owner_account_present;
 
 use tauri::{utils::config::AppUrl, WindowUrl};
+use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent};
+use tauri::Manager;
 
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
@@ -42,7 +44,12 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
 
 #[tokio::main]
 async fn main() {
-    let (core_fut, app_state, _guard) = lodestone_core::run().await;
+    let (core_fut, app_state, _guard) = lodestone_core::run(lodestone_core::Args {
+        is_cli: false,
+        is_desktop: true,
+        lodestone_path: None,
+    })
+    .await;
     tokio::spawn(async {
         core_fut.await;
         println!("Core has exited");
@@ -63,6 +70,12 @@ async fn main() {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
     }
 
+    let quit = CustomMenuItem::new("quit".to_string(), "Quit");
+
+    let tray_menu = SystemTrayMenu::new()
+        .add_item(quit);
+
+
     builder
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
@@ -71,6 +84,32 @@ async fn main() {
             get_owner_jwt,
             get_first_time_setup_key
         ])
+        .on_window_event(|event| match event.event() {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                event.window().hide().unwrap();
+                api.prevent_close();
+            }
+            _ => {}
+        })
+        .system_tray(SystemTray::new().with_menu(tray_menu))
+        .on_system_tray_event(|app, event| {
+            match event {
+                SystemTrayEvent::MenuItemClick { id, .. } => {
+                    if id == "quit" {
+                        app.exit(0);
+                    }
+                }
+
+                SystemTrayEvent::LeftClick {
+                    ..
+                } => {
+                    let window = app.get_window("main").unwrap();
+                    window.show().unwrap();
+                    window.set_focus().unwrap();
+                }
+                _ => {}
+            }
+        })
         .run(context)
         .expect("error while running tauri application");
 }

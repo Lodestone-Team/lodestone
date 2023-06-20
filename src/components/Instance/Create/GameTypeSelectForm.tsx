@@ -34,7 +34,7 @@ export default function GameTypeSelectForm({
         What will your instance be used for?
       </p>
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
-        <SelectGenericGameCard
+        {/* <SelectGenericGameCard
           key={'Generic'}
           title={'Lodestone Atom'}
           description={'Enter the URL to the Lodestone Atom below:'}
@@ -50,7 +50,7 @@ export default function GameTypeSelectForm({
           onClick={() => setGameType('Generic')}
           manifestLoading={manifestLoading}
           errorText={manifestError ? 'Error fetching the instance' : ''}
-        />
+        /> */}
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];
           return (

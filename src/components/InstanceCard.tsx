@@ -138,7 +138,7 @@ export default function InstanceCard({
 
     setLoading(true);
 
-    gaEventTracker('Change Instance State', 'Restart');
+    gaEventTracker('Restarted Instance');
     axios
       .put(`/instance/${uuid}/restart`)
       .then((response) => {
@@ -162,21 +162,10 @@ export default function InstanceCard({
 
     setLoading(true);
 
-    gaEventTracker('Change Instance State', stateToActionMessageMap[state]);
-
-    if (stateToApiEndpointMap[state] === '/start') {
-      const result = await axiosWrapper<PortStatus>({
-        method: 'get',
-        url: `/check/port/${port}`,
-      });
-      if (result.is_in_use) {
-        toast.error(
-          `Port ${port} is not available, please change the port in the instance settings`
-        );
-        setLoading(false);
-        return;
-      }
+    if (state === 'Stopped') {
+      gaEventTracker('Started Instance');
     }
+
 
     axios
       .put(`/instance/${uuid}${stateToApiEndpointMap[state]}`)

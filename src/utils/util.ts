@@ -49,6 +49,8 @@ export const myTwMerge = extendTailwindMerge({
   },
 });
 
+export const supportedZip = ["zip", "gz", "tgz"];
+
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
 };
@@ -402,46 +404,6 @@ export const parentPath = (path: string, direcotrySeparator: string) => {
 export const getFileName = (path: string, direcotrySeparator: string) => {
   const pathParts = path.split(direcotrySeparator);
   return pathParts[pathParts.length - 1];
-};
-
-export const getFileNameWithoutExtension = (
-  path: string,
-  direcotrySeparator: string
-) => {
-  const fileName = getFileName(path, direcotrySeparator);
-  const fileNameParts = fileName.split('.');
-  fileNameParts.pop();
-  return fileNameParts.join('.');
-};
-
-export const getFileExtension = (path: string, direcotrySeparator: string) => {
-  const fileName = getFileName(path, direcotrySeparator);
-  const fileNameParts = fileName.split('.');
-  return fileNameParts[fileNameParts.length - 1];
-};
-
-export const getNonDuplicateFolderNameFromFileName = (
-  fileName: string,
-  direcotrySeparator: string,
-  existingFiles: ClientFile[]
-) => {
-  const fileNameWithoutExtension = getFileNameWithoutExtension(
-    fileName,
-    direcotrySeparator
-  );
-  let newFileName = fileName;
-  let i = 1;
-  while (
-    existingFiles.find(
-      (file) =>
-        file.name === newFileName ||
-        file.name === `${newFileName}${direcotrySeparator}`
-    )
-  ) {
-    newFileName = `${fileNameWithoutExtension}-${i}`;
-    i++;
-  }
-  return newFileName;
 };
 
 // check if a core is localhost

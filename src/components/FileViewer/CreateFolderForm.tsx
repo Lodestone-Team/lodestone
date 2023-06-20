@@ -53,10 +53,14 @@ export default function CreateFolderForm({
                   ...fileList,
                   {
                     name: values.name,
+                    file_stem : values.name.split('.').slice(0, -1).join('.'),
+                    extension : values.name.split('.').pop() ?? '',
                     path: `${path}/${values.name}`,
-                    file_type: 'Directory' as FileType,
+                    size : 0,
                     creation_time: Date.now() / 1000,
                     modification_time: Date.now() / 1000,
+                    file_type: 'Directory' as FileType,
+                    
                   },
                 ].sort(fileSorter)
               : undefined

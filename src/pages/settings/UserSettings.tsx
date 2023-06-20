@@ -241,6 +241,7 @@ export const UserSettings = () => {
                   }
                   selectedOptions={currentSettings}
                   optionLabel={(uuid) => instanceList?.[uuid]?.name || uuid}
+                  optionKey={(uuid) => uuid}
                   onChange={(newSettings) => {
                     // I hate typescript
                     const newPermissions = {
@@ -328,7 +329,7 @@ export const UserSettings = () => {
         </Dialog>
       </Transition>
       <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
-        <div className="flex w-full flex-col gap-2 px-4 pt-8">
+        <div className="flex w-full flex-col gap-2 overflow-y-scroll px-4 pt-8">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading">User Settings</h1>
           </div>
@@ -339,7 +340,7 @@ export const UserSettings = () => {
           <HorizontalLine thicknessClass="h-0.5" className="-my-4" />
           <div className="flex flex-col gap-8">
             <div>
-              <div className="text-h2 font-bold leading-tight tracking-tight text-red-200">
+              <div className="pt-12 text-h2 font-bold leading-tight tracking-tight text-red-200">
                 Unsafe Settings
               </div>
               <div className="text-h3 font-medium tracking-medium text-red-200">

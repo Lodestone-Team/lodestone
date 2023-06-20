@@ -6,13 +6,13 @@ import { InstanceContext } from 'data/InstanceContext';
 import { CommandHistoryContext } from 'data/CommandHistoryContext';
 import { useUserAuthorized } from 'data/UserInfo';
 import Tooltip from 'rc-tooltip';
-import { useContext, useEffect} from 'react';
+import { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
 
-const autoScrollThreshold = 100;
+const autoScrollThreshold = 10;
 
 export default function GameConsole() {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -24,7 +24,9 @@ export default function GameConsole() {
   );
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
-  const { commandHistory, appendCommandHistory } = useContext(CommandHistoryContext);
+  const { commandHistory, appendCommandHistory } = useContext(
+    CommandHistoryContext
+  );
   const [commandNav, setCommandNav] = useState(commandHistory.length);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
@@ -32,7 +34,7 @@ export default function GameConsole() {
         listRef.current.scrollTop -
         listRef.current.clientHeight <
       autoScrollThreshold
-    : true;
+    : false;
   const oldIsAtBottom = usePrevious(isAtBottom);
 
   const scrollToBottom = () => {
@@ -93,7 +95,7 @@ export default function GameConsole() {
       consoleStatusColor = 'text-red-200';
   }
   // overwrites
-  if (instance.state !== 'Running') {
+  if (instance.state === 'Stopped') {
     consoleStatusMessage = `Instance is ${instance.state.toLowerCase()}`;
     consoleStatusColor = 'text-gray-500';
   }
@@ -101,7 +103,7 @@ export default function GameConsole() {
   let consoleInputMessage = '';
   if (!canAccessConsole || consoleStatus === 'no-permission')
     consoleInputMessage = 'No permission';
-  else if (instance.state !== 'Running')
+  else if (instance.state === 'Stopped')
     consoleInputMessage = `Instance is ${instance.state.toLowerCase()}`;
   else if (consoleStatus === 'closed')
     consoleInputMessage = 'Console is closed';
@@ -109,18 +111,16 @@ export default function GameConsole() {
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowUp') {
       setCommandNav((prev) => {
-        prev = Math.max(prev - 1, 0)
+        prev = Math.max(prev - 1, 0);
         setCommand(commandHistory[prev]);
-        return prev
+        return prev;
       });
-
     } else if (event.key === 'ArrowDown') {
       setCommandNav((prev) => {
-        prev = Math.min(prev + 1, commandHistory.length - 1)
+        prev = Math.min(prev + 1, commandHistory.length - 1);
         setCommand(commandHistory[prev]);
-        return prev
+        return prev;
       });
-
     } else {
       setCommandNav(commandHistory.length);
     }
@@ -179,7 +179,7 @@ export default function GameConsole() {
             e.preventDefault();
             sendCommand(command);
             appendCommandHistory(command);
-            setCommandNav(prev => prev + 1);
+            setCommandNav((prev) => prev + 1);
             setCommand('');
           }}
         >

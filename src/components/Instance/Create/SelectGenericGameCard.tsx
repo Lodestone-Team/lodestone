@@ -25,7 +25,7 @@ const SelectGenericGameCard = ({
   description: string;
   game_type: Game;
   className?: string;
-  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onClick?: () => void;
   manifestLoading: boolean;
   errorText: string;
 }) => {
@@ -87,8 +87,7 @@ const SelectGenericGameCard = ({
   };
 
   return (
-    <button
-      type={'button'}
+    <div
       className={clsx(
         'relative col-span-2 flex flex-col items-start text-left align-top font-sans tracking-medium',
         'h-36 w-full border-solid p-4 outline outline-1',
@@ -158,7 +157,7 @@ const SelectGenericGameCard = ({
           {urlErrorText || 'Unknown error'}
         </div>
       )}
-    </button>
+    </div>
   );
 };
 

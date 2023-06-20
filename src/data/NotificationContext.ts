@@ -13,6 +13,7 @@ export type NotificationItem = {
   timestamp: number;
   key: string;
   level: EventLevel;
+  fresh: boolean;
 };
 
 export type OngoingState = 'ongoing' | 'done' | 'error';
@@ -36,6 +37,7 @@ export const NotificationAction = variant({
     title: string;
     message?: string;
     event: ClientEvent;
+    fresh: boolean;
   }>(),
   clear: {},
 });
@@ -46,6 +48,7 @@ export type OngoingNotificationAction = {
   event: ClientEvent;
   progressionEvent: ProgressionEvent;
   dispatch: React.Dispatch<NotificationAction>;
+  fresh: boolean;
 };
 
 interface NotificationContext {
@@ -70,7 +73,7 @@ export const useNotificationReducer = () => {
   const [notifications, dispatch] = useReducer(
     (state: NotificationItem[], action: NotificationAction) =>
       match(action, {
-        add: ({ title, message, event }) => {
+        add: ({ title, message, event, fresh }) => {
           const { snowflake: key, level } = event;
           const timestamp = getSnowflakeTimestamp(event.snowflake);
           if (state.some((item) => item.key === key)) {
@@ -79,7 +82,7 @@ export const useNotificationReducer = () => {
           }
           return [
             ...state,
-            { title, timestamp, message, key, level } as NotificationItem,
+            { title, timestamp, message, key, level, fresh } as NotificationItem,
           ];
         },
         clear: () => [],
@@ -98,6 +101,7 @@ export const useOngoingNotificationReducer = () => {
       const event_inner = action.progressionEvent.progression_event_inner;
       const event_id = action.progressionEvent.event_id;
       const level = action.event.level;
+      const fresh = action.fresh;
       const dispatch = action.dispatch;
 
       return match(event_inner, {
@@ -115,6 +119,7 @@ export const useOngoingNotificationReducer = () => {
               key: event_id,
               level,
               start_value: inner,
+              fresh
             } as OngoingNotificationItem,
           ];
         },
@@ -139,6 +144,7 @@ export const useOngoingNotificationReducer = () => {
             title: item.title,
             message: message || item.message || '',
             event: action.event,
+            fresh: true,
           });
           // remove from ongoing
           return [...state.filter((item) => item.event_id !== event_id)];

@@ -114,6 +114,7 @@ export const useEventStream = () => {
                 }!`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
             InstanceWarning: () => {
@@ -124,6 +125,7 @@ export const useEventStream = () => {
                 title: `Instance ${name} encountered a warning`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
             InstanceError: () => {
@@ -132,6 +134,7 @@ export const useEventStream = () => {
                 title: `Instance ${name} encountered an error`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
             InstanceInput: ({ message }) => {
@@ -172,6 +175,7 @@ export const useEventStream = () => {
                   title,
                   event,
                   type: 'add',
+                  fresh,
                 });
             },
             PlayerMessage: ({ player, player_message }) => {
@@ -180,6 +184,7 @@ export const useEventStream = () => {
                 title: `${player} said ${player_message} on ${name}`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
           }),
@@ -235,9 +240,6 @@ export const useEventStream = () => {
               // });
             },
             PermissionChanged: ({ new_permissions }) => {
-              console.log(
-                `User ${uid} permission changed to ${new_permissions}`
-              );
               if (fresh) {
                 if (uid === selfUid) {
                   updatePermission(new_permissions);
@@ -246,8 +248,9 @@ export const useEventStream = () => {
                   ['user', 'list'],
                   (oldList: { [uid: string]: PublicUser } | undefined) => {
                     if (!oldList) return oldList;
+                    const newUser = {...oldList[uid], permissions: new_permissions};
                     const newList = { ...oldList };
-                    newList[uid].permissions = new_permissions;
+                    newList[uid] = newUser;
                     return newList;
                   }
                 );
@@ -271,6 +274,7 @@ export const useEventStream = () => {
                 title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
             MacroStopped: () => {
@@ -279,6 +283,7 @@ export const useEventStream = () => {
                 title: `Macro ${macro_pid} stopped on ${uuid}`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
             MacroErrored: ({ error_msg }) => {
@@ -289,6 +294,7 @@ export const useEventStream = () => {
                 title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
                 event,
                 type: 'add',
+                fresh,
               });
             },
           }),
@@ -297,6 +303,7 @@ export const useEventStream = () => {
             event,
             progressionEvent,
             dispatch,
+            fresh,
           });
           // check if there's a "value"
           const inner = progressionEvent.progression_event_inner;
@@ -315,6 +322,14 @@ export const useEventStream = () => {
                             addInstance(instance_info, queryClient),
                           InstanceDelete: ({ instance_uuid: uuid }) =>
                             deleteInstance(uuid, queryClient),
+                          FSOperationCompleted: ({ instance_uuid, success, message }) => {
+                            if (success) {
+                              toast.success(message)
+                            } else {
+                              toast.error(message)
+                            }
+                            queryClient.invalidateQueries(['instance', instance_uuid, 'fileList']);
+                          }
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => {}

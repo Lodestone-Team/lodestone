@@ -3,14 +3,14 @@ import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { useEffectOnce } from 'usehooks-ts';
 import useAnalyticsEventTracker from 'utils/hooks';
-import { axiosWrapper } from 'utils/util';
+import { axiosWrapper, catchAsyncToString } from 'utils/util';
 import {
   autoSettingPageObject,
   basicSettingsPageObject,
   formId,
 } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
-import { createForm } from './Create/FormCreation';
+import { FormFromManifest } from './Create/FormFromManifest';
 import GameTypeSelectForm from './Create/GameTypeSelectForm';
 import {
   SetupGenericInstanceManifest,
@@ -18,6 +18,7 @@ import {
 } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
+import WarningAlert from 'components/Atoms/WarningAlert';
 import clsx from 'clsx';
 import * as yup from 'yup';
 import { GameInstanceContext } from 'data/GameInstanceContext';
@@ -34,15 +35,43 @@ export type FormPage = {
   page: SetupManifest;
 };
 
-function _renderStepContent(
-  step: number,
-  isLoading: boolean,
-  error: boolean,
-  setupManifest?: SetupManifest | null
-) {
-  const forms = useMemo(() => {
-    if (!setupManifest) return [];
-    const pages: FormPage[] = [
+export default function InstanceCreateForm({
+  onComplete,
+}: {
+  onComplete: () => void;
+}) {
+  const [activeStep, setActiveStep] = useState(0);
+  const [gameType, setGameType] = useState<GenericHandlerGameType>('Generic');
+  const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
+  const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
+  const [url, setUrl] = useState<string>(''); //the url the user enters
+  const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
+    null
+  );
+
+  const {
+    data: setup_manifest,
+    isLoading,
+    error,
+  } = gameType === 'Generic'
+    ? SetupGenericInstanceManifest(gameType, url, genericFetchReady)
+    : SetupInstanceManifest(gameType as HandlerGameType);
+
+  const gaEventTracker = useAnalyticsEventTracker('Create Instance');
+  const formikRef =
+    useRef<FormikProps<Record<string, ConfigurableValue | null>>>(null);
+
+  const formPages = useMemo<FormPage[]>(() => {
+    if (!setupManifest)
+      return [
+        {
+          name: 'Basic Settings',
+          description: 'Basic settings for your server.',
+          page: { setting_sections: { section_1: basicSettingsPageObject } },
+        },
+      ];
+
+    return [
       {
         name: 'Basic Settings',
         description: 'Basic settings for your server.',
@@ -59,45 +88,7 @@ function _renderStepContent(
         page: { setting_sections: { section_1: autoSettingPageObject } },
       },
     ];
-    return pages.map((page) => {
-      return createForm(page);
-    });
   }, [setupManifest]);
-
-  if (forms.length == 0 && step != 0) return <Spinner />;
-  return (
-    <>
-      {step == 0 ? (
-        <GameTypeSelectForm manifestLoading={isLoading} manifestError={error} />
-      ) : (
-        forms[step - 1]
-      )}
-    </>
-  );
-}
-
-export default function CreateGameInstance({
-  onComplete,
-}: {
-  onComplete: () => void;
-}) {
-  const [activeStep, setActiveStep] = useState(0);
-  const [gameType, setGameType] = useState<GenericHandlerGameType>('Generic');
-  const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
-  const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
-  const [url, setUrl] = useState<string>(''); //the url the user enters
-
-  const {
-    data: setup_manifest,
-    isLoading,
-    error,
-  } = gameType === 'Generic'
-    ? SetupGenericInstanceManifest(gameType, url, genericFetchReady)
-    : SetupInstanceManifest(gameType as HandlerGameType);
-
-  const gaEventTracker = useAnalyticsEventTracker('Create Instance');
-  const formikRef =
-    useRef<FormikProps<Record<string, ConfigurableValue | null>>>(null);
 
   useEffectOnce(() => {
     gaEventTracker('Create Instance Start');
@@ -118,9 +109,7 @@ export default function CreateGameInstance({
     }
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
-  const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
-    null
-  );
+
 
   const [initialValues, setInitialValues] = useState<
     Record<string, ConfigurableValue | null>
@@ -131,13 +120,14 @@ export default function CreateGameInstance({
 
   // if (setupManifest === null && activeStep !== 0) return <Spinner />;
   const currentValidationSchema = validationSchema[activeStep];
-  const steps = [
+
+  const sections = [
     'Select Game',
     'Basic Settings',
     'Instance Settings',
     'Auto Settings',
   ];
-  const formReady = activeStep === steps.length - 1;
+  const formReady = activeStep === sections.length - 1;
   const createInstance = async (value: SetupValue) => {
     try {
       if (gameType === 'Generic') {
@@ -160,11 +150,11 @@ export default function CreateGameInstance({
     }
   };
 
-  async function _submitForm(
+  async function submitForm(
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
-    const sectionValues = getSectionValidationStructure(values);
+    const sectionValues = parseValues(values);
 
     const parsedValues: SetupValue = {
       name: values.name?.value as string,
@@ -181,7 +171,7 @@ export default function CreateGameInstance({
     onComplete();
   }
 
-  function getSectionValidationStructure(
+  function parseValues(
     values: Record<string, ConfigurableValue | null>
   ): Record<string, SectionManifestValue> {
     if (!setup_manifest) return {};
@@ -190,25 +180,25 @@ export default function CreateGameInstance({
     const sectionValues: Record<string, SectionManifestValue> = {};
 
     for (const sectionKey of sectionKeys) {
-      const sectionValidation: SectionManifestValue = { settings: {} };
+      const sectionValue: SectionManifestValue = { settings: {} };
       const settingKeys = Object.keys(
         setup_manifest['setting_sections'][sectionKey]['settings']
       );
       for (const key of settingKeys) {
-        sectionValidation['settings'][key] = { value: values[key] };
+        sectionValue['settings'][key] = { value: values[key] };
       }
-      sectionValues[sectionKey] = sectionValidation;
+      sectionValues[sectionKey] = sectionValue;
     }
 
     return sectionValues;
   }
 
-  async function _handleSubmit(
+  async function handleSubmit(
     values: Record<string, ConfigurableValue | null>,
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     if (formReady) {
-      _submitForm(values, actions);
+      submitForm(values, actions);
     } else {
       if (setup_manifest) {
         if (activeStep === 0) actions.setValues(initialValues);
@@ -219,9 +209,12 @@ export default function CreateGameInstance({
     }
   }
 
-  function _handleBack() {
-    setGenericFetchReady(false);
-    setUrlValid(false);
+  function handleBack() {
+    if(activeStep === 1) {
+      setGenericFetchReady(false);
+      setUrlValid(false);
+      setUrl('');
+    }
     setActiveStep(activeStep - 1);
   }
 
@@ -241,18 +234,18 @@ export default function CreateGameInstance({
       <Formik
         initialValues={initialValues}
         validationSchema={currentValidationSchema}
-        onSubmit={_handleSubmit}
+        onSubmit={handleSubmit}
         innerRef={formikRef}
         validateOnBlur={false}
         validateOnChange={false}
       >
-        {({ isSubmitting }) => (
+        {({ isSubmitting, status }) => (
           <Form
             id={formId}
             className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
           >
             <div className="w-[180px] border-r border-gray-700 pt-8 ">
-              {steps.map((section, i) => (
+              {sections.map((section, i) => (
                 <div
                   key={i}
                   className={clsx(
@@ -265,15 +258,31 @@ export default function CreateGameInstance({
               ))}
             </div>
             <div className="flex w-[632px] flex-col p-8">
-              {_renderStepContent(
-                activeStep,
-                isLoading,
-                error ? true : false,
-                setupManifest
+              {activeStep == 0 ? (
+                <GameTypeSelectForm
+                  manifestLoading={isLoading}
+                  manifestError={!!error}
+                />
+              ) : (
+                <FormFromManifest
+                  name={formPages[activeStep - 1].name}
+                  description={formPages[activeStep - 1].description}
+                  manifest={formPages[activeStep - 1].page}
+                >
+                  {status && (
+                    <WarningAlert>
+                      <p>
+                        Please ensure your fields are filled out correctly
+                        <br />
+                        {status.error}
+                      </p>
+                    </WarningAlert>
+                  )}
+                </FormFromManifest>
               )}
               <div className="flex flex-row justify-between pt-6">
                 {activeStep !== 0 ? (
-                  <Button onClick={_handleBack} label="Back" />
+                  <Button onClick={handleBack} label="Back" />
                 ) : (
                   <div></div>
                 )}

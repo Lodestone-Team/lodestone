@@ -16,6 +16,9 @@ import {
   isAxiosError,
   parentPath,
 } from './util';
+import { UnzipOption } from 'bindings/UnzipOptions';
+import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
+import { ZipRequest } from 'bindings/ZipRequest';
 import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
 
@@ -54,6 +57,7 @@ export const saveInstanceFile = async (
       return {
         ...f,
         modification_time: Math.round(Date.now() / 1000),
+        size: content.length,
       };
     return f;
   });
@@ -75,6 +79,8 @@ export const deleteInstanceFile = async (
   if (error) {
     toast.error(error);
     return;
+  } else {
+    toast.success(`Deleted file: ${file.name}`);
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
@@ -101,6 +107,8 @@ export const deleteInstanceDirectory = async (
   if (error) {
     toast.error(error);
     return;
+  } else {
+    toast.success(`Deleted directory: ${directory}`);
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
@@ -110,14 +118,21 @@ export const deleteInstanceDirectory = async (
   );
 };
 
-export const downloadInstanceFiles = async (uuid: string, file: ClientFile) => {
-  // TODO handle errors
+export const requestInstanceFileUrl = async (
+  uuid: string,
+  file: ClientFile
+): Promise<string> => {
   const tokenResponse = await axiosWrapper<string>({
     method: 'get',
-    url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/download`,
+    url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/url`,
   });
-  const downloadUrl = axios.defaults.baseURL + `/file/${tokenResponse}`;
-  window.open(downloadUrl, '_blank');
+  return axios.defaults.baseURL + `/file/${tokenResponse}`;
+};
+
+export const downloadInstanceFile = async (uuid: string, file: ClientFile) => {
+  // TODO handle errors
+
+  window.open(await requestInstanceFileUrl(uuid, file), '_blank');
 };
 
 export const uploadInstanceFiles = async (
@@ -131,6 +146,7 @@ export const uploadInstanceFiles = async (
   file.forEach((f) => {
     formData.append('file', f);
   });
+  toast.info(`Uploading ${file.length} ${file.length > 1 ? 'files' : 'file'}`);
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
@@ -140,9 +156,6 @@ export const uploadInstanceFiles = async (
         'Content-Type': 'multipart/form-data',
       },
       timeout: 0,
-      onUploadProgress: (progressEvent) => {
-        console.log(progressEvent);
-      },
     })
   );
   if (error) {
@@ -180,6 +193,31 @@ export const createInstanceDirectory = async (
       url: `/instance/${uuid}/fs/${Base64.encode(filePath, true)}/mkdir`,
     })
   );
+};
+
+export const copyRecursive = async (
+  uuid: string,
+  request: CopyInstanceFileRequest,
+  direcotrySeparator: string,
+  queryClient: QueryClient
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/cpr`,
+      data: request,
+    })
+  );
+  if (error) {
+    toast.error(error);
+    return;
+  }
+  queryClient.invalidateQueries([
+    'instance',
+    uuid,
+    'fileList',
+    parentPath(request.relative_path_dest, direcotrySeparator),
+  ]);
 };
 
 export const moveInstanceFileOrDirectory = async (
@@ -221,41 +259,54 @@ export const moveInstanceFileOrDirectory = async (
   ]);
 };
 
-export const unzipInstanceFile = async (
+export const zipInstanceFiles = async (
   uuid: string,
-  file: ClientFile,
-  targetDirectory: string,
-  queryClient: QueryClient,
-  direcotrySeparator: string
+  zipRequest: ZipRequest
 ) => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
-      url: `/instance/${uuid}/fs/${Base64.encode(
-        file.path,
-        true
-      )}/unzip/${Base64.encode(targetDirectory, true)}`,
+      url: `/instance/${uuid}/fs/zip`,
+      data: zipRequest,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+  );
+  if (error) {
+    toast.error(`Failed to initiate zip: ${error}`);
+    return;
+  } else {
+    toast.info(
+      `Zipping ${zipRequest.target_relative_paths.length} item${
+        zipRequest.target_relative_paths.length > 1 ? 's' : ''
+      }...`
+    );
+  }
+};
+
+export const unzipInstanceFile = async (
+  uuid: string,
+  file: ClientFile,
+  unzipOption: UnzipOption
+) => {
+  const error = await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'put',
+      url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/unzip`,
+      data: unzipOption,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     })
   );
 
   if (error) {
     toast.error(`Failed to unzip ${file.name}: ${error}`);
     return;
+  } else {
+    toast.info(`Unzipping ${file.name}...`);
   }
-
-  // just invalided the query instead of updating it because file name might be different due to conflict
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    parentPath(file.path, direcotrySeparator),
-  ]);
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    targetDirectory,
-  ]);
 };
 
 /***********************

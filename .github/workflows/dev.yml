@@ -1,0 +1,16 @@
+name: Developer Workflow
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+
+  check_rs:
+    uses: ./.github/workflows/check.yml
+    secrets: inherit
+  
+  build_dashboard:
+    uses: ./.github/workflows/dashboard.yml
+    secrets: inherit

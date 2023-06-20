@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "Lodestone",
-    "version": "0.5.0"
+    "version": "0.4.4"
   },
   "tauri": {
     "allowlist": {
@@ -17,7 +17,7 @@
     },
     "bundle": {
       "active": true,
-      "publisher" : "Lodestone Team",
+      "publisher": "Lodestone Team",
       "category": "DeveloperTool",
       "copyright": "",
       "deb": {
@@ -52,18 +52,28 @@
     "security": {
       "csp": null
     },
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
     "updater": {
-      "active": false
+      "active": true,
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3RDRBOTcwQUYxNTgxRDIKUldUU2dSV3ZjS25VeDVONUFPNEpqWlFBdU5IUzdsUnVhWkwwdFFpT0Nmb0xmb29mbEFnOWg3c20K",
+      "endpoints": [
+        "https://raw.githubusercontent.com/Lodestone-Team/updates/main/updates.json"
+      ]
     },
     "windows": [
       {
         "fullscreen": false,
         "height": 600,
-        "minHeight": 500,
+        "minHeight": 550,
         "resizable": true,
         "title": "Lodestone",
         "width": 1100,
-        "minWidth": 1000
+        "minWidth": 1000,
+        "fileDropEnabled": false
       }
     ]
   }

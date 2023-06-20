@@ -12,6 +12,7 @@ import { loginToCore } from 'utils/apis';
 import { tauri } from 'utils/tauriUtil';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import useAnalyticsEventTracker from 'utils/hooks';
 export type LoginValues = {
   username: string;
   password: string;
@@ -30,6 +31,7 @@ const UserLogin = () => {
   const socket = `${address}:${port}`;
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
+  const gaEventTracker = useAnalyticsEventTracker('User Login');
 
   const initialValues: LoginValues = {
     username: '',
@@ -51,6 +53,7 @@ const UserLogin = () => {
         }
         setToken(response.token, socket);
         setPathname('/');
+        gaEventTracker('Logged in', 'User');
         actions.setSubmitting(false);
       })
       .catch((error: string) => {

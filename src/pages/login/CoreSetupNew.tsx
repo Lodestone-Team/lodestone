@@ -14,6 +14,7 @@ import { useTauri } from 'utils/tauriUtil';
 import { useQueryClient } from '@tanstack/react-query';
 import { LoginReply } from 'bindings/LoginReply';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import useAnalyticsEventTracker from 'utils/hooks';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -47,6 +48,7 @@ const CoreSetupNew = () => {
   const tauri = useTauri();
   const socket = `${address}:${port}`;
   const keyPrefilled = !!(tauri && setupKey);
+  const gaEventTracker = useAnalyticsEventTracker('Core Setup Page');
 
   useEffectOnce(() => {
     if (!tauri) return;
@@ -91,6 +93,7 @@ const CoreSetupNew = () => {
       .then((res) => {
         setToken(res.token, socket);
         setPathname('/login/core/first_config');
+        gaEventTracker('Setup Owner Account');
         queryClient.invalidateQueries();
         actions.setSubmitting(false);
       })
