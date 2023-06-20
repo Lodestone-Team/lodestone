@@ -91,7 +91,7 @@ pub mod util;
 
 pub enum DownloadableFile {
     NormalFile(PathBuf),
-    ZippedFile(TempDir),
+    ZippedFile((PathBuf, TempDir)),
 }
 
 #[derive(Clone)]

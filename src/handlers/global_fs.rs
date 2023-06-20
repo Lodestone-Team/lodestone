@@ -421,7 +421,7 @@ async fn download_file(
         zip_files(&files, temp_file_path.to_owned(), true)
             .context("Failed to zip file")?;
         downloadable_file_path = temp_file_path.clone();
-        DownloadableFile::ZippedFile(temp_dir)
+        DownloadableFile::ZippedFile((downloadable_file_path.clone(), temp_dir))
     } else {
         downloadable_file_path = path.clone();
         DownloadableFile::NormalFile(path.clone())
@@ -589,7 +589,7 @@ async fn download(
     if let Some(downloadable_file) = state.download_urls.lock().await.get(&key) {
         let path = match downloadable_file {
             DownloadableFile::NormalFile(path) => path,
-            DownloadableFile::ZippedFile(tmp_file) => tmp_file.path(),
+            DownloadableFile::ZippedFile((path, _)) => path,
         };
 
         let file = tokio::fs::File::open(&path)
