@@ -206,20 +206,10 @@ export default function FileViewer() {
 
   const downloadTickedFiles = async () => {
     if (!tickedFiles) return;
-    const missedDirectories: string[] = [];
+    
     for (const file of tickedFiles) {
-      if (file.file_type === 'Directory') {
-        missedDirectories.push(file.path);
-      } else if (file.file_type === 'File') {
-        downloadInstanceFile(instance.uuid, file);
-        tickFile(file, false);
-      }
-    }
-    if (missedDirectories.length > 0) {
-      const missedDirectoriesString = missedDirectories.join(', ');
-      toast.error(
-        `Downloading a directory is not supported. The following directories were not downloaded: ${missedDirectoriesString}`
-      );
+      downloadInstanceFile(instance.uuid, file);
+      tickFile(file, false);
     }
   };
 
