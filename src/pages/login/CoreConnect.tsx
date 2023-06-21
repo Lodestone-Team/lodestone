@@ -26,22 +26,6 @@ const validationSchema = yup.object({
   protocol: yup.string().required('Required'),
 });
 
-// const httpRequest = () => {
-//   const xhr = new XMLHttpRequest();
-//   xhr.open('GET', 'http://eu.httpbin.org/', true);
-//   xhr.withCredentials = false;
-//   xhr.onreadystatechange = function() {
-//     if (xhr.readyState === 4 && xhr.status === 200) {
-//       const response = xhr.responseText;
-//       console.log("work");
-//     }
-//     else {
-//       console.log("not working")
-//     }
-//   };
-//   xhr.send();
-// }
-
 const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
@@ -91,20 +75,20 @@ const CoreConnect = () => {
         const response = await fetch('http://132.145.101.179:42069/');
         if (!response.ok) {
           setShowPopup(true);
-          console.log("HTTP fail");
+          console.log("fail");
         }
         else {
-          console.log("HTTP passed");
+          console.log("pass");
         }
       }
       catch (error) {
         setShowPopup(true);
-        console.log("HTTP fail");
+        console.log("fail");
       }
     };
 
     fetchData();
-  });
+  }, []);
 
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
@@ -114,7 +98,6 @@ const CoreConnect = () => {
             <ConfirmDialog
               isOpen={showPopup}
               onClose={() => setShowPopup(false)}
-              onConfirm={() => setShowPopup(false)}
               title="HTTP Error"
               type="danger"
             >
@@ -127,7 +110,7 @@ const CoreConnect = () => {
               >
               Learn more.
               </a>          
-            </ConfirmDialog>
+            </ConfirmDialog>          
           </div>
         )}
       </div>
