@@ -69,6 +69,7 @@ use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::T
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 pub mod auth;
+pub mod playitgg;
 pub mod db;
 mod deno_ops;
 pub mod error;
@@ -101,6 +102,7 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
+    playitgg_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
@@ -401,6 +403,10 @@ pub async fn run(
     } else {
         None
     };
+
+    // TODO make not hardcoded (get key from playit.toml file)
+    let playitgg_key = "hardcodedkey";
+
     let macro_executor = MacroExecutor::new(tx.clone());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
@@ -427,6 +433,7 @@ pub async fn run(
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
+        playitgg_key: Arc::new(Mutex::new(Some(String::from(playitgg_key)))),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         global_settings: Arc::new(Mutex::new(global_settings)),
