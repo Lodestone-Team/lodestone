@@ -23,7 +23,7 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget},
-    util::{list_dir, rand_alphanumeric, DownloadProgress, zip_files_async, zip_files},
+    util::{list_dir, rand_alphanumeric, zip_files},
     AppState,
 };
 
@@ -424,7 +424,7 @@ async fn download_file(
         temp_file_path.push(path.file_name().unwrap());
         temp_file_path.set_extension("zip");
         let files = Vec::from([path.clone()]);
-        zip_files(&files, temp_file_path.to_owned(), true)
+        zip_files(&files, temp_file_path.clone(), true)
             .context("Failed to zip file")?;
         downloadable_file_path = temp_file_path.clone();
         DownloadableFile::ZippedFile((downloadable_file_path.clone(), temp_dir))

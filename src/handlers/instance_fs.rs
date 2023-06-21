@@ -1,4 +1,4 @@
-use std::{path::PathBuf, env::temp_dir};
+use std::path::PathBuf;
 use std::fs;
 
 use axum::{
@@ -586,15 +586,21 @@ async fn get_instance_file_url(
         .await
         .insert(
             key.clone(), 
-            if fs::metadata(path.clone()).unwrap().is_dir() {
+            if fs::metadata(path.clone()).map_err(|_| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Could not read file metadata"),
+            })?.is_dir() {
                 let lodestone_tmp = path_to_tmp().clone();
                 let temp_dir = tempfile::tempdir_in(lodestone_tmp)
                     .context("Failed to create temporary file")?;
                 let mut temp_file_path: PathBuf = temp_dir.path().into();
-                temp_file_path.push(path.file_name().unwrap());
+                temp_file_path.push(path.file_name().ok_or_else(|| Error {
+                    kind: ErrorKind::NotFound,
+                    source: eyre!("Could not read file name"),
+                })?);
                 temp_file_path.set_extension("zip");
                 let files = Vec::from([path.clone()]);
-                zip_files(&files, temp_file_path.to_owned(), true)
+                zip_files(&files, temp_file_path.clone(), true)
                     .context("Failed to zip file")?;
                 downloadable_file_path = temp_file_path.clone();
                 DownloadableFile::ZippedFile((downloadable_file_path.clone(), temp_dir))
