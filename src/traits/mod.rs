@@ -38,14 +38,14 @@ pub struct InstanceInfo {
     pub max_player_count: Option<u32>,
     pub player_list: Option<HashSet<Player>>,
 }
-use crate::minecraft::MinecraftInstance;
 use crate::generic::GenericInstance;
+use crate::minecraft::MinecraftInstance;
 use crate::prelude::GameInstance;
 use crate::types::InstanceUuid;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TInstance:
-    TConfigurable + TMacro + TPlayerManagement + TResourceManagement + TServer + Sync + Send + Clone
+    TConfigurable + TMacro + TPlayerManagement + TResourceManagement + TServer + Clone
 {
     async fn get_instance_info(&self) -> InstanceInfo {
         InstanceInfo {
