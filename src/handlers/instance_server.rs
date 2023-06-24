@@ -45,7 +45,7 @@ pub async fn start_instance(
 
     // check if port is already in use
     let port = instance.port().await;
-    if !port_scanner::scan_port(port as u16) {
+    if port_scanner::scan_port(port as u16) {
         return Err(Error {
             kind: ErrorKind::Internal,
             source: eyre!("Port is already in use"),
