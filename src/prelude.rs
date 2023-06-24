@@ -56,6 +56,16 @@ pub fn app_state() -> &'static AppState {
     APP_STATE.get().unwrap()
 }
 
+static RUNTIME: OnceCell<tokio::runtime::Handle> = OnceCell::new();
+
+pub fn init_runtime(runtime: tokio::runtime::Handle) {
+    let _ = RUNTIME.set(runtime);
+}
+
+pub fn runtime() -> &'static tokio::runtime::Handle {
+    RUNTIME.get().unwrap()
+}
+
 /// Initialize the paths for the lodestone instance.
 /// This function should only be called once.
 ///

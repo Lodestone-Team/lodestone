@@ -27,6 +27,7 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
+    prelude::runtime,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
 };
@@ -295,11 +296,12 @@ impl MacroExecutor {
             &std::env::current_dir().context("Failed to get current directory")?,
         )
         .context("Failed to resolve path")?;
-        let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
             let event_broadcaster = self.event_broadcaster.clone();
             move || {
+                let rt = runtime();
+                let _guard = rt.enter();
                 let local = LocalSet::new();
                 local.spawn_local({
                     let event_broadcaster = event_broadcaster.clone();
