@@ -16,6 +16,8 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import { useEffect, useState } from "react";
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 
 const validationSchema = yup.object({
   address: yup.string().required('Required'),
@@ -28,6 +30,8 @@ const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
+  const [ showPopup, setShowPopup ] = useState(false); 
+
   const initialValues: CoreConnectionInfo = {
     address: '',
     port: LODESTONE_PORT.toString(),
@@ -65,8 +69,47 @@ const CoreConnect = () => {
       });
   };
 
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await fetch('http://132.145.101.179:42069/');
+        if (!response.ok) {
+          setShowPopup(true);
+        }
+        else {
+        }
+      }
+      catch (error) {
+        setShowPopup(true);
+        console.log("fail");
+      }
+    };
+
+    fetchData();
+  }, []);
+
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+      {showPopup && (
+        <div>
+          <ConfirmDialog
+            isOpen={showPopup}
+            onClose={() => setShowPopup(false)}
+            title="HTTP Error"
+            type="danger"
+          >
+            You may need to adjust your network and browser settings.{' '}
+            <a
+              href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-200 underline hover:text-blue-300"
+            >
+            Learn more.
+            </a>          
+          </ConfirmDialog>          
+        </div>
+      )}
       <div className="flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
@@ -164,4 +207,5 @@ const CoreConnect = () => {
   );
 };
 
+export default CoreConnect;
 export default CoreConnect;
