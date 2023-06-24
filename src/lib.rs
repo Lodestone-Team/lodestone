@@ -108,7 +108,7 @@ pub struct AppState {
 
 impl AppState {
     /// Kill all instances
-    pub async fn cleanup(self) {
+    pub async fn cleanup(&mut self) {
         for instance in self.instances.iter() {
             let mut instance = instance.value().clone();
             tokio::task::spawn(async move {
