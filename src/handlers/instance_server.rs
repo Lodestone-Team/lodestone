@@ -43,12 +43,13 @@ pub async fn start_instance(
         .value()
         .clone();
 
-    // check if port is already in use
     let port = instance.port().await;
-    if port_scanner::scan_port(port as u16) {
+
+    // check if port is already in use
+    if state.port_manager.lock().await.port_status(port).is_in_use {
         return Err(Error {
             kind: ErrorKind::Internal,
-            source: eyre!("Port is already in use"),
+            source: eyre!("Port {} is in use", port),
         });
     }
 
