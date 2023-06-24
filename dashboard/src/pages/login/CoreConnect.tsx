@@ -208,4 +208,3 @@ const CoreConnect = () => {
 };
 
 export default CoreConnect;
-export default CoreConnect;
