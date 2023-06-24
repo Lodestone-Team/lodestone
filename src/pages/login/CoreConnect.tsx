@@ -75,10 +75,8 @@ const CoreConnect = () => {
         const response = await fetch('http://132.145.101.179:42069/');
         if (!response.ok) {
           setShowPopup(true);
-          console.log("fail");
         }
         else {
-          console.log("pass");
         }
       }
       catch (error) {
@@ -92,28 +90,26 @@ const CoreConnect = () => {
 
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
-      <div>
-        {showPopup && (
-          <div>
-            <ConfirmDialog
-              isOpen={showPopup}
-              onClose={() => setShowPopup(false)}
-              title="HTTP Error"
-              type="danger"
+      {showPopup && (
+        <div>
+          <ConfirmDialog
+            isOpen={showPopup}
+            onClose={() => setShowPopup(false)}
+            title="HTTP Error"
+            type="danger"
+          >
+            You may need to adjust your network and browser settings.{' '}
+            <a
+              href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-200 underline hover:text-blue-300"
             >
-              You may need to adjust your network and browser settings.{' '}
-              <a
-                href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-200 underline hover:text-blue-300"
-              >
-              Learn more.
-              </a>          
-            </ConfirmDialog>          
-          </div>
-        )}
-      </div>
+            Learn more.
+            </a>          
+          </ConfirmDialog>          
+        </div>
+      )}
       <div className="flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
