@@ -18,7 +18,7 @@ A free, open source server hosting tool for Minecraft and other multiplayers
 - [x] Collaborative remote server and resource management
 - [x] Priority on safety and security
 - [ ] User permission management 🚧
-- [ ] Automated macros and tasks 🚧
+- [ ] Automated macros and tasks (beta, read more [here](https://github.com/Lodestone-Team/lodestone/wiki/Macro-and-Task))
 - [ ] Connecting without port forward 🚧
 
 
