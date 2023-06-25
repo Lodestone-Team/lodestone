@@ -96,9 +96,9 @@ const CoreConnect = () => {
             isOpen={showPopup}
             onClose={() => setShowPopup(false)}
             title="HTTP Error"
-            type="danger"
+            type="info"
           >
-            You may need to adjust your network and browser settings.{' '}
+            Missing user permissions. Enable mixed content settings to load HTTP content over HTTPS. {' '}
             <a
               href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
               target="_blank"
