@@ -1,6 +1,5 @@
 import { Dialog, Switch, Transition } from '@headlessui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { j } from '@tauri-apps/api/event-2a9960e7';
 import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
 import clsx from 'clsx';

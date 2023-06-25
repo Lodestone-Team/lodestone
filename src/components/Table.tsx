@@ -1,4 +1,3 @@
-import { r } from '@tauri-apps/api/clipboard-2fa91cee';
 import ButtonMenu from './ButtonMenu';
 import { ButtonMenuConfig } from './ButtonMenu';
 
