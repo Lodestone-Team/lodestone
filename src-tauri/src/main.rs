@@ -10,9 +10,9 @@ use lodestone_core::error::Error;
 use lodestone_core::auth::jwt_token::JwtToken;
 use lodestone_core::tauri_export::is_owner_account_present;
 
-use tauri::{utils::config::AppUrl, WindowUrl};
-use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent};
 use tauri::Manager;
+use tauri::{utils::config::AppUrl, WindowUrl};
+use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
@@ -44,12 +44,13 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
 
 #[tokio::main]
 async fn main() {
-    let (core_fut, app_state, _guard) = lodestone_core::run(lodestone_core::Args {
+    let (core_fut, app_state, _guard, shutdown_tx) = lodestone_core::run(lodestone_core::Args {
         is_cli: false,
         is_desktop: true,
         lodestone_path: None,
     })
     .await;
+    let shutdown_tx = std::sync::Mutex::new(Some(shutdown_tx));
     tokio::spawn(async {
         core_fut.await;
         println!("Core has exited");
@@ -72,9 +73,7 @@ async fn main() {
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
 
-    let tray_menu = SystemTrayMenu::new()
-        .add_item(quit);
-
+    let tray_menu = SystemTrayMenu::new().add_item(quit);
 
     builder
         .manage(app_state)
@@ -92,23 +91,22 @@ async fn main() {
             _ => {}
         })
         .system_tray(SystemTray::new().with_menu(tray_menu))
-        .on_system_tray_event(|app, event| {
-            match event {
-                SystemTrayEvent::MenuItemClick { id, .. } => {
-                    if id == "quit" {
-                        app.exit(0);
+        .on_system_tray_event(move |app, event| match event {
+            SystemTrayEvent::MenuItemClick { id, .. } => {
+                if id == "quit" {
+                    if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                        tx.send(()).unwrap();
                     }
+                    app.exit(0);
                 }
-
-                SystemTrayEvent::LeftClick {
-                    ..
-                } => {
-                    let window = app.get_window("main").unwrap();
-                    window.show().unwrap();
-                    window.set_focus().unwrap();
-                }
-                _ => {}
             }
+
+            SystemTrayEvent::LeftClick { .. } => {
+                let window = app.get_window("main").unwrap();
+                window.show().unwrap();
+                window.set_focus().unwrap();
+            }
+            _ => {}
         })
         .run(context)
         .expect("error while running tauri application");
