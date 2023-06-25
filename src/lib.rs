@@ -3,8 +3,8 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_app_state, init_paths, init_runtime, lodestone_path, path_to_global_settings,
-    path_to_stores, path_to_users, VERSION,
+    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
+    path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -352,7 +352,6 @@ pub async fn run(
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
-    init_runtime(tokio::runtime::Handle::current());
     let lodestone_path_ = if let Some(path) = args.lodestone_path {
         path
     } else {
@@ -418,7 +417,7 @@ pub async fn run(
     } else {
         None
     };
-    let macro_executor = MacroExecutor::new(tx.clone());
+    let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
         .map_err(|e| {
