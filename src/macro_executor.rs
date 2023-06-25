@@ -15,7 +15,7 @@ use deno_runtime::permissions::Permissions;
 use futures_util::Future;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{runtime::Builder, sync::mpsc, task::LocalSet};
+use tokio::{sync::mpsc, task::LocalSet};
 use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
@@ -577,6 +577,7 @@ mod tests {
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
     use crate::macro_executor::SpawnResult;
+    use crate::prelude::init_runtime;
 
     struct BasicMainWorkerGenerator;
 
@@ -606,6 +607,7 @@ mod tests {
     async fn basic_execution() {
         // init tracing
         tracing_subscriber::fmt::init();
+        init_runtime(tokio::runtime::Handle::current());
         let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
@@ -646,6 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_url() {
+        init_runtime(tokio::runtime::Handle::current());
         let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
