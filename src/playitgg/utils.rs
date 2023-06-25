@@ -69,7 +69,7 @@ impl AddressLookup for LocalLookup {
         }
 
         Some(AddressValue {
-            value: "127.0.0.1".parse().unwrap(),
+            value: "127.0.0.1:25655".parse().unwrap(),
             from_port: port,
             to_port: port + 1,
         })
@@ -143,13 +143,13 @@ pub fn find_tunnel(tunnels: AccountTunnels, name: Option<String>, port_type: Por
     }
 }
 
-pub async fn run_tunnel(tunnel: AccountTunnel, allocated: TunnelAllocated, secret: String, port_type: PortType, port_num: u16) -> Result<TunnelRunner<LocalLookup>, SetupError> {
+pub async fn get_tunnel(tunnel: AccountTunnel, allocated: TunnelAllocated, secret: String, port_type: PortType, port_num: u16) -> Result<TunnelRunner<LocalLookup>, SetupError> {
     let simple_tunnel = SimpleTunnel {
         pub_address: allocated.ip_hostname,
         port_type,
         from_port: port_num,
         to_port: port_num + 1,
-        local_start_address: "127.0.0.1:5000".parse().unwrap(),
+        local_start_address: "127.0.0.1:25655".parse().unwrap(),
     };
     let local_lookup = LocalLookup {
         data: vec!(simple_tunnel.clone()),
