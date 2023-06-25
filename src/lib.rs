@@ -347,6 +347,7 @@ pub async fn run(
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
+    tokio::sync::oneshot::Sender<()>,
 ) {
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
@@ -536,6 +537,7 @@ pub async fn run(
         lodestone_path.join("tls").join("key.pem"),
     )
     .await;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     (
         {
@@ -620,28 +622,61 @@ pub async fn run(
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
+                    _ = shutdown_rx => info!("Shutdown signal received"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
                 axum_server_handle.shutdown();
                 info!("Signalling all instances to stop");
                 // cleanup
-                for mut entry in shared_state.instances.iter_mut() {
-                    let instance = entry.value_mut();
-                    if instance.state().await == State::Stopped {
-                        continue;
+                let mut handles = vec![];
+                for entry in shared_state.instances.iter() {
+                    let instance = entry.value().clone();
+                    match instance.state().await {
+                        State::Starting => {
+                            let handle = tokio::spawn({
+                                let mut instance = instance.clone();
+                                async move {
+                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Running => {
+                            let handle = tokio::spawn({
+                                let mut instance = instance.clone();
+                                async move {
+                                    info!(
+                                        "Killing instance that is starting : {}",
+                                        instance.uuid().await
+                                    );
+                                    if let Err(e) = instance.kill(CausedBy::System).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Error | State::Stopped | State::Stopping => continue,
                     }
-                    if let Err(e) = instance.stop(CausedBy::System, false).await {
-                        error!(
-                            "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                            entry.value().uuid().await,
-                            e
-                        );
-                    }
+                }
+                for handle in handles {
+                    let _ = handle.await;
                 }
             }
         },
         shared_state,
         guard,
+        shutdown_tx,
     )
 }
