@@ -3,8 +3,8 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
-    path_to_users, VERSION,
+    init_app_state, init_paths, init_runtime, lodestone_path, path_to_global_settings,
+    path_to_stores, path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -106,6 +106,21 @@ pub struct AppState {
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
 }
+
+impl AppState {
+    /// Kill all instances
+    pub async fn cleanup(&mut self) {
+        for instance in self.instances.iter() {
+            let mut instance = instance.value().clone();
+            tokio::task::spawn(async move {
+                if let Err(e) = instance.kill(CausedBy::System).await {
+                    error!("Failed to kill instance: {}", e);
+                };
+            });
+        }
+    }
+}
+
 async fn restore_instances(
     instances_path: &Path,
     event_broadcaster: EventBroadcaster,
@@ -333,10 +348,12 @@ pub async fn run(
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
+    tokio::sync::oneshot::Sender<()>,
 ) {
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
+    init_runtime(tokio::runtime::Handle::current());
     let lodestone_path_ = if let Some(path) = args.lodestone_path {
         path
     } else {
@@ -521,6 +538,7 @@ pub async fn run(
         lodestone_path.join("tls").join("key.pem"),
     )
     .await;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     (
         {
@@ -605,28 +623,61 @@ pub async fn run(
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
+                    _ = shutdown_rx => info!("Shutdown signal received"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
                 axum_server_handle.shutdown();
                 info!("Signalling all instances to stop");
                 // cleanup
-                for mut entry in shared_state.instances.iter_mut() {
-                    let instance = entry.value_mut();
-                    if instance.state().await == State::Stopped {
-                        continue;
+                let mut handles = vec![];
+                for entry in shared_state.instances.iter() {
+                    let instance = entry.value().clone();
+                    match instance.state().await {
+                        State::Starting => {
+                            let handle = tokio::spawn({
+                                let mut instance = instance.clone();
+                                async move {
+                                    info!(
+                                        "Killing instance that is starting : {}",
+                                        instance.uuid().await
+                                    );
+                                    if let Err(e) = instance.kill(CausedBy::System).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Running => {
+                            let handle = tokio::spawn({
+                                let mut instance = instance.clone();
+                                async move {
+                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Error | State::Stopped | State::Stopping => continue,
                     }
-                    if let Err(e) = instance.stop(CausedBy::System, false).await {
-                        error!(
-                            "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                            entry.value().uuid().await,
-                            e
-                        );
-                    }
+                }
+                for handle in handles {
+                    let _ = handle.await;
                 }
             }
         },
         shared_state,
         guard,
+        shutdown_tx,
     )
 }

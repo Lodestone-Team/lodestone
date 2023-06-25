@@ -85,11 +85,15 @@ async fn list_instance_files(
     let ret: Vec<FileEntry> = list_dir(&path, None)
         .await?
         .iter()
-        .map(move |p| {
+        .filter_map(move |p| -> Option<FileEntry> {
             // remove the root path from the file path
             let mut r: FileEntry = p.as_path().into();
-            r.path = p.strip_prefix(&root).unwrap().to_str().unwrap().to_string();
-            r
+            r.path = p
+                .strip_prefix(&root)
+                .ok()
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_owned())?;
+            Some(r)
         })
         .collect();
     let caused_by = CausedBy::User {

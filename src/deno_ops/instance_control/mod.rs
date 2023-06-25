@@ -314,8 +314,9 @@ async fn wait_till_rcon_available(instance_uuid: InstanceUuid) -> Result<(), any
     let instance = app_state()
         .instances
         .get_mut(&instance_uuid)
-        .ok_or(anyhow::anyhow!("Instance not found"))?;
-    match instance.value() {
+        .ok_or(anyhow::anyhow!("Instance not found"))?
+        .clone();
+    match instance {
         crate::prelude::GameInstance::MinecraftInstance(v) => loop {
             if v.is_rcon_available().await {
                 break Ok(());

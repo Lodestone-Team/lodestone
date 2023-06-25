@@ -15,7 +15,7 @@ use deno_runtime::permissions::Permissions;
 use futures_util::Future;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{runtime::Builder, sync::mpsc, task::LocalSet};
+use tokio::{sync::mpsc, task::LocalSet};
 use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
@@ -27,6 +27,7 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
+    prelude::runtime,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
 };
@@ -295,11 +296,12 @@ impl MacroExecutor {
             &std::env::current_dir().context("Failed to get current directory")?,
         )
         .context("Failed to resolve path")?;
-        let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
             let event_broadcaster = self.event_broadcaster.clone();
             move || {
+                let rt = runtime();
+                let _guard = rt.enter();
                 let local = LocalSet::new();
                 local.spawn_local({
                     let event_broadcaster = event_broadcaster.clone();
@@ -575,6 +577,7 @@ mod tests {
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
     use crate::macro_executor::SpawnResult;
+    use crate::prelude::init_runtime;
 
     struct BasicMainWorkerGenerator;
 
@@ -604,6 +607,7 @@ mod tests {
     async fn basic_execution() {
         // init tracing
         tracing_subscriber::fmt::init();
+        init_runtime(tokio::runtime::Handle::current());
         let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
@@ -644,6 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_url() {
+        init_runtime(tokio::runtime::Handle::current());
         let (event_broadcaster, _) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor = super::MacroExecutor::new(event_broadcaster);
