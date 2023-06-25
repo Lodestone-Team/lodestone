@@ -637,7 +637,11 @@ pub async fn run(
                             let handle = tokio::spawn({
                                 let mut instance = instance.clone();
                                 async move {
-                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                                    info!(
+                                        "Killing instance that is starting : {}",
+                                        instance.uuid().await
+                                    );
+                                    if let Err(e) = instance.kill(CausedBy::System).await {
                                         error!(
                                         "Failed to stop instance {} : {}. Instance may need manual cleanup",
                                         instance.uuid().await,
@@ -652,11 +656,7 @@ pub async fn run(
                             let handle = tokio::spawn({
                                 let mut instance = instance.clone();
                                 async move {
-                                    info!(
-                                        "Killing instance that is starting : {}",
-                                        instance.uuid().await
-                                    );
-                                    if let Err(e) = instance.kill(CausedBy::System).await {
+                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
                                         error!(
                                         "Failed to stop instance {} : {}. Instance may need manual cleanup",
                                         instance.uuid().await,
