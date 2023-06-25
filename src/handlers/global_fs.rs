@@ -627,6 +627,7 @@ async fn download(
         ];
         let stream = ReaderStream::new(file);
         let body = StreamBody::new(stream);
+
         Ok((headers, body))
     } else {
         Err(Error {
