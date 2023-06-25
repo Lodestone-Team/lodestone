@@ -27,7 +27,6 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
-    prelude::runtime,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
 };
@@ -218,6 +217,7 @@ pub struct MacroExecutor {
         Arc<DashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
+    rt: tokio::runtime::Handle,
 }
 
 pub struct SpawnResult {
@@ -227,7 +227,7 @@ pub struct SpawnResult {
 }
 
 impl MacroExecutor {
-    pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
+    pub fn new(event_broadcaster: EventBroadcaster, rt: tokio::runtime::Handle) -> MacroExecutor {
         let process_table = Arc::new(DashMap::new());
         let process_id = Arc::new(AtomicUsize::new(0));
         let exit_status_table = Arc::new(DashMap::new());
@@ -258,6 +258,7 @@ impl MacroExecutor {
             channel_table: Arc::new(DashMap::new()),
             exit_status_table,
             next_process_id: process_id,
+            rt,
         }
     }
 
@@ -299,8 +300,8 @@ impl MacroExecutor {
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
             let event_broadcaster = self.event_broadcaster.clone();
+            let rt = self.rt.clone();
             move || {
-                let rt = runtime();
                 let _guard = rt.enter();
                 let local = LocalSet::new();
                 local.spawn_local({
@@ -577,7 +578,6 @@ mod tests {
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
     use crate::macro_executor::SpawnResult;
-    use crate::prelude::init_runtime;
 
     struct BasicMainWorkerGenerator;
 
@@ -606,11 +606,11 @@ mod tests {
     #[tokio::test]
     async fn basic_execution() {
         // init tracing
-        tracing_subscriber::fmt::init();
-        init_runtime(tokio::runtime::Handle::current());
-        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        tracing_subscriber::fmt::try_init();
+        let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
-        let executor = super::MacroExecutor::new(event_broadcaster);
+        let executor =
+            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
 
         // create a temp directory
         let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
@@ -648,10 +648,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_url() {
-        init_runtime(tokio::runtime::Handle::current());
-        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        tracing_subscriber::fmt::try_init();
+
+
+        let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
-        let executor = super::MacroExecutor::new(event_broadcaster);
+        let executor =
+            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
 
         // create a temp directory
         let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
