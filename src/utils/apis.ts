@@ -120,19 +120,21 @@ export const deleteInstanceDirectory = async (
 
 export const requestInstanceFileUrl = async (
   uuid: string,
-  file: ClientFile
+  file: ClientFile,
+  timeout = 5000,
 ): Promise<string> => {
   const tokenResponse = await axiosWrapper<string>({
     method: 'get',
     url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/url`,
+    timeout: timeout,
   });
   return axios.defaults.baseURL + `/file/${tokenResponse}`;
 };
 
-export const downloadInstanceFile = async (uuid: string, file: ClientFile) => {
+export const downloadInstanceFile = async (uuid: string, file: ClientFile, timeout = 5000) => {
   // TODO handle errors
 
-  window.open(await requestInstanceFileUrl(uuid, file), '_blank');
+  window.open(await requestInstanceFileUrl(uuid, file, timeout), '_blank');
 };
 
 export const uploadInstanceFiles = async (

@@ -208,7 +208,12 @@ export default function FileViewer() {
     if (!tickedFiles) return;
     
     for (const file of tickedFiles) {
-      downloadInstanceFile(instance.uuid, file);
+      const timeout = file?.file_type == 'Directory' ? 60000 : 5000;
+      if (file.file_type === 'Directory') {
+        toast.info('Zipping directory for download...');
+      }
+      
+      downloadInstanceFile(instance.uuid, file, timeout);
       tickFile(file, false);
     }
   };
