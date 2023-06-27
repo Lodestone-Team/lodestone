@@ -29,7 +29,7 @@ use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
-    async fn start(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
         let config = self.config.lock().await.clone();
         self.state.lock().await.try_transition(
             StateAction::UserStart,
@@ -523,7 +523,7 @@ impl TServer for MinecraftInstance {
             }
         }
     }
-    async fn stop(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn stop(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
         let config = self.config.lock().await.clone();
 
         self.state.lock().await.try_transition(
@@ -581,7 +581,7 @@ impl TServer for MinecraftInstance {
         }
     }
 
-    async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn restart(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         if block {
             self.stop(caused_by.clone(), block).await?;
             self.start(caused_by, block).await
@@ -600,7 +600,7 @@ impl TServer for MinecraftInstance {
         }
     }
 
-    async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), Error> {
+    async fn kill(&self, _cause_by: CausedBy) -> Result<(), Error> {
         let config = self.config.lock().await.clone();
 
         if self.state().await == State::Stopped {

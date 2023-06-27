@@ -57,7 +57,7 @@ pub trait TPlayerManagement {
         })
     }
 
-    async fn set_max_player_count(&mut self, _max_player_count: u32) -> Result<(), Error> {
+    async fn set_max_player_count(&self, _max_player_count: u32) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("Setting max player count is unsupported for this instance"),

@@ -97,18 +97,18 @@ impl TMacro for MinecraftInstance {
         Ok(ret)
     }
 
-    async fn delete_macro(&mut self, name: &str) -> Result<(), Error> {
+    async fn delete_macro(&self, name: &str) -> Result<(), Error> {
         crate::util::fs::remove_file(self.path_to_macros.join(name)).await?;
         Ok(())
     }
 
-    async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), Error> {
+    async fn create_macro(&self, name: &str, content: &str) -> Result<(), Error> {
         crate::util::fs::write_all(self.path_to_macros.join(name), content.as_bytes().to_vec())
             .await
     }
 
     async fn run_macro(
-        &mut self,
+        &self,
         name: &str,
         args: Vec<String>,
         caused_by: CausedBy,
@@ -144,7 +144,7 @@ impl TMacro for MinecraftInstance {
         Ok(entry)
     }
 
-    async fn kill_macro(&mut self, pid: MacroPID) -> Result<(), Error> {
+    async fn kill_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_executor.abort_macro(pid)?;
         Ok(())
     }
