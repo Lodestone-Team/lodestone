@@ -3,9 +3,22 @@ import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 import { PerformanceReport } from "../../../deno_bindings/PerformanceReport.ts";
 import { Player } from "../../../deno_bindings/Player.ts";
 import { Game } from "../../../deno_bindings/Game.ts";
+
+export { instanceUUID, taskPid };
+export type { InstanceState, PerformanceReport, Player, Game };
+
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
+const { ops } = core;
+
+export function instanceExists(instanceUuid: string = instanceUUID()!): boolean {
+    return ops.instance_exists(instanceUuid);
+}
+
+export function allInstanceUuids(): string[] {
+    return ops.all_instances();
+}
 
 export function startInstance(block: boolean, instanceUuid: string = instanceUUID()!): Promise<void> {
     return core.opAsync("start_instance", instanceUuid, taskPid(), block);
