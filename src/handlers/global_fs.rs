@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use axum::{
     body::{Bytes, StreamBody},
@@ -22,11 +23,18 @@ use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget},
-    util::{list_dir, rand_alphanumeric},
+    util::{list_dir, rand_alphanumeric, zip_files},
     AppState,
 };
 
 use super::util::decode_base64;
+use crate::prelude::path_to_tmp;
+use tempfile::TempDir;
+
+pub enum DownloadableFile {
+    NormalFile(PathBuf),
+    ZippedFile((PathBuf, TempDir)),
+}
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -407,20 +415,37 @@ async fn download_file(
         })?;
     requester.try_action(&UserAction::ReadGlobalFile)?;
     let path = PathBuf::from(absolute_path);
+    let downloadable_file_path: PathBuf;
+    let downloadable_file = if fs::metadata(path.clone()).unwrap().is_dir() {
+        let lodestone_tmp = path_to_tmp().clone();
+        let temp_dir = tempfile::tempdir_in(lodestone_tmp)
+            .context("Failed to create temporary file")?;
+        let mut temp_file_path: PathBuf = temp_dir.path().into();
+        temp_file_path.push(path.file_name().unwrap());
+        temp_file_path.set_extension("zip");
+        let files = Vec::from([path.clone()]);
+        zip_files(&files, temp_file_path.clone(), true)
+            .context("Failed to zip file")?;
+        downloadable_file_path = temp_file_path.clone();
+        DownloadableFile::ZippedFile((downloadable_file_path.clone(), temp_dir))
+    } else {
+        downloadable_file_path = path.clone();
+        DownloadableFile::NormalFile(path.clone())
+    };
 
     let key = rand_alphanumeric(32);
     state
         .download_urls
         .lock()
         .await
-        .insert(key.clone(), path.clone());
+        .insert(key.clone(), downloadable_file);
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username.clone(),
     };
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
-        FSTarget::File(path),
+        FSTarget::File(downloadable_file_path),
         caused_by,
     ));
     Ok(key)
@@ -567,7 +592,12 @@ async fn download(
     ),
     Error,
 > {
-    if let Some(path) = state.download_urls.lock().await.get(&key) {
+    if let Some(downloadable_file) = state.download_urls.lock().await.get(&key) {
+        let path = match downloadable_file {
+            DownloadableFile::NormalFile(path) => path,
+            DownloadableFile::ZippedFile((path, _)) => path,
+        };
+
         let file = tokio::fs::File::open(&path)
             .await
             .context(format!("Failed to open file {}", path.display()))?;
@@ -597,6 +627,7 @@ async fn download(
         ];
         let stream = ReaderStream::new(file);
         let body = StreamBody::new(stream);
+
         Ok((headers, body))
     } else {
         Err(Error {

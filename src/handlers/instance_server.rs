@@ -33,16 +33,13 @@ pub async fn start_instance(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    let mut instance = state
+    let instance = state
         .instances
-        .get_mut(&uuid)
+        .get(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
             source: eyre!("Instance not found"),
-        })?
-        .value()
-        .clone();
-
+        })?;
     let port = instance.port().await;
 
     // check if port is already in use
@@ -70,7 +67,7 @@ pub async fn stop_instance(
     };
     state
         .instances
-        .get_mut(&uuid)
+        .get(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
             source: eyre!("Instance not found"),
@@ -93,7 +90,7 @@ pub async fn restart_instance(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    let mut instance = state.instances.get_mut(&uuid).ok_or_else(|| Error {
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
@@ -115,7 +112,7 @@ pub async fn kill_instance(
     };
     state
         .instances
-        .get_mut(&uuid)
+        .get(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
             source: eyre!("Instance not found"),
@@ -139,7 +136,7 @@ pub async fn send_command(
     };
     state
         .instances
-        .get_mut(&uuid)
+        .get(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
             source: eyre!("Instance not found"),

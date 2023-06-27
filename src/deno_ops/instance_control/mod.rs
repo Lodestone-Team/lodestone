@@ -18,14 +18,28 @@ use crate::{
 };
 
 #[op]
+fn instance_exists(instance_uuid: InstanceUuid) -> bool {
+    app_state().instances.contains_key(&instance_uuid)
+}
+
+#[op]
+fn all_instances() -> Vec<InstanceUuid> {
+    app_state()
+        .instances
+        .iter()
+        .map(|entry| entry.key().clone())
+        .collect()
+}
+
+#[op]
 async fn start_instance(
     instance_uuid: InstanceUuid,
     task_pid: MacroPID,
     block: bool,
 ) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     instance
         .start(
@@ -44,9 +58,9 @@ async fn stop_instance(
     task_pid: MacroPID,
     block: bool,
 ) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     instance
         .stop(
@@ -65,9 +79,9 @@ async fn restart_instance(
     task_pid: MacroPID,
     block: bool,
 ) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     instance
         .restart(
@@ -85,9 +99,9 @@ async fn kill_instance(
     instance_uuid: InstanceUuid,
     task_pid: MacroPID,
 ) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     instance
         .kill(CausedBy::Macro {
@@ -115,7 +129,7 @@ async fn send_command(
 ) -> Result<(), anyhow::Error> {
     let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     instance
         .send_command(
@@ -132,7 +146,7 @@ async fn send_command(
 async fn monitor_instance(instance_uuid: InstanceUuid) -> Result<MonitorReport, anyhow::Error> {
     let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     Ok(instance.monitor().await)
 }
@@ -206,7 +220,7 @@ async fn get_instance_description(instance_uuid: InstanceUuid) -> Result<String,
 async fn get_instance_port(instance_uuid: InstanceUuid) -> Result<u32, anyhow::Error> {
     let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     Ok(instance.port().await)
 }
@@ -222,9 +236,9 @@ async fn get_instance_path(instance_uuid: InstanceUuid) -> Result<String, anyhow
 
 #[op]
 async fn set_instance_name(instance_uuid: InstanceUuid, name: String) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
 
     instance
@@ -238,9 +252,9 @@ async fn set_instance_description(
     instance_uuid: InstanceUuid,
     description: String,
 ) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
 
     instance
@@ -251,9 +265,9 @@ async fn set_instance_description(
 
 #[op]
 async fn set_instance_port(instance_uuid: InstanceUuid, port: u32) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
 
     instance
@@ -267,9 +281,9 @@ async fn set_instance_auto_start(
     instance_uuid: InstanceUuid,
     auto_start: bool,
 ) -> Result<(), anyhow::Error> {
-    let mut instance = app_state()
+    let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
 
     instance
@@ -282,7 +296,7 @@ async fn set_instance_auto_start(
 async fn is_rcon_available(instance_uuid: InstanceUuid) -> Result<bool, anyhow::Error> {
     let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     match instance.value() {
         crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.is_rcon_available().await),
@@ -299,7 +313,7 @@ async fn send_rcon_command(
 ) -> Result<String, anyhow::Error> {
     let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
+        .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     match instance.value() {
         crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.send_rcon(&command).await?),
@@ -313,10 +327,9 @@ async fn send_rcon_command(
 async fn wait_till_rcon_available(instance_uuid: InstanceUuid) -> Result<(), anyhow::Error> {
     let instance = app_state()
         .instances
-        .get_mut(&instance_uuid)
-        .ok_or(anyhow::anyhow!("Instance not found"))?
-        .clone();
-    match instance {
+        .get(&instance_uuid)
+        .ok_or(anyhow::anyhow!("Instance not found"))?;
+    match instance.value() {
         crate::prelude::GameInstance::MinecraftInstance(v) => loop {
             if v.is_rcon_available().await {
                 break Ok(());

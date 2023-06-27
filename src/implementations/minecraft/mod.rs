@@ -769,7 +769,7 @@ impl MinecraftInstance {
         Ok(())
     }
 
-    async fn read_properties(&mut self) -> Result<(), Error> {
+    async fn read_properties(&self) -> Result<(), Error> {
         let properties = read_properties_from_path(&self.path_to_properties).await?;
         let mut lock = self.configurable_manifest.lock().await;
         for (key, value) in properties.iter() {

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use axum::{
     body::Bytes,
@@ -26,7 +27,7 @@ use crate::{
     types::InstanceUuid,
     util::{
         format_byte, format_byte_download, list_dir, rand_alphanumeric, resolve_path_conflict,
-        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption,
+        scoped_join_win_safe, unzip_file_async, zip_files_async, UnzipOption, zip_files,
     },
     AppState,
 };
@@ -62,7 +63,7 @@ fn is_path_protected(path: impl AsRef<std::path::Path>) -> bool {
     }
 }
 
-use super::{global_fs::FileEntry, util::decode_base64};
+use super::{global_fs::{FileEntry, DownloadableFile}, util::decode_base64};
 
 async fn list_instance_files(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -581,13 +582,37 @@ async fn get_instance_file_url(
     let root = instance.path().await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
-
+    let downloadable_file_path: PathBuf;
     let key = rand_alphanumeric(32);
     state
         .download_urls
         .lock()
         .await
-        .insert(key.clone(), path.clone());
+        .insert(
+            key.clone(), 
+            if fs::metadata(path.clone()).map_err(|_| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Could not read file metadata"),
+            })?.is_dir() {
+                let lodestone_tmp = path_to_tmp().clone();
+                let temp_dir = tempfile::tempdir_in(lodestone_tmp)
+                    .context("Failed to create temporary file")?;
+                let mut temp_file_path: PathBuf = temp_dir.path().into();
+                temp_file_path.push(path.file_name().ok_or_else(|| Error {
+                    kind: ErrorKind::NotFound,
+                    source: eyre!("Could not read file name"),
+                })?);
+                temp_file_path.set_extension("zip");
+                let files = Vec::from([path.clone()]);
+                zip_files(&files, temp_file_path.clone(), true)
+                    .context("Failed to zip file")?;
+                downloadable_file_path = temp_file_path.clone();
+                DownloadableFile::ZippedFile((downloadable_file_path.clone(), temp_dir))
+            } else {
+                downloadable_file_path = path.clone();
+                DownloadableFile::NormalFile(path.clone())
+            }
+        );
 
     state.download_urls.lock().await.get(&key).unwrap();
 
@@ -597,7 +622,7 @@ async fn get_instance_file_url(
     };
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
-        FSTarget::File(path),
+        FSTarget::File(downloadable_file_path),
         caused_by,
     ));
     Ok(key)

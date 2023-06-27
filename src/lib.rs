@@ -3,8 +3,8 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
-    path_to_users, VERSION,
+    init_app_state, init_paths, lodestone_path, path_to_global_settings,
+    path_to_stores, path_to_users, VERSION, path_to_tmp,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -86,6 +86,7 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 pub mod util;
+use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -101,7 +102,7 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
-    download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
+    download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
 }
@@ -629,6 +630,11 @@ pub async fn run(
                 info!("Signalling all instances to stop");
                 // cleanup
                 let mut handles = vec![];
+                shared_state.download_urls.lock().await.clear();
+                let _ = tokio::fs::remove_dir_all(path_to_tmp()).await.map_err(|e| {
+                    error!("Failed to remove tmp dir : {}", e);
+                    e
+                });
                 for entry in shared_state.instances.iter() {
                     let instance = entry.value().clone();
                     match instance.state().await {
