@@ -36,15 +36,6 @@ pub enum DownloadableFile {
     ZippedFile((PathBuf, TempDir)),
 }
 
-impl DownloadableFile {
-    pub fn path(&self) -> PathBuf {
-        match self {
-            Self::NormalFile(path) => path.clone(),
-            Self::ZippedFile((path, _)) => path.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum FileType {
