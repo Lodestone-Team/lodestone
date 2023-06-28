@@ -897,7 +897,6 @@ impl MinecraftInstance {
     pub async fn send_rcon(&self, cmd: &str) -> Result<String, Error> {
         let a = self
             .rcon_conn
-            .clone()
             .lock()
             .await
             .as_mut()
