@@ -66,6 +66,8 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter}
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
+use fs3::FileExt;
+
 pub mod auth;
 pub mod db;
 mod deno_ops;
@@ -331,6 +333,16 @@ pub async fn run(
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
 ) {
+    let lockfile_path = "./lodestone.lock";
+    let file = if Path::new(lockfile_path).exists() {
+        std::fs::File::open(lockfile_path).expect("failed to open lockfile")
+    } else {
+        std::fs::File::create(lockfile_path).expect("failed to create lockfile")
+    };
+    if let Err(_) = file.try_lock_exclusive() {
+        panic!("Another instance of lodestone might be running");
+    }
+
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -593,6 +605,8 @@ pub async fn run(
                         .unwrap();
                     }
                 });
+                // capture file into the move block
+                let file = file;
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
