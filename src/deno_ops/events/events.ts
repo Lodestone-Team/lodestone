@@ -19,23 +19,23 @@ export function nextEvent(): Promise<ClientEvent> {
     return core.opAsync("next_event");
 }
 
-export function nextInstanceEvent(instanceUuid: string = prelude.instanceUUID()!): Promise<InstanceEvent> {
+export function nextInstanceEvent(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<InstanceEvent> {
     return core.opAsync("next_instance_event", instanceUuid);
 }
 
-export function nextInstanceStateChange(instanceUuid: string = prelude.instanceUUID()!): Promise<InstanceState> {
+export function nextInstanceStateChange(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<InstanceState> {
     return core.opAsync("next_instance_state_change", instanceUuid);
 }
 
-export function nextInstanceConsoleOut(instanceUuid: string = prelude.instanceUUID()!): Promise<string> {
+export function nextInstanceConsoleOut(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<string> {
     return core.opAsync("next_instance_output", instanceUuid);
 }
 
-export function nextPlayerMessage(instanceUuid: string = prelude.instanceUUID()!): Promise<PlayerMessage> {
+export function nextPlayerMessage(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<PlayerMessage> {
     return core.opAsync("next_instance_player_message", instanceUuid);
 }
 
-export function nextInstanceSystemMessage(instanceUuid: string = prelude.instanceUUID()!): Promise<string> {
+export function nextInstanceSystemMessage(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<string> {
     return core.opAsync("next_instance_system_message", instanceUuid);
 }
 
@@ -49,11 +49,11 @@ export function detach() {
     emitDetach();
 }
 
-export function emitDetach(pid: TaskPID = prelude.taskPid(), instanceUuid: string = prelude.instanceUUID()!) {
+export function emitDetach(pid: TaskPID = prelude.getCurrentTaskPid(), instanceUuid: string = prelude.getCurrentInstanceUUID()!) {
     ops.emit_detach(pid, instanceUuid);
 }
 
-export function emitConsoleOut(line: string, instanceUuid: string = prelude.instanceUUID()!,) {
+export function emitConsoleOut(line: string, instanceUuid: string = prelude.getCurrentInstanceUUID()!,) {
     InstanceControl.getInstanceName().then((name) => {
         ops.emit_console_out(instanceUuid, name, line);
     }
