@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 use axum::{
     body::{Bytes, StreamBody},
@@ -34,6 +34,15 @@ use tempfile::TempDir;
 pub enum DownloadableFile {
     NormalFile(PathBuf),
     ZippedFile((PathBuf, TempDir)),
+}
+
+impl DownloadableFile {
+    pub fn path(&self) -> PathBuf {
+        match self {
+            Self::NormalFile(path) => path.clone(),
+            Self::ZippedFile((path, _)) => path.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -418,14 +427,13 @@ async fn download_file(
     let downloadable_file_path: PathBuf;
     let downloadable_file = if fs::metadata(path.clone()).unwrap().is_dir() {
         let lodestone_tmp = path_to_tmp().clone();
-        let temp_dir = tempfile::tempdir_in(lodestone_tmp)
-            .context("Failed to create temporary file")?;
+        let temp_dir =
+            tempfile::tempdir_in(lodestone_tmp).context("Failed to create temporary file")?;
         let mut temp_file_path: PathBuf = temp_dir.path().into();
         temp_file_path.push(path.file_name().unwrap());
         temp_file_path.set_extension("zip");
         let files = Vec::from([path.clone()]);
-        zip_files(&files, temp_file_path.clone(), true)
-            .context("Failed to zip file")?;
+        zip_files(&files, temp_file_path.clone(), true).context("Failed to zip file")?;
         downloadable_file_path = temp_file_path.clone();
         DownloadableFile::ZippedFile((downloadable_file_path.clone(), temp_dir))
     } else {

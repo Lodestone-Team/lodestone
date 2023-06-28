@@ -720,7 +720,7 @@ impl MinecraftInstance {
             java_path.to_string_lossy().to_string(),
         )));
 
-        let mut instance = MinecraftInstance {
+        let instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
             uuid: dot_lodestone_config.uuid().clone(),
             creation_time: dot_lodestone_config.creation_time(),

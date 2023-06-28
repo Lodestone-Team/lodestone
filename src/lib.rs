@@ -111,7 +111,7 @@ impl AppState {
     /// Kill all instances
     pub async fn cleanup(&mut self) {
         for instance in self.instances.iter() {
-            let mut instance = instance.value().clone();
+            let instance = instance.value().clone();
             tokio::task::spawn(async move {
                 if let Err(e) = instance.kill(CausedBy::System).await {
                     error!("Failed to kill instance: {}", e);
@@ -640,7 +640,7 @@ pub async fn run(
                     match instance.state().await {
                         State::Starting => {
                             let handle = tokio::spawn({
-                                let mut instance = instance.clone();
+                                let instance = instance.clone();
                                 async move {
                                     info!(
                                         "Killing instance that is starting : {}",
@@ -659,7 +659,7 @@ pub async fn run(
                         }
                         State::Running => {
                             let handle = tokio::spawn({
-                                let mut instance = instance.clone();
+                                let instance = instance.clone();
                                 async move {
                                     if let Err(e) = instance.stop(CausedBy::System, false).await {
                                         error!(
