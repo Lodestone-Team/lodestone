@@ -299,7 +299,26 @@ async fn is_rcon_available(instance_uuid: InstanceUuid) -> Result<bool, anyhow::
         .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     match instance.value() {
-        crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.is_rcon_available().await),
+        crate::prelude::GameInstance::MinecraftInstance(v) => {
+            Ok(v.get_rcon().lock().await.is_some())
+        }
+        crate::prelude::GameInstance::GenericInstance(_) => {
+            bail!("RCON not available for atom instances")
+        }
+    }
+}
+
+#[op]
+async fn try_send_rcon_command(
+    instance_uuid: InstanceUuid,
+    command: String,
+) -> Result<Option<String>, anyhow::Error> {
+    let instance = app_state()
+        .instances
+        .get(&instance_uuid)
+        .ok_or(anyhow::anyhow!("Instance not found"))?;
+    match instance.value() {
+        crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.send_rcon(&command).await.ok()),
         crate::prelude::GameInstance::GenericInstance(_) => {
             bail!("RCON not available for atom instances")
         }
@@ -316,7 +335,15 @@ async fn send_rcon_command(
         .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     match instance.value() {
-        crate::prelude::GameInstance::MinecraftInstance(v) => Ok(v.send_rcon(&command).await?),
+        crate::prelude::GameInstance::MinecraftInstance(v) => {
+            let rcon = v.get_rcon();
+            loop {
+                if let Some(rcon) = rcon.lock().await.as_mut() {
+                    return Ok(rcon.cmd(&command).await?);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
         crate::prelude::GameInstance::GenericInstance(_) => {
             bail!("RCON not available for atom instances")
         }
@@ -330,12 +357,15 @@ async fn wait_till_rcon_available(instance_uuid: InstanceUuid) -> Result<(), any
         .get(&instance_uuid)
         .ok_or(anyhow::anyhow!("Instance not found"))?;
     match instance.value() {
-        crate::prelude::GameInstance::MinecraftInstance(v) => loop {
-            if v.is_rcon_available().await {
-                break Ok(());
+        crate::prelude::GameInstance::MinecraftInstance(v) => {
+            let rcon = v.get_rcon();
+            loop {
+                if rcon.lock().await.is_some() {
+                    break Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        },
+        }
         crate::prelude::GameInstance::GenericInstance(_) => {
             bail!("RCON not available for atom instances")
         }
@@ -367,6 +397,7 @@ pub fn register_instance_control_ops(worker_options: &mut deno_runtime::worker::
                 send_command::decl(),
                 kill_instance::decl(),
                 is_rcon_available::decl(),
+                try_send_rcon_command::decl(),
                 send_rcon_command::decl(),
                 wait_till_rcon_available::decl(),
             ])

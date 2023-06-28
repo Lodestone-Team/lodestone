@@ -104,6 +104,10 @@ export function isRconAvailable(instanceUuid: string = instanceUUID()!): Promise
     return core.opAsync("is_rcon_available", instanceUuid);
 }
 
+export function trySendRconCommand(command: string, instanceUuid: string = instanceUUID()!): Promise<string | null> {
+    return core.opAsync("try_send_rcon_command", instanceUuid, command);
+}
+
 export function sendRconCommand(command: string, instanceUuid: string = instanceUUID()!): Promise<string> {
     return core.opAsync("send_rcon_command", instanceUuid, command);
 }

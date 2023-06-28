@@ -890,8 +890,8 @@ impl MinecraftInstance {
         );
     }
 
-    pub async fn is_rcon_available(&self) -> bool {
-        self.rcon_conn.lock().await.is_some()
+    pub fn get_rcon(&self) -> Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>> {
+        self.rcon_conn.clone()
     }
 
     pub async fn send_rcon(&self, cmd: &str) -> Result<String, Error> {
