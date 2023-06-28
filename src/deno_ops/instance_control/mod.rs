@@ -376,6 +376,8 @@ pub fn register_instance_control_ops(worker_options: &mut deno_runtime::worker::
     worker_options.extensions.push(
         deno_core::Extension::builder("instance_control_ops")
             .ops(vec![
+                instance_exists::decl(),
+                all_instances::decl(),
                 get_instance_state::decl(),
                 get_instance_path::decl(),
                 get_instance_name::decl(),
