@@ -18,6 +18,9 @@ target/
 # Test ground should be local to every developer
 src/test_ground/
 
+# lockfile
+lodestone.lock
+
 ## dev
 InstanceTest/
 .lodestone/
