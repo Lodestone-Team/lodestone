@@ -9,11 +9,11 @@ declare const Deno: any;
 const core = Deno[Deno.internal].core;
 const { ops } = core;
 
-export function taskPid(): TaskPID {
+export function getCurrentTaskPid(): TaskPID {
     return __macro_pid;
 }
 
-export function instanceUUID(): string | null {
+export function getCurrentInstanceUUID(): string | null {
     return __instance_uuid;
 }
 
