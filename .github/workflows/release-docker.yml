@@ -43,6 +43,7 @@ jobs:
           regex: true
           file: "lodestone_core_*"
           target: release/
+          version: "tags/${{ github.event.release.tag_name }}"
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # https://stackoverflow.com/questions/73402042/github-action-expressions-split-string
