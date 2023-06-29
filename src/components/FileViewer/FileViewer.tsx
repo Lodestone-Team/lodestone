@@ -206,20 +206,15 @@ export default function FileViewer() {
 
   const downloadTickedFiles = async () => {
     if (!tickedFiles) return;
-    const missedDirectories: string[] = [];
+    
     for (const file of tickedFiles) {
+      const timeout = file?.file_type == 'Directory' ? 60000 : 5000;
       if (file.file_type === 'Directory') {
-        missedDirectories.push(file.path);
-      } else if (file.file_type === 'File') {
-        downloadInstanceFile(instance.uuid, file);
-        tickFile(file, false);
+        toast.info('Zipping directory for download...');
       }
-    }
-    if (missedDirectories.length > 0) {
-      const missedDirectoriesString = missedDirectories.join(', ');
-      toast.error(
-        `Downloading a directory is not supported. The following directories were not downloaded: ${missedDirectoriesString}`
-      );
+      
+      downloadInstanceFile(instance.uuid, file, timeout);
+      tickFile(file, false);
     }
   };
 
