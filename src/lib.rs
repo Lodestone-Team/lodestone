@@ -3,8 +3,8 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_app_state, init_paths, lodestone_path, path_to_global_settings,
-    path_to_stores, path_to_users, VERSION, path_to_tmp,
+    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
+    path_to_tmp, path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -353,7 +353,7 @@ pub async fn run(
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
-    let lodestone_path_ = if let Some(path) = args.lodestone_path {
+    let lodestone_path = if let Some(path) = args.lodestone_path {
         path
     } else {
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
@@ -368,10 +368,9 @@ pub async fn run(
                 .to_string(),
         })
     };
-    init_paths(lodestone_path_);
-    let lodestone_path = lodestone_path();
+    init_paths(lodestone_path.clone());
     info!("Lodestone path: {}", lodestone_path.display());
-    std::env::set_current_dir(lodestone_path).unwrap();
+    std::env::set_current_dir(&lodestone_path).unwrap();
     let guard = setup_tracing();
     if args.is_desktop {
         info!("Lodestone Core running in Tauri");
@@ -383,7 +382,7 @@ pub async fn run(
     check_for_core_update().await;
     output_sys_info();
 
-    let _ = migrate(lodestone_path).map_err(|e| {
+    let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
     let path_to_instances = lodestone_path.join("instances");
