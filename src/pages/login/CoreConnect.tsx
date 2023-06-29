@@ -96,7 +96,7 @@ const CoreConnect = () => {
           title="HTTP Error"
           type="danger"
         >
-          Missing user permissions. Enable mixed content settings to load HTTP content over HTTPS, then refresh the page. {' '}
+          Missing site permissions. Enable mixed content settings or disable any HTTPS browser plugins, then refresh the page. {' '}
           <a
             href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
             target="_blank"
