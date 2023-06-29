@@ -16,8 +16,6 @@ pub async fn get_player_count(
 ) -> Result<Json<u32>, Error> {
     state
         .instances
-        .lock()
-        .await
         .get(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
@@ -34,8 +32,6 @@ pub async fn get_max_player_count(
 ) -> Result<Json<u32>, Error> {
     state
         .instances
-        .lock()
-        .await
         .get(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
@@ -53,8 +49,6 @@ pub async fn set_max_player_count(
 ) -> Result<Json<()>, Error> {
     state
         .instances
-        .lock()
-        .await
         .get_mut(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
@@ -71,8 +65,6 @@ pub async fn get_player_list(
 ) -> Result<Json<HashSet<Player>>, Error> {
     state
         .instances
-        .lock()
-        .await
         .get_mut(&uuid)
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,

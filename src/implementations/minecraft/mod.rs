@@ -443,8 +443,6 @@ impl MinecraftInstance {
         let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = path_to_binaries().to_owned();
 
-        let uuid = dot_lodestone_config.uuid().to_owned();
-
         // Step 1: Create Directories
         event_broadcaster.send(Event::new_progression_event_update(
             progression_event_id,
@@ -722,7 +720,7 @@ impl MinecraftInstance {
             java_path.to_string_lossy().to_string(),
         )));
 
-        let mut instance = MinecraftInstance {
+        let instance = MinecraftInstance {
             state: Arc::new(Mutex::new(State::Stopped)),
             uuid: dot_lodestone_config.uuid().clone(),
             creation_time: dot_lodestone_config.creation_time(),
@@ -771,7 +769,7 @@ impl MinecraftInstance {
         Ok(())
     }
 
-    async fn read_properties(&mut self) -> Result<(), Error> {
+    async fn read_properties(&self) -> Result<(), Error> {
         let properties = read_properties_from_path(&self.path_to_properties).await?;
         let mut lock = self.configurable_manifest.lock().await;
         for (key, value) in properties.iter() {
@@ -892,10 +890,13 @@ impl MinecraftInstance {
         );
     }
 
+    pub fn get_rcon(&self) -> Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>> {
+        self.rcon_conn.clone()
+    }
+
     pub async fn send_rcon(&self, cmd: &str) -> Result<String, Error> {
         let a = self
             .rcon_conn
-            .clone()
             .lock()
             .await
             .as_mut()

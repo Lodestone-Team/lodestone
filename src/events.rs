@@ -169,12 +169,13 @@ pub struct UserEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
-#[derive(enum_kinds::EnumKind)]
-#[enum_kind(MacroEventKind, derive(Serialize, Deserialize, TS))]
 pub enum MacroEventInner {
     Started,
-    MainModuleExecuted,
-    Stopped { exit_status: ExitStatus },
+    /// Macro requests to be detached, useful for macros that run in the background such as prelaunch script
+    Detach,
+    Stopped {
+        exit_status: ExitStatus,
+    },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
@@ -323,7 +324,6 @@ impl AsRef<EventInner> for EventInner {
 #[test]
 fn event_type_export() {
     let _ = EventType::export();
-    let _ = MacroEventKind::export();
     let _ = UserEventKind::export();
     let _ = InstanceEventKind::export();
 }
@@ -561,6 +561,22 @@ impl Event {
                     message: message.map(|s| s.as_ref().to_string()),
                     inner,
                 },
+            }),
+            caused_by: CausedBy::System,
+        }
+    }
+
+    pub fn new_macro_detach_event(
+        instance_uuid: Option<InstanceUuid>,
+        macro_pid: MacroPID,
+    ) -> Event {
+        Event {
+            details: "".to_string(),
+            snowflake: Snowflake::default(),
+            event_inner: EventInner::MacroEvent(MacroEvent {
+                macro_pid,
+                instance_uuid,
+                macro_event_inner: MacroEventInner::Detach,
             }),
             caused_by: CausedBy::System,
         }

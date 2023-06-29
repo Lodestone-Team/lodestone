@@ -62,7 +62,6 @@ impl WorkerOptionGenerator for InitWorkerGenerator {
                     state.put(brige);
                 }
             })
-            .force_op_registration()
             .build();
         deno_runtime::worker::WorkerOptions {
             extensions: vec![ext],
@@ -119,7 +118,7 @@ impl GenericInstance {
 
         let SpawnResult {
             macro_pid: core_macro_pid,
-            main_module_future,
+            detach_future,
             ..
         } = core_macro_executor
             .spawn(
@@ -129,10 +128,9 @@ impl GenericInstance {
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
-                None,
             )
             .await?;
-        main_module_future.await;
+        detach_future.await;
         procedure_bridge
             .call(ProcedureCallInner::SetupInstance {
                 dot_lodestone_config: dot_lodestone_config.clone(),
@@ -159,7 +157,7 @@ impl GenericInstance {
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
         let SpawnResult {
             macro_pid: core_macro_pid,
-            main_module_future,
+            detach_future,
             ..
         } = core_macro_executor
             .spawn(
@@ -169,11 +167,10 @@ impl GenericInstance {
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
-                None,
             )
             .await?;
 
-        main_module_future.await;
+        detach_future.await;
 
         procedure_bridge
             .call(ProcedureCallInner::RestoreInstance {
@@ -222,10 +219,9 @@ impl GenericInstance {
                 }),
                 None,
                 None,
-                None,
             )
             .await?
-            .main_module_future
+            .detach_future
             .await;
 
         procedure_bridge

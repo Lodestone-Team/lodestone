@@ -3,7 +3,8 @@
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_paths, lodestone_path, path_to_global_settings, path_to_stores, path_to_users, VERSION,
+    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
+    path_to_tmp, path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -30,6 +31,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use color_eyre::eyre::Context;
 use color_eyre::Report;
+use dashmap::DashMap;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
@@ -86,10 +88,11 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 pub mod util;
+use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
 pub struct AppState {
-    instances: Arc<Mutex<HashMap<InstanceUuid, GameInstance>>>,
+    instances: Arc<DashMap<InstanceUuid, GameInstance>>,
     users_manager: Arc<RwLock<UsersManager>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
@@ -101,16 +104,31 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
-    download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
+    download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
 }
+
+impl AppState {
+    /// Kill all instances
+    pub async fn cleanup(&mut self) {
+        for instance in self.instances.iter() {
+            let instance = instance.value().clone();
+            tokio::task::spawn(async move {
+                if let Err(e) = instance.kill(CausedBy::System).await {
+                    error!("Failed to kill instance: {}", e);
+                };
+            });
+        }
+    }
+}
+
 async fn restore_instances(
     instances_path: &Path,
     event_broadcaster: EventBroadcaster,
     macro_executor: MacroExecutor,
-) -> Result<HashMap<InstanceUuid, GameInstance>, Error> {
-    let mut ret: HashMap<InstanceUuid, GameInstance> = HashMap::new();
+) -> Result<DashMap<InstanceUuid, GameInstance>, Error> {
+    let ret: DashMap<InstanceUuid, GameInstance> = DashMap::new();
 
     for entry in instances_path
         .read_dir()
@@ -332,6 +350,7 @@ pub async fn run(
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
+    tokio::sync::oneshot::Sender<()>,
 ) {
     let lockfile_path = "./lodestone.lock";
     let file = if Path::new(lockfile_path).exists() {
@@ -346,7 +365,7 @@ pub async fn run(
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
-    let lodestone_path_ = if let Some(path) = args.lodestone_path {
+    let lodestone_path = if let Some(path) = args.lodestone_path {
         path
     } else {
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
@@ -361,10 +380,9 @@ pub async fn run(
                 .to_string(),
         })
     };
-    init_paths(lodestone_path_);
-    let lodestone_path = lodestone_path();
+    init_paths(lodestone_path.clone());
     info!("Lodestone path: {}", lodestone_path.display());
-    std::env::set_current_dir(lodestone_path).unwrap();
+    std::env::set_current_dir(&lodestone_path).unwrap();
     let guard = setup_tracing();
     if args.is_desktop {
         info!("Lodestone Core running in Tauri");
@@ -376,7 +394,7 @@ pub async fn run(
     check_for_core_update().await;
     output_sys_info();
 
-    let _ = migrate(lodestone_path).map_err(|e| {
+    let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
     let path_to_instances = lodestone_path.join("instances");
@@ -411,8 +429,8 @@ pub async fn run(
     } else {
         None
     };
-    let macro_executor = MacroExecutor::new(tx.clone());
-    let mut instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
+    let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
+    let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
         .map_err(|e| {
             error!(
@@ -421,24 +439,13 @@ pub async fn run(
             );
         })
         .unwrap();
-    for (_, instance) in instances.iter_mut() {
-        if instance.auto_start().await {
-            info!("Auto starting instance {}", instance.name().await);
-            if let Err(e) = instance.start(CausedBy::System, false).await {
-                error!(
-                    "Failed to start instance {}: {:?}",
-                    instance.name().await,
-                    e
-                );
-            }
-        }
-    }
+
     let mut allocated_ports = HashSet::new();
-    for (_, instance) in instances.iter() {
-        allocated_ports.insert(instance.port().await);
+    for instance_entry in instances.iter() {
+        allocated_ports.insert(instance_entry.value().port().await);
     }
     let shared_state = AppState {
-        instances: Arc::new(Mutex::new(instances)),
+        instances: Arc::new(instances),
         users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
@@ -463,6 +470,22 @@ pub async fn run(
         .await
         .unwrap(),
     };
+
+    init_app_state(shared_state.clone());
+
+    for mut entry in shared_state.instances.iter_mut() {
+        let instance = entry.value_mut();
+        if instance.auto_start().await {
+            info!("Auto starting instance {}", instance.name().await);
+            if let Err(e) = instance.start(CausedBy::System, false).await {
+                error!(
+                    "Failed to start instance {}: {:?}",
+                    entry.value().name().await,
+                    e
+                );
+            }
+        }
+    }
 
     let event_buffer_task = {
         let event_buffer = shared_state.events_buffer.clone();
@@ -506,12 +529,12 @@ pub async fn run(
         async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             loop {
-                for (uuid, instance) in instances.lock().await.iter() {
-                    let report = instance.monitor().await;
+                for entry in instances.iter() {
+                    let report = entry.value().monitor().await;
                     monitor_buffer
                         .lock()
                         .await
-                        .entry(uuid.to_owned())
+                        .entry(entry.key().to_owned())
                         .or_insert_with(|| AllocRingBuffer::with_capacity(64))
                         .push(report);
                 }
@@ -525,6 +548,7 @@ pub async fn run(
         lodestone_path.join("tls").join("key.pem"),
     )
     .await;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     (
         {
@@ -611,28 +635,66 @@ pub async fn run(
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
+                    _ = shutdown_rx => info!("Shutdown signal received"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
                 axum_server_handle.shutdown();
                 info!("Signalling all instances to stop");
                 // cleanup
-                let mut instances = shared_state.instances.lock().await;
-                for (_, instance) in instances.iter_mut() {
-                    if instance.state().await == State::Stopped {
-                        continue;
+                let mut handles = vec![];
+                shared_state.download_urls.lock().await.clear();
+                let _ = tokio::fs::remove_dir_all(path_to_tmp()).await.map_err(|e| {
+                    error!("Failed to remove tmp dir : {}", e);
+                    e
+                });
+                for entry in shared_state.instances.iter() {
+                    let instance = entry.value().clone();
+                    match instance.state().await {
+                        State::Starting => {
+                            let handle = tokio::spawn({
+                                let instance = instance.clone();
+                                async move {
+                                    info!(
+                                        "Killing instance that is starting : {}",
+                                        instance.uuid().await
+                                    );
+                                    if let Err(e) = instance.kill(CausedBy::System).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Running => {
+                            let handle = tokio::spawn({
+                                let instance = instance.clone();
+                                async move {
+                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Error | State::Stopped | State::Stopping => continue,
                     }
-                    if let Err(e) = instance.stop(CausedBy::System, false).await {
-                        error!(
-                            "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                            instance.uuid().await,
-                            e
-                        );
-                    }
+                }
+                for handle in handles {
+                    let _ = handle.await;
                 }
             }
         },
         shared_state,
         guard,
+        shutdown_tx,
     )
 }

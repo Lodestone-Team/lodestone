@@ -1,122 +1,16 @@
-use std::{
-    cell::RefCell,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context};
-use deno_core::{anyhow, op, OpState};
 
 use crate::{
     error::Error,
-    events::{CausedBy, EventInner},
-    macro_executor::{self, MacroPID, SpawnResult, WorkerOptionGenerator},
-    traits::{
-        t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
-        t_server::TServer,
-    },
+    events::CausedBy,
+    macro_executor::{DefaultWorkerOptionGenerator, MacroPID, SpawnResult},
+    traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
 };
 
 use super::MinecraftInstance;
-
-#[op]
-async fn send_stdin(state: Rc<RefCell<OpState>>, cmd: String) -> Result<(), anyhow::Error> {
-    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
-    instance.send_command(&cmd, CausedBy::Unknown).await?;
-    Ok(())
-}
-
-#[op]
-async fn send_rcon(state: Rc<RefCell<OpState>>, cmd: String) -> Result<String, anyhow::Error> {
-    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
-    let ret = instance.send_rcon(&cmd).await?;
-    Ok(ret)
-}
-
-#[op]
-async fn on_event(
-    state: Rc<RefCell<OpState>>,
-    event: String,
-) -> Result<Option<String>, anyhow::Error> {
-    let instance = state.borrow().borrow::<MinecraftInstance>().clone();
-    let mut event_rx = instance.event_broadcaster.subscribe();
-    if event == "playerMessage" {
-        while let Ok(event) = event_rx.recv().await {
-            if let EventInner::InstanceEvent(inner) = event.event_inner {
-                if let crate::events::InstanceEventInner::PlayerMessage {
-                    player,
-                    player_message,
-                } = inner.instance_event_inner
-                {
-                    return Ok(Some(
-                        serde_json::json!(
-                         {
-                             "player": player,
-                             "message": player_message
-                         }
-                        )
-                        .to_string(),
-                    ));
-                }
-            }
-        }
-    } else if event == "playersJoined" {
-        while let Ok(event) = event_rx.recv().await {
-            if let EventInner::InstanceEvent(inner) = event.event_inner {
-                if let crate::events::InstanceEventInner::PlayerChange { players_joined, .. } =
-                    inner.instance_event_inner
-                {
-                    if !players_joined.is_empty() {
-                        return Ok(Some(
-                            serde_json::json!({ "players": players_joined }).to_string(),
-                        ));
-                    }
-                    continue;
-                }
-            }
-        }
-    } else if event == "playersLeft" {
-        while let Ok(event) = event_rx.recv().await {
-            if let EventInner::InstanceEvent(inner) = event.event_inner {
-                if let crate::events::InstanceEventInner::PlayerChange { players_left, .. } =
-                    inner.instance_event_inner
-                {
-                    if !players_left.is_empty() {
-                        return Ok(Some(
-                            serde_json::json!(
-                             {
-                                 "playersLeft": players_left,
-                             }
-                            )
-                            .to_string(),
-                        ));
-                    } else {
-                        continue;
-                    }
-                }
-            }
-        }
-    } else if event == "playersChanged" {
-        while let Ok(event) = event_rx.recv().await {
-            if let EventInner::InstanceEvent(inner) = event.event_inner {
-                if let crate::events::InstanceEventInner::PlayerChange { player_list, .. } =
-                    inner.instance_event_inner
-                {
-                    return Ok(Some(
-                        serde_json::json!(
-                         {
-                             "players": player_list,
-                         }
-                        )
-                        .to_string(),
-                    ));
-                }
-            }
-        }
-    }
-    todo!()
-}
 
 pub fn resolve_macro_invocation(path_to_macro: &Path, macro_name: &str) -> Option<PathBuf> {
     let ts_macro = path_to_macro.join(macro_name).with_extension("ts");
@@ -139,40 +33,6 @@ pub fn resolve_macro_invocation(path_to_macro: &Path, macro_name: &str) -> Optio
         }
     }
     None
-}
-
-pub struct MinecraftMainWorkerGenerator {
-    instance: MinecraftInstance,
-}
-
-impl MinecraftMainWorkerGenerator {
-    pub fn new(instance: MinecraftInstance) -> Self {
-        Self { instance }
-    }
-}
-
-impl WorkerOptionGenerator for MinecraftMainWorkerGenerator {
-    fn generate(&self) -> deno_runtime::worker::WorkerOptions {
-        let ext = deno_core::Extension::builder("minecraft_deno_extension_builder")
-            .ops(vec![
-                send_stdin::decl(),
-                send_rcon::decl(),
-                on_event::decl(),
-            ])
-            .state({
-                let instance = self.instance.clone();
-                move |state| {
-                    state.put(instance);
-                }
-            })
-            .force_op_registration()
-            .build();
-        deno_runtime::worker::WorkerOptions {
-            extensions: vec![ext],
-            module_loader: Rc::new(macro_executor::TypescriptModuleLoader::default()),
-            ..Default::default()
-        }
-    }
 }
 
 #[async_trait]
@@ -237,18 +97,18 @@ impl TMacro for MinecraftInstance {
         Ok(ret)
     }
 
-    async fn delete_macro(&mut self, name: &str) -> Result<(), Error> {
+    async fn delete_macro(&self, name: &str) -> Result<(), Error> {
         crate::util::fs::remove_file(self.path_to_macros.join(name)).await?;
         Ok(())
     }
 
-    async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), Error> {
+    async fn create_macro(&self, name: &str, content: &str) -> Result<(), Error> {
         crate::util::fs::write_all(self.path_to_macros.join(name), content.as_bytes().to_vec())
             .await
     }
 
     async fn run_macro(
-        &mut self,
+        &self,
         name: &str,
         args: Vec<String>,
         caused_by: CausedBy,
@@ -256,17 +116,15 @@ impl TMacro for MinecraftInstance {
         let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
 
-        let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
         let SpawnResult { macro_pid: pid, .. } = self
             .macro_executor
             .spawn(
                 path_to_macro,
                 args,
                 caused_by,
-                Box::new(main_worker_generator),
+                Box::new(DefaultWorkerOptionGenerator),
                 None,
                 Some(self.uuid.clone()),
-                None,
             )
             .await?;
         let entry = TaskEntry {
@@ -286,7 +144,7 @@ impl TMacro for MinecraftInstance {
         Ok(entry)
     }
 
-    async fn kill_macro(&mut self, pid: MacroPID) -> Result<(), Error> {
+    async fn kill_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_executor.abort_macro(pid)?;
         Ok(())
     }

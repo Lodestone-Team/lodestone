@@ -16,8 +16,8 @@ pub async fn is_name_in_use(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(name): Path<String>,
 ) -> Json<bool> {
-    for (_, instance) in state.instances.lock().await.iter() {
-        if instance.name().await == name {
+    for entry in state.instances.iter() {
+        if entry.value().name().await == name {
             return Json(true);
         }
     }

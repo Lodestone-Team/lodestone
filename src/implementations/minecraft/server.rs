@@ -15,7 +15,7 @@ use crate::implementations::minecraft::line_parser::{
 };
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
-use crate::macro_executor::SpawnResult;
+use crate::macro_executor::{DefaultWorkerOptionGenerator, SpawnResult};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
@@ -23,13 +23,13 @@ use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 use crate::types::Snowflake;
 use crate::util::{dont_spawn_terminal, list_dir};
 
-use super::r#macro::{resolve_macro_invocation, MinecraftMainWorkerGenerator};
+use super::r#macro::resolve_macro_invocation;
 use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
 use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
-    async fn start(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
         let config = self.config.lock().await.clone();
         self.state.lock().await.try_transition(
             StateAction::UserStart,
@@ -56,38 +56,22 @@ impl TServer for MinecraftInstance {
 
         let prelaunch = resolve_macro_invocation(&self.path_to_instance, "prelaunch");
         if let Some(prelaunch) = prelaunch {
-            // read prelaunch script
-            let content = std::fs::read_to_string(&prelaunch)
-                .map_err(|e| {
-                    error!("Failed to read prelaunch script: {}", e);
-                    e
-                })
-                .unwrap_or_default();
-
-            let is_long_running = content.contains("LODESTONE_LONG_RUNNING_MACRO");
-
-            let main_worker_generator = MinecraftMainWorkerGenerator::new(self.clone());
-            let res = self
+            let res: Result<SpawnResult, Error> = self
                 .macro_executor
                 .spawn(
                     prelaunch,
                     Vec::new(),
                     CausedBy::System,
-                    Box::new(main_worker_generator),
+                    Box::new(DefaultWorkerOptionGenerator),
                     None,
                     Some(self.uuid.clone()),
-                    if is_long_running {
-                        None
-                    } else {
-                        Some(Duration::from_secs(5))
-                    },
                 )
                 .await;
 
             if let Ok(SpawnResult {
                 macro_pid: pid,
                 exit_future,
-                ..
+                detach_future,
             }) = res
             {
                 self.pid_to_task_entry.lock().await.insert(
@@ -98,24 +82,13 @@ impl TServer for MinecraftInstance {
                         creation_time: chrono::Utc::now().timestamp(),
                     },
                 );
-                if !is_long_running {
-                    info!(
-                        "[{}] Waiting for prelaunch script to finish (5 seconds timeout)",
-                        config.name.clone()
-                    );
-                    if exit_future.await.is_err() {
-                        // kill the prelaunch script
-                        info!(
-                            "[{}] prelaunch script timed out, killing it",
-                            config.name.clone()
-                        );
-                        let _ = self.macro_executor.abort_macro(pid);
+                tokio::select! {
+                    _ = exit_future => {
+                        info!("Prelaunch script exited");
                     }
-                } else {
-                    info!(
-                        "[{}] Long running prelaunch script detected, skipping wait",
-                        config.name.clone()
-                    );
+                    _ = detach_future => {
+                        info!("Prelaunch script requested detach");
+                    }
                 }
             }
         } else {
@@ -261,11 +234,11 @@ impl TServer for MinecraftInstance {
                 })?;
                 *self.process.lock().await = Some(proc);
                 tokio::task::spawn({
-                    let event_broadcaster = self.event_broadcaster.clone();
-                    let uuid = self.uuid.clone();
-                    let name = config.name.clone();
-                    let players_manager = self.players_manager.clone();
                     let mut __self = self.clone();
+                    let event_broadcaster = __self.event_broadcaster.clone();
+                    let uuid = __self.uuid.clone();
+                    let name = config.name.clone();
+                    let players_manager = __self.players_manager.clone();
                     async move {
                         let mut did_start = false;
 
@@ -325,17 +298,17 @@ impl TServer for MinecraftInstance {
 
                                     if parse_server_started(&line) && !did_start {
                                         did_start = true;
-                                        self.state
+                                        __self.state
                                             .lock()
                                             .await
                                             .try_transition(
                                                 StateAction::InstanceStart,
                                                 Some(&|state| {
-                                                    self.event_broadcaster.send(Event {
+                                                    event_broadcaster.send(Event {
                                                 event_inner: EventInner::InstanceEvent(
                                                     InstanceEvent {
                                                         instance_name: config.name.clone(),
-                                                        instance_uuid: self.uuid.clone(),
+                                                        instance_uuid: __self.uuid.clone(),
                                                         instance_event_inner:
                                                             InstanceEventInner::StateTransition {
                                                                 to: state,
@@ -349,9 +322,10 @@ impl TServer for MinecraftInstance {
                                                 }),
                                             )
                                             .unwrap();
+                                        info!("[{}] Instance started", name);
 
                                         if let (Some(true), Some(rcon_psw), Some(rcon_port)) = {
-                                            let lock = self.configurable_manifest.lock().await;
+                                            let lock = __self.configurable_manifest.lock().await;
 
                                             let a = lock
                                                 .get_unique_setting_key("enable-rcon")
@@ -390,14 +364,15 @@ impl TServer for MinecraftInstance {
                                                 .await
                                                 .map_err(|e| {
                                                     warn!(
-                                                    "Failed to connect to RCON: {}, retry {}/{}",
+                                                    "[{}] Failed to connect to RCON: {}, retry {}/{}",
+                                                    config.name,
                                                     e, i, max_retry
                                                 );
                                                     e
                                                 });
                                                 if let Ok(rcon) = rcon {
-                                                    info!("Connected to RCON");
-                                                    self.rcon_conn.lock().await.replace(rcon);
+                                                    info!("[{}] Connected to RCON", config.name);
+                                                    __self.rcon_conn.lock().await.replace(rcon);
                                                     break;
                                                 }
                                                 tokio::time::sleep(Duration::from_secs(
@@ -407,7 +382,7 @@ impl TServer for MinecraftInstance {
                                             }
                                         } else {
                                             warn!("RCON is not enabled or misconfigured, skipping");
-                                            self.rcon_conn.lock().await.take();
+                                            __self.rcon_conn.lock().await.take();
                                         }
                                     }
                                     if let Some(system_msg) = parse_system_msg(&line) {
@@ -431,7 +406,7 @@ impl TServer for MinecraftInstance {
                                                     name: player_name.clone(),
                                                     uuid: name_to_uuid(&player_name).await,
                                                 },
-                                                self.name().await,
+                                                __self.name().await,
                                             );
                                         } else if let Some(player_name) =
                                             parse_player_left(&system_msg)
@@ -439,7 +414,7 @@ impl TServer for MinecraftInstance {
                                             players_manager
                                                 .lock()
                                                 .await
-                                                .remove_by_name(&player_name, self.name().await);
+                                                .remove_by_name(&player_name, __self.name().await);
                                         }
                                     } else if let Some(PlayerMessage { player, message }) =
                                         parse_player_msg(&line)
@@ -465,16 +440,16 @@ impl TServer for MinecraftInstance {
                             }
                         }
                         info!("Instance {} process shutdown", name);
-                        self.state
+                        __self.state
                             .lock()
                             .await
                             .try_transition(
                                 StateAction::InstanceStop,
                                 Some(&|state| {
-                                    self.event_broadcaster.send(Event {
+                                    event_broadcaster.send(Event {
                                         event_inner: EventInner::InstanceEvent(InstanceEvent {
                                             instance_name: config.name.clone(),
-                                            instance_uuid: self.uuid.clone(),
+                                            instance_uuid: __self.uuid.clone(),
                                             instance_event_inner:
                                                 InstanceEventInner::StateTransition { to: state },
                                         }),
@@ -486,7 +461,8 @@ impl TServer for MinecraftInstance {
                                 }),
                             )
                             .unwrap();
-                        self.players_manager.lock().await.clear(name);
+                        __self.players_manager.lock().await.clear(name);
+                        __self.rcon_conn.lock().await.take();
                     }
                 });
                 self.config.lock().await.has_started = true;
@@ -547,7 +523,7 @@ impl TServer for MinecraftInstance {
             }
         }
     }
-    async fn stop(&mut self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn stop(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
         let config = self.config.lock().await.clone();
 
         self.state.lock().await.try_transition(
@@ -605,7 +581,7 @@ impl TServer for MinecraftInstance {
         }
     }
 
-    async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn restart(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         if block {
             self.stop(caused_by.clone(), block).await?;
             self.start(caused_by, block).await
@@ -617,38 +593,44 @@ impl TServer for MinecraftInstance {
 
             let mut __self = self.clone();
             tokio::task::spawn(async move {
-                self.stop(caused_by.clone(), true).await.unwrap();
-                self.start(caused_by, block).await.unwrap()
+                __self.stop(caused_by.clone(), true).await.unwrap();
+                __self.start(caused_by, block).await.unwrap()
             });
             Ok(())
         }
     }
 
-    async fn kill(&mut self, _cause_by: CausedBy) -> Result<(), Error> {
+    async fn kill(&self, _cause_by: CausedBy) -> Result<(), Error> {
         let config = self.config.lock().await.clone();
 
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", config.name.clone());
             return Err(eyre!("Instance is already stopped").into());
         }
-        self.process
-            .lock()
-            .await
-            .as_mut()
-            .ok_or_else(|| {
-                error!(
-                    "[{}] Failed to kill instance: process not available",
-                    config.name.clone()
-                );
-                eyre!("Failed to kill instance: process not available")
-            })?
-            .kill()
-            .await
-            .context("Failed to kill process")
-            .map_err(|e| {
-                error!("[{}] Failed to kill instance: {}", config.name.clone(), e);
-                e
-            })?;
+        if let Some(process) = self.process.lock().await.as_mut() {
+            process
+                .kill()
+                .await
+                .context("Failed to kill process")
+                .map_err(|e| {
+                    error!("[{}] Failed to kill instance: {}", config.name.clone(), e);
+                    e
+                })?;
+        }
+        {
+            error!(
+                "[{}] Process not available, assuming instance is stopped",
+                config.name.clone()
+            );
+            *self.state.lock().await = State::Stopped;
+            self.event_broadcaster
+                .send(Event::new_instance_state_transition(
+                    self.uuid.clone(),
+                    config.name.clone(),
+                    State::Stopped,
+                ));
+            Err(eyre!("Process not available, assuming instance is stopped"))?;
+        }
         Ok(())
     }
 

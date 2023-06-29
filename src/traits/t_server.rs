@@ -120,10 +120,10 @@ use crate::traits::GameInstance;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TServer {
-    async fn start(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
-    async fn stop(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
-    async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
-    async fn kill(&mut self, caused_by: CausedBy) -> Result<(), Error>;
+    async fn start(&self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
+    async fn stop(&self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
+    async fn restart(&self, caused_by: CausedBy, block: bool) -> Result<(), Error>;
+    async fn kill(&self, caused_by: CausedBy) -> Result<(), Error>;
     async fn state(&self) -> State;
     async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error>;
     async fn monitor(&self) -> MonitorReport;

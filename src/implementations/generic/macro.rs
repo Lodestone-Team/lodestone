@@ -36,7 +36,6 @@ impl WorkerOptionGenerator for GenericMainWorkerGenerator {
                     state.put(brige);
                 }
             })
-            .force_op_registration()
             .build();
         deno_runtime::worker::WorkerOptions {
             extensions: vec![ext],
@@ -57,14 +56,14 @@ impl TMacro for GenericInstance {
     async fn get_history_list(&self) -> Result<Vec<HistoryEntry>, Error> {
         unimplemented!()
     }
-    async fn delete_macro(&mut self, _name: &str) -> Result<(), Error> {
+    async fn delete_macro(&self, _name: &str) -> Result<(), Error> {
         unimplemented!()
     }
-    async fn create_macro(&mut self, _name: &str, _content: &str) -> Result<(), Error> {
+    async fn create_macro(&self, _name: &str, _content: &str) -> Result<(), Error> {
         unimplemented!()
     }
     async fn run_macro(
-        &mut self,
+        &self,
         _name: &str,
         _args: Vec<String>,
         _caused_by: CausedBy,

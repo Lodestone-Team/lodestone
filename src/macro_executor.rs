@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
+    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -14,12 +15,15 @@ use deno_runtime::permissions::Permissions;
 use futures_util::Future;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{runtime::Builder, sync::mpsc, task::LocalSet};
+use tokio::{sync::mpsc, task::LocalSet};
 use tracing::{debug, error, log::warn};
 use ts_rs::TS;
 
 use crate::{
-    deno_ops::events::register_all_event_ops,
+    deno_ops::{
+        events::register_all_event_ops, instance_control::register_instance_control_ops,
+        prelude::register_prelude_ops,
+    },
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, EventInner, MacroEvent, MacroEventInner},
@@ -49,6 +53,18 @@ use futures::FutureExt;
 pub trait WorkerOptionGenerator: Send + Sync {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions;
 }
+
+pub struct DefaultWorkerOptionGenerator;
+
+impl WorkerOptionGenerator for DefaultWorkerOptionGenerator {
+    fn generate(&self) -> deno_runtime::worker::WorkerOptions {
+        deno_runtime::worker::WorkerOptions {
+            module_loader: Rc::new(TypescriptModuleLoader::default()),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
 }
@@ -201,16 +217,17 @@ pub struct MacroExecutor {
         Arc<DashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
+    rt: tokio::runtime::Handle,
 }
 
 pub struct SpawnResult {
     pub macro_pid: MacroPID,
-    pub main_module_future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    pub detach_future: Pin<Box<dyn Future<Output = ()> + Send>>,
     pub exit_future: Pin<Box<dyn Future<Output = Result<ExitStatus, Error>> + Send>>,
 }
 
 impl MacroExecutor {
-    pub fn new(event_broadcaster: EventBroadcaster) -> MacroExecutor {
+    pub fn new(event_broadcaster: EventBroadcaster, rt: tokio::runtime::Handle) -> MacroExecutor {
         let process_table = Arc::new(DashMap::new());
         let process_id = Arc::new(AtomicUsize::new(0));
         let exit_status_table = Arc::new(DashMap::new());
@@ -241,6 +258,7 @@ impl MacroExecutor {
             channel_table: Arc::new(DashMap::new()),
             exit_status_table,
             next_process_id: process_id,
+            rt,
         }
     }
 
@@ -262,17 +280,16 @@ impl MacroExecutor {
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
-        timeout: Option<Duration>,
     ) -> Result<SpawnResult, Error> {
         let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
         let exit_future = Box::pin({
             let __self = self.clone();
-            async move { __self.wait_with_timeout(pid, timeout).await }
+            async move { __self.wait_with_timeout(pid).await }
         });
-        let main_module_future = Box::pin({
+        let detach_future = Box::pin({
             let __self = self.clone();
             async move {
-                __self.wait_for_main_module_executed(pid).await;
+                __self.wait_for_detach(pid).await;
             }
         });
         let main_module = deno_core::resolve_path(
@@ -280,146 +297,181 @@ impl MacroExecutor {
             &std::env::current_dir().context("Failed to get current directory")?,
         )
         .context("Failed to resolve path")?;
-        let rt = Builder::new_current_thread().enable_all().build().unwrap();
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
             let event_broadcaster = self.event_broadcaster.clone();
+            let rt = self.rt.clone();
             move || {
+                let _guard = rt.enter();
                 let local = LocalSet::new();
-                local.spawn_local(async move {
-                    let mut worker_option = worker_options_generator.generate();
-                    register_all_event_ops(&mut worker_option, event_broadcaster.clone());
-                    worker_option.bootstrap.args = args;
+                local.spawn_local({
+                    let event_broadcaster = event_broadcaster.clone();
+                    let instance_uuid = instance_uuid.clone();
+                    async move {
+                        let mut worker_option = worker_options_generator.generate();
+                        worker_option.get_error_class_fn = Some(&deno_errors::get_error_class_name);
+                        register_prelude_ops(&mut worker_option);
+                        register_all_event_ops(&mut worker_option, event_broadcaster.clone());
+                        register_instance_control_ops(&mut worker_option);
 
-                    let mut main_worker = deno_runtime::worker::MainWorker::from_options(
-                        main_module,
-                        deno_runtime::permissions::PermissionsContainer::new(
-                            permissions.unwrap_or_else(Permissions::allow_all),
-                        ),
-                        worker_option,
-                    );
+                        let mut main_worker = deno_runtime::worker::MainWorker::from_options(
+                            main_module,
+                            deno_runtime::permissions::PermissionsContainer::new(
+                                permissions.unwrap_or_else(Permissions::allow_all),
+                            ),
+                            worker_option,
+                        );
+                        main_worker.bootstrap(&deno_runtime::BootstrapOptions {
+                            args,
+                            ..Default::default()
+                        });
+                        main_worker
+                            .execute_script(
+                                "deps_inject",
+                                deno_core::FastString::Owned(
+                                    format!(
+                                        "const __macro_pid = {}; const __instance_uuid = \"{}\";",
+                                        pid.0,
+                                        instance_uuid
+                                            .clone()
+                                            .map(|uuid| uuid.to_string())
+                                            .unwrap_or_else(|| "null".to_string())
+                                    )
+                                    .into_boxed_str(),
+                                ),
+                            )
+                            .unwrap();
 
-                    let isolate_handle = main_worker.js_runtime.v8_isolate().thread_safe_handle();
+                        let isolate_handle =
+                            main_worker.js_runtime.v8_isolate().thread_safe_handle();
 
-                    process_table.insert(pid, isolate_handle);
+                        process_table.insert(pid, isolate_handle);
 
-                    let main_module = match deno_core::resolve_path(
-                        &path_to_main_module.to_string_lossy(),
-                        &std::env::current_dir().unwrap(),
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            error!("Error resolving main module: {}", e);
+                        let main_module = match deno_core::resolve_path(
+                            &path_to_main_module.to_string_lossy(),
+                            &std::env::current_dir().unwrap(),
+                        ) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                error!("Error resolving main module: {}", e);
+                                return;
+                            }
+                        };
+
+                        event_broadcaster.send(
+                            MacroEvent {
+                                macro_pid: pid,
+                                macro_event_inner: MacroEventInner::Started,
+                                instance_uuid: instance_uuid.clone(),
+                            }
+                            .into(),
+                        );
+
+                        if let Err(e) = main_worker.execute_main_module(&main_module).await {
+                            if e.to_string() == "Uncaught Error: execution terminated" {
+                                warn!("User terminated macro execution");
+                                event_broadcaster.send(
+                                    MacroEvent {
+                                        macro_pid: pid,
+                                        macro_event_inner: MacroEventInner::Stopped {
+                                            exit_status: ExitStatus::Killed {
+                                                time: chrono::Utc::now().timestamp(),
+                                            },
+                                        },
+                                        instance_uuid,
+                                    }
+                                    .into(),
+                                );
+                            } else {
+                                error!("Error executing main module {main_module}: {}", e);
+                                event_broadcaster.send(
+                                    MacroEvent {
+                                        macro_pid: pid,
+                                        macro_event_inner: MacroEventInner::Stopped {
+                                            exit_status: ExitStatus::Error {
+                                                error_msg: e.to_string(),
+                                                time: chrono::Utc::now().timestamp(),
+                                            },
+                                        },
+                                        instance_uuid,
+                                    }
+                                    .into(),
+                                );
+                            }
                             return;
                         }
-                    };
 
-                    event_broadcaster.send(
-                        MacroEvent {
-                            macro_pid: pid,
-                            macro_event_inner: MacroEventInner::Started,
-                            instance_uuid: instance_uuid.clone(),
-                        }
-                        .into(),
-                    );
-
-                    if let Err(e) = main_worker.execute_main_module(&main_module).await {
-                        if e.to_string() == "Uncaught Error: execution terminated" {
-                            warn!("User terminated macro execution");
-                            event_broadcaster.send(
-                                MacroEvent {
-                                    macro_pid: pid,
-                                    macro_event_inner: MacroEventInner::Stopped {
-                                        exit_status: ExitStatus::Killed {
-                                            time: chrono::Utc::now().timestamp(),
+                        if let Err(e) = main_worker.run_event_loop(false).await {
+                            if e.to_string() == "Uncaught Error: execution terminated" {
+                                warn!("User terminated macro execution");
+                                event_broadcaster.send(
+                                    MacroEvent {
+                                        macro_pid: pid,
+                                        macro_event_inner: MacroEventInner::Stopped {
+                                            exit_status: ExitStatus::Killed {
+                                                time: chrono::Utc::now().timestamp(),
+                                            },
                                         },
-                                    },
-                                    instance_uuid,
-                                }
-                                .into(),
-                            );
-                        } else {
-                            error!("Error executing main module {main_module}: {}", e);
-                            event_broadcaster.send(
-                                MacroEvent {
-                                    macro_pid: pid,
-                                    macro_event_inner: MacroEventInner::Stopped {
-                                        exit_status: ExitStatus::Error {
-                                            error_msg: e.to_string(),
-                                            time: chrono::Utc::now().timestamp(),
+                                        instance_uuid: instance_uuid.clone(),
+                                    }
+                                    .into(),
+                                );
+                            } else {
+                                error!("Error running event loops: {}", e);
+                                event_broadcaster.send(
+                                    MacroEvent {
+                                        macro_pid: pid,
+                                        macro_event_inner: MacroEventInner::Stopped {
+                                            exit_status: ExitStatus::Error {
+                                                error_msg: e.to_string(),
+                                                time: chrono::Utc::now().timestamp(),
+                                            },
                                         },
-                                    },
-                                    instance_uuid,
-                                }
-                                .into(),
-                            );
+                                        instance_uuid: instance_uuid.clone(),
+                                    }
+                                    .into(),
+                                );
+                            }
                         }
-                        return;
-                    }
 
-                    event_broadcaster.send(
-                        MacroEvent {
-                            macro_pid: pid,
-                            macro_event_inner: MacroEventInner::MainModuleExecuted,
-                            instance_uuid: instance_uuid.clone(),
-                        }
-                        .into(),
-                    );
+                        debug!("Macro event loop exited");
 
-                    if let Err(e) = main_worker.run_event_loop(false).await {
-                        if e.to_string() == "Uncaught Error: execution terminated" {
-                            warn!("User terminated macro execution");
-                            event_broadcaster.send(
-                                MacroEvent {
-                                    macro_pid: pid,
-                                    macro_event_inner: MacroEventInner::Stopped {
-                                        exit_status: ExitStatus::Killed {
-                                            time: chrono::Utc::now().timestamp(),
-                                        },
+                        event_broadcaster.send(
+                            MacroEvent {
+                                macro_pid: pid,
+                                macro_event_inner: MacroEventInner::Stopped {
+                                    exit_status: ExitStatus::Success {
+                                        time: chrono::Utc::now().timestamp(),
                                     },
-                                    instance_uuid: instance_uuid.clone(),
-                                }
-                                .into(),
-                            );
-                        } else {
-                            error!("Error running event loops: {}", e);
-                            event_broadcaster.send(
-                                MacroEvent {
-                                    macro_pid: pid,
-                                    macro_event_inner: MacroEventInner::Stopped {
-                                        exit_status: ExitStatus::Error {
-                                            error_msg: e.to_string(),
-                                            time: chrono::Utc::now().timestamp(),
-                                        },
-                                    },
-                                    instance_uuid: instance_uuid.clone(),
-                                }
-                                .into(),
-                            );
-                        }
-                    }
-
-                    event_broadcaster.send(
-                        MacroEvent {
-                            macro_pid: pid,
-                            macro_event_inner: MacroEventInner::Stopped {
-                                exit_status: ExitStatus::Success {
-                                    time: chrono::Utc::now().timestamp(),
                                 },
-                            },
-                            instance_uuid,
-                        }
-                        .into(),
-                    );
+                                instance_uuid,
+                            }
+                            .into(),
+                        );
 
-                    // If the while loop returns, then all the LocalSpawner
-                    // objects have been dropped.
+                        // If the while loop returns, then all the LocalSpawner
+                        // objects have been dropped.
+                    }
                 });
 
                 // This will return once all senders are dropped and all
                 // spawned tasks have returned.
                 rt.block_on(local);
                 debug!("MacroExecutor thread exited");
+                event_broadcaster.send(
+                    MacroEvent {
+                        macro_pid: pid,
+                        macro_event_inner: MacroEventInner::Stopped {
+                            exit_status: ExitStatus::Error {
+                                time: chrono::Utc::now().timestamp(),
+                                error_msg: "Macro executor thread unexpectedly panicked"
+                                    .to_string(),
+                            },
+                        },
+                        instance_uuid: instance_uuid.clone(),
+                    }
+                    .into(),
+                );
             }
         });
 
@@ -453,7 +505,7 @@ impl MacroExecutor {
             .context("Failed to spawn macro")??;
         Ok(SpawnResult {
             macro_pid: pid,
-            main_module_future,
+            detach_future,
             exit_future,
         })
     }
@@ -470,7 +522,27 @@ impl MacroExecutor {
         Ok(())
     }
 
-    async fn wait_for_main_module_executed(&self, taget_macro_pid: MacroPID) {
+    pub async fn wait_for_detach(&self, target_macro_pid: MacroPID) {
+        let mut rx = self.event_broadcaster.subscribe();
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventInner::MacroEvent(MacroEvent {
+                macro_pid,
+                macro_event_inner,
+                ..
+            }) = event.event_inner
+            {
+                if target_macro_pid == macro_pid {
+                    if let MacroEventInner::Detach = macro_event_inner {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// wait for a macro to finish
+    async fn wait_with_timeout(&self, taget_macro_pid: MacroPID) -> Result<ExitStatus, Error> {
         let mut rx = self.event_broadcaster.subscribe();
         loop {
             let event = rx.recv().await.unwrap();
@@ -481,44 +553,11 @@ impl MacroExecutor {
             }) = event.event_inner
             {
                 if taget_macro_pid == macro_pid {
-                    if let MacroEventInner::MainModuleExecuted = macro_event_inner {
-                        return;
+                    if let MacroEventInner::Stopped { exit_status } = macro_event_inner {
+                        break Ok(exit_status);
                     }
                 }
             }
-        }
-    }
-
-    /// wait for a macro to finish
-    async fn wait_with_timeout(
-        &self,
-        taget_macro_pid: MacroPID,
-        timeout: Option<Duration>,
-    ) -> Result<ExitStatus, Error> {
-        let mut rx = self.event_broadcaster.subscribe();
-        let fut = async {
-            loop {
-                let event = rx.recv().await.unwrap();
-                if let EventInner::MacroEvent(MacroEvent {
-                    macro_pid,
-                    macro_event_inner,
-                    ..
-                }) = event.event_inner
-                {
-                    if taget_macro_pid == macro_pid {
-                        if let MacroEventInner::Stopped { exit_status } = macro_event_inner {
-                            break Ok(exit_status);
-                        }
-                    }
-                }
-            }
-        };
-        if let Some(timeout) = timeout {
-            tokio::time::timeout(timeout, fut)
-                .await
-                .context("Macro execution timed out")?
-        } else {
-            fut.await
         }
     }
 
@@ -556,7 +595,6 @@ mod tests {
         fn generate(&self) -> deno_runtime::worker::WorkerOptions {
             let ext = deno_core::Extension::builder("generic_deno_extension_builder")
                 .ops(vec![hello_world::decl(), async_hello_world::decl()])
-                .force_op_registration()
                 .build();
             deno_runtime::worker::WorkerOptions {
                 module_loader: Rc::new(TypescriptModuleLoader::default()),
@@ -568,10 +606,11 @@ mod tests {
     #[tokio::test]
     async fn basic_execution() {
         // init tracing
-        tracing_subscriber::fmt::init();
-        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        tracing_subscriber::fmt::try_init();
+        let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
-        let executor = super::MacroExecutor::new(event_broadcaster);
+        let executor =
+            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
 
         // create a temp directory
         let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
@@ -583,7 +622,7 @@ mod tests {
         std::fs::write(
             &path_to_macro,
             r#"
-            const { core } = Deno;
+            const core = Deno[Deno.internal].core;
             const { ops } = core;
             console.log(ops.hello_world())
             console.log(await core.opAsync("async_hello_world"))
@@ -601,7 +640,6 @@ mod tests {
                 Box::new(basic_worker_generator),
                 None,
                 None,
-                None,
             )
             .await
             .unwrap();
@@ -610,9 +648,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_url() {
-        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        tracing_subscriber::fmt::try_init();
+
+
+        let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
-        let executor = super::MacroExecutor::new(event_broadcaster);
+        let executor =
+            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
 
         // create a temp directory
         let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
@@ -640,10 +682,76 @@ mod tests {
                 Box::new(basic_worker_generator),
                 None,
                 None,
-                None,
             )
             .await
             .unwrap();
         exit_future.await.unwrap();
+    }
+}
+
+mod deno_errors {
+    // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+
+    //! There are many types of errors in Deno:
+    //! - AnyError: a generic wrapper that can encapsulate any type of error.
+    //! - JsError: a container for the error message and stack trace for exceptions
+    //!   thrown in JavaScript code. We use this to pretty-print stack traces.
+    //! - Diagnostic: these are errors that originate in TypeScript's compiler.
+    //!   They're similar to JsError, in that they have line numbers. But
+    //!   Diagnostics are compile-time type errors, whereas JsErrors are runtime
+    //!   exceptions.
+
+    use deno_ast::Diagnostic;
+    use deno_core::error::AnyError;
+    use deno_graph::ModuleError;
+    use deno_graph::ModuleGraphError;
+    use deno_graph::ResolutionError;
+    use import_map::ImportMapError;
+
+    fn get_import_map_error_class(_: &ImportMapError) -> &'static str {
+        "URIError"
+    }
+
+    fn get_diagnostic_class(_: &Diagnostic) -> &'static str {
+        "SyntaxError"
+    }
+
+    fn get_module_graph_error_class(err: &ModuleGraphError) -> &'static str {
+        match err {
+            ModuleGraphError::ModuleError(err) => match err {
+                ModuleError::LoadingErr(_, _, err) => get_error_class_name(err.as_ref()),
+                ModuleError::InvalidTypeAssertion { .. } => "SyntaxError",
+                ModuleError::ParseErr(_, diagnostic) => get_diagnostic_class(diagnostic),
+                ModuleError::UnsupportedMediaType { .. }
+                | ModuleError::UnsupportedImportAssertionType { .. } => "TypeError",
+                ModuleError::Missing(_, _) | ModuleError::MissingDynamic(_, _) => "NotFound",
+            },
+            ModuleGraphError::ResolutionError(err) => get_resolution_error_class(err),
+        }
+    }
+
+    fn get_resolution_error_class(err: &ResolutionError) -> &'static str {
+        match err {
+            ResolutionError::ResolverError { error, .. } => get_error_class_name(error.as_ref()),
+            _ => "TypeError",
+        }
+    }
+
+    pub fn get_error_class_name(e: &AnyError) -> &'static str {
+        deno_runtime::errors::get_error_class_name(e)
+            .or_else(|| {
+                e.downcast_ref::<ImportMapError>()
+                    .map(get_import_map_error_class)
+            })
+            .or_else(|| e.downcast_ref::<Diagnostic>().map(get_diagnostic_class))
+            .or_else(|| {
+                e.downcast_ref::<ModuleGraphError>()
+                    .map(get_module_graph_error_class)
+            })
+            .or_else(|| {
+                e.downcast_ref::<ResolutionError>()
+                    .map(get_resolution_error_class)
+            })
+            .unwrap_or_else(|| "Error")
     }
 }

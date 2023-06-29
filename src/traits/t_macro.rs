@@ -68,10 +68,10 @@ pub trait TMacro {
     async fn get_macro_list(&self) -> Result<Vec<MacroEntry>, Error>;
     async fn get_task_list(&self) -> Result<Vec<TaskEntry>, Error>;
     async fn get_history_list(&self) -> Result<Vec<HistoryEntry>, Error>;
-    async fn delete_macro(&mut self, name: &str) -> Result<(), Error>;
-    async fn create_macro(&mut self, name: &str, content: &str) -> Result<(), Error>;
+    async fn delete_macro(&self, name: &str) -> Result<(), Error>;
+    async fn create_macro(&self, name: &str, content: &str) -> Result<(), Error>;
     async fn run_macro(
-        &mut self,
+        &self,
         _name: &str,
         _args: Vec<String>,
         _caused_by: CausedBy,
@@ -81,7 +81,7 @@ pub trait TMacro {
             source: eyre!("This instance does not support running macro"),
         })
     }
-    async fn kill_macro(&mut self, _pid: MacroPID) -> Result<(), Error> {
+    async fn kill_macro(&self, _pid: MacroPID) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support killing macro"),

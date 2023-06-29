@@ -94,13 +94,13 @@ impl TConfigurable for GenericInstance {
             .unwrap_or(false)
     }
     // setters
-    async fn set_name(&mut self, name: String) -> Result<(), Error> {
+    async fn set_name(&self, name: String) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetName { new_name: name })
             .await?;
         Ok(())
     }
-    async fn set_description(&mut self, description: String) -> Result<(), Error> {
+    async fn set_description(&self, description: String) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetDescription {
                 new_description: description,
@@ -108,13 +108,13 @@ impl TConfigurable for GenericInstance {
             .await?;
         Ok(())
     }
-    async fn set_port(&mut self, port: u32) -> Result<(), Error> {
+    async fn set_port(&self, port: u32) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetPort { new_port: port })
             .await?;
         Ok(())
     }
-    async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), Error> {
+    async fn set_auto_start(&self, auto_start: bool) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetAutoStart {
                 new_auto_start: auto_start,
@@ -122,7 +122,7 @@ impl TConfigurable for GenericInstance {
             .await?;
         Ok(())
     }
-    async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), Error> {
+    async fn set_restart_on_crash(&self, restart_on_crash: bool) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::SetRestartOnCrash {
                 new_restart_on_crash: restart_on_crash,
@@ -130,21 +130,21 @@ impl TConfigurable for GenericInstance {
             .await?;
         Ok(())
     }
-    async fn set_backup_period(&mut self, _backup_period: Option<u32>) -> Result<(), Error> {
+    async fn set_backup_period(&self, _backup_period: Option<u32>) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support setting backup period"),
         })
     }
 
-    async fn change_version(&mut self, _version: String) -> Result<(), Error> {
+    async fn change_version(&self, _version: String) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support changing version"),
         })
     }
 
-    async fn configurable_manifest(&mut self) -> ConfigurableManifest {
+    async fn configurable_manifest(&self) -> ConfigurableManifest {
         self.procedure_bridge
             .call(ProcedureCallInner::GetConfigurableManifest)
             .await
@@ -158,7 +158,7 @@ impl TConfigurable for GenericInstance {
     }
 
     async fn update_configurable(
-        &mut self,
+        &self,
         section_id: &str,
         setting_id: &str,
         value: ConfigurableValue,
