@@ -30,7 +30,8 @@ const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
-  const [ showPopup, setShowPopup ] = useState(false); 
+  const [ ShowBlurb, setShowBlurb ] = useState(false); 
+  const [ showPopup, setShowPopup ] = useState(false);
 
   const initialValues: CoreConnectionInfo = {
     address: '',
@@ -72,16 +73,14 @@ const CoreConnect = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // http site hosted on kevins arm server 
         const response = await fetch('http://132.145.101.179:42069/');
         if (!response.ok) {
-          setShowPopup(true);
-        }
-        else {
+          setShowBlurb(true);
         }
       }
       catch (error) {
-        setShowPopup(true);
-        console.log("fail");
+        setShowBlurb(true);
       }
     };
 
@@ -91,45 +90,44 @@ const CoreConnect = () => {
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
       {showPopup && (
-        <div>
-          <ConfirmDialog
-            isOpen={showPopup}
-            onClose={() => setShowPopup(false)}
-            title="HTTP Error"
-            type="info"
-          >
-            Missing user permissions. Enable mixed content settings to load HTTP content over HTTPS. {' '}
-            <a
-              href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-200 underline hover:text-blue-300"
-            >
-            Learn more.
-            </a>          
-          </ConfirmDialog>          
-        </div>
-      )}
-      <div className="flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-8" />
-        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Add a new core
-        </h1>
-        <WarningAlert>
-        <p>
-          You may need to adjust your network and browser settings.{' '}
+        <ConfirmDialog
+          isOpen={ShowBlurb}
+          onClose={() => setShowPopup(false)}
+          title="HTTP Error"
+          type="danger"
+        >
+          Missing user permissions. Enable mixed content settings to load HTTP content over HTTPS, then refresh the page. {' '}
           <a
             href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
             target="_blank"
             rel="noreferrer"
             className="text-blue-200 underline hover:text-blue-300"
           >
-           Learn more.
-          </a>
-        </p>
-      </WarningAlert>
-      </div>
-      
+          Learn more.
+          </a>          
+        </ConfirmDialog>          
+      )}
+      <div className="flex flex-col items-start">
+        <img src="/logo.svg" alt="logo" className="h-8" />
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
+          Add a new core
+        </h1>
+        {ShowBlurb && (
+          <WarningAlert>
+            <p>
+              You may need to adjust your network and browser settings. {' '}
+              <a
+                href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-200 underline hover:text-blue-300"
+              >
+              Learn more.
+              </a>
+            </p>
+          </WarningAlert>
+        )}
+      </div>      
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}
@@ -197,6 +195,7 @@ const CoreConnect = () => {
                   label="Add and Continue"
                   iconRight={faArrowRight}
                   loading={isSubmitting} //TODO: fix button size changing when loading
+                  onClick={() => setShowPopup(true)}
                 />
               </div>
             </div>
