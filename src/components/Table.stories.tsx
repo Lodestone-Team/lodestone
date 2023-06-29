@@ -5,7 +5,7 @@ import {Table, TableColumn, TableRow} from "./Table";
 import {cn} from "../utils/util";
 
 const mockTableColumns: TableColumn[] = [
-    {field: "name", headerName: "TASK NAME", className: "font-mono text-white"},
+    {field: "name", headerName: "MACRO NAME", className: "font-mono text-white"},
     {field: "start", headerName: "CREATED"},
     {field: "finish", headerName: "FINISHED"},
     {field: "pId", headerName: "PROCESS ID"},

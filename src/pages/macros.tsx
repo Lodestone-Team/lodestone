@@ -112,7 +112,7 @@ const Macros = () => {
       'All Macros': {
         rows: macros,
         columns: [
-          { field: 'name', headerName: 'TASK NAME' },
+          { field: 'name', headerName: 'MACRO NAME' },
           { field: 'last_run', headerName: 'LAST RUN' },
         ],
         menuOptions: {
@@ -157,7 +157,7 @@ const Macros = () => {
         columns: [
           {
             field: 'name',
-            headerName: 'TASK NAME',
+            headerName: 'MACRO NAME',
           },
           {
             field: 'creation_time',
@@ -208,7 +208,7 @@ const Macros = () => {
         columns: [
           {
             field: 'name',
-            headerName: 'TASK NAME',
+            headerName: 'MACRO NAME',
           },
           {
             field: 'creation_time',
