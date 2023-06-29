@@ -352,16 +352,6 @@ pub async fn run(
     tracing_appender::non_blocking::WorkerGuard,
     tokio::sync::oneshot::Sender<()>,
 ) {
-    let lockfile_path = "./lodestone.lock";
-    let file = if Path::new(lockfile_path).exists() {
-        std::fs::File::open(lockfile_path).expect("failed to open lockfile")
-    } else {
-        std::fs::File::create(lockfile_path).expect("failed to create lockfile")
-    };
-    if file.try_lock_exclusive().is_err() {
-        panic!("Another instance of lodestone might be running");
-    }
-
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -393,6 +383,16 @@ pub async fn run(
     }
     check_for_core_update().await;
     output_sys_info();
+
+    let lockfile_path = lodestone_path.join("lodestone.lock");
+    let file = if lockfile_path.as_path().exists() {
+        std::fs::File::open(lockfile_path.as_path()).expect("failed to open lockfile")
+    } else {
+        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile")
+    };
+    if file.try_lock_exclusive().is_err() {
+        panic!("Another instance of lodestone might be running");
+    }
 
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
