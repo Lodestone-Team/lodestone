@@ -339,7 +339,7 @@ pub async fn run(
     } else {
         std::fs::File::create(lockfile_path).expect("failed to create lockfile")
     };
-    if let Err(_) = file.try_lock_exclusive() {
+    if file.try_lock_exclusive().is_err() {
         panic!("Another instance of lodestone might be running");
     }
 
@@ -606,7 +606,7 @@ pub async fn run(
                     }
                 });
                 // capture file into the move block
-                let file = file;
+                let _file = file;
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
