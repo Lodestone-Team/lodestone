@@ -9,6 +9,19 @@ import { SetupValue } from "../../../../../../deno_bindings/SetupValue.ts";
 import { PerformanceReport } from "../../../../../../deno_bindings/PerformanceReport.ts";
 import { SetupManifest } from "../../../../../../deno_bindings/SetupManifest.ts";
 
+// re-export
+export type { CausedBy } from "../../../../../../deno_bindings/CausedBy.ts";
+export type { ConfigurableManifest } from "../../../../../../deno_bindings/ConfigurableManifest.ts";
+export type { ConfigurableValue } from "../../../../../../deno_bindings/ConfigurableValue.ts";
+export type { DotLodestoneConfig } from "../../../../../../deno_bindings/DotLodestoneConfig.ts";
+export type { Game } from "../../../../../../deno_bindings/Game.ts";
+export type { GenericPlayer } from "../../../../../../deno_bindings/GenericPlayer.ts";
+export type { InstanceState } from "../../../../../../deno_bindings/InstanceState.ts";
+export type { SetupValue } from "../../../../../../deno_bindings/SetupValue.ts";
+export type { PerformanceReport } from "../../../../../../deno_bindings/PerformanceReport.ts";
+export type { SetupManifest } from "../../../../../../deno_bindings/SetupManifest.ts";
+
+
 export abstract class AtomInstance {
     public abstract setupManifest(): Promise<SetupManifest>;
     public abstract setup(
