@@ -17,16 +17,12 @@ import { isTConfig, isTMacro, isTPlayer, isTServer } from "./utils.ts";
 import { AtomInstance } from "./atom_instance.ts";
 import { detach } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/dev/src/deno_ops/events/events.ts"
 
-let instance!: AtomInstance;
 
-export function init_instance(i: AtomInstance) {
-    instance = i;
-}
 
 const emit_result = (result: ProcedureCallResultIR) =>
     ops.emit_result(result);
 
-async function tPlayerHandle(procedure: ProcedureCall) {
+async function tPlayerHandle(procedure: ProcedureCall, instance: AtomInstance) {
     const inner = procedure.inner;
     let ret: ProcedureCallResultInner = "Void";
     try {
@@ -78,7 +74,7 @@ async function tPlayerHandle(procedure: ProcedureCall) {
 }
 
 
-async function tConfigHandle(procedure: ProcedureCall) {
+async function tConfigHandle(procedure: ProcedureCall, instance: AtomInstance) {
     const inner = procedure.inner;
     let ret: ProcedureCallResultInner = "Void";
     try {
@@ -165,7 +161,7 @@ async function tConfigHandle(procedure: ProcedureCall) {
     );
 }
 
-async function tServerHandle(procedure: ProcedureCall) {
+async function tServerHandle(procedure: ProcedureCall, instance: AtomInstance) {
     const inner = procedure.inner;
     let ret: ProcedureCallResultInner = "Void";
     try {
@@ -227,7 +223,7 @@ async function tServerHandle(procedure: ProcedureCall) {
 
 // Your script should call this function once, and only once when it's ready to receive procedure calls.
 // Do NOT await this function as it will block forever.
-export async function procedure_bridge() {
+export async function procedure_bridge(instance: AtomInstance,) {
     // This function will throw if it's called more than once.
     ops.proc_bridge_ready();
     detach();
@@ -236,11 +232,11 @@ export async function procedure_bridge() {
         const inner = procedure.inner;
         let ret: ProcedureCallResultInner = "Void";
         if (isTConfig(inner)) {
-            await tConfigHandle(procedure);
+            await tConfigHandle(procedure, instance);
         } else if (isTServer(inner)) {
-            await tServerHandle(procedure);
+            await tServerHandle(procedure, instance);
         } else if (isTPlayer(inner)) {
-            await tPlayerHandle(procedure);
+            await tPlayerHandle(procedure, instance);
         } else
             try {
                 if (inner.type === "GetSetupManifest") {
