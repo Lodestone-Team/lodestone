@@ -5,6 +5,9 @@ import * as InstanceControl from "../instance_control/instance_control.ts"
 import { InstanceEvent } from "../../../deno_bindings/InstanceEvent.ts";
 import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 
+// re-exports 
+export type { ClientEvent, TaskPID, prelude, InstanceControl, InstanceEvent, InstanceState };
+
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
 const core = Deno[Deno.internal].core;
@@ -58,5 +61,9 @@ export function emitConsoleOut(line: string, instanceUuid: string = prelude.getC
         ops.emit_console_out(instanceUuid, name, line);
     }
     )
+}
+
+export function emitStateChange(state: InstanceState, instanceName: string, instanceUuid: string = prelude.getCurrentInstanceUUID()!) {
+    ops.emit_state_change(instanceUuid, instanceName, state);
 }
 
