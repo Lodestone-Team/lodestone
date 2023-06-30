@@ -15,6 +15,7 @@ import { ProcedureCallResultInner } from "./bindings/ProcedureCallResultInner.ts
 
 import { isTConfig, isTMacro, isTPlayer, isTServer } from "./utils.ts";
 import { AtomInstance } from "./atom_instance.ts";
+import { detach } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/dev/src/deno_ops/events/events.ts"
 
 let instance!: AtomInstance;
 
@@ -229,6 +230,7 @@ async function tServerHandle(procedure: ProcedureCall) {
 export async function procedure_bridge() {
     // This function will throw if it's called more than once.
     ops.proc_bridge_ready();
+    detach();
     while (true) {
         const procedure: ProcedureCall = await core.opAsync("on_procedure");
         const inner = procedure.inner;
