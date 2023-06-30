@@ -566,16 +566,13 @@ impl Event {
         }
     }
 
-    pub fn new_macro_detach_event(
-        instance_uuid: Option<InstanceUuid>,
-        macro_pid: MacroPID,
-    ) -> Event {
+    pub fn new_macro_detach_event(macro_pid: MacroPID) -> Event {
         Event {
             details: "".to_string(),
             snowflake: Snowflake::default(),
             event_inner: EventInner::MacroEvent(MacroEvent {
                 macro_pid,
-                instance_uuid,
+                instance_uuid: None,
                 macro_event_inner: MacroEventInner::Detach,
             }),
             caused_by: CausedBy::System,

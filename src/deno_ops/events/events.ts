@@ -52,8 +52,8 @@ export function detach() {
     emitDetach();
 }
 
-export function emitDetach(pid: TaskPID = prelude.getCurrentTaskPid(), instanceUuid: string = prelude.getCurrentInstanceUUID()!) {
-    ops.emit_detach(pid, instanceUuid);
+export function emitDetach(pid: TaskPID = prelude.getCurrentTaskPid()) {
+    ops.emit_detach(pid);
 }
 
 export function emitConsoleOut(line: string, instanceUuid: string = prelude.getCurrentInstanceUUID()!,) {

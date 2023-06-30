@@ -73,13 +73,9 @@ async fn next_instance_system_message(
 }
 
 #[op]
-fn emit_detach(
-    state: Rc<RefCell<OpState>>,
-    macro_pid: MacroPID,
-    instance_uuid: Option<InstanceUuid>,
-) {
+fn emit_detach(state: Rc<RefCell<OpState>>, macro_pid: MacroPID) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
-    tx.send(Event::new_macro_detach_event(instance_uuid, macro_pid));
+    tx.send(Event::new_macro_detach_event(macro_pid));
 }
 
 #[op]
@@ -97,6 +93,21 @@ fn emit_console_out(
     ));
 }
 
+#[op]
+fn emit_state_change(
+    state: Rc<RefCell<OpState>>,
+    instance_uuid: InstanceUuid,
+    instance_name: String,
+    new_state: State,
+) {
+    let tx = state.borrow().borrow::<EventBroadcaster>().clone();
+    tx.send(Event::new_instance_state_transition(
+        instance_uuid,
+        instance_name,
+        new_state,
+    ))
+}
+
 pub fn register_all_event_ops(
     worker_options: &mut deno_runtime::worker::WorkerOptions,
     event_broadcaster: EventBroadcaster,
@@ -107,6 +118,7 @@ pub fn register_all_event_ops(
                 next_event::decl(),
                 emit_console_out::decl(),
                 emit_detach::decl(),
+                emit_state_change::decl(),
                 next_instance_event::decl(),
                 next_instance_state_change::decl(),
                 next_instance_output::decl(),
