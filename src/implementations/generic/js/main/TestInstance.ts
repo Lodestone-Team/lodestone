@@ -29,15 +29,16 @@ export default class TestInstance extends atom.AtomInstance {
     public async setup(setupValue: atom.SetupValue, dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
         return;
     }
-    public restore(dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
-        throw new Error("Method not implemented.");
+    public async restore(dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
+        return;
     }
     public async start(caused_by: atom.CausedBy, block: boolean): Promise<void> {
         console.log("start");
         return;
     }
-    public stop(caused_by: atom.CausedBy, block: boolean): Promise<void> {
-        throw new Error("Method not implemented.");
+    public async stop(caused_by: atom.CausedBy, block: boolean): Promise<void> {
+        console.log("stop");
+        return;
     }
     public restart(caused_by: atom.CausedBy, block: boolean): Promise<void> {
         throw new Error("Method not implemented.");
@@ -45,8 +46,8 @@ export default class TestInstance extends atom.AtomInstance {
     public kill(caused_by: atom.CausedBy): Promise<void> {
         throw new Error("Method not implemented.");
     }
-    public state(): Promise<atom.InstanceState> {
-        throw new Error("Method not implemented.");
+    public async state(): Promise<atom.InstanceState> {
+        return "Stopped"
     }
     public sendCommand(command: string, caused_by: atom.CausedBy): Promise<void> {
         throw new Error("Method not implemented.");
@@ -57,8 +58,8 @@ export default class TestInstance extends atom.AtomInstance {
     public configurableManifest(): Promise<atom.ConfigurableManifest> {
         throw new Error("Method not implemented.");
     }
-    public name(): Promise<string> {
-        throw new Error("Method not implemented.");
+    public async name(): Promise<string> {
+        return "test_im_in_ts";
     }
     public version(): Promise<string> {
         throw new Error("Method not implemented.");
