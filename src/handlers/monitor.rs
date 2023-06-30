@@ -33,14 +33,8 @@ pub async fn monitor(
             source: eyre!("Instance not found"),
         })?
         .to_owned();
-    Ok(ws.on_upgrade(move |stream| {
-        monitor_ws(
-            stream,
-            state.monitor_buffer.clone(),
-            instance.to_owned(),
-            uuid,
-        )
-    }))
+    Ok(ws
+        .on_upgrade(move |stream| monitor_ws(stream, state.monitor_buffer.clone(), instance, uuid)))
 }
 
 async fn monitor_ws(
