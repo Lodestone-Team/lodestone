@@ -85,16 +85,8 @@ impl GenericInstance {
             &path.display()
         ))?;
         let path_to_config = path.join(".lodestone_config");
-        let run_ts_content = format!(
-            r#"import {{ run }} from "{}";
-                run();
-            "#,
-            Url::parse(&link_to_source)
-                .context("Invalid URL")?
-                .join("mod.ts")
-                .context("Invalid URL")?
-                .as_str()
-        );
+        let run_ts_content =
+            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &link_to_source);
 
         let path_to_bootstrap = path.join("run.ts");
         tokio::fs::write(&path_to_bootstrap, run_ts_content)
@@ -103,12 +95,13 @@ impl GenericInstance {
                 "Failed to write bootstrap to {}",
                 &path_to_bootstrap.display()
             ))?;
-        std::fs::write(
+        tokio::fs::write(
             &path_to_config,
             serde_json::to_string_pretty(&dot_lodestone_config).context(
                 "Failed to serialize config to string. This is a bug, please report it.",
             )?,
         )
+        .await
         .context(format!(
             "Failed to write config to {}",
             &path_to_config.display()
