@@ -228,7 +228,7 @@ export async function procedure_bridge(instance: AtomInstance,) {
     ops.proc_bridge_ready();
     detach();
     while (true) {
-        const procedure: ProcedureCall = await core.opAsync("on_procedure");
+        const procedure: ProcedureCall = await core.opAsync("next_procedure");
         const inner = procedure.inner;
         let ret: ProcedureCallResultInner = "Void";
         if (isTConfig(inner)) {
