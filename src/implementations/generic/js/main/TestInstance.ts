@@ -2,17 +2,39 @@ import * as atom from "https://raw.githubusercontent.com/Lodestone-Team/lodeston
 
 
 export default class TestInstance extends atom.AtomInstance {
-    public setupManifest(): Promise<atom.SetupManifest> {
-        throw new Error("Method not implemented.");
+    public async setupManifest(): Promise<atom.SetupManifest> {
+        return {
+            setting_sections: {
+                "test": {
+                    section_id: "section_id1",
+                    name: "section_name1",
+                    description: "section_description1",
+                    settings: {
+                        "setting_id1": {
+                            setting_id: "setting_id1",
+                            name: "setting_name1",
+                            description: "setting_description1",
+                            value: null,
+                            value_type: { type: "String", regex: null },
+                            default_value: null,
+                            is_secret: false,
+                            is_required: true,
+                            is_mutable: true,
+                        }
+                    },
+                }
+            }
+        };
     }
-    public setup(setupValue: atom.SetupValue, dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
-        throw new Error("Method not implemented.");
+    public async setup(setupValue: atom.SetupValue, dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
+        return;
     }
     public restore(dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
         throw new Error("Method not implemented.");
     }
-    public start(caused_by: atom.CausedBy, block: boolean): Promise<void> {
-        throw new Error("Method not implemented.");
+    public async start(caused_by: atom.CausedBy, block: boolean): Promise<void> {
+        console.log("start");
+        return;
     }
     public stop(caused_by: atom.CausedBy, block: boolean): Promise<void> {
         throw new Error("Method not implemented.");
