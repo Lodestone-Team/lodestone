@@ -75,6 +75,17 @@ export abstract class AtomInstance {
     public abstract state(): Promise<InstanceState>;
     public abstract sendCommand(command: string, caused_by: CausedBy): Promise<void>;
     public abstract monitor(): Promise<PerformanceReport>;
+    /**
+     * Get the configurable manifest for this instance.
+     * 
+     * Configurable manifest is a list of configurable values that can be changed at runtime.
+     * 
+     * Configurable manifest consists of an order list of sections, each section has a name and a list of configurable values.
+     * 
+     * Note: implementation must ensure each setting_id and section_id is unique among each other.
+     * 
+     * @returns {Promise<ConfigurableManifest>} The configurable manifest for this instance.
+     */
     public abstract configurableManifest(): Promise<ConfigurableManifest>;
     public abstract name(): Promise<string>;
     public abstract version(): Promise<string>;
@@ -91,6 +102,13 @@ export abstract class AtomInstance {
     public abstract playerCount(): Promise<number>;
     public abstract maxPlayerCount(): Promise<number>;
     public abstract playerList(): Promise<GenericPlayer[]>;
+    /**
+     * Update a configurable value given the section id, setting id and value.
+     * 
+     * @param section_id - The section id of the configurable value.
+     * @param setting_id - The setting id of the configurable value.
+     * @param value - The value to set the configurable value to.
+     */
     public abstract updateConfigurable(section_id: string, setting_id: string, value: ConfigurableValue): Promise<void>;
 
 }
