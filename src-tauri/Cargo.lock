@@ -4136,7 +4136,7 @@ dependencies = [
 [[package]]
 name = "lodestone_core"
 version = "0.5.0-beta.2"
-source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=dev#23e490ad612eb92b8b1ae7746c813f928b89b1ae"
+source = "git+https://github.com/Lodestone-Team/lodestone_core?branch=dev#c05529bb3aec2c620e8e18de938ab24123c40a57"
 dependencies = [
  "ansi_term",
  "argon2",
