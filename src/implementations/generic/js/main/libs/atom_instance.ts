@@ -23,12 +23,49 @@ export type { SetupManifest } from "../../../../../../deno_bindings/SetupManifes
 
 
 export abstract class AtomInstance {
+    /**
+     * Get the setup manifest for this instance.
+     * 
+     * Setup manifest is a list of configurable values that is then passed to the setup function.
+     * 
+     * Setup manifest consists of an order list of sections, each section has a name and a list of configurable values.
+     * 
+     * Note: implementation must ensure each setting_id and section_id is unique among each other.
+     * 
+     * @returns {Promise<SetupManifest>} The setup manifest for this instance.
+     */
     public abstract setupManifest(): Promise<SetupManifest>;
+
+    /**
+     * 
+     * Setup the instance.
+     * 
+     * This function is called when the instance is first created.
+     * 
+     * Implementation must ensure that the instance object is in a valid state after this function has successfully returned.
+     * 
+     * @param setupValue - The setup value for this instance.
+     * @param dotLodestoneConfig - The dot lodestone config for this instance, the most important field is the uuid field.
+     * @param path - The file system path the instance is located at.
+     */
     public abstract setup(
         setupValue: SetupValue,
         dotLodestoneConfig: DotLodestoneConfig,
         path: string,
     ): Promise<void>;
+    /**
+     * 
+     * Restore the instance from the file system.
+     * 
+     * This function is called when the instance has been created and the instance is being restored from the file system by Lodestone Core
+     * 
+     * Implementation must ensure that the instance object is in a valid state after this function has successfully returned.
+     * 
+     * Note the lack of any state passed into this function, the implementation must restore the state from the file system.
+     * 
+     * @param dotLodestoneConfig - The dot lodestone config for this instance, the most important field is the uuid field.
+     * @param path - The file system path the instance is located at.
+     */
     public abstract restore(dotLodestoneConfig: DotLodestoneConfig,
         path: string): Promise<void>;
     public abstract start(caused_by: CausedBy, block: boolean): Promise<void>;
