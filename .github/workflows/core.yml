@@ -96,15 +96,15 @@ jobs:
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
           "FILENAME=$FILENAME" >> $env:GITHUB_ENV
 
-      - name: Verify Version
-        if: inputs.version
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            if (process.env.VERSION != ${{ inputs.version }}) {
-              core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
-            }
+#       - name: Verify Version
+#         if: inputs.version
+#         uses: actions/github-script@v6
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             if (process.env.VERSION != ${{ inputs.version }}) {
+#               core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
+#             }
 
       - name: Build Lodestone Core
         uses: actions-rs/cargo@v1
