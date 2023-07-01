@@ -1,7 +1,9 @@
 import * as atom from "https://raw.githubusercontent.com/Lodestone-Team/lodestone_core/dev/src/implementations/generic/js/main/libs/atom_instance.ts";
-
+import { EventStream } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone-macro-lib/main/events.ts";
 
 export default class TestInstance extends atom.AtomInstance {
+    uuid!: string;
+    _state : atom.InstanceState = "Stopped";
     public async setupManifest(): Promise<atom.SetupManifest> {
         return {
             setting_sections: {
@@ -27,17 +29,21 @@ export default class TestInstance extends atom.AtomInstance {
         };
     }
     public async setup(setupValue: atom.SetupValue, dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
+        this.uuid = dotLodestoneConfig.uuid;
         return;
     }
     public async restore(dotLodestoneConfig: atom.DotLodestoneConfig, path: string): Promise<void> {
+        this.uuid = dotLodestoneConfig.uuid;
         return;
     }
     public async start(caused_by: atom.CausedBy, block: boolean): Promise<void> {
         console.log("start");
+        new EventStream(this.uuid, "test_im_in_ts").emitStateChange("Running");
         return;
     }
     public async stop(caused_by: atom.CausedBy, block: boolean): Promise<void> {
         console.log("stop");
+        new EventStream(this.uuid, "test_im_in_ts").emitStateChange("Stopped");
         return;
     }
     public restart(caused_by: atom.CausedBy, block: boolean): Promise<void> {
