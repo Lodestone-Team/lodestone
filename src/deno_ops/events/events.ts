@@ -1,12 +1,11 @@
 import { ClientEvent } from "../../../deno_bindings/ClientEvent.ts"
 import { TaskPID } from "../../../deno_bindings/TaskPID.ts";
-import * as prelude from "../prelude/prelude.ts"
 import * as InstanceControl from "../instance_control/instance_control.ts"
 import { InstanceEvent } from "../../../deno_bindings/InstanceEvent.ts";
 import { InstanceState } from "../../../deno_bindings/InstanceState.ts";
 
 // re-exports 
-export type { ClientEvent, TaskPID, prelude, InstanceControl, InstanceEvent, InstanceState };
+export type { ClientEvent, TaskPID, InstanceControl, InstanceEvent, InstanceState };
 
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
@@ -22,25 +21,26 @@ export function nextEvent(): Promise<ClientEvent> {
     return core.opAsync("next_event");
 }
 
-export function nextInstanceEvent(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<InstanceEvent> {
+export function nextInstanceEvent(instanceUuid: string): Promise<InstanceEvent> {
     return core.opAsync("next_instance_event", instanceUuid);
 }
 
-export function nextInstanceStateChange(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<InstanceState> {
+export function nextInstanceStateChange(instanceUuid: string): Promise<InstanceState> {
     return core.opAsync("next_instance_state_change", instanceUuid);
 }
 
-export function nextInstanceConsoleOut(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<string> {
+export function nextInstanceConsoleOut(instanceUuid: string): Promise<string> {
     return core.opAsync("next_instance_output", instanceUuid);
 }
 
-export function nextPlayerMessage(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<PlayerMessage> {
+export function nextPlayerMessage(instanceUuid: string): Promise<PlayerMessage> {
     return core.opAsync("next_instance_player_message", instanceUuid);
 }
 
-export function nextInstanceSystemMessage(instanceUuid: string = prelude.getCurrentInstanceUUID()!): Promise<string> {
+export function nextInstanceSystemMessage(instanceUuid: string): Promise<string> {
     return core.opAsync("next_instance_system_message", instanceUuid);
 }
+
 
 /**  Notifies the caller that the macro wishes to be run in the background.
  * 
@@ -48,22 +48,18 @@ export function nextInstanceSystemMessage(instanceUuid: string = prelude.getCurr
 
 * This function DOES NOT exit the macro.
 */
-export function detach() {
-    emitDetach();
-}
-
-export function emitDetach(pid: TaskPID = prelude.getCurrentTaskPid()) {
+export function emitDetach(pid: TaskPID) {
     ops.emit_detach(pid);
 }
 
-export function emitConsoleOut(line: string, instanceUuid: string = prelude.getCurrentInstanceUUID()!,) {
-    InstanceControl.getInstanceName().then((name) => {
+export function emitConsoleOut(line: string, instanceUuid: string) {
+    InstanceControl.getInstanceName(instanceUuid).then((name) => {
         ops.emit_console_out(instanceUuid, name, line);
     }
     )
 }
 
-export function emitStateChange(state: InstanceState, instanceName: string, instanceUuid: string = prelude.getCurrentInstanceUUID()!) {
+export function emitStateChange(state: InstanceState, instanceName: string, instanceUuid: string) {
     ops.emit_state_change(instanceUuid, instanceName, state);
 }
 
