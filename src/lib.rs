@@ -156,23 +156,50 @@ async fn restore_instances(
             }
         };
         debug!("restoring instance: {}", path.display());
-        if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
-            let instance = match minecraft::MinecraftInstance::restore(
-                path.to_owned(),
-                dot_lodestone_config.clone(),
-                event_broadcaster.clone(),
-                macro_executor.clone(),
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Error while restoring instance {} : {e}", path.display());
-                    continue;
-                }
-            };
-            debug!("Restored successfully");
-            ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+        match dot_lodestone_config.game_type() {
+            GameType::MinecraftJava => {
+                let instance = match minecraft::MinecraftInstance::restore(
+                    path.to_owned(),
+                    dot_lodestone_config.clone(),
+                    event_broadcaster.clone(),
+                    macro_executor.clone(),
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(
+                            "Error while restoring Minecraft Java instance {} : {e}",
+                            path.display()
+                        );
+                        continue;
+                    }
+                };
+                debug!("Restored Minecraft Java instance successfully");
+                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+            }
+            GameType::Generic => {
+                let instance = match generic::GenericInstance::restore(
+                    path.to_owned(),
+                    dot_lodestone_config.clone(),
+                    event_broadcaster.clone(),
+                    macro_executor.clone(),
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(
+                            "Error while restoring atom instance {} : {e}",
+                            path.display()
+                        );
+                        continue;
+                    }
+                };
+                debug!("Restored Generic instance successfully");
+                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+            }
+            GameType::MinecraftBedrock => todo!(),
         }
     }
     Ok(ret)
