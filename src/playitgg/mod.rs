@@ -1,5 +1,6 @@
 mod utils;
 mod playit_secret;
+use std::time::Duration;
 mod errors;
 use playit_agent_core::api::api::ApiError;
 use tokio::task::JoinHandle;
@@ -8,13 +9,15 @@ use uuid::Uuid;
 use std::sync::atomic::AtomicBool;
 use std::sync::{atomic::Ordering, Arc};
 use axum::Json;
-use playit_agent_core::api::{ PlayitApi, api::{AccountTunnelAllocation, ReqClaimExchange, PortType, ReqTunnelsList, TunnelType, ClaimExchangeError}};
+use playit_agent_core::api::{ PlayitApi, api::{AccountTunnelAllocation, ClaimSetupResponse, ReqClaimSetup, AgentType, ReqClaimExchange, PortType, ReqTunnelsList, TunnelType, ClaimExchangeError}};
 use crate::error::{Error, ErrorKind};
 use crate::AppState;
 use crate::prelude::lodestone_path;
 use serde::{Deserialize, Serialize};
 use utils::*;
 use playit_secret::*;
+use tokio::io::AsyncWriteExt; 
+use playit_agent_core::tunnel_runner::TunnelRunner;
 
 #[derive(Deserialize)]
 pub struct PlayitTunnelParams {
@@ -142,14 +145,56 @@ pub async fn kill_tunnel(
 pub async fn generate_signup_link(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<PlayitSignupData>, Error> {
+    let api = PlayitApi::create(API_BASE.to_string(), None);
+
     let claim_code = claim_generate();
     let url = claim_url(&claim_code)
         .map_err(|e| {
             eyre!("Failed to generate signup url with error code {:?}" , e)
         })
         .unwrap();
+    let signup_data = Json(PlayitSignupData { url: url.clone(), claim_code: claim_code.clone() });
+    
+    tokio::spawn(async move {
+        loop {
+            let setup = api.claim_setup(ReqClaimSetup {
+                code: claim_code.to_string(),
+                agent_type: AgentType::Assignable,
+                version: format!("playit-cli {}", "1.0.0-rc3"),
+            }).await
+            .map_err(|e| {
+                eyre!("Failed to claim setup {:?}" , e)
+            })
+            .unwrap();
 
-    Ok(Json(PlayitSignupData { url, claim_code }))
+            match setup {
+                ClaimSetupResponse::WaitingForUserVisit => {
+                    let msg = format!("Waiting for user to visit {}", url);
+                    println!("{}", msg);
+                }
+                ClaimSetupResponse::WaitingForUser => {
+                    println!("Waiting for user to approve");
+                }
+                ClaimSetupResponse::UserAccepted => {
+                    println!("User accepted, exchanging code for secret");
+                    break;
+                }
+                ClaimSetupResponse::UserRejected => {
+                    println!("User rejected");
+                    return Err(Error{
+                        kind: ErrorKind::Internal,
+                        source: eyre!(
+                            "Failed to confirm signup with error {:?}" , setup
+                        ),
+                    });
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        };
+        Ok(())
+    });
+
+    Ok(signup_data)
 }
 
 pub async fn confirm_singup(
@@ -157,17 +202,52 @@ pub async fn confirm_singup(
     Json(signup_data): Json<PlayitSignupData>,
 ) -> Result<Json<SignupStatus>, Error> {
     let api = PlayitApi::create(API_BASE.to_string(), None);
-
     match api.claim_exchange(ReqClaimExchange { code: signup_data.claim_code.to_string() }).await {
         Ok(res) => {
             let mut secret_key_path = lodestone_path().clone();
             secret_key_path.push("playit.toml");
-            let toml = toml::to_string(&res.secret_key).map_err(|e| {
-                eyre!("Failed to serialize playit secret key with error {:?}" , e)
+            let toml = format!("secret_key='{}'", res.secret_key);
+            let mut file = tokio::fs::File::create(secret_key_path).await.map_err(|e| {
+                eyre!("Failed to create playit secret file with error {:?}" , e)
             })?;
-            tokio::fs::write(secret_key_path, toml).await.map_err(|e| {
+            file.write_all(toml.as_bytes()).await.map_err(|e| {
                 eyre!("Failed to write playit secret key with error {:?}" , e)
             })?;
+            let api = PlayitApi::create(API_BASE.to_string(), Some(res.secret_key.clone()));
+            
+            let lookup = Arc::new(LocalLookup {
+                data: vec![],
+            });
+        
+            let runner = TunnelRunner::new(res.secret_key.clone(), lookup.clone())
+                .await
+                .map_err(|e| {
+                    eyre!("Failed to create tunnel object with error {:?}" , e)
+                })
+                .unwrap();
+
+            tokio::spawn(async move {
+                let signal = runner.keep_running();
+                tokio::spawn(runner.run());
+                loop {
+                    let tunnels = api.tunnels_list(ReqTunnelsList { tunnel_id: None, agent_id: None })
+                        .await
+                        .map_err(|e| {
+                            eyre!("Failed to get tunnels from playitgg with error {:?}" , e)
+                        })
+                        .unwrap();
+
+                    if !tunnels.tunnels.is_empty() {
+                        signal.store(false, Ordering::SeqCst);
+                        break;
+                    }
+                    
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+
+                }
+            });
+
+
             Ok(Json(SignupStatus::Completed))
         }
         Err(ApiError::Fail(error)) => Ok(Json(error.into())),
