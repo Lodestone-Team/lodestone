@@ -1,17 +1,20 @@
 mod utils;
 mod playit_secret;
 mod errors;
+use playit_agent_core::api::api::ApiError;
 use tokio::task::JoinHandle;
 use color_eyre::eyre::eyre;
 use uuid::Uuid;
 use std::sync::atomic::AtomicBool;
 use std::sync::{atomic::Ordering, Arc};
 use axum::Json;
-use playit_agent_core::api::api::{AccountTunnelAllocation, PortType, ReqTunnelsList, TunnelType};
+use playit_agent_core::api::{ PlayitApi, api::{AccountTunnelAllocation, ReqClaimExchange, PortType, ReqTunnelsList, TunnelType, ClaimExchangeError}};
 use crate::error::{Error, ErrorKind};
 use crate::AppState;
+use crate::prelude::lodestone_path;
 use serde::{Deserialize, Serialize};
 use utils::*;
+use playit_secret::*;
 
 #[derive(Deserialize)]
 pub struct PlayitTunnelParams {
@@ -26,6 +29,34 @@ pub struct PlayitTunnelInfo {
     pub tunnel_id: Uuid,
 }
 pub struct TunnelHandle(Arc<AtomicBool>, JoinHandle<()>);
+
+#[derive(Serialize, Deserialize)]
+pub struct PlayitSignupData {
+    pub url: String,
+    pub claim_code: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum SignupStatus {
+	CodeNotFound,
+	CodeExpired,
+	UserRejected,
+	NotAccepted,
+	NotSetup,
+    Completed,
+}
+
+impl From<ClaimExchangeError> for SignupStatus {
+    fn from(error: ClaimExchangeError) -> Self {
+        match error {
+            ClaimExchangeError::CodeNotFound => SignupStatus::CodeNotFound,
+            ClaimExchangeError::CodeExpired => SignupStatus::CodeExpired,
+            ClaimExchangeError::UserRejected => SignupStatus::UserRejected,
+            ClaimExchangeError::NotAccepted => SignupStatus::NotAccepted,
+            ClaimExchangeError::NotSetup => SignupStatus::NotSetup,
+        }
+    }
+}
 
 pub async fn start_tunnel(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -105,4 +136,46 @@ pub async fn kill_tunnel(
         .unwrap();
     tunnel.0.store(false, Ordering::SeqCst);
     Ok(Json(()))
+}
+
+
+pub async fn generate_signup_link(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Result<Json<PlayitSignupData>, Error> {
+    let claim_code = claim_generate();
+    let url = claim_url(&claim_code)
+        .map_err(|e| {
+            eyre!("Failed to generate signup url with error code {:?}" , e)
+        })
+        .unwrap();
+
+    Ok(Json(PlayitSignupData { url, claim_code }))
+}
+
+pub async fn confirm_singup(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(signup_data): Json<PlayitSignupData>,
+) -> Result<Json<SignupStatus>, Error> {
+    let api = PlayitApi::create(API_BASE.to_string(), None);
+
+    match api.claim_exchange(ReqClaimExchange { code: signup_data.claim_code.to_string() }).await {
+        Ok(res) => {
+            let mut secret_key_path = lodestone_path().clone();
+            secret_key_path.push("playit.toml");
+            let toml = toml::to_string(&res.secret_key).map_err(|e| {
+                eyre!("Failed to serialize playit secret key with error {:?}" , e)
+            })?;
+            tokio::fs::write(secret_key_path, toml).await.map_err(|e| {
+                eyre!("Failed to write playit secret key with error {:?}" , e)
+            })?;
+            Ok(Json(SignupStatus::Completed))
+        }
+        Err(ApiError::Fail(error)) => Ok(Json(error.into())),
+        Err(error) =>  Err(Error{
+                kind: ErrorKind::Internal,
+                source: eyre!(
+                    "Failed to confirm signup with error {:?}" , error
+                ),
+        })
+    }
 }
