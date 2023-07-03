@@ -21,6 +21,10 @@ import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
 import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
+import { PlayitSignupData } from 'bindings/PlayitSignupData';
+import { SignupStatus } from 'bindings/SignupStatus';
+import { PlayitTunnelParams } from 'bindings/PlayitTunnelParams';
+import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 
 /***********************
  * Start Files API
@@ -491,3 +495,46 @@ export const killTask = async (
 /***********************
  * End Tasks/Macro API
  ***********************/
+ 
+/***********************
+ * Playitgg API
+ ***********************/
+export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
+  const response = await axiosWrapper<PlayitSignupData>({
+    method: 'get',
+    url: `/playitgg/generate_signup_link`,
+  });
+  return response;
+};
+
+export const confirmPlayitSignup = async (): Promise<SignupStatus> => {
+  const response = await axiosWrapper<SignupStatus>({
+    method: 'get',
+    url: `/playitgg/confirm_signup`,
+  });
+  return response;
+};
+
+
+export const startTunnel  = async (
+  tunnelParams: PlayitTunnelParams,
+): Promise<PlayitTunnelInfo> => {
+  const response = await axiosWrapper<PlayitTunnelInfo>({
+    method: 'post',
+    url: `/playitgg/run_tunnel`,
+    data: tunnelParams,
+  });
+  return response;
+};
+
+export const stopTunnel  = async (
+  tunnelParams: PlayitTunnelInfo,
+) => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'post',
+      url: `/playitgg/kill_tunnel`,
+      data: tunnelParams,
+    })
+  );
+};
