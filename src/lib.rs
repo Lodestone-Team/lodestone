@@ -44,7 +44,7 @@ use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use playitgg::TunnelHandle;
+use playitgg::{TunnelHandle, TunnelUuid};
 
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
@@ -110,7 +110,7 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
-    tunnels: Arc<Mutex<HashMap<Uuid, TunnelHandle>>>,
+    tunnels: Arc<Mutex<HashMap<TunnelUuid, TunnelHandle>>>,
 }
 async fn restore_instances(
     instances_path: &Path,

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use std::sync::atomic::AtomicBool;
 use std::sync::{atomic::Ordering, Arc};
 use axum::Json;
-use playit_agent_core::api::{ PlayitApi, api::{AccountTunnelAllocation, ClaimSetupResponse, ReqClaimSetup, AgentType, ReqClaimExchange, PortType, ReqTunnelsList, TunnelType, ClaimExchangeError}};
+use playit_agent_core::api::{ PlayitApi, api::{AccountTunnelAllocation, ClaimSetupResponse, ReqClaimSetup, AgentType, ReqClaimExchange, PortType as PlayitPortType, ReqTunnelsList, TunnelType, ClaimExchangeError}};
 use crate::error::{Error, ErrorKind};
 use crate::AppState;
 use crate::prelude::lodestone_path;
@@ -18,28 +18,59 @@ use utils::*;
 use playit_secret::*;
 use tokio::io::AsyncWriteExt; 
 use playit_agent_core::tunnel_runner::TunnelRunner;
+use ts_rs::TS;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, TS, PartialEq, Eq, Hash)]
+#[ts(export)]
+pub struct TunnelUuid(String);
+
+
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct PlayitTunnelParams {
     pub local_port: u16,
     pub port_type: PortType,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS, Clone)] 
+#[ts(export)]
+pub enum PortType {
+	#[serde(rename = "tcp")]
+	Tcp,
+	#[serde(rename = "udp")]
+	Udp,
+	#[serde(rename = "both")]
+	Both,
+}
+
+impl From <PortType> for PlayitPortType {
+    fn from(port_type: PortType) -> Self {
+        match port_type {
+            PortType::Tcp => PlayitPortType::Tcp,
+            PortType::Udp => PlayitPortType::Udp,
+            PortType::Both => PlayitPortType::Both,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct PlayitTunnelInfo {
     pub public_ip: String,
     pub public_port: u16,
-    pub tunnel_id: Uuid,
+    pub tunnel_id: TunnelUuid,
 }
 pub struct TunnelHandle(Arc<AtomicBool>, JoinHandle<()>);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct PlayitSignupData {
     pub url: String,
     pub claim_code: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub enum SignupStatus {
 	CodeNotFound,
 	CodeExpired,
@@ -90,14 +121,14 @@ pub async fn start_tunnel(
             eyre!("Failed to get tunnels from playitgg with error {:?}" , e)
         })
         .unwrap();
-    let tunnel = find_tunnel(tunnels, name, port_type, port_count, tunnel_type, exact, ignore_name)
+    let tunnel = find_tunnel(tunnels, name, port_type.clone().into(), port_count, tunnel_type, exact, ignore_name)
         .ok_or_else(|| {
             eyre!("Couldn't find tunnel.")
         })
         .unwrap();
 
     if let AccountTunnelAllocation::Allocated(allocated) = tunnel.clone().alloc {
-        let tunnel_runner = get_tunnel(tunnel.clone(), allocated.clone(), secret, port_type, port_num)
+        let tunnel_runner = get_tunnel(tunnel.clone(), allocated.clone(), secret, port_type.into(), port_num)
             .await
             .map_err(|e| {
                 eyre!("Failed to create tunnel object with error {:?}" , e)
@@ -110,8 +141,8 @@ pub async fn start_tunnel(
                 tunnel_runner.run().await;
             })
         );
-        state.tunnels.lock().await.insert(allocated.id, tunnel_future);
-        Ok(Json(PlayitTunnelInfo { public_ip: allocated.assigned_domain, public_port: allocated.port_start, tunnel_id: allocated.id }))
+        state.tunnels.lock().await.insert(TunnelUuid(allocated.id.to_string()), tunnel_future);
+        Ok(Json(PlayitTunnelInfo { public_ip: allocated.assigned_domain, public_port: allocated.port_start, tunnel_id: TunnelUuid(allocated.id.to_string()) }))
     } else {
         Err(Error{
                 kind: ErrorKind::Internal,
