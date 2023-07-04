@@ -287,9 +287,9 @@ export const useEventStream = () => {
                 });
             },
             Stopped: ({ exit_status }) => {
-              console.log(`Macro ${macro_pid} stopped on ${uuid} with status ${exit_status}`);
+              console.log(`Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`);
               dispatch({
-                title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status}`,
+                title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
                 event,
                 type: 'add',
                 fresh,
