@@ -52,14 +52,16 @@ export default function LeftNav({ className }: { className?: string }) {
             {userLoggedIn && (
               <div className="flex w-full flex-row items-center justify-center gap-4 pb-8">
                 <Button
-                  label="New instance..."
-                  className={
-                    'w-full text-medium font-medium tracking-normal text-white/50 hover:bg-gray-800 focus-visible:outline-none active:bg-gray-850 active:text-gray-300 active:outline active:outline-1 active:outline-fade-700/10' +
-                    clsx(
-                      showCreateInstance &&
-                        'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10 '
-                    )
-                  }
+                  label={canCreateInstance ? "New instance..." : "No permission"}
+                  className={clsx(
+                    'w-full text-medium font-medium tracking-normal',
+                    showCreateInstance
+                      ? 'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10'
+                      : 'text-white/50',
+                    'disabled:text-white/30',
+                    'enabled:hover:bg-gray-800 enabled:focus-visible:outline-none',
+                    'enabled:active:bg-gray-850 enabled:active:text-gray-300 enabled:active:outline enabled:active:outline-1 enabled:active:outline-fade-700/10'
+                  )}
                   intention="none"
                   variant="text"
                   icon={faSquarePlus}
