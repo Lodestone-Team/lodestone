@@ -268,7 +268,7 @@ export const useEventStream = () => {
           macro_event_inner: event_inner,
         }) =>
           match(event_inner, {
-            MacroStarted: () => {
+            Started: () => {
               console.log(`Macro ${macro_pid} started on ${uuid}`);
               dispatch({
                 title: `Macro ${macro_pid} started on ${uuid}`,
@@ -277,21 +277,19 @@ export const useEventStream = () => {
                 fresh,
               });
             },
-            MacroStopped: () => {
-              console.log(`Macro ${macro_pid} stopped on ${uuid}`);
-              dispatch({
-                title: `Macro ${macro_pid} stopped on ${uuid}`,
-                event,
-                type: 'add',
-                fresh,
-              });
+            Detach: () => {
+                console.log(`Macro ${macro_pid} detached on ${uuid}`);
+                dispatch({
+                    title: `Macro ${macro_pid} detached on ${uuid}`,
+                    event,
+                    type: 'add',
+                    fresh,
+                });
             },
-            MacroErrored: ({ error_msg }) => {
-              console.log(
-                `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`
-              );
+            Stopped: ({ exit_status }) => {
+              console.log(`Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`);
               dispatch({
-                title: `Macro ${macro_pid} errored on ${uuid}: ${error_msg}`,
+                title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
                 event,
                 type: 'add',
                 fresh,
