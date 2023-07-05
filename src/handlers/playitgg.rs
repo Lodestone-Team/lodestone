@@ -8,6 +8,6 @@ pub fn get_playitgg_routes(state: AppState) -> Router {
         .route("/playitgg/run_tunnel", post(start_tunnel))
         .route("/playitgg/kill_tunnel", post(kill_tunnel))
         .route("/playitgg/generate_signup_link", get(generate_signup_link))
-        .route("/playitgg/confirm_signup", get(confirm_singup))
+        .route("/playitgg/confirm_signup", post(confirm_singup))
         .with_state(state)
 }

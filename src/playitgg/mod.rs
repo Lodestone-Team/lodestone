@@ -121,6 +121,7 @@ pub async fn start_tunnel(
             eyre!("Failed to get tunnels from playitgg with error {:?}" , e)
         })
         .unwrap();
+    println!("{:?}", tunnels);
     let tunnel = find_tunnel(tunnels, name, port_type.clone().into(), port_count, tunnel_type, exact, ignore_name)
         .ok_or_else(|| {
             eyre!("Couldn't find tunnel.")
@@ -224,7 +225,7 @@ pub async fn generate_signup_link(
         };
         Ok(())
     });
-
+    println!("generate_signup_link");
     Ok(signup_data)
 }
 
@@ -244,6 +245,7 @@ pub async fn confirm_singup(
             file.write_all(toml.as_bytes()).await.map_err(|e| {
                 eyre!("Failed to write playit secret key with error {:?}" , e)
             })?;
+            state.playitgg_key.lock().await.replace(res.secret_key.clone());
             let api = PlayitApi::create(API_BASE.to_string(), Some(res.secret_key.clone()));
             
             let lookup = Arc::new(LocalLookup {
