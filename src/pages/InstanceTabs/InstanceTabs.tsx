@@ -90,7 +90,6 @@ export const tabs = [
 ];
 
 const InstanceTabs = () => {
-  useDocumentTitle('Dashboard - Lodestone');
   const location = useLocation();
   const [path, setPath] = useState(location.pathname.split('/')[2]);
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -102,6 +101,7 @@ const InstanceTabs = () => {
 
   useEffect(() => {
     //give time for instance to load
+    // TODO: make this less hacky
     setTimeout(() => {
       setLoading(false);
     }, 1000);

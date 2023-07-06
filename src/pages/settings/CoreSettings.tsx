@@ -22,6 +22,7 @@ import { openPort } from 'utils/apis';
 import InputField from 'components/Atoms/Form/InputField';
 
 export const CoreSettings = () => {
+  useDocumentTitle('Lodestone Core Settings - Lodestone');
   const { core } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
   const { data: globalSettings, isLoading, error } = useGlobalSettings();
@@ -290,3 +291,7 @@ export const CoreSettings = () => {
 };
 
 export default CoreSettings;
+function useDocumentTitle(arg0: string) {
+  throw new Error('Function not implemented.');
+}
+

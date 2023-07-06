@@ -11,10 +11,12 @@ import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
+import { useDocumentTitle } from 'usehooks-ts';
 
 const autoScrollThreshold = 10;
 
 export default function GameConsole() {
+  useDocumentTitle('Instance Console - Lodestone');
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const uuid = instance.uuid;

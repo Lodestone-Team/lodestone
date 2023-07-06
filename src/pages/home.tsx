@@ -8,12 +8,12 @@ import Button from 'components/Atoms/Button';
 import { InstanceContext } from 'data/InstanceContext';
 
 const Home = () => {
+  useDocumentTitle('Home - Lodestone');
   const { setShowCreateInstance } = useContext(InstanceContext);
   const userLoggedIn = useUserLoggedIn();
   const canCreateInstance = useUserAuthorized('can_create_instance');
   const { isLoading } = useUserInfo();
 
-  useDocumentTitle('Home - Lodestone');
 
   const [loading, setLoading] = useState(true);
 

@@ -15,7 +15,7 @@ import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
 
 const InstanceOverview = () => {
-  useDocumentTitle('Dashboard - Lodestone');
+  useDocumentTitle('Instance Overview - Lodestone');
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);

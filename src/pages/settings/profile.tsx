@@ -12,7 +12,7 @@ import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
-  useDocumentTitle('Profile - Lodestone');
+  useDocumentTitle('User Profile - Lodestone');
   const { token } = useContext(LodestoneContext);
   const uid = useUid();
   const { isLoading, isError, data: user } = useUserInfo();

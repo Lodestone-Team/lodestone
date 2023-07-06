@@ -14,7 +14,10 @@ import {
   SectionFieldObject,
 } from './InstanceSettingsCreate/SettingObject';
 import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
+import { useDocumentTitle } from 'usehooks-ts';
+
 export default function InstanceSettingCard() {
+  useDocumentTitle('Instance Settings - Lodestone');
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');

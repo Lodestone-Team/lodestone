@@ -16,6 +16,7 @@ import { Fragment, useContext, useState } from 'react';
 import { toast } from 'react-toastify';
 import { changeUserPermissions } from 'utils/apis';
 import CreateUserForm from '../../components/Settings/CreateUserForm';
+import { useDocumentTitle } from 'usehooks-ts';
 
 const NormalPermissions: {
   permission: keyof UserPermission;
@@ -113,6 +114,7 @@ const UnsafePermissions: {
 ];
 
 export const UserSettings = () => {
+  useDocumentTitle('User Settings - Lodestone');
   const queryClient = useQueryClient();
   const { userList, selectUser, selectedUser } = useContext(SettingsContext);
   const { data: instanceList } = useInstanceList();

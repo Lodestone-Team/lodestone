@@ -38,7 +38,7 @@ import {
   zipInstanceFiles,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
-import { useElementSize, useLocalStorage } from 'usehooks-ts';
+import { useDocumentTitle, useElementSize, useLocalStorage } from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -58,6 +58,7 @@ import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOptions';
 
 export default function FileViewer() {
+  useDocumentTitle('Instance File Viewer - Lodestone');
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const canRead = useUserAuthorized('can_read_instance_file', instance?.uuid);
