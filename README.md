@@ -74,7 +74,7 @@ Lodestone is still new and we have *a lot* of features planned for this year. Ei
 
 ## License
 
-This project uses the GNU Affero General Public License v3.0. See our `LICENSE` file for details. For an alternate (commercial) license, please raise an issue.
+This project uses the GNU Affero General Public License v3.0. See our `LICENSE` file for details. For an alternate (proprietary) license, please raise an issue.
 
 
 ## Team
