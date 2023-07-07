@@ -507,10 +507,14 @@ export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
   return response;
 };
 
-export const confirmPlayitSignup = async (): Promise<SignupStatus> => {
+export const confirmPlayitSignup = async (
+  signupData: PlayitSignupData 
+): Promise<SignupStatus> => {
+  console.log(signupData)
   const response = await axiosWrapper<SignupStatus>({
-    method: 'get',
+    method: 'post',
     url: `/playitgg/confirm_signup`,
+    data: signupData,
   });
   return response;
 };

@@ -6,7 +6,7 @@ import { PlayitSignupData } from 'bindings/PlayitSignupData';
 import { SignupStatus } from 'bindings/SignupStatus';
 
 export function PlayitggSignup() {
-  const [signupData, setSignupData] = React.useState<PlayitSignupData>({ url: 'link show up here when u click :3', claim_code: "" });
+  const [signupData, setSignupData] = React.useState<PlayitSignupData>({ url: 'link show up here when u click :3', claim_code: "a" });
   const [signupStatus, setSignupStatus] = React.useState<SignupStatus>("CodeNotFound");
   
   const generateLink = async () => {
@@ -14,7 +14,7 @@ export function PlayitggSignup() {
   }
 
   const confirmSignup = async () => {
-    setSignupStatus(await confirmPlayitSignup());
+    setSignupStatus(await confirmPlayitSignup(signupData));
   }
 
   return (

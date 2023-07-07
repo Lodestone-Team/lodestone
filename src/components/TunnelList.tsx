@@ -34,6 +34,9 @@ export function TunnelList() {
           placeholder='enter port type :3 (if minecraft just do tcp :D)'
           onChange={(e) => setPortType(e.target.value)}
       />
+      <div>
+        {tunnel?.public_ip + ":" + tunnel?.public_port}
+      </div>
     </div>
   );
 }
