@@ -20,6 +20,7 @@ import {
 } from 'utils/util';
 import { openPort } from 'utils/apis';
 import InputField from 'components/Atoms/Form/InputField';
+import { useDocumentTitle } from 'usehooks-ts';
 
 export const CoreSettings = () => {
   useDocumentTitle('Lodestone Core Settings - Lodestone');
@@ -289,9 +290,3 @@ export const CoreSettings = () => {
     </>
   );
 };
-
-export default CoreSettings;
-function useDocumentTitle(arg0: string) {
-  throw new Error('Function not implemented.');
-}
-
