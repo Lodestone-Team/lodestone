@@ -290,3 +290,5 @@ export const CoreSettings = () => {
     </>
   );
 };
+
+export default CoreSettings;
