@@ -1,7 +1,7 @@
-import {useDocumentTitle} from 'usehooks-ts';
-import {Table, TableColumn, TableRow} from 'components/Table';
-import {faPlayCircle, faSkull} from '@fortawesome/free-solid-svg-icons';
-import {ButtonMenuConfig} from 'components/ButtonMenu';
+import { useDocumentTitle } from 'usehooks-ts';
+import { Table, TableColumn, TableRow } from 'components/Table';
+import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
+import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
   getMacros,
   getTasks,
@@ -9,16 +9,16 @@ import {
   createTask,
   killTask,
 } from 'utils/apis';
-import {InstanceContext} from 'data/InstanceContext';
-import {useContext, useEffect, useState, useMemo} from 'react';
-import {MacroEntry} from 'bindings/MacroEntry';
+import { InstanceContext } from 'data/InstanceContext';
+import { useContext, useEffect, useState, useMemo } from 'react';
+import { MacroEntry } from 'bindings/MacroEntry';
 import clsx from 'clsx';
-import {useQuery, useQueryClient} from '@tanstack/react-query';
-import {toast} from 'react-toastify';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'react-toastify';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
-  const {selectedInstance} = useContext(InstanceContext);
+  const { selectedInstance } = useContext(InstanceContext);
   const [macros, setMacros] = useState<TableRow[]>([]);
   const [tasks, setTasks] = useState<TableRow[]>([]);
   const [history, setHistory] = useState<TableRow[]>([]);
@@ -69,7 +69,10 @@ const Macros = () => {
           } as TableRow)
       )
     );
-    queryClient.setQueryData(['instance', instanceUuid, 'tasks'], response.map((task) => task.pid));
+    queryClient.setQueryData(
+      ['instance', instanceUuid, 'tasks'],
+      response.map((task) => task.pid)
+    );
   };
 
   const fetchHistory = async (instanceUuid: string) => {
@@ -101,26 +104,29 @@ const Macros = () => {
     fetchAll();
   }, [selectedInstance]);
 
-  const {data: runningMacros} = useQuery(['instance', selectedInstance?.uuid, 'taskList'])
+  const { data: runningMacros } = useQuery([
+    'instance',
+    selectedInstance?.uuid,
+    'taskList',
+  ]);
 
   useEffect(() => {
     if (!runningMacros) return;
-    const runningMacrosTyped = runningMacros as number[]
+    const runningMacrosTyped = runningMacros as number[];
 
     // if there is a new task running fetchall
     for (const runningMacroId of runningMacrosTyped) {
       if (!tasks.find((task) => task.pid === runningMacroId)) {
-        fetchAll()
-        return
+        fetchAll();
+        return;
       }
     }
 
     const newTasks = tasks.filter((task) => {
-      return runningMacrosTyped.find((runningTask) => runningTask === task.id)
-    })
-    setTasks(newTasks)
-
-  }, [runningMacros])
+      return runningMacrosTyped.find((runningTask) => runningTask === task.id);
+    });
+    setTasks(newTasks);
+  }, [runningMacros]);
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
@@ -132,8 +138,8 @@ const Macros = () => {
       'All Macros': {
         rows: macros,
         columns: [
-          {field: 'name', headerName: 'MACRO NAME'},
-          {field: 'last_run', headerName: 'LAST RUN'},
+          { field: 'name', headerName: 'MACRO NAME' },
+          { field: 'last_run', headerName: 'LAST RUN' },
         ],
         menuOptions: {
           tableRows: macros,
@@ -159,7 +165,7 @@ const Macros = () => {
                   if (macro.name !== row.name) {
                     return macro;
                   }
-                  const newMacro = {...macro};
+                  const newMacro = { ...macro };
                   newMacro.last_run = unixToFormattedTime(
                     Math.floor(Date.now() / 1000).toString()
                   );
@@ -248,7 +254,7 @@ const Macros = () => {
   }, [macros, tasks, history, selectedInstance, queryClient]);
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
-  const Navbar = ({pages}: { pages: MacrosPage[] }) => {
+  const Navbar = ({ pages }: { pages: MacrosPage[] }) => {
     return (
       <>
         <div className="flex flex-row justify-start">
@@ -257,7 +263,7 @@ const Macros = () => {
               key={page}
               className={clsx(
                 selectedPage === page &&
-                'border-b-2 border-blue-200 text-blue-200',
+                  'border-b-2 border-blue-200 text-blue-200',
                 'mr-4 font-mediumbold hover:cursor-pointer',
                 'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
               )}
@@ -286,7 +292,7 @@ const Macros = () => {
         />
       </div> */}
       <div className="mt-[-3rem] mb-4">All macros for your instance</div>
-      <Navbar pages={pages}/>
+      <Navbar pages={pages} />
       <div className="relative mx-auto mt-9 flex h-full w-full flex-row justify-center">
         <Table
           rows={MacrosPageMap[selectedPage].rows}
