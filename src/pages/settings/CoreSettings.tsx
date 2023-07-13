@@ -190,99 +190,114 @@ export const CoreSettings = () => {
     </Dialog>
   );
 
+  const safeModeDialog = (
+    <ConfirmDialog
+      title="Turn off safe mode?"
+      isOpen={showSafemodeDialog}
+      onConfirm={async () => {
+        const error = await catchAsyncToString(
+          axiosPutSingleValue('/global_settings/safe_mode', false)
+        );
+        if (error) {
+          toast.error(error);
+          return;
+        }
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          safe_mode: false,
+        });
+        setShowSafemodeDialog(false);
+      }}
+      confirmButtonText="Turn off"
+      onClose={() => setShowSafemodeDialog(false)}
+      closeButtonText="Cancel"
+      type={'info'}
+    >
+      Are you sure you want to turn off safe mode? This will allow you to give
+      users other than yourself the ability to run potentially dangerous
+      commands. Make sure you trust all the users you give these permissions to.
+    </ConfirmDialog>
+  );
+
+  const openPortField = (
+    <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
+      <div className="flex min-w-0 grow flex-col">
+        {can_change_core_settings ? (
+          <label className="text-medium font-medium text-gray-300">
+            Open Port
+          </label>
+        ) : (
+          <label className="text-medium font-medium text-gray-300">
+            Open Port
+          </label>
+        )}
+        {can_change_core_settings ? (
+          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+            Attempt to port forward on your router using{' '}
+            <a
+              href="https://en.wikipedia.org/wiki/Universal_Plug_and_Play"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-200 hover:underline"
+            >
+              UPnP
+            </a>
+            . This will allow people on the internet to connect to your server.
+          </div>
+        ) : (
+          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+            No permission
+          </div>
+        )}
+      </div>
+      <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
+        <Button
+          label="Open Port"
+          intention="danger"
+          disabled={!can_change_core_settings}
+          onClick={() => {
+            setShowOpenPortDialog(true);
+          }}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <>
-      <ConfirmDialog
-        title="Turn off safe mode?"
-        isOpen={showSafemodeDialog}
-        onConfirm={async () => {
-          const error = await catchAsyncToString(
-            axiosPutSingleValue('/global_settings/safe_mode', false)
-          );
-          if (error) {
-            toast.error(error);
-            return;
-          }
-          queryClient.setQueryData(['global_settings'], {
-            ...globalSettings,
-            safe_mode: false,
-          });
-          setShowSafemodeDialog(false);
-        }}
-        confirmButtonText="Turn off"
-        onClose={() => setShowSafemodeDialog(false)}
-        closeButtonText="Cancel"
-        type={'info'}
-      >
-        Are you sure you want to turn off safe mode? This will allow you to
-        give users other than yourself the ability to run potentially dangerous
-        commands. Make sure you trust all the users you give these permissions to.
-      </ConfirmDialog>
+      {safeModeDialog}
       {openPortModal}
-      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container">
-        <div className="flex w-full flex-col gap-2 px-4 pt-8">
-          <div className="flex min-w-0 flex-row items-center gap-4">
-            <h1 className="dashboard-instance-heading">General Settings</h1>
-          </div>
-          <h3 className="text-h3 font-medium italic tracking-normal text-white/50">
-            These settings are for the core itself. They are not specific to any
-            user
-          </h3>
-        </div>
-        <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          {nameField}
-          {domainField}
-        </div>
-      </div>
-      <div className="mb-16 flex w-full flex-col gap-4 @4xl:flex-row">
-        <div className="w-[28rem]">
-          <h2 className="text-h2 font-bold tracking-medium"> Danger Zone </h2>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-            These settings can cause irreversible damage to your server!
-          </h3>
-        </div>
-        <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-          {unsafeModeField}
-          <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
-            <div className="flex min-w-0 grow flex-col">
-              {can_change_core_settings ? (
-                <label className="text-medium font-medium text-gray-300">
-                  Open Port
-                </label>
-              ) : (
-                <label className="text-medium font-medium text-gray-300">
-                  Open Port
-                </label>
-              )}
-              {can_change_core_settings ? (
-                <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-                  Attempt to port forward on your router using{' '}
-                  <a
-                    href="https://en.wikipedia.org/wiki/Universal_Plug_and_Play"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-200 hover:underline"
-                  >
-                    UPnP
-                  </a>
-                  . This will allow people on the internet to connect to your
-                  server.
-                </div>
-              ) : (
-                <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-                  No permission
-                </div>
-              )}
+      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container ">
+        <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
+          <h1 className="dashboard-instance-heading">General Settings</h1>
+          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
+            <div className="w-[28rem]">
+              <h2 className="text-h2 font-bold tracking-medium">
+                {' '}
+                Danger Zone{' '}
+              </h2>
+              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+                These settings are for the core itself.
+              </h3>
             </div>
-            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
-              <Button
-                label="Open Port"
-                intention="danger"
-                disabled={!can_change_core_settings}
-                onClick={() => {
-                  setShowOpenPortDialog(true);
-                }}
-              />
+            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+              {nameField}
+              {domainField}
+            </div>
+          </div>
+          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
+            <div className="w-[28rem]">
+              <h2 className="text-h2 font-bold tracking-medium">
+                {' '}
+                Danger Zone{' '}
+              </h2>
+              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+                These settings can cause irreversible damage to your server!
+              </h3>
+            </div>
+            <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+              {unsafeModeField}
+              {openPortField}
             </div>
           </div>
         </div>

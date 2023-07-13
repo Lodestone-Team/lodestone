@@ -6,9 +6,9 @@ import { useCoreInfo } from 'data/SystemInfo';
 import { useContext } from 'react';
 import { round } from 'utils/util';
 
-const bytesInGigabyte = 1073741824;
+const bytesInGigabyte = 1024 * 1024 * 1024;
 
-export default function InstancePerformanceCard() {
+export default function InstancePerformance() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No instance selected');
   const {

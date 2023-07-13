@@ -16,7 +16,7 @@ import {
 import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
 import { useDocumentTitle } from 'usehooks-ts';
 
-export default function InstanceSettingCard() {
+export default function InstanceSetting() {
   useDocumentTitle('Instance Settings - Lodestone');
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
@@ -73,54 +73,51 @@ export default function InstanceSettingCard() {
         Please backup any important data before proceeding.
       </ConfirmDialog>
 
-      <div>
-        {sections.map((section) => (
-          <div
-            key={section.section_id}
-            className="mb-16 flex flex-col gap-4 @4xl:flex-row"
-          >
-            <div className="w-80 shrink-0">
-              <h2 className="text-h2 font-extrabold tracking-medium">
-                {section.name}
-              </h2>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                {section.description}
-              </h3>
-            </div>
-            <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-              {Object.keys(section['settings']).length ? (
-                Object.keys(section['settings']).map((settingKey: string) => {
-                  const setting: SettingFieldObject =
-                    section['settings'][settingKey];
-                  return (
-                    <SettingField
-                      instance={instance}
-                      setting={setting}
-                      key={settingKey}
-                      sectionId={section.section_id}
-                      settingId={settingKey}
-                      error={error}
-                      descriptionFunc={
-                        SettingOverrides[settingKey]?.descriptionFunc ??
-                        undefined
-                      }
-                    />
-                  );
-                })
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-                  <h2 className="text-h3 font-bold tracking-medium text-white/50">
-                    Not available at this moment
-                  </h2>
-                  <h2 className="text-medium font-medium tracking-medium text-white/50">
-                    Try to start this instance at least once
-                  </h2>
-                </div>
-              )}
-            </div>
+      {sections.map((section) => (
+        <div
+          key={section.section_id}
+          className="mb-16 flex flex-col gap-4 @4xl:flex-row"
+        >
+          <div className="w-80 shrink-0">
+            <h2 className="text-h2 font-extrabold tracking-medium">
+              {section.name}
+            </h2>
+            <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+              {section.description}
+            </h3>
           </div>
-        ))}
-      </div>
+          <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            {Object.keys(section['settings']).length ? (
+              Object.keys(section['settings']).map((settingKey: string) => {
+                const setting: SettingFieldObject =
+                  section['settings'][settingKey];
+                return (
+                  <SettingField
+                    instance={instance}
+                    setting={setting}
+                    key={settingKey}
+                    sectionId={section.section_id}
+                    settingId={settingKey}
+                    error={error}
+                    descriptionFunc={
+                      SettingOverrides[settingKey]?.descriptionFunc ?? undefined
+                    }
+                  />
+                );
+              })
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
+                <h2 className="text-h3 font-bold tracking-medium text-white/50">
+                  Not available at this moment
+                </h2>
+                <h2 className="text-medium font-medium tracking-medium text-white/50">
+                  Try to start this instance at least once
+                </h2>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-80 shrink-0">
           <h2 className="text-h2 font-extrabold tracking-medium">

@@ -6,7 +6,7 @@ import { useContext } from 'react';
 import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
-import InstancePerformanceCard from 'components/Instance/InstancePerformanceCard';
+import InstancePerformance from 'components/Instance/InstancePerformance';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
@@ -111,7 +111,7 @@ const InstanceOverview = () => {
           </div>
         </div>
       </div>
-      <InstancePerformanceCard />
+      <InstancePerformance />
       <InstancePlayerList />
     </>
   );
