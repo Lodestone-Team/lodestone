@@ -269,12 +269,11 @@ export const CoreSettings = () => {
       {openPortModal}
       <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container ">
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
-          <h1 className="dashboard-instance-heading">General Settings</h1>
+          <h1 className="dashboard-instance-heading">Core Settings</h1>
           <div className="flex w-full flex-col gap-4 @4xl:flex-row">
             <div className="w-[28rem]">
               <h2 className="text-h2 font-bold tracking-medium">
-                {' '}
-                Danger Zone{' '}
+                General Settings
               </h2>
               <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
                 These settings are for the core itself.
@@ -287,10 +286,7 @@ export const CoreSettings = () => {
           </div>
           <div className="flex w-full flex-col gap-4 @4xl:flex-row">
             <div className="w-[28rem]">
-              <h2 className="text-h2 font-bold tracking-medium">
-                {' '}
-                Danger Zone{' '}
-              </h2>
+              <h2 className="text-h2 font-bold tracking-medium">Danger Zone</h2>
               <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
                 These settings can cause irreversible damage to your server!
               </h3>
