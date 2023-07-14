@@ -1,0 +1,143 @@
+name: Build Lodestone Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag the release with, leave empty to not make a release"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to tag the release with, leave empty to not make a release"
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_lodestone:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            os: "windows"
+            arch: "x86_64"
+            postfix: ".exe"
+            cross: false
+          - platform: "ubuntu-latest"
+            target: "x86_64-unknown-linux-gnu"
+            os: "linux"
+            arch: "x86_64"
+            postfix: ""
+            cross: false
+          - platform: "self-hosted"
+            target: "aarch64-unknown-linux-gnu"
+            os: "linux"
+            arch: "aarch64"
+            postfix: ""
+            cross: false
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
+            os: "macos"
+            arch: "x86_64"
+            postfix: ""
+            cross: false
+
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release"
+          key: ${{ matrix.target }}-core
+
+      - name: Find Version (Linux, MacOS)
+        id: find_version
+        if: runner.os != 'Windows'
+        run: |
+          cargo install cargo-get
+          VERSION="v$(cargo get version)"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_${VERSION}${{matrix.postfix}}"
+          echo "FILENAME=${FILENAME}" >> $GITHUB_ENV
+
+      - name: Find Version (Windows)
+        id: find_version_windows
+        if: runner.os == 'Windows'
+        run: |
+          cargo install cargo-get
+          $VERSION = "v$(cargo get version)"
+          "VERSION=$VERSION" >> $env:GITHUB_ENV
+          $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
+          "FILENAME=$FILENAME" >> $env:GITHUB_ENV
+
+#       - name: Verify Version
+#         if: inputs.version
+#         uses: actions/github-script@v6
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             if (process.env.VERSION != ${{ inputs.version }}) {
+#               core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
+#             }
+
+      - name: Build Lodestone Core
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: build
+          args: --release --features "vendored-openssl" --target ${{ matrix.target }}
+
+      - name: Rename File (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          mv ./target/${{ matrix.target }}/release/main${{ matrix.postfix }} ./${{ env.FILENAME }}
+
+      - name: Rename File (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "::debug::$(ls)"
+          Move-Item -Path "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" -Destination "./${{ env.FILENAME }}"
+          # for debugging
+          echo "::debug::Listing files in current directory"
+          echo "::debug::$(ls)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{env.FILENAME}}
+          path: ./${{env.FILENAME}}
+
+      - name: Draft Release
+        uses: softprops/action-gh-release@v1
+        if: inputs.version
+        with:
+          files: ./${{env.FILENAME}}
+          tag_name: ${{env.VERSION}}
+          draft: true
+          prerelease: true
