@@ -4120,6 +4120,7 @@ name = "lodestone-client"
 version = "0.5.0-beta.2"
 dependencies = [
  "lodestone_core",
+ "notify-rust",
  "portpicker",
  "serde",
  "serde_json",

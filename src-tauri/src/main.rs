@@ -14,6 +14,8 @@ use tauri::Manager;
 use tauri::{utils::config::AppUrl, WindowUrl};
 use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
+use notify_rust::Notification;
+
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
     Ok(is_owner_account_present(state.inner()).await)
@@ -75,39 +77,49 @@ async fn main() {
 
     let tray_menu = SystemTrayMenu::new().add_item(quit);
 
-    builder
-        .manage(app_state)
-        .invoke_handler(tauri::generate_handler![
-            is_setup,
-            setup_owner_account,
-            get_owner_jwt,
-            get_first_time_setup_key
-        ])
-        .on_window_event(|event| match event.event() {
-            tauri::WindowEvent::CloseRequested { api, .. } => {
-                event.window().hide().unwrap();
-                api.prevent_close();
-            }
-            _ => {}
-        })
-        .system_tray(SystemTray::new().with_menu(tray_menu))
-        .on_system_tray_event(move |app, event| match event {
-            SystemTrayEvent::MenuItemClick { id, .. } => {
-                if id == "quit" {
-                    if let Some(tx) = shutdown_tx.lock().unwrap().take() {
-                        tx.send(()).unwrap();
-                    }
-                    app.exit(0);
+    match builder
+            .manage(app_state)
+            .invoke_handler(tauri::generate_handler![
+                is_setup,
+                setup_owner_account,
+                get_owner_jwt,
+                get_first_time_setup_key
+            ])
+            .on_window_event(|event| match event.event() {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    event.window().hide().unwrap();
+                    api.prevent_close();
                 }
-            }
+                _ => {}
+            })
+            .system_tray(SystemTray::new().with_menu(tray_menu))
+            .on_system_tray_event(move |app, event| match event {
+                SystemTrayEvent::MenuItemClick { id, .. } => {
+                    if id == "quit" {
+                        if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                            tx.send(()).unwrap();
+                        }
+                        app.exit(0);
+                    }
+                }
 
-            SystemTrayEvent::LeftClick { .. } => {
-                let window = app.get_window("main").unwrap();
-                window.show().unwrap();
-                window.set_focus().unwrap();
-            }
-            _ => {}
-        })
-        .run(context)
-        .expect("error while running tauri application");
+                SystemTrayEvent::LeftClick { .. } => {
+                    let window = app.get_window("main").unwrap();
+                    window.show().unwrap();
+                    window.set_focus().unwrap();
+                }
+                _ => {}
+            })
+            .run(context)
+    {
+        Ok(_) => {}
+        Err(e) => {
+            Notification::new()
+                .summary("Lodestone failed to start")
+                .body(format!("Oh no! Looks like Lodestone was unable to start with error {}.", e).as_str())
+                .auto_icon()
+                .show()
+                .expect("Failed to show notification");
+        }
+    }
 }

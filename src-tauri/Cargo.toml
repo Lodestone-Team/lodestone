@@ -22,6 +22,7 @@ tauri-plugin-localhost = "0.1.0"
 portpicker = "0.1"
 lodestone_core = {git = "https://github.com/Lodestone-Team/lodestone_core", branch = "dev"}
 tokio = { version = "1.21.1", features = ["macros", "rt"] }
+notify-rust = "4"
 
 [features]
 # by default Tauri runs in production mode
