@@ -1,13 +1,14 @@
 [package]
 name = "lodestone-client"
-version = "0.5.0-beta.2"
 description = "Lodestone's Desktop Client"
-authors = ["Lodestone-Team"]
-license = ""
-repository = ""
 default-run = "lodestone-client"
-edition = "2021"
-rust-version = "1.57"
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+readme.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,7 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.1.1", features = ["api-all", "devtools", "system-tray", "updater"] }
 tauri-plugin-localhost = "0.1.0"
 portpicker = "0.1"
-lodestone_core = {git = "https://github.com/Lodestone-Team/lodestone_core", branch = "dev"}
+lodestone_core = { path = "../../core" }
 tokio = { version = "1.21.1", features = ["macros", "rt"] }
 
 [features]

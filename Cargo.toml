@@ -1,0 +1,17 @@
+[workspace]
+
+members = [
+    "core", # lodestone_core
+    "dashboard/src-tauri" #lodestone-client
+]
+default-members = ["core"] # Run `cargo install tauri` then `cargo tauri build` to build the client
+resolver = "2"
+
+[workspace.package]
+version = "0.5.0-beta.2"
+homepage = "https://github.com/Lodestone-Team"
+readme = "README.md"
+edition = "2021"
+license = "APGL-3.0"
+authors = ["Lodestone Team"]
+rust-version = "1.71.0"
