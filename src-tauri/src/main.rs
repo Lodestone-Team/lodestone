@@ -16,6 +16,9 @@ use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
 use notify_rust::Notification;
 
+use std::path::PathBuf;
+use std::fs;
+
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
     Ok(is_owner_account_present(state.inner()).await)
@@ -116,7 +119,7 @@ async fn main() {
         Err(e) => {
             Notification::new()
                 .summary("Lodestone failed to start")
-                .body(format!("Oh no! Looks like Lodestone was unable to start with error {}.", e).as_str())
+                .body("Oh no! Looks like Lodestone was unable to start.")
                 .auto_icon()
                 .show()
                 .expect("Failed to show notification");
