@@ -16,9 +16,6 @@ use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
 use notify_rust::Notification;
 
-use std::path::PathBuf;
-use std::fs;
-
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
     Ok(is_owner_account_present(state.inner()).await)
