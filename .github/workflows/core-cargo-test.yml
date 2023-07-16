@@ -20,9 +20,6 @@ jobs:
             target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
-    defaults:
-      run:
-        working-directory: ./core
     
     steps:
     - uses: actions/checkout@v1
