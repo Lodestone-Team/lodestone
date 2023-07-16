@@ -1,16 +1,16 @@
-name: Cargo Check
+name: Dashboard - Check
 
 on:
   workflow_dispatch:
   workflow_call:
 
 jobs:
-  check:
+  dashboard-check:
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: ./src-tauri
+        working-directory: ./dashboard
 
     steps:
       - name: Checkout repository
@@ -43,10 +43,14 @@ jobs:
       - name: Cache Rust Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
           prefix-key: rust-cache
-          shared-key: ${{ runner.os }}-check
-          key: 'v1'
+          shared-key: x86_64-unknown-linux-gnu-debug-check
+          key: workspace
 
-      - name: Cargo Check
-        run: cargo check --release
+
+      - name: Run Clippy Check
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features --release
+  

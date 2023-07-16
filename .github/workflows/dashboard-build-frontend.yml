@@ -1,16 +1,16 @@
-name: Build Lodestone Dashboard
+name: Dashboard - Build Frontend
 
 on:
   workflow_dispatch:
   workflow_call:
 
 jobs:
-  build-nextjs:
+  dashboard-build-frontend:
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: ./
+        working-directory: ./dashboard
 
     steps:
       - name: Checkout repository

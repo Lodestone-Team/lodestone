@@ -1,49 +1,41 @@
-name: Build Lodestone Desktop
+name: Dashboard - Build and Draft
 on:
   workflow_call:
     inputs:
       version:
-        description: 'Version to tag release with'
+        description: 'Version to tag release with, leave empty to not make a release'
         required: true
-        default: 'edge'
         type: string
       debug:
         description: 'Whether to build in debug mode, uses less time but might run out of space on windows'
         required: true
         default: true
-        type: boolean
-      release:
-        description: 'Whether to draft a release'
-        required: true
-        default: false
         type: boolean
 
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to tag release with'
-        required: true
-        default: 'edge'
+        description: 'Version to tag release with, leave empty to not make a release'
+        required: false
         type: string
       debug:
         description: 'Whether to build in debug mode, uses less time but might run out of space on windows'
         required: true
         default: true
         type: boolean
-      release:
-        description: 'Whether to draft a release'
-        required: true
-        default: false
-        type: boolean
 
 jobs:
-  build-tauri:
+  dashboard-build-and-draft:
     strategy:
       fail-fast: true
       matrix:
         platform: [ubuntu-latest, windows-latest, macos-latest]
 
     runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: ./dashboard
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -85,8 +77,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
-          tagName: ${{ inputs.release && inputs.version || null }}
-          releaseName: ${{ inputs.release && inputs.version || null }}
+          tagName: ${{ inputs.version || null }}
+          releaseName: ${{ inputs.version || null }}
           releaseBody: "Automated release for ${{ inputs.version }}"
           includeUpdaterJson: true
           releaseDraft: true
@@ -97,11 +89,11 @@ jobs:
 
       - name: Add windows portable exe to release
         uses: softprops/action-gh-release@v1
-        if: matrix.platform == 'windows-latest' && inputs.release
+        if: matrix.platform == 'windows-latest' && inputs.version
         with:
           files: |
-            ./src-tauri/target/release/Lodestone.exe
-            ./src-tauri/target/debug/Lodestone.exe
+            ../target/release/Lodestone.exe
+            ../target/debug/Lodestone.exe
           tag_name: ${{ inputs.version }}
           draft: true
           prerelease: true

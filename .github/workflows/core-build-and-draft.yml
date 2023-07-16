@@ -1,4 +1,4 @@
-name: Build Lodestone Core
+name: Core - Build and Draft
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_lodestone:
+  core-build-and-draft:
     strategy:
       fail-fast: false
       matrix:
@@ -49,9 +49,6 @@ jobs:
             cross: false
 
     runs-on: ${{ matrix.platform }}
-    defaults:
-      run:
-        working-directory: ./
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -73,8 +70,9 @@ jobs:
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release"
-          key: ${{ matrix.target }}-core
+          prefix-key: rust-cache
+          shared-key: ${{ matrix.target }}-debug-build
+          key: workspace
 
       - name: Find Version (Linux, MacOS)
         id: find_version
@@ -96,15 +94,15 @@ jobs:
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
           "FILENAME=$FILENAME" >> $env:GITHUB_ENV
 
-#       - name: Verify Version
-#         if: inputs.version
-#         uses: actions/github-script@v6
-#         with:
-#           github-token: ${{ secrets.GITHUB_TOKEN }}
-#           script: |
-#             if (process.env.VERSION != ${{ inputs.version }}) {
-#               core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
-#             }
+      # - name: Verify Version
+      #   if: inputs.version && false
+      #   uses: actions/github-script@v6
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     script: |
+      #       if (process.env.VERSION != ${{ inputs.version }}) {
+      #         core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
+      #       }
 
       - name: Build Lodestone Core
         uses: actions-rs/cargo@v1
@@ -128,7 +126,7 @@ jobs:
           echo "::debug::$(ls)"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{env.FILENAME}}
           path: ./${{env.FILENAME}}

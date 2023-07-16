@@ -1,0 +1,47 @@
+name: Core - Cargo Test
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core-cargo-test:
+    strategy:
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: ./core
+    
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: rust-cache
+        shared-key: ${{ matrix.target }}-debug-build
+        key: workspace
+
+    - name: Cargo Test Backend
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --no-fail-fast -- --test-threads=1

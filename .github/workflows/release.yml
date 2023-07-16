@@ -1,0 +1,33 @@
+name: Release Workflow
+
+# Developers, to start making a release, tag a commit with vX.Y.Z and push it to main.
+# Then this workflow will run and create a draft release with the tag name as the version.
+# You can then edit the release to include a changelog and publish it.
+
+on:
+  push:
+    tags: [ v* ]
+
+jobs:
+  workspace-check:
+    uses: ./.github/workflows/workspace-check.yml
+    secrets: inherit
+
+  core-cargo-test:
+    uses: ./.github/workflows/core-cargo-test.yml
+    secrets: inherit
+
+  dashboard-build-and-draft:
+    uses: ./.github/workflows/dashboard-build-and-draft.yml
+    needs: [workspace-check, core-cargo-test]
+    with:
+      version: ${{ github.ref_name }}
+      debug: false
+    secrets: inherit
+
+  core-build-and-draft:
+    uses: ./.github/workflows/core-build-and-draft.yml
+    needs: [workspace-check, core-cargo-test]
+    with:
+      version: ${{ github.ref_name }}
+    secrets: inherit
