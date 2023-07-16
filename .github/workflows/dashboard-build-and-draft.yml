@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: 18.x
           cache: 'npm'
-          cache-dependency-path: ./package-lock.json
+          cache-dependency-path: ./dashboard/package-lock.json
 
       - name: Install Rust stable
         uses: actions-rs/toolchain@v1

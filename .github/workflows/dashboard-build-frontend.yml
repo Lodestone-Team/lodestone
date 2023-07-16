@@ -8,10 +8,6 @@ jobs:
   dashboard-build-frontend:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: ./dashboard
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -21,17 +17,18 @@ jobs:
         with:
           node-version: 18.x
           cache: 'npm'
-          cache-dependency-path: ./package-lock.json
+          cache-dependency-path: ./dashboard/package-lock.json
 
       - name: Install dependencies
         run: npm ci
-      # - run: npm test
+        working-directory: ./dashboard
 
       - name: Build dashboard
         run: npm run build --if-present
+        working-directory: ./dashboard
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3
         with:
           name: dashboard-static
-          path: ./out
+          path: ./dashboard/out
