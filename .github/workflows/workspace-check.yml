@@ -21,9 +21,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        working-directory: ./dashboard
 
       - name: Build dashboard
         run: npm run build --if-present
+        working-directory: ./dashboard
 
       - name: Install Rust stable
         uses: actions-rs/toolchain@v1
