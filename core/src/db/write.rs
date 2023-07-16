@@ -102,3 +102,68 @@ pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(unused_imports)]
+
+mod tests {
+    use std::{path::PathBuf, str::FromStr};
+
+    use sqlx::{sqlite::SqliteConnectOptions, Pool};
+
+    use crate::{
+        events::{CausedBy, EventLevel, FSEvent, FSOperation, FSTarget},
+        types::Snowflake,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_write() {
+        let pool = Pool::connect_with(
+            SqliteConnectOptions::from_str("sqlite://test.db")
+                .unwrap()
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+        let drop_result = sqlx::query!(r#"DROP TABLE IF EXISTS ClientEvents"#)
+            .execute(&pool)
+            .await;
+        assert!(drop_result.is_ok());
+        let init_result = init_client_events_table(&pool).await;
+        assert!(init_result.is_ok());
+        let snowflake = Snowflake::new();
+        let dummy_event = ClientEvent {
+            event_inner: EventInner::FSEvent(FSEvent {
+                operation: FSOperation::Read,
+                target: FSTarget::File(PathBuf::from("/test")),
+            }),
+            details: "Dummy value".to_string(),
+            snowflake,
+            level: EventLevel::Info,
+            caused_by: CausedBy::System,
+        };
+        let write_result = write_client_event(&pool, dummy_event.clone()).await;
+        assert!(write_result.is_ok());
+
+        let row_result = sqlx::query!(
+            r#"
+            SELECT * FROM ClientEvents;
+            "#,
+        )
+        .fetch_one(&pool)
+        .await;
+        assert!(row_result.is_ok());
+        let row = row_result.unwrap();
+        assert_eq!(
+            row.event_value,
+            serde_json::to_string(&dummy_event).unwrap()
+        );
+        assert_eq!(row.details, dummy_event.details);
+        assert_eq!(row.snowflake.to_string(), snowflake.to_string());
+        assert_eq!(row.level, "Info".to_string()); // consider using sqlx::Encode trait to compare
+        assert_eq!(row.caused_by_user_id, None);
+        assert_eq!(row.instance_id, None);
+    }
+}
