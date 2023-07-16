@@ -34,8 +34,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         prefix-key: rust-cache
-        shared-key: ${{ matrix.target }}-debug-build
-        key: workspace
+        shared-key: workspace-${{ matrix.target }}-debug-build
 
     - name: Cargo Test Backend
       uses: actions-rs/cargo@v1

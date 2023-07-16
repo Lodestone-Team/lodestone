@@ -29,12 +29,15 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        platform: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+        - platform: "windows-latest"
+          target: "x86_64-pc-windows-msvc"
+        - platform: "ubuntu-latest"
+          target: "x86_64-unknown-linux-gnu"
+        - platform: "macos-latest"
+          target: "x86_64-apple-darwin"
 
     runs-on: ${{ matrix.platform }}
-    defaults:
-      run:
-        working-directory: ./dashboard
 
     steps:
       - name: Checkout repository
@@ -61,13 +64,12 @@ jobs:
       - name: Cache Rust Dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
           prefix-key: rust-cache
-          shared-key: ${{ runner.os }}-tauri
-          key: "v1"
+          shared-key: workspace-${{ matrix.target }}-${{ inputs.debug == true && 'debug' || 'release' }}-build
 
       - name: Install npm dependencies
         run: npm ci
+        working-directory: ./dashboard
 
       - name: Build Tauri desktop app
         uses: tauri-apps/tauri-action@v0
@@ -77,6 +79,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
+          projectPath: ./dashboard
           tagName: ${{ inputs.version || null }}
           releaseName: ${{ inputs.version || null }}
           releaseBody: "Automated release for ${{ inputs.version }}"

@@ -71,7 +71,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
-          shared-key: ${{ matrix.target }}-debug-build
+          shared-key: ${{ matrix.target }}-release-build
           key: workspace
 
       - name: Find Version (Linux, MacOS)

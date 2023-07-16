@@ -23,8 +23,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
-          shared-key: x86_64-unknown-linux-gnu-debug-check
-          key: workspace
+          shared-key: workspace-x86_64-unknown-linux-gnu-release-check
 
       - name: Run Clippy Check
         uses: actions-rs/clippy-check@v1
