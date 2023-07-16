@@ -14,4 +14,4 @@ readme = "README.md"
 edition = "2021"
 license = "APGL-3.0"
 authors = ["Lodestone Team"]
-rust-version = "1.71.0"
+rust-version = "1.69.0"
