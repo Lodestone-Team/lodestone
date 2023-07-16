@@ -373,12 +373,12 @@ pub struct Args {
 
 pub async fn run(
     args: Args,
-) -> (
+) -> Result<(
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
     tokio::sync::oneshot::Sender<()>,
-) {
+), Error> {
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -577,7 +577,7 @@ pub async fn run(
     .await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
-    (
+    Ok((
         {
             let shared_state = shared_state.clone();
             async move {
@@ -723,5 +723,5 @@ pub async fn run(
         shared_state,
         guard,
         shutdown_tx,
-    )
+    ))
 }
