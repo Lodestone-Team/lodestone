@@ -78,8 +78,7 @@ jobs:
         id: find_version
         if: runner.os != 'Windows'
         run: |
-          cargo install cargo-get
-          VERSION="v$(cargo get version)"
+          VERSION="v$(grep "^version" Cargo.toml | cut -d = -f 2 | sed -E "s/\"//g" | sed -E "s/ //g")"
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_${VERSION}${{matrix.postfix}}"
           echo "FILENAME=${FILENAME}" >> $GITHUB_ENV
@@ -87,12 +86,13 @@ jobs:
       - name: Find Version (Windows)
         id: find_version_windows
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          cargo install cargo-get
-          $VERSION = "v$(cargo get version)"
-          "VERSION=$VERSION" >> $env:GITHUB_ENV
+          $VERSION = "v" + (Get-Content Cargo.toml | Select-String -Pattern "^version" | ForEach-Object { $_.ToString().Split("=")[1].Trim().Replace("`"", "") })
+          echo "VERSION=$VERSION" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
-          "FILENAME=$FILENAME" >> $env:GITHUB_ENV
+          echo "FILENAME=$FILENAME" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+        
 
       # - name: Verify Version
       #   if: inputs.version && false
