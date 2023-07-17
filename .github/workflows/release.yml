@@ -9,10 +9,25 @@ on:
     tags: [ v* ]
 
 jobs:
-  build_desktop:
-    uses: ./.github/workflows/desktop.yml
+  workspace-check:
+    uses: ./.github/workflows/workspace-check.yml
+    secrets: inherit
+
+  core-cargo-test:
+    uses: ./.github/workflows/core-cargo-test.yml
+    secrets: inherit
+
+  dashboard-build-and-draft:
+    uses: ./.github/workflows/dashboard-build-and-draft.yml
+    needs: [workspace-check, core-cargo-test]
     with:
       version: ${{ github.ref_name }}
       debug: false
-      release: true
+    secrets: inherit
+
+  core-build-and-draft:
+    uses: ./.github/workflows/core-build-and-draft.yml
+    needs: [workspace-check, core-cargo-test]
+    with:
+      version: ${{ github.ref_name }}
     secrets: inherit

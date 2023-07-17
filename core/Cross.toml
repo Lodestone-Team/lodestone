@@ -1,0 +1,5 @@
+[target.x86_64-unknown-linux-gnu]
+pre-build = ["apt-get update && apt-get install --assume-yes libssl-dev libsasl2-dev"]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = ["dpkg --add-architecture arm64 && apt-get update && apt-get install --assume-yes libssl-dev libssl-dev:arm64 libsasl2-dev clang"]
