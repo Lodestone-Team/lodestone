@@ -68,6 +68,8 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter}
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
+use fs3::FileExt;
+
 pub mod auth;
 pub mod db;
 mod deno_ops;
@@ -409,6 +411,16 @@ pub async fn run(
     check_for_core_update().await;
     output_sys_info();
 
+    let lockfile_path = lodestone_path.join("lodestone.lock");
+    let file = if lockfile_path.as_path().exists() {
+        std::fs::File::open(lockfile_path.as_path()).expect("failed to open lockfile")
+    } else {
+        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile")
+    };
+    if file.try_lock_exclusive().is_err() {
+        panic!("Another instance of lodestone might be running");
+    }
+
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
@@ -644,6 +656,8 @@ pub async fn run(
                         .unwrap();
                     }
                 });
+                // capture file into the move block
+                let _file = file;
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
