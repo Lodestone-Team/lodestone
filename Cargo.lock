@@ -4194,6 +4194,7 @@ dependencies = [
  "enum_dispatch",
  "fancy-regex",
  "flate2",
+ "fs3",
  "fs_extra",
  "futures",
  "futures-util",

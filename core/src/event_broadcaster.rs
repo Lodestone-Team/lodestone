@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::error;
 
 use crate::{
     events::{Event, EventInner, InstanceEvent, InstanceEventInner},
-    traits::t_server::State,
+    traits::{t_player::Player, t_server::State},
     types::InstanceUuid,
 };
 
@@ -16,6 +18,13 @@ pub struct EventBroadcaster {
 pub struct PlayerMessage {
     pub player: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PlayerChange {
+    player_list: HashSet<Player>,
+    players_joined: HashSet<Player>,
+    players_left: HashSet<Player>,
 }
 
 impl EventBroadcaster {
@@ -101,6 +110,23 @@ impl EventBroadcaster {
                 return PlayerMessage {
                     player,
                     message: player_message,
+                };
+            }
+        }
+    }
+    pub async fn next_instance_player_change(&self, instance_uuid: &InstanceUuid) -> PlayerChange {
+        loop {
+            let event = self.next_instance_event(instance_uuid).await;
+            if let InstanceEventInner::PlayerChange {
+                player_list,
+                players_joined,
+                players_left,
+            } = event.instance_event_inner
+            {
+                return PlayerChange {
+                    player_list,
+                    players_joined,
+                    players_left,
                 };
             }
         }

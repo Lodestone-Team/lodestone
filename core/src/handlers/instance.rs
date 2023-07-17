@@ -109,8 +109,6 @@ pub async fn create_minecraft_instance(
         let uuid = instance_uuid.clone();
         let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
-        let port = setup_config.port;
-        let flavour = setup_config.flavour.clone();
         let caused_by = CausedBy::User {
             user_id: requester.uid.clone(),
             user_name: requester.username.clone(),
@@ -121,10 +119,6 @@ pub async fn create_minecraft_instance(
                 Some(10.0),
                 Some(ProgressionStartValue::InstanceCreation {
                     instance_uuid: uuid.clone(),
-                    instance_name: instance_name.clone(),
-                    port,
-                    flavour: flavour.to_string(),
-                    game_type: "minecraft".to_string(),
                 }),
                 caused_by,
             );
