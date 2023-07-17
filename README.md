@@ -1,4 +1,4 @@
-[![Lodestone Screen Shot](/public/assets/readmeRender.png)](https://www.lodestone.cc/)
+[![Lodestone Screen Shot](/dashboard/public/assets/readmeRender.png)](https://www.lodestone.cc/)
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
