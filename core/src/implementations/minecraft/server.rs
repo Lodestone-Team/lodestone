@@ -419,7 +419,7 @@ impl TServer for MinecraftInstance {
                                     } else if let Some(PlayerMessage { player, message }) =
                                         parse_player_msg(&line)
                                     {
-                                        let _ = event_broadcaster.send(Event {
+                                        event_broadcaster.send(Event {
                                             event_inner: EventInner::InstanceEvent(InstanceEvent {
                                                 instance_uuid: uuid.clone(),
                                                 instance_event_inner:
