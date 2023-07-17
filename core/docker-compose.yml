@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  lodestone:
+    container_name: lodestone
+    image: ghcr.io/lodestone-team/lodestone_core
+    restart: unless-stopped
+    ports:
+      - "16662:16662"
+    volumes:
+      - lodestone:/home/user/.lodestone
+
+volumes:
+  lodestone:
