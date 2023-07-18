@@ -1,0 +1,304 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Satoshi */
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Variable.woff2') format('woff2');
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-VariableItalic.woff2') format('woff2');
+  font-weight: 300 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Chillax */
+@font-face {
+  font-family: 'Chillax';
+  src: url('/fonts/Chillax-Variable.woff2') format('woff2');
+  font-weight: 200 700;
+  font-display: swap;
+  font-style: normal;
+}
+
+/* JetBrains Mono */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-VariableItalic.woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+  font-style: italic;
+}
+
+/* Clash Grotesk */
+@font-face {
+  font-family: 'Clash Grotesk';
+  src: url('/fonts/ClashGrotesk-Variable.woff2') format('woff2');
+  font-weight: 200 700;
+  font-display: swap;
+  font-style: normal;
+}
+
+/* Minecraft Changed */
+@font-face {
+  font-family: 'Minecraft Changed';
+  src: url('/fonts/Minecraft_changed.woff') format('woff');
+  font-weight: 400;
+  font-display: swap;
+  font-style: normal;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  scroll-behavior: smooth;
+  min-width: 100%;
+  min-height: 100%;
+  overscroll-behavior: none;
+  overflow: clip;
+  color-scheme: dark;
+}
+
+main {
+  @apply font-sans text-gray-300;
+}
+
+* {
+  box-sizing: border-box;
+  --scrollbar-color: #00000000;
+}
+
+/* Tailwind custom classes */
+@layer components {
+  .dashboard-instance-heading {
+    @apply font-title text-h1 font-bold tracking-medium;
+  }
+
+  /* Input is really annoying because some elements are true form elements 
+   * and can use enabled:, disabled:, invalid:, etc.
+   * But some elements are not form elements and can't use those.
+   * So I have to use a custom class to style them.
+   * I don't like this, but I don't know how to fix it.
+   *
+   * Also we don't have scss/sass/less so we can't use nesting.
+   *
+   * update: lol we can use the headlessui plugin
+   */
+
+  .input-shape{
+    @apply rounded py-2 px-2.5
+  }
+
+  .input-background{
+    @apply bg-gray-900 disabled:bg-gray-800;
+  }
+
+  .input-outlines{
+    @apply outline outline-1 focus-visible:ring-4;
+  }
+
+  .input-text-style{
+    @apply text-left font-medium leading-snug tracking-tight placeholder:text-white/30 enabled:text-gray-300 disabled:text-white/50;
+  }
+
+  .input-border-normal {
+    @apply outline-gray-faded/30 invalid:outline-red-200 invalid:focus-visible:outline-red-200 enabled:focus-visible:ring-blue-faded/50;
+  }
+
+  .input-border-error {
+    @apply outline-red-200 focus-visible:outline-red-200 enabled:focus-visible:ring-red-faded/30;
+  }
+  
+}
+
+@layer utilities {
+  .overflow-overlay {
+    overflow: overlay;
+  }
+
+  .overflow-y-overlay {
+    overflow-y: overlay;
+  }
+
+  .overflow-x-overlay {
+    overflow-x: overlay;
+  }
+
+  .gutter-stable {
+    scrollbar-gutter: stable;
+  }
+
+  .gutter-both {
+    scrollbar-gutter: both-edges;
+  }
+
+  .gutter-both-stable {
+    scrollbar-gutter: both-edges stable;
+  }
+
+  .generic-gametype-hover{
+    border: double 2px transparent;
+    border-radius: 0.375rem;
+    background-image: linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top right, #2AF588, #334675);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+
+  .generic-gametype-selected {
+    border: double 2px transparent;
+    border-radius: 0.375rem;
+    background-image: linear-gradient(#303338, #303338), radial-gradient(circle at top right, #2AF588, #334675);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+
+  .generic-gametype-unselected{
+    border: double 2px transparent;
+    border-radius: 0.375rem;
+    background-image: linear-gradient( #2B2D32, #2B2D32), radial-gradient(circle at top right, #2B2D32, #2B2D32);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+}
+
+/* Some libraries don't like class name */
+/* So I guess I'll customize them here */
+.gutter-horizontal {
+  @apply bg-transparent hover:cursor-col-resize;
+  width: 0px !important;
+  padding-right: 5px !important;
+  margin-right: -5px !important;
+  padding-left: 5px !important;
+  margin-left: -5px !important;
+  z-index: 10000;
+}
+
+.gutter-vertical {
+  @apply bg-transparent hover:cursor-row-resize;
+  height: 0px !important;
+  padding-bottom: 5px !important;
+  margin-bottom: -5px !important;
+  padding-top: 5px !important;
+  margin-top: -5px !important;
+  z-index: 10000;
+}
+
+input {
+  /* just inherit all font-style, stop user agent stylesheet from setting it */
+  font: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  text-transform: inherit;
+  text-indent: inherit;
+  text-shadow: inherit;
+  text-align: inherit;
+  text-decoration: inherit;
+}
+
+/* custom scrollbar */
+::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+
+*:hover,
+*:focus,
+*:focus-within {
+  --scrollbar-color: hsla(0, 0%, 50%, 0.7) !important;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
+*::-webkit-scrollbar-track {
+  background-color: #00000000;
+}
+
+*::-webkit-scrollbar-track-piece {
+  background-color: #00000000;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #00000000;
+  border: 3px solid transparent;
+  border-radius: 12px;
+  box-shadow: 2px 0px 0px 2px var(--scrollbar-color) inset;
+}
+
+/* *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-color);
+  border: 0px solid transparent;
+  box-shadow: none;
+} */
+
+::-webkit-scrollbar-corner {
+  background: inherit;
+}
+
+/* set the user selection color */
+::selection {
+  background: hwb(212.571 45% 30%);
+}
+
+/* rc-tooltip */
+
+.rc-tooltip-inner {
+  @apply min-h-0 rounded-md bg-gray-750 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md whitespace-nowrap;
+}
+
+.rc-tooltip {
+  @apply opacity-100;
+  padding: 0px !important;
+}
+
+/* Removing the spin arrow */
+
+/* Chrome, Safari, Edge, Opera */
+input.noSpin::-webkit-outer-spin-button,
+input.noSpin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input.noSpin[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Toastify */
+main {
+  --toastify-font-family: Satoshi !important;
+  --toastify-toast-width: 320px !important;
+  --toastify-toast-max-height: 500px !important;
+  --toastify-toast-min-height: 50px !important;
+}
+
+.Toastify__toast-icon {
+  display: block !important;
+}
+
+.Toastify--animate {
+  animation-duration: 0.1s !important;
+}
+
+::-ms-reveal {
+  display: none;
+}

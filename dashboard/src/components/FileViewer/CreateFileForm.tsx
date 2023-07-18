@@ -1,0 +1,93 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { ClientFile } from 'bindings/ClientFile';
+import { FileType } from 'bindings/FileType';
+import Button from 'components/Atoms/Button';
+import InputField from 'components/Atoms/Form/InputField';
+import { InstanceContext } from 'data/InstanceContext';
+import { Form, Formik, FormikHelpers } from 'formik';
+import { useContext } from 'react';
+import { createInstanceFile } from 'utils/apis';
+import { DISABLE_AUTOFILL, fileSorter } from 'utils/util';
+import * as yup from 'yup';
+
+export default function CreateFileForm({
+  onSuccess,
+  onCancel,
+  fileList,
+  path,
+}: {
+  onSuccess: () => void;
+  onCancel: () => void;
+  fileList?: ClientFile[];
+  path: string;
+}) {
+  const { selectedInstance: instance } = useContext(InstanceContext);
+  const queryClient = useQueryClient();
+
+  if (!instance) throw new Error('No instance selected');
+
+  return (
+    <Formik
+      initialValues={{ name: '' }}
+      validationSchema={yup.object({
+        name: yup.string().required('Required'),
+      })}
+      onSubmit={async (
+        values: { name: string },
+        actions: FormikHelpers<{ name: string }>
+      ) => {
+        actions.setSubmitting(true);
+        const error = await createInstanceFile(
+          instance.uuid,
+          path,
+          values.name
+        );
+        if (error) {
+          actions.setErrors({ name: error });
+          actions.setSubmitting(false);
+        } else {
+          queryClient.setQueryData(
+            ['instance', instance.uuid, 'fileList', path],
+            fileList
+              ? [
+                  ...fileList,
+                  {
+                    name: values.name,
+                    file_stem : values.name.split('.').slice(0, -1).join('.'),
+                    extension : values.name.split('.').pop() ?? '',
+                    path: `${path}/${values.name}`,
+                    size : 0,
+                    creation_time: Date.now() / 1000,
+                    modification_time: Date.now() / 1000,
+                    file_type: 'File' as FileType,
+                    
+                  },
+                ].sort(fileSorter)
+              : undefined
+          );
+          actions.setSubmitting(false);
+          actions.resetForm();
+          onSuccess();
+        }
+      }}
+    >
+      {({ isSubmitting }) => (
+        <Form
+          id="create-file-form"
+          autoComplete={DISABLE_AUTOFILL}
+          className="flex flex-col items-stretch gap-8 text-center"
+        >
+          <InputField
+            name="name"
+            label="Name your file"
+            placeholder="Untitled"
+          />
+          <div className="flex flex-row justify-between">
+            <Button onClick={onCancel} label="Cancel" />
+            <Button type="submit" label="Create file" loading={isSubmitting} />
+          </div>
+        </Form>
+      )}
+    </Formik>
+  );
+}
