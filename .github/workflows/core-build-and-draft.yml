@@ -114,13 +114,13 @@ jobs:
       - name: Rename File (Linux, MacOS)
         if: runner.os != 'Windows'
         run: |
-          mv ./target/${{ matrix.target }}/release/main${{ matrix.postfix }} ./${{ env.FILENAME }}
+          mv ./target/${{ matrix.target }}/release/lodestone_core${{ matrix.postfix }} ./${{ env.FILENAME }}
 
       - name: Rename File (Windows)
         if: runner.os == 'Windows'
         run: |
           echo "::debug::$(ls)"
-          Move-Item -Path "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" -Destination "./${{ env.FILENAME }}"
+          Move-Item -Path "./target/${{ matrix.target }}/release/lodestone_core${{ matrix.postfix }}" -Destination "./${{ env.FILENAME }}"
           # for debugging
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"
