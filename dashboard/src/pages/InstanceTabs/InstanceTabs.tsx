@@ -21,6 +21,8 @@ import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
 import Macros from 'pages/macros';
+import { PlayitggSignup } from 'components/PlayitggSignup';
+import { TunnelList } from 'components/TunnelList';
 
 export const tabs = [
   {
@@ -85,6 +87,26 @@ export const tabs = [
           Coming soon to a dashboard near you!
         </p>
       </DashboardCard>
+    ),
+  },
+  {
+    title: 'Playitgg',
+    displayTitle: 'Playitgg',
+    path: 'playitgg',
+    width: 'max-w-4xl',
+    icon: <FontAwesomeIcon icon={faInbox} />,
+    content: (
+      <PlayitggSignup />
+    ),
+  },
+  {
+    title: 'Tunnels',
+    displayTitle: 'Tunnels',
+    path: 'tunnels',
+    width: 'max-w-4xl',
+    icon: <FontAwesomeIcon icon={faInbox} />,
+    content: (
+      <TunnelList />
     ),
   },
 ];

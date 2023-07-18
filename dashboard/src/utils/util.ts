@@ -113,6 +113,7 @@ export function isAxiosError<ResponseType>(
 }
 
 export function errorToString(error: unknown): string {
+  console.log(error)
   if (isAxiosError<unknown>(error)) {
     if (error.response && error.response.data) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
