@@ -24,7 +24,7 @@ use crate::traits::t_configurable::manifest::{
 use crate::traits::t_configurable::Game;
 use crate::traits::t_player::Player;
 use crate::traits::t_server::State;
-use crate::types::DotLodestoneConfig;
+use crate::types::{DotLodestoneConfig, Snowflake};
 use crate::MonitorReport;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, EnumKind)]
@@ -36,6 +36,8 @@ pub enum ProcedureCallInner {
     SetupInstance {
         dot_lodestone_config: DotLodestoneConfig,
         setup_value: SetupValue,
+        // ProgressionEventID is non-clone
+        progression_event_id: Snowflake,
         path: PathBuf,
     },
     RestoreInstance {

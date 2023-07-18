@@ -11,7 +11,7 @@ use self::{
 use crate::{
     error::Error,
     event_broadcaster::EventBroadcaster,
-    events::CausedBy,
+    events::{CausedBy, ProgressionEventID},
     macro_executor::{self, MacroExecutor, MacroPID, SpawnResult, WorkerOptionGenerator},
     traits::{
         t_configurable::{
@@ -92,6 +92,7 @@ impl GenericInstance {
         path: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         setup_value: SetupValue,
+        progression_event_id : &ProgressionEventID,
         event_broadcaster: EventBroadcaster,
         core_macro_executor: MacroExecutor,
     ) -> Result<Self, Error> {
@@ -143,6 +144,7 @@ impl GenericInstance {
             .call(ProcedureCallInner::SetupInstance {
                 dot_lodestone_config: dot_lodestone_config.clone(),
                 setup_value,
+                progression_event_id : progression_event_id.inner(),
                 path: path.clone(),
             })
             .await?;

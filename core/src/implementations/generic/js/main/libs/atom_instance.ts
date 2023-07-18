@@ -8,7 +8,7 @@ import { InstanceState } from "../../../../../../deno_bindings/InstanceState.ts"
 import { SetupValue } from "../../../../../../deno_bindings/SetupValue.ts";
 import { PerformanceReport } from "../../../../../../deno_bindings/PerformanceReport.ts";
 import { SetupManifest } from "../../../../../../deno_bindings/SetupManifest.ts";
-
+import { ProgressionHandler } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone-macro-lib/main/events.ts";
 // re-export
 export type { CausedBy } from "../../../../../../deno_bindings/CausedBy.ts";
 export type { ConfigurableManifest } from "../../../../../../deno_bindings/ConfigurableManifest.ts";
@@ -20,7 +20,7 @@ export type { InstanceState } from "../../../../../../deno_bindings/InstanceStat
 export type { SetupValue } from "../../../../../../deno_bindings/SetupValue.ts";
 export type { PerformanceReport } from "../../../../../../deno_bindings/PerformanceReport.ts";
 export type { SetupManifest } from "../../../../../../deno_bindings/SetupManifest.ts";
-
+export { ProgressionHandler } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone-macro-lib/main/events.ts";
 
 export abstract class AtomInstance {
     /**
@@ -46,11 +46,13 @@ export abstract class AtomInstance {
      * 
      * @param setupValue - The setup value for this instance.
      * @param dotLodestoneConfig - The dot lodestone config for this instance, the most important field is the uuid field.
+     * @param progression_event_id - The parent progression event id for this instance.
      * @param path - The file system path the instance is located at.
      */
     public abstract setup(
         setupValue: SetupValue,
         dotLodestoneConfig: DotLodestoneConfig,
+        progression_handler: ProgressionHandler,
         path: string,
     ): Promise<void>;
     /**
