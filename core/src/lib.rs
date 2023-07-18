@@ -43,6 +43,7 @@ use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
+use fs3::FileExt;
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
@@ -68,7 +69,6 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter}
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
-use fs3::FileExt;
 
 pub mod auth;
 pub mod db;
@@ -412,12 +412,9 @@ pub async fn run(
     output_sys_info();
 
     let lockfile_path = lodestone_path.join("lodestone.lock");
-    let file = if lockfile_path.as_path().exists() {
-        std::fs::File::open(lockfile_path.as_path()).expect("failed to open lockfile")
-    } else {
-        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile")
-    };
-    if file.try_lock_exclusive().is_err() {
+    let lock_file =
+        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile");
+    if lock_file.try_lock_exclusive().is_err() {
         panic!("Another instance of lodestone might be running");
     }
 
@@ -657,7 +654,7 @@ pub async fn run(
                     }
                 });
                 // capture file into the move block
-                let _file = file;
+                let _lock_file = lock_file;
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
