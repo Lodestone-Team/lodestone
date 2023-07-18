@@ -4156,7 +4156,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone-client"
-version = "0.5.0-beta.2"
+version = "0.5.0-beta.3"
 dependencies = [
  "lodestone_core",
  "portpicker",
@@ -4170,7 +4170,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone_core"
-version = "0.5.0-beta.2"
+version = "0.5.0-beta.3"
 dependencies = [
  "ansi_term",
  "argon2",
