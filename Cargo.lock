@@ -3133,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "lodestone_core"
-version = "0.5.0-beta.1"
+version = "0.5.0-beta.2"
 dependencies = [
  "ansi_term",
  "argon2",
@@ -3156,6 +3156,7 @@ dependencies = [
  "enum_dispatch",
  "fancy-regex",
  "flate2",
+ "fs3",
  "fs_extra",
  "futures",
  "futures-util",

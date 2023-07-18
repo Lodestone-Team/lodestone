@@ -8,25 +8,25 @@ use super::{bridge::procedure_call::ProcedureCallInner, GenericInstance};
 
 #[async_trait::async_trait]
 impl TServer for GenericInstance {
-    async fn start(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn start(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::StartInstance { caused_by, block })
             .await?;
         Ok(())
     }
-    async fn stop(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn stop(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::StopInstance { caused_by, block })
             .await?;
         Ok(())
     }
-    async fn restart(&mut self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+    async fn restart(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::RestartInstance { caused_by, block })
             .await?;
         Ok(())
     }
-    async fn kill(&mut self, caused_by: CausedBy) -> Result<(), Error> {
+    async fn kill(&self, caused_by: CausedBy) -> Result<(), Error> {
         self.procedure_bridge
             .call(ProcedureCallInner::KillInstance { caused_by })
             .await?;

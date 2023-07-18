@@ -3,18 +3,16 @@ name: Build Lodestone Core
 on:
   workflow_dispatch:
     inputs:
-      release:
-        description: "Whether to draft a release"
-        required: true
-        default: false
-        type: boolean
+      version:
+        description: "Version to tag the release with, leave empty to not make a release"
+        required: false
+        type: string
   workflow_call:
     inputs:
-      release:
-        description: "Whether to draft a release"
-        required: true
-        default: false
-        type: boolean
+      version:
+        description: "Version to tag the release with, leave empty to not make a release"
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -78,13 +76,6 @@ jobs:
           shared-key: "release"
           key: ${{ matrix.target }}-core
 
-      - name: Build Lodestone Core
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: ${{ matrix.cross }}
-          command: build
-          args: --release --features "vendored-openssl" --target ${{ matrix.target }}
-
       - name: Find Version (Linux, MacOS)
         id: find_version
         if: runner.os != 'Windows'
@@ -95,7 +86,6 @@ jobs:
           FILENAME="lodestone_core_${{matrix.os}}_${{matrix.arch}}_${VERSION}${{matrix.postfix}}"
           echo "FILENAME=${FILENAME}" >> $GITHUB_ENV
 
-
       - name: Find Version (Windows)
         id: find_version_windows
         if: runner.os == 'Windows'
@@ -105,6 +95,23 @@ jobs:
           "VERSION=$VERSION" >> $env:GITHUB_ENV
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
           "FILENAME=$FILENAME" >> $env:GITHUB_ENV
+
+#       - name: Verify Version
+#         if: inputs.version
+#         uses: actions/github-script@v6
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             if (process.env.VERSION != ${{ inputs.version }}) {
+#               core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
+#             }
+
+      - name: Build Lodestone Core
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: build
+          args: --release --features "vendored-openssl" --target ${{ matrix.target }}
 
       - name: Rename File (Linux, MacOS)
         if: runner.os != 'Windows'
@@ -125,13 +132,12 @@ jobs:
         with:
           name: ${{env.FILENAME}}
           path: ./${{env.FILENAME}}
-      
+
       - name: Draft Release
         uses: softprops/action-gh-release@v1
-        if: inputs.release
+        if: inputs.version
         with:
           files: ./${{env.FILENAME}}
           tag_name: ${{env.VERSION}}
           draft: true
           prerelease: true
-  

@@ -21,4 +21,4 @@ jobs:
     needs: [clippy_check, cargo_test]
     secrets: inherit
     with:
-      release: true
+      version: ${{ github.ref_name }}

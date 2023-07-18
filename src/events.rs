@@ -219,10 +219,6 @@ pub enum ProgressionEndValue {
 pub enum ProgressionStartValue {
     InstanceCreation {
         instance_uuid: InstanceUuid,
-        instance_name: String,
-        port: u32,
-        flavour: String,
-        game_type: String,
     },
     InstanceDelete {
         instance_uuid: InstanceUuid,
@@ -284,6 +280,9 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
     }
 }
 
+#[derive(Serialize, Deserialize, TS)]
+#[serde(transparent)]
+#[ts(export)]
 pub struct ProgressionEventID(Snowflake);
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
@@ -566,16 +565,13 @@ impl Event {
         }
     }
 
-    pub fn new_macro_detach_event(
-        instance_uuid: Option<InstanceUuid>,
-        macro_pid: MacroPID,
-    ) -> Event {
+    pub fn new_macro_detach_event(macro_pid: MacroPID) -> Event {
         Event {
             details: "".to_string(),
             snowflake: Snowflake::default(),
             event_inner: EventInner::MacroEvent(MacroEvent {
                 macro_pid,
-                instance_uuid,
+                instance_uuid: None,
                 macro_event_inner: MacroEventInner::Detach,
             }),
             caused_by: CausedBy::System,

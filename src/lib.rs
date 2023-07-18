@@ -4,7 +4,7 @@ use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
-    path_to_users, VERSION,
+    path_to_tmp, path_to_users, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -72,6 +72,8 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter}
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
+use fs3::FileExt;
+
 pub mod auth;
 pub mod playitgg;
 pub mod db;
@@ -91,6 +93,7 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 pub mod util;
+use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -107,11 +110,26 @@ pub struct AppState {
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
     playitgg_key: Arc<Mutex<Option<String>>>,
-    download_urls: Arc<Mutex<HashMap<String, PathBuf>>>,
+    download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
     tunnels: Arc<Mutex<HashMap<TunnelUuid, TunnelHandle>>>,
 }
+
+impl AppState {
+    /// Kill all instances
+    pub async fn cleanup(&mut self) {
+        for instance in self.instances.iter() {
+            let instance = instance.value().clone();
+            tokio::task::spawn(async move {
+                if let Err(e) = instance.kill(CausedBy::System).await {
+                    error!("Failed to kill instance: {}", e);
+                };
+            });
+        }
+    }
+}
+
 async fn restore_instances(
     instances_path: &Path,
     event_broadcaster: EventBroadcaster,
@@ -147,23 +165,50 @@ async fn restore_instances(
             }
         };
         debug!("restoring instance: {}", path.display());
-        if let GameType::MinecraftJava = dot_lodestone_config.game_type() {
-            let instance = match minecraft::MinecraftInstance::restore(
-                path.to_owned(),
-                dot_lodestone_config.clone(),
-                event_broadcaster.clone(),
-                macro_executor.clone(),
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Error while restoring instance {} : {e}", path.display());
-                    continue;
-                }
-            };
-            debug!("Restored successfully");
-            ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+        match dot_lodestone_config.game_type() {
+            GameType::MinecraftJava => {
+                let instance = match minecraft::MinecraftInstance::restore(
+                    path.to_owned(),
+                    dot_lodestone_config.clone(),
+                    event_broadcaster.clone(),
+                    macro_executor.clone(),
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(
+                            "Error while restoring Minecraft Java instance {} : {e}",
+                            path.display()
+                        );
+                        continue;
+                    }
+                };
+                debug!("Restored Minecraft Java instance successfully");
+                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+            }
+            GameType::Generic => {
+                let instance = match generic::GenericInstance::restore(
+                    path.to_owned(),
+                    dot_lodestone_config.clone(),
+                    event_broadcaster.clone(),
+                    macro_executor.clone(),
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(
+                            "Error while restoring atom instance {} : {e}",
+                            path.display()
+                        );
+                        continue;
+                    }
+                };
+                debug!("Restored Generic instance successfully");
+                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+            }
+            GameType::MinecraftBedrock => todo!(),
         }
     }
     Ok(ret)
@@ -339,11 +384,12 @@ pub async fn run(
     impl Future<Output = ()>,
     AppState,
     tracing_appender::non_blocking::WorkerGuard,
+    tokio::sync::oneshot::Sender<()>,
 ) {
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
-    let lodestone_path_ = if let Some(path) = args.lodestone_path {
+    let lodestone_path = if let Some(path) = args.lodestone_path {
         path
     } else {
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
@@ -358,10 +404,9 @@ pub async fn run(
                 .to_string(),
         })
     };
-    init_paths(lodestone_path_);
-    let lodestone_path = lodestone_path();
+    init_paths(lodestone_path.clone());
     info!("Lodestone path: {}", lodestone_path.display());
-    std::env::set_current_dir(lodestone_path).unwrap();
+    std::env::set_current_dir(&lodestone_path).unwrap();
     let guard = setup_tracing();
     if args.is_desktop {
         info!("Lodestone Core running in Tauri");
@@ -373,7 +418,17 @@ pub async fn run(
     check_for_core_update().await;
     output_sys_info();
 
-    let _ = migrate(lodestone_path).map_err(|e| {
+    let lockfile_path = lodestone_path.join("lodestone.lock");
+    let file = if lockfile_path.as_path().exists() {
+        std::fs::File::open(lockfile_path.as_path()).expect("failed to open lockfile")
+    } else {
+        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile")
+    };
+    if file.try_lock_exclusive().is_err() {
+        panic!("Another instance of lodestone might be running");
+    }
+
+    let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
     let path_to_instances = lodestone_path.join("instances");
@@ -420,7 +475,7 @@ pub async fn run(
     println!("playitgg_key: {:?}", playitgg_key);
 
 
-    let macro_executor = MacroExecutor::new(tx.clone());
+    let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
         .map_err(|e| {
@@ -541,6 +596,7 @@ pub async fn run(
         lodestone_path.join("tls").join("key.pem"),
     )
     .await;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     (
         {
@@ -622,32 +678,72 @@ pub async fn run(
                         .unwrap();
                     }
                 });
+                // capture file into the move block
+                let _file = file;
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
+                    _ = shutdown_rx => info!("Shutdown signal received"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
                 axum_server_handle.shutdown();
                 info!("Signalling all instances to stop");
                 // cleanup
-                for mut entry in shared_state.instances.iter_mut() {
-                    let instance = entry.value_mut();
-                    if instance.state().await == State::Stopped {
-                        continue;
+                let mut handles = vec![];
+                shared_state.download_urls.lock().await.clear();
+                let _ = tokio::fs::remove_dir_all(path_to_tmp()).await.map_err(|e| {
+                    error!("Failed to remove tmp dir : {}", e);
+                    e
+                });
+                for entry in shared_state.instances.iter() {
+                    let instance = entry.value().clone();
+                    match instance.state().await {
+                        State::Starting => {
+                            let handle = tokio::spawn({
+                                let instance = instance.clone();
+                                async move {
+                                    info!(
+                                        "Killing instance that is starting : {}",
+                                        instance.uuid().await
+                                    );
+                                    if let Err(e) = instance.kill(CausedBy::System).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Running => {
+                            let handle = tokio::spawn({
+                                let instance = instance.clone();
+                                async move {
+                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
+                                        error!(
+                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
+                                        instance.uuid().await,
+                                        e
+                                    );
+                                    }
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        State::Error | State::Stopped | State::Stopping => continue,
                     }
-                    if let Err(e) = instance.stop(CausedBy::System, false).await {
-                        error!(
-                            "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                            entry.value().uuid().await,
-                            e
-                        );
-                    }
+                }
+                for handle in handles {
+                    let _ = handle.await;
                 }
             }
         },
         shared_state,
         guard,
+        shutdown_tx,
     )
 }

@@ -1,9 +1,8 @@
-use std::{path::PathBuf, rc::Rc};
+use std::{path::PathBuf, rc::Rc, sync::Arc};
 
 use async_trait::async_trait;
 use color_eyre::eyre::Context;
-use tracing::error;
-use url::Url;
+use tracing::{debug, error};
 
 use self::{
     bridge::procedure_call::{emit_result, next_procedure, proc_bridge_ready, ProcedureCallInner},
@@ -42,6 +41,22 @@ pub struct GenericInstance {
     core_macro_executor: MacroExecutor,
     path: PathBuf,
     core_macro_pid: MacroPID,
+    drop_guard: Arc<GenericDropGuard>,
+}
+
+/// RAII guard for dropping a generic instance
+///
+/// Will abort the core macro process if the instance is dropped
+struct GenericDropGuard {
+    core_macro_pid: MacroPID,
+    macro_executor: MacroExecutor,
+}
+
+impl Drop for GenericDropGuard {
+    fn drop(&mut self) {
+        debug!("Dropping generic instance, aborting core macro process");
+        let _ = self.macro_executor.abort_macro(self.core_macro_pid);
+    }
 }
 
 struct InitWorkerGenerator {
@@ -85,16 +100,8 @@ impl GenericInstance {
             &path.display()
         ))?;
         let path_to_config = path.join(".lodestone_config");
-        let run_ts_content = format!(
-            r#"import {{ run }} from "{}";
-                run();
-            "#,
-            Url::parse(&link_to_source)
-                .context("Invalid URL")?
-                .join("mod.ts")
-                .context("Invalid URL")?
-                .as_str()
-        );
+        let run_ts_content =
+            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &link_to_source);
 
         let path_to_bootstrap = path.join("run.ts");
         tokio::fs::write(&path_to_bootstrap, run_ts_content)
@@ -103,12 +110,13 @@ impl GenericInstance {
                 "Failed to write bootstrap to {}",
                 &path_to_bootstrap.display()
             ))?;
-        std::fs::write(
+        tokio::fs::write(
             &path_to_config,
             serde_json::to_string_pretty(&dot_lodestone_config).context(
                 "Failed to serialize config to string. This is a bug, please report it.",
             )?,
         )
+        .await
         .context(format!(
             "Failed to write config to {}",
             &path_to_config.display()
@@ -142,9 +150,13 @@ impl GenericInstance {
             dot_lodestone_config,
             procedure_bridge,
             event_broadcaster,
-            core_macro_executor,
+            core_macro_executor: core_macro_executor.clone(),
             path,
             core_macro_pid,
+            drop_guard: Arc::new(GenericDropGuard {
+                core_macro_pid,
+                macro_executor: core_macro_executor,
+            }),
         })
     }
 
@@ -158,7 +170,7 @@ impl GenericInstance {
         let SpawnResult {
             macro_pid: core_macro_pid,
             detach_future,
-            ..
+            exit_future,
         } = core_macro_executor
             .spawn(
                 path_to_instance.join("run.ts"),
@@ -170,7 +182,14 @@ impl GenericInstance {
             )
             .await?;
 
-        detach_future.await;
+        tokio::select! {
+            _ = detach_future => {
+            }
+            res = exit_future => {
+                debug!("Core macro exited with {:?}", res);
+                res?;
+            }
+        }
 
         procedure_bridge
             .call(ProcedureCallInner::RestoreInstance {
@@ -182,9 +201,13 @@ impl GenericInstance {
             dot_lodestone_config,
             procedure_bridge,
             event_broadcaster,
-            core_macro_executor,
+            core_macro_executor: core_macro_executor.clone(),
             path: path_to_instance,
             core_macro_pid,
+            drop_guard: Arc::new(GenericDropGuard {
+                core_macro_pid,
+                macro_executor: core_macro_executor,
+            }),
         })
     }
 
@@ -197,19 +220,16 @@ impl GenericInstance {
         let temp_file_path = temp_dir.path().join("temp.ts");
         let mut temp_file =
             std::fs::File::create(&temp_file_path).context("Failed to create temp file")?;
-        let run_ts_content = format!(
-            r#"import {{ run }} from "{}";
-                run();
-            "#,
-            Url::parse(link_to_source)
-                .context("Invalid URL")?
-                .join("mod.ts")
-                .context("Invalid URL")?
-                .as_str()
-        );
+        let run_ts_content =
+            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", link_to_source);
+        println!("{}", run_ts_content);
         writeln!(temp_file, "{}", run_ts_content).context("Failed to write to temp file")?;
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
-        macro_executor
+        let SpawnResult {
+            macro_pid,
+            detach_future,
+            exit_future,
+        } = macro_executor
             .spawn(
                 temp_file_path,
                 Vec::new(),
@@ -220,14 +240,22 @@ impl GenericInstance {
                 None,
                 None,
             )
-            .await?
-            .detach_future
-            .await;
+            .await?;
 
-        procedure_bridge
+        tokio::select! {
+            _ = detach_future => {
+            }
+            res = exit_future => {
+                res?;
+            }
+        }
+
+        let ret = procedure_bridge
             .call(ProcedureCallInner::GetSetupManifest)
             .await?
-            .try_into()
+            .try_into();
+        let _ = macro_executor.abort_macro(macro_pid);
+        ret
     }
 
     /// Will notify the typescript side that the instance is being destructed
@@ -238,20 +266,6 @@ impl GenericInstance {
             .await
             .map_err(|e| {
                 error!("Generic instance destructor raised an error: {}", e);
-            });
-    }
-}
-
-impl Drop for GenericInstance {
-    fn drop(&mut self) {
-        let _ = self
-            .core_macro_executor
-            .abort_macro(self.core_macro_pid)
-            .map_err(|e| {
-                error!(
-                    "Failed to abort macro when dropping generic instance: {}",
-                    e
-                );
             });
     }
 }

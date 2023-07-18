@@ -86,14 +86,8 @@ pub fn init_paths(lodestone_path: PathBuf) {
 }
 
 thread_local! {
-    pub static VERSION: semver::Version = semver::Version {
-        // 0.5.0-beta.1
-        major: 0,
-        minor: 5,
-        patch: 0,
-        pre: Prerelease::new("beta.1").unwrap(),
-        build: BuildMetadata::EMPTY,
-    };
+    // parse from Cargo.toml
+    pub static VERSION: semver::Version = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
 
     pub static LODESTONE_EPOCH_SEC: i64 = 1667530800;
     pub static LODESTONE_EPOCH_MIL: i64 = 1667530800000;

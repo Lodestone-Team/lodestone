@@ -60,7 +60,7 @@ impl TConfigurable for MinecraftInstance {
         self.config.lock().await.restart_on_crash
     }
 
-    async fn set_name(&mut self, name: String) -> Result<(), Error> {
+    async fn set_name(&self, name: String) -> Result<(), Error> {
         if name.is_empty() {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -78,13 +78,13 @@ impl TConfigurable for MinecraftInstance {
         Ok(())
     }
 
-    async fn set_description(&mut self, description: String) -> Result<(), Error> {
+    async fn set_description(&self, description: String) -> Result<(), Error> {
         self.config.lock().await.description = description;
         self.write_config_to_file().await?;
         Ok(())
     }
 
-    async fn set_port(&mut self, port: u32) -> Result<(), Error> {
+    async fn set_port(&self, port: u32) -> Result<(), Error> {
         self.configurable_manifest.lock().await.set_setting(
             ServerPropertySetting::get_section_id(),
             ServerPropertySetting::ServerPort(port as u16).into(),
@@ -96,20 +96,20 @@ impl TConfigurable for MinecraftInstance {
             .and(self.write_properties_to_file().await)
     }
 
-    async fn set_auto_start(&mut self, auto_start: bool) -> Result<(), Error> {
+    async fn set_auto_start(&self, auto_start: bool) -> Result<(), Error> {
         self.config.lock().await.auto_start = auto_start;
         self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
     }
 
-    async fn set_restart_on_crash(&mut self, restart_on_crash: bool) -> Result<(), Error> {
+    async fn set_restart_on_crash(&self, restart_on_crash: bool) -> Result<(), Error> {
         self.config.lock().await.restart_on_crash = restart_on_crash;
         self.auto_start
             .store(restart_on_crash, atomic::Ordering::Relaxed);
         self.write_config_to_file().await
     }
 
-    async fn change_version(&mut self, version: String) -> Result<(), Error> {
+    async fn change_version(&self, version: String) -> Result<(), Error> {
         if *self.state.lock().await != State::Stopped {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -172,7 +172,7 @@ impl TConfigurable for MinecraftInstance {
         self.write_config_to_file().await
     }
 
-    async fn configurable_manifest(&mut self) -> ConfigurableManifest {
+    async fn configurable_manifest(&self) -> ConfigurableManifest {
         self.configurable_manifest
             .lock()
             .await
@@ -182,7 +182,7 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn update_configurable(
-        &mut self,
+        &self,
         section_id: &str,
         setting_id: &str,
         value: ConfigurableValue,

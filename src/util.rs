@@ -22,7 +22,7 @@ pub struct Authentication {
     password: String,
 }
 
-use crate::error::{Error, ErrorKind};
+use crate::error::Error;
 use crate::prelude::path_to_tmp;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -312,7 +312,11 @@ pub async fn unzip_file_async(
         ))?
 }
 
-pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>, overwrite_dest: bool) -> Result<PathBuf, Error> {
+pub fn zip_files(
+    files: &[impl AsRef<Path>],
+    dest: impl AsRef<Path>,
+    overwrite_dest: bool,
+) -> Result<PathBuf, Error> {
     let dest = dest.as_ref();
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
@@ -418,9 +422,9 @@ pub fn zip_files(files: &[impl AsRef<Path>], dest: impl AsRef<Path>, overwrite_d
     }
 
     writer.finish().context("Zip failed")?;
-    let dest = if overwrite_dest{
+    let dest = if overwrite_dest {
         dest.into()
-    } else { 
+    } else {
         resolve_path_conflict(dest.into(), None)
     };
 

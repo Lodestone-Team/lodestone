@@ -92,44 +92,44 @@ pub trait TConfigurable {
     async fn auto_start(&self) -> bool;
     async fn restart_on_crash(&self) -> bool;
     // setters
-    async fn set_name(&mut self, name: String) -> Result<(), Error>;
-    async fn set_description(&mut self, description: String) -> Result<(), Error>;
-    async fn set_port(&mut self, _port: u32) -> Result<(), Error> {
+    async fn set_name(&self, name: String) -> Result<(), Error>;
+    async fn set_description(&self, description: String) -> Result<(), Error>;
+    async fn set_port(&self, _port: u32) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support setting port"),
         })
     }
-    async fn set_auto_start(&mut self, _auto_start: bool) -> Result<(), Error> {
+    async fn set_auto_start(&self, _auto_start: bool) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support setting auto start"),
         })
     }
-    async fn set_restart_on_crash(&mut self, _restart_on_crash: bool) -> Result<(), Error> {
+    async fn set_restart_on_crash(&self, _restart_on_crash: bool) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support setting restart on crash"),
         })
     }
-    async fn set_backup_period(&mut self, _backup_period: Option<u32>) -> Result<(), Error> {
+    async fn set_backup_period(&self, _backup_period: Option<u32>) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support setting backup period"),
         })
     }
 
-    async fn change_version(&mut self, _version: String) -> Result<(), Error> {
+    async fn change_version(&self, _version: String) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support changing version"),
         })
     }
 
-    async fn configurable_manifest(&mut self) -> ConfigurableManifest;
+    async fn configurable_manifest(&self) -> ConfigurableManifest;
 
     async fn update_configurable(
-        &mut self,
+        &self,
         section_id: &str,
         setting_id: &str,
         value: ConfigurableValue,

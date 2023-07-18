@@ -5,45 +5,39 @@
 
 // deno-lint-ignore no-explicit-any
 declare const Deno: any;
-const { core } = Deno;
+const core = Deno[Deno.internal].core;
 const { ops } = core;
 import { ProcedureCallResultIR } from "./bindings/ProcedureCallResultIR.ts";
 import { ProcedureCall } from "./bindings/ProcedureCall.ts";
 // This is the only code you should edit.
-import {
-    getState,
-    killInstance,
-    monitor,
-    restartInstance,
-    sendCommand,
-    startInstance,
-    stopInstance,
-} from "../implementation/server.ts";
 import { isErrorIR } from "./typeguards/ErrorIRTypeGuard.ts";
 import { ProcedureCallResultInner } from "./bindings/ProcedureCallResultInner.ts";
-import { getAutoStart, getConfigurableManifest, getDescription, getGame, getName, getPort, getRestartOnCrash, getVersion, setAutoStart, setDescription, setName, setPort, setRestartOnCrash, updateConfigurable } from "../implementation/configurable.ts";
-import { getMaxPlayerCount, getPlayerCount, getPlayerList } from "../implementation/players.ts";
+
 import { isTConfig, isTMacro, isTPlayer, isTServer } from "./utils.ts";
-import { restoreInstance, setupInstance, setupManifest } from "../implementation/setup.ts";
+import { AtomInstance } from "./atom_instance.ts";
+import { emitDetach } from "../../../../../deno_ops/events/events.ts"
+import { getCurrentTaskPid } from "../../../../../deno_ops/prelude/prelude.ts";
+
+
 
 const emit_result = (result: ProcedureCallResultIR) =>
     ops.emit_result(result);
 
-async function tPlayerHandle(procedure: ProcedureCall) {
+async function tPlayerHandle(procedure: ProcedureCall, instance: AtomInstance) {
     const inner = procedure.inner;
     let ret: ProcedureCallResultInner = "Void";
     try {
         if (inner.type === "GetPlayerCount") {
             ret = {
-                Num: await getPlayerCount(),
+                Num: await instance.playerCount(),
             };
         } else if (inner.type === "GetPlayerList") {
             ret = {
-                Player: await getPlayerList(),
+                Player: await instance.playerList(),
             };
         } else if (inner.type === "GetMaxPlayerCount") {
             ret = {
-                Num: await getMaxPlayerCount(),
+                Num: await instance.maxPlayerCount(),
             };
         }
     } catch (e) {
@@ -81,54 +75,54 @@ async function tPlayerHandle(procedure: ProcedureCall) {
 }
 
 
-async function tConfigHandle(procedure: ProcedureCall) {
+async function tConfigHandle(procedure: ProcedureCall, instance: AtomInstance) {
     const inner = procedure.inner;
     let ret: ProcedureCallResultInner = "Void";
     try {
         if (inner.type === "GetName") {
             ret = {
-                String: await getName(),
+                String: await instance.name(),
             }
         } else if (inner.type === "GetDescription") {
             ret = {
-                String: await getDescription(),
+                String: await instance.description(),
             };
         } else if (inner.type === "GetVersion") {
             ret = {
-                String: await getVersion(),
+                String: await instance.version(),
             }
         } else if (inner.type === "GetGame") {
             ret = {
-                Game: await getGame(),
+                Game: await instance.game(),
             }
         } else if (inner.type === "GetPort") {
             ret = {
-                Num: await getPort(),
+                Num: await instance.port(),
             }
         } else if (inner.type === "GetAutoStart") {
             ret = {
-                Bool: await getAutoStart(),
+                Bool: await instance.getAutoStart(),
             }
         } else if (inner.type === "GetRestartOnCrash") {
-            ret = {
-                Bool: await getRestartOnCrash(),
-            }
+            // ret = {
+            //     Bool: await getRestartOnCrash(),
+            // }
         } else if (inner.type === "GetConfigurableManifest") {
             ret = {
-                ConfigurableManifest: await getConfigurableManifest(),
+                ConfigurableManifest: await instance.configurableManifest(),
             }
         } else if (inner.type === "SetName") {
-            await setName(inner.new_name);
+            await instance.setName(inner.new_name);
         } else if (inner.type === "SetDescription") {
-            await setDescription(inner.new_description);
+            await instance.setDescription(inner.new_description);
         } else if (inner.type === "SetPort") {
-            await setPort(inner.new_port);
+            await instance.setPort(inner.new_port);
         } else if (inner.type === "SetAutoStart") {
-            await setAutoStart(inner.new_auto_start);
+            await instance.setAutoStart(inner.new_auto_start);
         } else if (inner.type === "SetRestartOnCrash") {
-            await setRestartOnCrash(inner.new_restart_on_crash);
+            // await setRestartOnCrash(inner.new_restart_on_crash);
         } else if (inner.type === "UpdateConfigurable") {
-            await updateConfigurable(inner.section_id, inner.setting_id, inner.new_value);
+            await instance.updateConfigurable(inner.section_id, inner.setting_id, inner.new_value);
         }
     } catch (e) {
         if (isErrorIR(e)) {
@@ -168,25 +162,25 @@ async function tConfigHandle(procedure: ProcedureCall) {
     );
 }
 
-async function tServerHandle(procedure: ProcedureCall) {
+async function tServerHandle(procedure: ProcedureCall, instance: AtomInstance) {
     const inner = procedure.inner;
     let ret: ProcedureCallResultInner = "Void";
     try {
         if (inner.type === "StartInstance") {
-            await startInstance(inner.caused_by, inner.block);
+            instance.start(inner.caused_by, inner.block);
         } else if (inner.type === "StopInstance") {
-            await stopInstance(inner.caused_by, inner.block);
+            instance.stop(inner.caused_by, inner.block);
         } else if (inner.type === "RestartInstance") {
-            await restartInstance(inner.caused_by, inner.block);
-        } else if (procedure.inner.type === "KillInstance") {
-            await killInstance(procedure.inner.caused_by);
-        } else if (procedure.inner.type === "GetState") {
-            await getState();
+            instance.restart(inner.caused_by, inner.block);
+        } else if (inner.type === "KillInstance") {
+            instance.kill(inner.caused_by);
+        } else if (inner.type === "GetState") {
+            await instance.state();
         } else if (procedure.inner.type === "SendCommand") {
-            await sendCommand(procedure.inner.command, procedure.inner.caused_by)
+            await instance.sendCommand(procedure.inner.command, procedure.inner.caused_by)
         } else if (procedure.inner.type === "Monitor") {
             ret = {
-                Monitor: await monitor()
+                Monitor: await instance.monitor()
             };
         }
     } catch (e) {
@@ -230,31 +224,32 @@ async function tServerHandle(procedure: ProcedureCall) {
 
 // Your script should call this function once, and only once when it's ready to receive procedure calls.
 // Do NOT await this function as it will block forever.
-export async function procedure_bridge() {
+export async function procedure_bridge(instance: AtomInstance,) {
     // This function will throw if it's called more than once.
     ops.proc_bridge_ready();
+    emitDetach(getCurrentTaskPid());
     while (true) {
-        const procedure: ProcedureCall = await core.opAsync("on_procedure");
+        const procedure: ProcedureCall = await core.opAsync("next_procedure");
         const inner = procedure.inner;
         let ret: ProcedureCallResultInner = "Void";
         if (isTConfig(inner)) {
-            await tConfigHandle(procedure);
+            await tConfigHandle(procedure, instance);
         } else if (isTServer(inner)) {
-            await tServerHandle(procedure);
+            await tServerHandle(procedure, instance);
         } else if (isTPlayer(inner)) {
-            await tPlayerHandle(procedure);
+            await tPlayerHandle(procedure, instance);
         } else
             try {
                 if (inner.type === "GetSetupManifest") {
                     ret = {
-                        SetupManifest: await setupManifest()
+                        SetupManifest: await instance.setupManifest()
                     }
                 }
                 if (inner.type === "SetupInstance") {
-                    await setupInstance(inner.setup_value, inner.dot_lodestone_config, inner.path)
+                    await instance.setup(inner.setup_value, inner.dot_lodestone_config, inner.path)
 
                 } else if (inner.type == "RestoreInstance") {
-                    await restoreInstance(inner.dot_lodestone_config, inner.path);
+                    await instance.restore(inner.dot_lodestone_config, inner.path);
                 }
             } catch (e) {
                 if (isErrorIR(e)) {
