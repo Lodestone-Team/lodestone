@@ -20,7 +20,7 @@ export type { InstanceState } from "../../../../../../deno_bindings/InstanceStat
 export type { SetupValue } from "../../../../../../deno_bindings/SetupValue.ts";
 export type { PerformanceReport } from "../../../../../../deno_bindings/PerformanceReport.ts";
 export type { SetupManifest } from "../../../../../../deno_bindings/SetupManifest.ts";
-export { ProgressionHandler } from "https://raw.githubusercontent.com/Lodestone-Team/lodestone-macro-lib/main/events.ts";
+export { ProgressionHandler };
 
 export abstract class AtomInstance {
     /**

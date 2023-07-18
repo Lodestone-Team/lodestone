@@ -224,7 +224,6 @@ impl GenericInstance {
             std::fs::File::create(&temp_file_path).context("Failed to create temp file")?;
         let run_ts_content =
             include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", link_to_source);
-        println!("{}", run_ts_content);
         writeln!(temp_file, "{}", run_ts_content).context("Failed to write to temp file")?;
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
         let SpawnResult {
