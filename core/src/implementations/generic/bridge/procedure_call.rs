@@ -10,7 +10,8 @@ use deno_core::anyhow::anyhow;
 use deno_core::{anyhow, op, OpState};
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
+use tracing::{debug, error};
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
@@ -345,8 +346,8 @@ pub struct ProcedureCallResultIR {
 #[op]
 async fn next_procedure(state: Rc<RefCell<OpState>>) -> Result<ProcedureCall, anyhow::Error> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
-    let mut rx = bridge.procedure_rx.write().await;
-    Ok(rx.recv().await.unwrap())
+    let mut rx = bridge.procedure_rx.lock().await;
+    Ok(rx.recv().await?)
 }
 
 #[op]
@@ -379,23 +380,30 @@ fn emit_result(
 pub struct ProcedureBridge {
     ready: Arc<AtomicBool>,
     procedure_call_id: Arc<AtomicU64>,
-    procedure_tx: tokio::sync::mpsc::UnboundedSender<ProcedureCall>,
-    procedure_rx: Arc<RwLock<tokio::sync::mpsc::UnboundedReceiver<ProcedureCall>>>,
-    procedure_result_tx: tokio::sync::mpsc::UnboundedSender<ProcedureCallResultIR>,
-    procedure_result_rx: Arc<RwLock<tokio::sync::mpsc::UnboundedReceiver<ProcedureCallResultIR>>>,
+    procedure_tx: tokio::sync::broadcast::Sender<ProcedureCall>,
+    // necessary so we don't lose messages
+    procedure_rx: Arc<Mutex<tokio::sync::broadcast::Receiver<ProcedureCall>>>,
+    procedure_result_tx: tokio::sync::broadcast::Sender<ProcedureCallResultIR>,
 }
 
 impl ProcedureBridge {
     pub fn new() -> Self {
-        let (procedure_tx, procedure_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (procedure_result_tx, procedure_result_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (procedure_tx, procedure_rx) = tokio::sync::broadcast::channel(256);
+        let (procedure_result_tx, mut procedure_result_rx) = tokio::sync::broadcast::channel(256);
+
+        // keep the procedure_result_rx alive
+        tokio::spawn(async move {
+            loop {
+                procedure_result_rx.recv().await.unwrap();
+            }
+        });
+
         Self {
             ready: Arc::new(AtomicBool::new(false)),
             procedure_call_id: Arc::new(AtomicU64::new(0)),
             procedure_tx,
-            procedure_rx: Arc::new(RwLock::new(procedure_rx)),
+            procedure_rx: Arc::new(Mutex::new(procedure_rx)),
             procedure_result_tx,
-            procedure_result_rx: Arc::new(RwLock::new(procedure_result_rx)),
         }
     }
 
@@ -403,10 +411,11 @@ impl ProcedureBridge {
         let id = self
             .procedure_call_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut procedure_result_rx = self.procedure_result_tx.subscribe();
         self.procedure_tx.send(ProcedureCall { id, inner }).unwrap();
         loop {
-            match self.procedure_result_rx.write().await.recv().await {
-                Some(result) => {
+            match procedure_result_rx.recv().await {
+                Ok(result) => {
                     if result.id == id {
                         return match result.success {
                             true => Ok(result.inner.unwrap()),
@@ -414,9 +423,24 @@ impl ProcedureBridge {
                         };
                     }
                 }
-                None => {
-                    Err(eyre!("ProcedureBridge::call: procedure_result_tx closed"))?;
-                    unreachable!()
+                Err(e) => {
+                    // check if lagged
+                    match e {
+                        tokio::sync::broadcast::error::RecvError::Closed => {
+                            error!("ProcedureBridge::call: procedure_result_tx closed");
+                            return Err(Error {
+                                kind: ErrorKind::Internal,
+                                source: eyre!("ProcedureBridge::call: procedure_result_tx closed"),
+                            });
+                        }
+                        tokio::sync::broadcast::error::RecvError::Lagged(_) => {
+                            error!("ProcedureBridge::call: procedure_result_tx lagged");
+                            return Err(Error {
+                                kind: ErrorKind::Internal,
+                                source: eyre!("ProcedureBridge::call: procedure_result_tx lagged"),
+                            });
+                        }
+                    }
                 }
             }
         }
