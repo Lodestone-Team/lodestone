@@ -1,7 +1,7 @@
-import { useDocumentTitle } from 'usehooks-ts';
-import { Table, TableColumn, TableRow } from 'components/Table';
-import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
-import { ButtonMenuConfig } from 'components/ButtonMenu';
+import {useDocumentTitle} from 'usehooks-ts';
+import {Table, TableColumn, TableRow} from 'components/Table';
+import {faPlayCircle, faSkull} from '@fortawesome/free-solid-svg-icons';
+import {ButtonMenuConfig} from 'components/ButtonMenu';
 import {
   getMacros,
   getTasks,
@@ -9,21 +9,19 @@ import {
   createTask,
   killTask,
 } from 'utils/apis';
-import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useEffect, useState, useMemo } from 'react';
-import { MacroEntry } from 'bindings/MacroEntry';
+import {InstanceContext} from 'data/InstanceContext';
+import {useContext, useState, useMemo} from 'react';
+import {MacroEntry} from 'bindings/MacroEntry';
 import clsx from 'clsx';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import {toast} from 'react-toastify';
+import {TaskEntry} from "../bindings/TaskEntry";
+import {HistoryEntry} from "../bindings/HistoryEntry";
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
   useDocumentTitle('Instance Macros - Lodestone');
-  const { selectedInstance } = useContext(InstanceContext);
-  const [macros, setMacros] = useState<TableRow[]>([]);
-  const [tasks, setTasks] = useState<TableRow[]>([]);
-  const [history, setHistory] = useState<TableRow[]>([]);
-
+  const {selectedInstance} = useContext(InstanceContext);
   const unixToFormattedTime = (unix: string | undefined) => {
     if (!unix) return 'N/A';
     const date = new Date(parseInt(unix) * 1000);
@@ -42,92 +40,52 @@ const Macros = () => {
 
   const queryClient = useQueryClient();
 
-  const fetchMacros = async (instanceUuid: string) => {
-    const response: MacroEntry[] = await getMacros(instanceUuid);
-    setMacros(
-      response.map(
-        (macro, i) =>
-          ({
-            id: i + 1,
-            name: macro.name,
-            last_run: unixToFormattedTime(macro.last_run?.toString()),
-            path: macro.path,
-          } as TableRow)
-      )
-    );
-  };
+  const macros = useQuery(
+    ['instance', selectedInstance?.uuid, 'macroList'],
+    () => getMacros(selectedInstance?.uuid as string),
+    {enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always'}
+  ).data.map(
+    (macro, i) =>
+      ({
+        id: i + 1,
+        name: macro.name,
+        last_run: unixToFormattedTime(macro.last_run?.toString()),
+        path: macro.path,
+      } as TableRow)
+  );
 
-  const fetchTasks = async (instanceUuid: string) => {
-    const response = await getTasks(instanceUuid);
-    setTasks(
-      response.map(
-        (task, i) =>
-          ({
-            id: i + 1,
-            name: task.name,
-            creation_time: unixToFormattedTime(task.creation_time.toString()),
-            pid: task.pid,
-          } as TableRow)
-      )
-    );
-    queryClient.setQueryData(
-      ['instance', instanceUuid, 'tasks'],
-      response.map((task) => task.pid)
-    );
-  };
+  const tasks = useQuery(
+    ['instance', selectedInstance?.uuid, 'taskList'],
+    () => getTasks(selectedInstance?.uuid as string),
+    {enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always'}
+  ).data.map(
+    (task, i) =>
+      ({
+        id: i + 1,
+        name: task.name,
+        creation_time: unixToFormattedTime(task.creation_time?.toString()),
+        pid: task.pid,
+      } as TableRow)
+  );
 
-  const fetchHistory = async (instanceUuid: string) => {
-    const response = await getInstanceHistory(instanceUuid);
-    setHistory(
-      response.map(
-        (entry, i) =>
-          ({
-            id: i + 1,
-            name: entry.task.name,
-            creation_time: unixToFormattedTime(
-              entry.task.creation_time.toString()
-            ),
-            finished: unixToFormattedTime(entry.exit_status.time.toString()),
-            process_id: entry.task.pid,
-          } as TableRow)
-      )
-    );
-  };
-
-  const fetchAll = async () => {
-    if (!selectedInstance) return;
-    fetchMacros(selectedInstance.uuid);
-    fetchTasks(selectedInstance.uuid);
-    fetchHistory(selectedInstance.uuid);
-  };
-
-  useEffect(() => {
-    fetchAll();
-  }, [selectedInstance]);
-
-  const { data: runningMacros } = useQuery([
-    'instance',
-    selectedInstance?.uuid,
-    'taskList',
-  ]);
-
-  useEffect(() => {
-    if (!runningMacros) return;
-    const runningMacrosTyped = runningMacros as number[];
-
-    // if there is a new task running fetchall
-    for (const runningMacroId of runningMacrosTyped) {
-      if (!tasks.find((task) => task.pid === runningMacroId)) {
-        fetchAll();
-        return;
-      }
+  const history = useQuery(
+    ['instance', selectedInstance?.uuid, 'historyList'],
+    () => getInstanceHistory(selectedInstance?.uuid as string),
+    {
+      enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always'
     }
-
-    const newTasks = tasks.filter((task) => {
-      return runningMacrosTyped.find((runningTask) => runningTask === task.id);
-    });
-    setTasks(newTasks);
-  }, [runningMacros]);
+  ).data.map(
+    (entry, i) =>
+      ({
+        id: i + 1,
+        name: entry.task.name,
+        creation_time: unixToFormattedTime(
+          entry.task.creation_time.toString()
+        ),
+        finished: unixToFormattedTime(entry.exit_status.time.toString()),
+        process_id: entry.task.pid,
+      } as TableRow)
+  );
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
@@ -139,8 +97,8 @@ const Macros = () => {
       'All Macros': {
         rows: macros,
         columns: [
-          { field: 'name', headerName: 'MACRO NAME' },
-          { field: 'last_run', headerName: 'LAST RUN' },
+          {field: 'name', headerName: 'MACRO NAME'},
+          {field: 'last_run', headerName: 'LAST RUN'},
         ],
         menuOptions: {
           tableRows: macros,
@@ -162,18 +120,20 @@ const Macros = () => {
                   row.name as string,
                   []
                 );
-                const newMacros = macros.map((macro) => {
-                  if (macro.name !== row.name) {
-                    return macro;
+
+                queryClient.setQueryData(['instance', selectedInstance?.uuid, 'macroList'], (oldData: MacroEntry[] | undefined) => {
+                  if (oldData === undefined) {
+                    return undefined;
                   }
-                  const newMacro = { ...macro };
-                  newMacro.last_run = unixToFormattedTime(
-                    Math.floor(Date.now() / 1000).toString()
-                  );
-                  return newMacro;
-                });
-                setMacros(newMacros);
-                fetchTasks(selectedInstance.uuid);
+                  return oldData.map((macro) => {
+                    if (macro.name !== row.name) {
+                      return macro;
+                    }
+                    const newMacro = {...macro};
+                    newMacro.last_run = BigInt(Math.floor(Date.now() / 1000).toString());
+                    return newMacro;
+                  });
+                })
               },
             },
           ],
@@ -214,23 +174,47 @@ const Macros = () => {
                   selectedInstance.uuid,
                   row.pid as string
                 );
-                setTasks(tasks.filter((task) => task.id !== row.id)); //rather than refetching, we just update the display
-                const newHistory = {
-                  id: row.id,
-                  name: row.name,
-                  creation_time: row.creation_time,
-                  finished: unixToFormattedTime(
-                    Math.floor(Date.now() / 1000).toString()
-                  ), //unix time in seconds
-                  process_id: row.pid,
-                };
-                setHistory([newHistory, ...history]);
+
+                let oldTask: TaskEntry | undefined;
+
+                queryClient.setQueryData(['instance', selectedInstance?.uuid, 'taskList'], (oldData: TaskEntry[] | undefined): TaskEntry[] | undefined => {
+                  if (oldData === undefined) {
+                    return undefined;
+                  }
+                  return oldData.filter((task) => {
+                    const shouldKeep = task.pid !== row.pid;
+                    if (!shouldKeep) {
+                      oldTask = task;
+                    }
+
+                    return shouldKeep
+                  });
+                })
+
+                queryClient.setQueryData(['instance', selectedInstance?.uuid, 'historyList'], (oldData: HistoryEntry[] | undefined): HistoryEntry[] | undefined => {
+                  if (oldTask === undefined) {
+                    return oldData;
+                  }
+                  const newHistory: HistoryEntry = {
+                    task: oldTask,
+                    exit_status: {
+                      type: 'Killed',
+                      time: BigInt(Math.floor(Date.now() / 1000).toString()),
+                    }
+                  }
+
+                  if (oldData === undefined) {
+                    return [newHistory];
+                  }
+
+                  return [newHistory, ...oldData];
+                })
               },
             },
           ],
         },
       },
-      History: {
+      'History': {
         rows: history,
         columns: [
           {
@@ -255,7 +239,7 @@ const Macros = () => {
   }, [macros, tasks, history, selectedInstance, queryClient]);
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
-  const Navbar = ({ pages }: { pages: MacrosPage[] }) => {
+  const Navbar = ({pages}: { pages: MacrosPage[] }) => {
     return (
       <>
         <div className="flex flex-row justify-start">
@@ -264,7 +248,7 @@ const Macros = () => {
               key={page}
               className={clsx(
                 selectedPage === page &&
-                  'border-b-2 border-blue-200 text-blue-200',
+                'border-b-2 border-blue-200 text-blue-200',
                 'mr-4 font-mediumbold hover:cursor-pointer',
                 'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
               )}
@@ -293,7 +277,7 @@ const Macros = () => {
         />
       </div> */}
       <div className="mt-[-3rem] mb-4">All macros for your instance</div>
-      <Navbar pages={pages} />
+      <Navbar pages={pages}/>
       <div className="relative mx-auto mt-9 flex h-full w-full flex-row justify-center">
         <Table
           rows={MacrosPageMap[selectedPage].rows}
