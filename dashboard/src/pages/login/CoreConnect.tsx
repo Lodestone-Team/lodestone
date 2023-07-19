@@ -30,7 +30,7 @@ const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
-  const [ ShowBlurb, setShowBlurb ] = useState(false); 
+  const [ showBlurb, setShowBlurb ] = useState(false); 
   const [ showPopup, setShowPopup ] = useState(false);
   const [ httpProtocol, sethttpProtocol ] = useState(true);
 
@@ -98,7 +98,7 @@ const CoreConnect = () => {
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
       {httpProtocol && showPopup && (
         <ConfirmDialog
-          isOpen={ShowBlurb}
+          isOpen={showBlurb}
           onClose={() => setShowPopup(false)}
           title="HTTP Error"
           type="danger"
@@ -119,7 +119,7 @@ const CoreConnect = () => {
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>
-        {ShowBlurb && (
+        {showBlurb && (
           <div className='w-full'>
             <WarningAlert>
                 <p>
