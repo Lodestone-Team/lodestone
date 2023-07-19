@@ -113,19 +113,21 @@ const CoreConnect = () => {
           Add a new core
         </h1>
         {ShowBlurb && (
-          <WarningAlert>
-            <p>
-              You may need to adjust your network and browser settings. {' '}
-              <a
-                href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-200 underline hover:text-blue-300"
-              >
-              Learn more.
-              </a>
-            </p>
-          </WarningAlert>
+          <div className='w-full'>
+            <WarningAlert>
+                <p>
+                  You may need to adjust your network and browser settings. {' '}
+                  <a
+                    href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-200 underline hover:text-blue-300"
+                  >
+                  Learn more.
+                  </a>
+                </p>
+            </WarningAlert>
+          </div>
         )}
       </div>      
       <Formik
@@ -142,12 +144,14 @@ const CoreConnect = () => {
             autoComplete={DISABLE_AUTOFILL}
           >
             {status && (
-              <WarningAlert>
-                <p>
-                  <b>{status.error}</b>: Please ensure your fields are filled
-                  out correctly.
-                </p>
-              </WarningAlert>
+              <div className="mt-[-40px]">
+                <WarningAlert>
+                  <p>
+                    <b>{status.error}</b>: Please ensure your fields are filled
+                    out correctly.
+                  </p>
+                </WarningAlert>
+              </div>
             )}
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <SelectField
