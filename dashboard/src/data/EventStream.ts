@@ -1,22 +1,22 @@
-import {useUid} from 'data/UserInfo';
-import {addInstance, deleteInstance, updateInstance} from 'data/InstanceList';
-import {LodestoneContext} from 'data/LodestoneContext';
-import {useQueryClient} from '@tanstack/react-query';
-import {useCallback, useContext, useEffect, useMemo, useRef} from 'react';
-import {InstanceState} from 'bindings/InstanceState';
-import {ClientEvent} from 'bindings/ClientEvent';
-import {match, otherwise} from 'variant';
-import {NotificationContext} from './NotificationContext';
-import {EventQuery} from 'bindings/EventQuery';
+import { useUid } from 'data/UserInfo';
+import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
+import { LodestoneContext } from 'data/LodestoneContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import { InstanceState } from 'bindings/InstanceState';
+import { ClientEvent } from 'bindings/ClientEvent';
+import { match, otherwise } from 'variant';
+import { NotificationContext } from './NotificationContext';
+import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
-import {LODESTONE_PORT} from 'utils/util';
-import {UserPermission} from 'bindings/UserPermission';
-import {PublicUser} from 'bindings/PublicUser';
-import {toast} from 'react-toastify';
-import {Player} from 'bindings/Player';
-import {TaskEntry} from "../bindings/TaskEntry";
-import {getTasks} from "../utils/apis";
-import {HistoryEntry} from "../bindings/HistoryEntry";
+import { LODESTONE_PORT } from 'utils/util';
+import { UserPermission } from 'bindings/UserPermission';
+import { PublicUser } from 'bindings/PublicUser';
+import { toast } from 'react-toastify';
+import { Player } from 'bindings/Player';
+import { TaskEntry } from '../bindings/TaskEntry';
+import { getTasks } from '../utils/apis';
+import { HistoryEntry } from '../bindings/HistoryEntry';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -24,9 +24,9 @@ import {HistoryEntry} from "../bindings/HistoryEntry";
  */
 export const useEventStream = () => {
   const queryClient = useQueryClient();
-  const {dispatch, ongoingDispatch} = useContext(NotificationContext);
+  const { dispatch, ongoingDispatch } = useContext(NotificationContext);
   const selfUid = useUid();
-  const {token, core, setCoreConnectionStatus, setToken} =
+  const { token, core, setCoreConnectionStatus, setToken } =
     useContext(LodestoneContext);
   const socket = `${core.address}:${core.port}`;
   const wsRef = useRef<WebSocket | null>(null);
@@ -49,7 +49,7 @@ export const useEventStream = () => {
   const updateInstanceState = useCallback(
     (uuid: string, state: InstanceState) => {
       updateInstance(uuid, queryClient, (oldInfo) => {
-        return {...oldInfo, state};
+        return { ...oldInfo, state };
       });
     },
     [queryClient]
@@ -94,16 +94,16 @@ export const useEventStream = () => {
 
   const handleEvent = useCallback(
     (event: ClientEvent, fresh: boolean) => {
-      const {event_inner, snowflake} = event;
+      const { event_inner, snowflake } = event;
 
       match(event_inner, {
         InstanceEvent: ({
-                          instance_event_inner: event_inner,
-                          instance_uuid: uuid,
-                          instance_name: name,
-                        }) =>
+          instance_event_inner: event_inner,
+          instance_uuid: uuid,
+          instance_name: name,
+        }) =>
           match(event_inner, {
-            StateTransition: ({to}) => {
+            StateTransition: ({ to }) => {
               if (fresh) updateInstanceState(uuid, to);
               dispatch({
                 title: `Instance ${name} ${
@@ -140,16 +140,16 @@ export const useEventStream = () => {
                 fresh,
               });
             },
-            InstanceInput: ({message}) => {
+            InstanceInput: ({ message }) => {
               console.log(`Got input on ${name}: ${message}`);
             },
-            InstanceOutput: ({message}) => {
+            InstanceOutput: ({ message }) => {
               console.log(`Got output on ${name}: ${message}`);
             },
-            SystemMessage: ({message}) => {
+            SystemMessage: ({ message }) => {
               console.log(`Got system message on ${name}: ${message}`);
             },
-            PlayerChange: ({player_list, players_joined, players_left}) => {
+            PlayerChange: ({ player_list, players_joined, players_left }) => {
               console.log(`Got player change on ${name}: ${player_list}`);
               console.log(`${players_joined} joined ${name}`);
               console.log(`${players_left} left ${name}`);
@@ -181,7 +181,7 @@ export const useEventStream = () => {
                   fresh,
                 });
             },
-            PlayerMessage: ({player, player_message}) => {
+            PlayerMessage: ({ player, player_message }) => {
               console.log(`${player} said ${player_message} on ${name}`);
               dispatch({
                 title: `${player} said ${player_message} on ${name}`,
@@ -191,7 +191,7 @@ export const useEventStream = () => {
               });
             },
           }),
-        UserEvent: ({user_id: uid, user_event_inner: event_inner}) =>
+        UserEvent: ({ user_id: uid, user_event_inner: event_inner }) =>
           match(event_inner, {
             UserCreated: () => {
               console.log(`User ${uid} created`);
@@ -214,7 +214,7 @@ export const useEventStream = () => {
                   ['user', 'list'],
                   (oldList: { [uid: string]: PublicUser } | undefined) => {
                     if (!oldList) return oldList;
-                    const newList = {...oldList};
+                    const newList = { ...oldList };
                     delete newList[uid];
                     return newList;
                   }
@@ -242,7 +242,7 @@ export const useEventStream = () => {
               //   type: 'add',
               // });
             },
-            PermissionChanged: ({new_permissions}) => {
+            PermissionChanged: ({ new_permissions }) => {
               if (fresh) {
                 if (uid === selfUid) {
                   updatePermission(new_permissions);
@@ -255,7 +255,7 @@ export const useEventStream = () => {
                       ...oldList[uid],
                       permissions: new_permissions,
                     };
-                    const newList = {...oldList};
+                    const newList = { ...oldList };
                     newList[uid] = newUser;
                     return newList;
                   }
@@ -269,14 +269,14 @@ export const useEventStream = () => {
             },
           }),
         MacroEvent: ({
-                       instance_uuid: uuid,
-                       macro_pid,
-                       macro_event_inner: event_inner
-                     }) =>
+          instance_uuid: uuid,
+          macro_pid,
+          macro_event_inner: event_inner,
+        }) =>
           match(event_inner, {
             Started: () => {
               console.log(`Macro ${macro_pid} started on ${uuid}`);
-              queryClient.invalidateQueries(['instance', uuid, 'taskList']) // need to invalidate the query to get the new task list
+              queryClient.invalidateQueries(['instance', uuid, 'taskList']); // need to invalidate the query to get the new task list
               dispatch({
                 title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
@@ -293,41 +293,49 @@ export const useEventStream = () => {
                 fresh,
               });
             },
-            Stopped: ({exit_status}) => {
+            Stopped: ({ exit_status }) => {
               console.log(
                 `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`
               );
 
-              let oldTask: TaskEntry | undefined
-              queryClient.setQueryData(['instance', uuid, 'taskList'], (oldData: TaskEntry[] | undefined): TaskEntry[] | undefined => {
-                if (oldData === undefined) {
-                  return undefined;
+              let oldTask: TaskEntry | undefined;
+              queryClient.setQueryData(
+                ['instance', uuid, 'taskList'],
+                (oldData: TaskEntry[] | undefined): TaskEntry[] | undefined => {
+                  if (oldData === undefined) {
+                    return undefined;
+                  }
+                  return oldData.filter((task) => {
+                    const shouldKeep = task.pid !== macro_pid;
+                    if (!shouldKeep) {
+                      oldTask = task;
+                    }
+
+                    return shouldKeep;
+                  });
                 }
-                return oldData.filter((task) => {
-                  const shouldKeep = task.pid !== macro_pid;
-                  if (!shouldKeep) {
-                    oldTask = task;
+              );
+
+              queryClient.setQueryData(
+                ['instance', uuid, 'historyList'],
+                (
+                  oldData: HistoryEntry[] | undefined
+                ): HistoryEntry[] | undefined => {
+                  if (oldTask === undefined) {
+                    return oldData;
+                  }
+                  const newHistory: HistoryEntry = {
+                    task: oldTask,
+                    exit_status,
+                  };
+
+                  if (oldData === undefined) {
+                    return [newHistory];
                   }
 
-                  return shouldKeep
-                });
-              })
-
-              queryClient.setQueryData(['instance', uuid, 'historyList'], (oldData: HistoryEntry[] | undefined): HistoryEntry[] | undefined => {
-                if (oldTask === undefined) {
-                  return oldData;
+                  return [newHistory, ...oldData];
                 }
-                const newHistory: HistoryEntry = {
-                  task: oldTask,
-                  exit_status,
-                }
-
-                if (oldData === undefined) {
-                  return [newHistory];
-                }
-
-                return [newHistory, ...oldData];
-              })
+              );
               dispatch({
                 title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
                 event,
@@ -350,7 +358,7 @@ export const useEventStream = () => {
               inner,
               otherwise(
                 {
-                  ProgressionEnd: ({inner, message}) => {
+                  ProgressionEnd: ({ inner, message }) => {
                     if (!inner) return;
                     match(
                       inner,
@@ -358,13 +366,13 @@ export const useEventStream = () => {
                         {
                           InstanceCreation: (instance_info) =>
                             addInstance(instance_info, queryClient),
-                          InstanceDelete: ({instance_uuid: uuid}) =>
+                          InstanceDelete: ({ instance_uuid: uuid }) =>
                             deleteInstance(uuid, queryClient),
                           FSOperationCompleted: ({
-                                                   instance_uuid,
-                                                   success,
-                                                   message,
-                                                 }) => {
+                            instance_uuid,
+                            success,
+                            message,
+                          }) => {
                             if (success) {
                               toast.success(message);
                             } else {
@@ -378,12 +386,11 @@ export const useEventStream = () => {
                           },
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
-                        (_) => {
-                        }
+                        (_) => {}
                       )
                     );
                   },
-                  ProgressionStart: ({inner}) => {
+                  ProgressionStart: ({ inner }) => {
                     if (!inner) return;
                     match(
                       inner,
@@ -393,20 +400,18 @@ export const useEventStream = () => {
                           //   deleteInstance(uuid, queryClient),
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
-                        (_) => {
-                        }
+                        (_) => {}
                       )
                     );
                   },
                 },
                 // eslint-disable-next-line @typescript-eslint/no-empty-function
-                (_) => {
-                }
+                (_) => {}
               )
             );
           }
         },
-        FSEvent: ({operation, target}) => {
+        FSEvent: ({ operation, target }) => {
           // console.log(`FS ${operation} on ${target.path}`);
           // match(target, {
           //   File: ({ path }) => {
