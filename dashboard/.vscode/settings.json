@@ -1,0 +1,20 @@
+{
+  "cSpell.words": ["clsx", "Formik", "reduxjs"],
+
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  },
+  // lint only src folder
+  "eslint.lintTask.options": "./src",
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "liveServer.settings.port": 5521,
+  "tailwindCSS.experimental.classRegex": [
+    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    "ClassName\\s*=\\s*[`\"']([^`\"']*)"
+  ]
+}

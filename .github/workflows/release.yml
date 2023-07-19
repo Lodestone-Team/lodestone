@@ -1,24 +1,33 @@
-name: Release Draft Workflow
+name: Release Workflow
+
+# Developers, to start making a release, tag a commit with vX.Y.Z and push it to main.
+# Then this workflow will run and create a draft release with the tag name as the version.
+# You can then edit the release to include a changelog and publish it.
 
 on:
-    push:
-      tags: [ v* ]
-
-env:
-  CARGO_TERM_COLOR: always
+  push:
+    tags: [ v* ]
 
 jobs:
-  clippy_check:
-    uses: ./.github/workflows/checks.yml
+  workspace-check:
+    uses: ./.github/workflows/workspace-check.yml
     secrets: inherit
 
-  cargo_test:
-    uses: ./.github/workflows/cargo-test.yml
+  core-cargo-test:
+    uses: ./.github/workflows/core-cargo-test.yml
     secrets: inherit
 
-  build:
-    uses: ./.github/workflows/core.yml
-    needs: [clippy_check, cargo_test]
-    secrets: inherit
+  dashboard-build-and-draft:
+    uses: ./.github/workflows/dashboard-build-and-draft.yml
+    needs: [workspace-check, core-cargo-test]
     with:
       version: ${{ github.ref_name }}
+      debug: false
+    secrets: inherit
+
+  core-build-and-draft:
+    uses: ./.github/workflows/core-build-and-draft.yml
+    needs: [workspace-check, core-cargo-test]
+    with:
+      version: ${{ github.ref_name }}
+    secrets: inherit

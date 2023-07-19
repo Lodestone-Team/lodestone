@@ -1,0 +1,49 @@
+{
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:tailwindcss/recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:storybook/recommended",
+    "prettier"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "name": "react-router-dom",
+        "importNames": ["useNavigate"],
+        "message": "Please use functions from BrowserLocationContext instead"
+      },
+      {
+        "name": "@tauri-apps/api",
+        "message": "Please use the global tauri object from tauriUtil.ts instead"
+      },
+      {
+        "name": "next/router",
+        "message": "Please use react-router-dom instead"
+      },
+      {
+        "name": "tailwind-merge",
+        "message": "Please use \"myTwMerge\" from \"utils.ts\" instead"
+      }
+    ],
+    "@next/next/no-img-element": "off",
+    "no-unused-vars": "off",
+    "@typescript-eslint/no-unused-vars": [
+      "warn", // or "error"
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "tailwindcss/migration-from-tailwind-2": ["off"]
+  },
+  "plugins": ["tailwindcss"],
+  "settings": {
+    "tailwindcss": {
+      "callees": ["cn", "clsx", "variants"]
+    }
+  }
+}
