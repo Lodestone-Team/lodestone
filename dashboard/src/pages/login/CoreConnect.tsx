@@ -89,7 +89,7 @@ const CoreConnect = () => {
 
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
-      {!showPopup && (
+      {showPopup && (
         <ConfirmDialog
           isOpen={ShowBlurb}
           onClose={() => setShowPopup(false)}
