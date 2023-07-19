@@ -44,7 +44,6 @@ export const NotificationPopover = () => {
   };
 
   useEffect(() => {
-    console.log(notifications, ongoingNotifications)
     setPreviousNotifications(notifications);
     setNewNotifications(shouldShowPopup());
   }, [notifications, ongoingNotifications]);
