@@ -49,6 +49,9 @@ use deno_core::{anyhow, error::generic_error};
 use deno_core::{resolve_import, ModuleCode};
 
 use futures::FutureExt;
+use indexmap::IndexMap;
+use crate::traits::t_configurable::manifest::{ConfigurableValue, ConfigurableValueType, SettingManifest};
+use crate::util::fs;
 
 pub trait WorkerOptionGenerator: Send + Sync {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions;
@@ -564,6 +567,251 @@ impl MacroExecutor {
     pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
         self.exit_status_table.get(&pid).map(|v| v.clone())
     }
+
+    pub fn get_config_manifest(path: &PathBuf) -> Result<IndexMap<String, SettingManifest>, Error> {
+        match extract_config_code(&fs::read_to_string(path)?) {
+            Ok(optional_code) => {
+                match optional_code {
+                    Some(definition) => {
+                        get_config_from_code(&definition)
+                    },
+                    None => {
+                        Ok(IndexMap::<String, SettingManifest>::new())
+                    }
+                }
+            },
+            Err(e) => {
+                error!(e);
+                e
+            }
+        }
+    }
+}
+
+fn extract_config_code(code: &str) -> Result<Option<String>, Error> {
+    if let Some(index) = code.find("LodestoneConfig") {
+        let config_code = &code[index..];
+        let end_index = {
+            let mut open_count = 0;
+            let mut close_count = 0;
+            let mut i = 0;
+            for &char_item in config_code.to_string().as_bytes().iter() {
+                if char_item == b'{' {
+                    open_count += 1;
+                }
+                if char_item == b'}' {
+                    close_count += 1;
+                }
+                i += 1;
+
+                if open_count == close_count && open_count > 0 {
+                    break;
+                }
+            }
+
+            if i == 0 || open_count != close_count {
+                return Err(ts_syntax_error("config"));
+            }
+
+            i
+        };
+
+        return match config_code.find('{') {
+            Some(start_index) => Ok(Some(config_code[start_index..end_index].to_string())),
+            None => Err(ts_syntax_error("config"))
+        }
+    }
+    Ok(None)
+}
+
+fn get_config_from_code(config_definition: &str) -> Result<IndexMap<String, SettingManifest>, Error> {
+    let str_length = config_definition.len();
+    let config_params_str = &config_definition[1..str_length-1].to_string();
+    let config_params_str = config_params_str.split('\n');
+
+    // parse config code into a collection of description and definition
+    let mut comment_lines: Vec<String> = vec![];
+    let mut code_lines: Vec<String> = vec![];
+    let mut comments: Vec<String> = vec![];
+    let mut codes: Vec<String> = vec![];
+    let mut comment_block_count = 0;
+    for (_, line) in config_params_str.enumerate() {
+        let line = line.replace('\r', "");
+        let line = line.trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        // comments within a comment block
+        if comment_block_count > 0 {
+            // closing the comment block
+            if line.starts_with("*/") {
+                comment_block_count -= 1;
+                continue;
+            }
+
+            // comments within a comment block
+            if let Some(line) = line.strip_prefix('*') {
+                comment_lines.push(line.trim().to_string());
+            } else {
+                comment_lines.push(line.to_string());
+            }
+            continue;
+        }
+
+        // single line comment & opening of a comment block
+        if line.starts_with("//") {
+            comment_lines.push(line.strip_prefix("//").unwrap().trim().to_string());
+        } else if line.starts_with("/**") {
+            comment_lines.push(line.strip_prefix("/**").unwrap().trim().to_string());
+            comment_block_count += 1;
+        } else if line.starts_with("/*") {
+            comment_lines.push(line.strip_prefix("/*").unwrap().trim().to_string());
+            comment_block_count += 1;
+        } else {
+            // if non of those are satisfied, it must be a line of actual code instead of a comment
+            let code_line = line.replace([' ', '\t'], "").trim().to_string();
+            code_lines.push(code_line.clone());
+            if code_line.ends_with(';') {
+                comments.push(comment_lines.join(" "));
+                comment_lines.clear();
+                codes.push(code_lines.join("").strip_suffix(';').unwrap().to_string());
+                code_lines.clear();
+            }
+        }
+    }
+
+    let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
+
+    Ok(configs)
+}
+
+fn parse_config_single(
+    single_config_definition: &str,
+    config_description: &str,
+) -> Result<(String, SettingManifest), Error> {
+    let entry = single_config_definition.trim().to_string();
+
+    let (name_end_index, type_start_index) = match entry.find('?') {
+        Some(index) => (index, index+2),
+        None => {
+            match entry.find(':') {
+                Some(index) => (index, index+1),
+                None => {
+                    return Err(ts_syntax_error("config"));
+                }
+            }
+        }
+    };
+    let var_name = &entry[..name_end_index];
+    let is_optional = name_end_index+2 == type_start_index;
+
+    let default_value_index = match entry.find('=') {
+        Some(index) => index,
+        None => entry.len(),
+    };
+    if type_start_index >= default_value_index {
+        return Err(ts_syntax_error("config"));
+    }
+
+    let var_type = &entry[type_start_index..default_value_index];
+    let config_type = get_config_value_type(var_type)?;
+    let has_default = default_value_index != entry.len();
+
+    if !is_optional && !has_default {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("{var_name} is not optional and thus must have a default value")
+        ));
+    }
+
+    let default_val = if has_default {
+        let val_str = entry[default_value_index + 1..].to_string();
+        let val_str_len = val_str.len();
+        Some(match config_type {
+            ConfigurableValueType::String => ConfigurableValue::String(val_str[1..val_str_len-1].to_string()),
+            ConfigurableValueType::Boolean => {
+                let value = match val_str.parse::<bool>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        return Err(Error::new(
+                            ErrorKind::InvalidData,
+                            format!("Cannot parse \"{val_str}\" to a bool")
+                        ));
+                    }
+                };
+                ConfigurableValue::Boolean(value)
+            },
+            ConfigurableValueType::Float => {
+                let value = match val_str.parse::<f32>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        return Err(Error::new(
+                            ErrorKind::InvalidData,
+                            format!("Cannot parse \"{val_str}\" to a number")
+                        ));
+                    }
+                };
+                ConfigurableValue::Float(value)
+            },
+            ConfigurableValueType::Enum{ .. } => ConfigurableValue::Enum(val_str[1..val_str_len-1].to_string()),
+            _ => None,
+        })
+    } else {
+        None
+    };
+
+    Ok((var_name.to_string(), SettingManifest::new(
+        var_name,
+        config_description,
+        default_val.clone(),
+        config_type,
+        default_val,
+        is_optional,
+    )))
+}
+
+fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error> {
+    let result = match type_str {
+        "string" => ConfigurableValueType::String,
+        "boolean" => ConfigurableValueType::Boolean,
+        "number" => ConfigurableValueType::Float,
+        _ => {
+            // try to parse it into an enum
+            let enum_options = type_str.split('|');
+            let mut options: Vec<String> = Vec::new();
+
+            for (_, option) in enum_options.enumerate() {
+                let error = Error::new(
+                    ErrorKind::InvalidData,
+                    format!("cannot parse type \"{}\"", type_str)
+                );
+
+                // verify the enum options are strings
+                let first_quote_index = {
+                    if let Some(i) = option.find('\'') {
+                        i
+                    } else if let Some(i) = option.find('"') {
+                        i
+                    } else {
+                        return Err(error);
+                    }
+                };
+
+                if first_quote_index == 0 {
+                    let str_len = option.len();
+                    options.push(option[1..str_len-1].to_string());
+                }
+                else {
+                    return Err(error);
+                }
+            }
+
+            ConfigurableValueType::Enum { options }
+        }
+    };
+    Ok(result)
 }
 
 #[cfg(test)]
