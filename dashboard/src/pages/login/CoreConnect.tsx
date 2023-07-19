@@ -32,6 +32,7 @@ const CoreConnect = () => {
   const { setCore, addCore } = useContext(LodestoneContext);
   const [ ShowBlurb, setShowBlurb ] = useState(false); 
   const [ showPopup, setShowPopup ] = useState(false);
+  const [ httpProtocol, sethttpProtocol ] = useState(true);
 
   const initialValues: CoreConnectionInfo = {
     address: '',
@@ -44,6 +45,12 @@ const CoreConnect = () => {
     values: CoreConnectionInfo,
     actions: FormikHelpers<CoreConnectionInfo>
   ) => {
+    if (values.protocol == "https") {
+      sethttpProtocol(false);
+    }
+    else {
+      sethttpProtocol(true);
+    };
     // check if core can be reached
     axios
       .get<CoreInfo>(`/info`, {
@@ -89,7 +96,7 @@ const CoreConnect = () => {
 
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
-      {showPopup && (
+      {httpProtocol && showPopup && (
         <ConfirmDialog
           isOpen={ShowBlurb}
           onClose={() => setShowPopup(false)}
@@ -129,7 +136,7 @@ const CoreConnect = () => {
             </WarningAlert>
           </div>
         )}
-      </div>      
+      </div>
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}
