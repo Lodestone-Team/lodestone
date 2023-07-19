@@ -89,7 +89,7 @@ const CoreConnect = () => {
 
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
-      {showPopup && (
+      {!showPopup && (
         <ConfirmDialog
           isOpen={ShowBlurb}
           onClose={() => setShowPopup(false)}
@@ -144,7 +144,7 @@ const CoreConnect = () => {
             autoComplete={DISABLE_AUTOFILL}
           >
             {status && (
-              <div className="mt-[-40px]">
+              <div className="mt-[-35px]">
                 <WarningAlert>
                   <p>
                     <b>{status.error}</b>: Please ensure your fields are filled
