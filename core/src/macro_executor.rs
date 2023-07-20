@@ -7,6 +7,7 @@ use std::{
         Arc,
     },
     time::Duration,
+    iter::zip,
 };
 
 use color_eyre::eyre::Context;
@@ -568,8 +569,8 @@ impl MacroExecutor {
         self.exit_status_table.get(&pid).map(|v| v.clone())
     }
 
-    pub fn get_config_manifest(path: &PathBuf) -> Result<IndexMap<String, SettingManifest>, Error> {
-        match extract_config_code(&fs::read_to_string(path)?) {
+    pub async fn get_config_manifest(path: &PathBuf) -> Result<IndexMap<String, SettingManifest>, Error> {
+        match extract_config_code(&fs::read_to_string(path).await?) {
             Ok(optional_code) => {
                 match optional_code {
                     Some(definition) => {
@@ -581,8 +582,7 @@ impl MacroExecutor {
                 }
             },
             Err(e) => {
-                error!(e);
-                e
+                Err(e)
             }
         }
     }
@@ -610,7 +610,7 @@ fn extract_config_code(code: &str) -> Result<Option<String>, Error> {
             }
 
             if i == 0 || open_count != close_count {
-                return Err(ts_syntax_error("config"));
+                return Err(Error::ts_syntax_error("config"));
             }
 
             i
@@ -618,7 +618,7 @@ fn extract_config_code(code: &str) -> Result<Option<String>, Error> {
 
         return match config_code.find('{') {
             Some(start_index) => Ok(Some(config_code[start_index..end_index].to_string())),
-            None => Err(ts_syntax_error("config"))
+            None => Err(Error::ts_syntax_error("config"))
         }
     }
     Ok(None)
@@ -683,6 +683,10 @@ fn get_config_from_code(config_definition: &str) -> Result<IndexMap<String, Sett
     }
 
     let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
+    for (definition, desc) in zip(codes, comments) {
+        let (name, config) = parse_config_single(&definition, &desc)?;
+        configs.insert(name, config);
+    }
 
     Ok(configs)
 }
@@ -699,7 +703,7 @@ fn parse_config_single(
             match entry.find(':') {
                 Some(index) => (index, index+1),
                 None => {
-                    return Err(ts_syntax_error("config"));
+                    return Err(Error::ts_syntax_error("config"));
                 }
             }
         }
@@ -712,7 +716,7 @@ fn parse_config_single(
         None => entry.len(),
     };
     if type_start_index >= default_value_index {
-        return Err(ts_syntax_error("config"));
+        return Err(Error::ts_syntax_error("config"));
     }
 
     let var_type = &entry[type_start_index..default_value_index];
@@ -720,74 +724,71 @@ fn parse_config_single(
     let has_default = default_value_index != entry.len();
 
     if !is_optional && !has_default {
-        return Err(Error::new(
-            ErrorKind::InvalidData,
-            format!("{var_name} is not optional and thus must have a default value")
-        ));
+        return Err(Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("{var_name} is not optional and thus must have a default value"),
+        });
     }
 
     let default_val = if has_default {
         let val_str = entry[default_value_index + 1..].to_string();
         let val_str_len = val_str.len();
         Some(match config_type {
-            ConfigurableValueType::String => ConfigurableValue::String(val_str[1..val_str_len-1].to_string()),
+            ConfigurableValueType::String{ .. } => ConfigurableValue::String(val_str[1..val_str_len-1].to_string()),
             ConfigurableValueType::Boolean => {
                 let value = match val_str.parse::<bool>() {
                     Ok(val) => val,
                     Err(_) => {
-                        return Err(Error::new(
-                            ErrorKind::InvalidData,
-                            format!("Cannot parse \"{val_str}\" to a bool")
-                        ));
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Cannot parse \"{val_str}\" to a bool")
+                        });
                     }
                 };
                 ConfigurableValue::Boolean(value)
             },
-            ConfigurableValueType::Float => {
+            ConfigurableValueType::Float{ .. } => {
                 let value = match val_str.parse::<f32>() {
                     Ok(val) => val,
                     Err(_) => {
-                        return Err(Error::new(
-                            ErrorKind::InvalidData,
-                            format!("Cannot parse \"{val_str}\" to a number")
-                        ));
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Cannot parse \"{val_str}\" to a number")
+                        });
                     }
                 };
                 ConfigurableValue::Float(value)
             },
             ConfigurableValueType::Enum{ .. } => ConfigurableValue::Enum(val_str[1..val_str_len-1].to_string()),
-            _ => None,
+            _ => panic!("TS config parsing error: invlid type not caught by the type parser"),
         })
     } else {
         None
     };
 
-    Ok((var_name.to_string(), SettingManifest::new(
-        var_name,
-        config_description,
+    Ok((var_name.to_string(), SettingManifest::new_value_with_type(
+        var_name.to_string(),
+        var_name.to_string(),
+        config_description.to_string(),
         default_val.clone(),
         config_type,
         default_val,
-        is_optional,
+        false,
+        true,
     )))
 }
 
 fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error> {
     let result = match type_str {
-        "string" => ConfigurableValueType::String,
+        "string" => ConfigurableValueType::String{ regex: None },
         "boolean" => ConfigurableValueType::Boolean,
-        "number" => ConfigurableValueType::Float,
+        "number" => ConfigurableValueType::Float{ max: None, min: None},
         _ => {
             // try to parse it into an enum
             let enum_options = type_str.split('|');
             let mut options: Vec<String> = Vec::new();
 
             for (_, option) in enum_options.enumerate() {
-                let error = Error::new(
-                    ErrorKind::InvalidData,
-                    format!("cannot parse type \"{}\"", type_str)
-                );
-
                 // verify the enum options are strings
                 let first_quote_index = {
                     if let Some(i) = option.find('\'') {
@@ -795,7 +796,10 @@ fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error>
                     } else if let Some(i) = option.find('"') {
                         i
                     } else {
-                        return Err(error);
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("cannot parse type \"{}\"", type_str)
+                        });
                     }
                 };
 
@@ -804,7 +808,10 @@ fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error>
                     options.push(option[1..str_len-1].to_string());
                 }
                 else {
-                    return Err(error);
+                    return Err(Error {
+                        kind: ErrorKind::Internal,
+                        source: eyre!("cannot parse type \"{}\"", type_str)
+                    });
                 }
             }
 
