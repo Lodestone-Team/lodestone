@@ -49,7 +49,9 @@ async fn main() {
         is_desktop: true,
         lodestone_path: None,
     })
-    .await;
+    .await
+    .unwrap();
+
     let shutdown_tx = std::sync::Mutex::new(Some(shutdown_tx));
     tokio::spawn(async {
         core_fut.await;
