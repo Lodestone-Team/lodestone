@@ -46,14 +46,31 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
 
 #[tokio::main]
 async fn main() {
-    let (core_fut, app_state, _guard, shutdown_tx) = lodestone_core::run(lodestone_core::Args {
+    let run_result = lodestone_core::run(lodestone_core::Args {
         is_cli: false,
         is_desktop: true,
         lodestone_path: None,
     })
-    .await
-    .unwrap();
+    .await;
 
+    let (core_fut, app_state, _guard, shutdown_tx);
+    match run_result {
+        Ok((fut, state, guard, tx)) => {
+            core_fut = fut;
+            app_state = state;
+            _guard = guard;
+            shutdown_tx = tx;
+        }
+        Err(e) => {
+            Notification::new()
+                .summary("Lodestone failed to start")
+                .body("Oh no! Looks like Lodestone was unable to start.")
+                .auto_icon()
+                .show()
+                .expect("Failed to show notification");
+        }
+    }
+    
     let shutdown_tx = std::sync::Mutex::new(Some(shutdown_tx));
     tokio::spawn(async {
         core_fut.await;
