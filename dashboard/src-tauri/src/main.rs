@@ -68,9 +68,11 @@ async fn main() {
                 .auto_icon()
                 .show()
                 .expect("Failed to show notification");
+            
+            return
         }
     }
-    
+
     let shutdown_tx = std::sync::Mutex::new(Some(shutdown_tx));
     tokio::spawn(async {
         core_fut.await;
