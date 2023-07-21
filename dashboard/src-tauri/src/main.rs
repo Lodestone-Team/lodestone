@@ -14,6 +14,12 @@ use tauri::Manager;
 use tauri::{utils::config::AppUrl, WindowUrl};
 use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
+#[derive(Clone, serde::Serialize)]
+struct Payload {
+  args: Vec<String>,
+  cwd: String,
+}
+
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
     Ok(is_owner_account_present(state.inner()).await)
@@ -76,6 +82,9 @@ async fn main() {
     let tray_menu = SystemTrayMenu::new().add_item(quit);
 
     builder
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            app.emit_all("single-instance", Payload { args: argv, cwd }).unwrap();
+        }))
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             is_setup,
