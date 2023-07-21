@@ -246,7 +246,7 @@ export async function procedure_bridge(instance: AtomInstance,) {
                     }
                 }
                 if (inner.type === "SetupInstance") {
-                    await instance.setup(inner.setup_value, inner.dot_lodestone_config, ProgressionHandler.__private__create(inner.progression_event_id), inner.path)
+                    await instance.setup(inner.setup_value, inner.dot_lodestone_config, ProgressionHandler.create(`Setting up ${inner.setup_value.name}`, inner.progression_event_id), inner.path)
 
                 } else if (inner.type == "RestoreInstance") {
                     await instance.restore(inner.dot_lodestone_config, inner.path);
