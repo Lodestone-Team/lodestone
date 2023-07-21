@@ -14,9 +14,8 @@ import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
 import { toast } from 'react-toastify';
 import { Player } from 'bindings/Player';
-import { TaskEntry } from '../bindings/TaskEntry';
-import { getTasks } from '../utils/apis';
-import { HistoryEntry } from '../bindings/HistoryEntry';
+import { TaskEntry } from 'bindings/TaskEntry';
+import { HistoryEntry } from 'bindings/HistoryEntry';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream

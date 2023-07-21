@@ -11,12 +11,13 @@ import {
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext, useState, useMemo } from 'react';
-import { MacroEntry } from 'bindings/MacroEntry';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
-import { TaskEntry } from '../bindings/TaskEntry';
-import { HistoryEntry } from '../bindings/HistoryEntry';
+
+import { MacroEntry } from 'bindings/MacroEntry';
+import { TaskEntry } from 'bindings/TaskEntry';
+import { HistoryEntry } from 'bindings/HistoryEntry';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
