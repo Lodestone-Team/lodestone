@@ -300,39 +300,22 @@ export const useEventStream = () => {
               let oldTask: TaskEntry | undefined;
               queryClient.setQueryData(
                 ['instance', uuid, 'taskList'],
-                (oldData: TaskEntry[] | undefined): TaskEntry[] | undefined => {
-                  if (oldData === undefined) {
-                    return undefined;
-                  }
-                  return oldData.filter((task) => {
-                    const shouldKeep = task.pid !== macro_pid;
-                    if (!shouldKeep) {
-                      oldTask = task;
-                    }
-
-                    return shouldKeep;
-                  });
+                (oldData?: TaskEntry[]): TaskEntry[] | undefined => {
+                  oldTask = oldData?.find((task) => task.pid === macro_pid);
+                  return oldData?.filter((task) => task.pid !== macro_pid);
                 }
               );
 
               queryClient.setQueryData(
                 ['instance', uuid, 'historyList'],
-                (
-                  oldData: HistoryEntry[] | undefined
-                ): HistoryEntry[] | undefined => {
-                  if (oldTask === undefined) {
-                    return oldData;
-                  }
+                (oldData?: HistoryEntry[]): HistoryEntry[] | undefined => {
+                  if (!oldTask) return oldData;
                   const newHistory: HistoryEntry = {
                     task: oldTask,
                     exit_status,
                   };
 
-                  if (oldData === undefined) {
-                    return [newHistory];
-                  }
-
-                  return [newHistory, ...oldData];
+                  return [newHistory, ...(oldData || [])];
                 }
               );
               dispatch({
