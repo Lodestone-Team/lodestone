@@ -1,5 +1,7 @@
 mod utils;
+use std::process::Stdio;
 mod playit_secret;
+use tokio::process::Command;
 use std::time::Duration;
 mod errors;
 use playit_agent_core::api::api::ApiError;
@@ -13,6 +15,7 @@ use playit_agent_core::api::{ PlayitApi, api::{AccountTunnelAllocation, ClaimSet
 use crate::error::{Error, ErrorKind};
 use crate::AppState;
 use crate::prelude::lodestone_path;
+use crate::util::dont_spawn_terminal;
 use serde::{Deserialize, Serialize};
 use utils::*;
 use playit_secret::*;
@@ -171,6 +174,52 @@ pub async fn kill_tunnel(
         .unwrap();
     tunnel.0.store(false, Ordering::SeqCst);
     Ok(Json(()))
+}
+
+pub async fn get_playit_cli_url() -> Option<String> {
+    match std::env::consts::OS {
+        "windows" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3-unsigned.exe")),
+        "linux" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3")),
+        "macos" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3-apple-m1")),
+        _ => None,
+    }
+}
+
+pub async fn start_cli(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Result<Json<()>, Error> {
+    let cli_name = get_playit_cli_url().await.ok_or_else(|| {
+        eyre!("Failed to get playit cli url")
+    })
+    .unwrap()
+    .split('/')
+    .last()
+    .ok_or_else(|| {
+        eyre!("Internal error: Misformatted playit cli url")
+    })
+    .unwrap()
+    .to_string();
+
+    let cli_path = lodestone_path().join(cli_name);
+    let mut cli_start_command = Command::new(cli_path);
+
+    if dont_spawn_terminal(&mut cli_start_command) 
+        .stdout(Stdio::piped())
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .is_ok()
+    {
+        println!("Started playit cli");
+        Ok(Json(()))
+    } else {
+        Err(Error{
+            kind: ErrorKind::Internal,
+            source: eyre!(
+                "Failed to start playit cli"
+            ),
+        })
+    }
 }
 
 
