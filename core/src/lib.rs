@@ -114,6 +114,7 @@ pub struct AppState {
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
     tunnels: Arc<Mutex<HashMap<TunnelUuid, TunnelHandle>>>,
+    playit_cli_handle: Arc<Mutex<Option<tokio::process::Child>>>,
 }
 
 impl AppState {
@@ -502,6 +503,7 @@ pub async fn run(
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         tunnels: Arc::new(Mutex::new(HashMap::new())),
+        playit_cli_handle: Arc::new(Mutex::new(None)),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(

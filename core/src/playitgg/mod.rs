@@ -2,6 +2,7 @@ mod utils;
 use std::process::Stdio;
 mod playit_secret;
 use tokio::process::Command;
+use toml::{Table, Value};
 use std::time::Duration;
 mod errors;
 use playit_agent_core::api::api::ApiError;
@@ -65,7 +66,7 @@ pub struct PlayitTunnelInfo {
 }
 pub struct TunnelHandle(Arc<AtomicBool>, JoinHandle<()>);
 
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Clone)]
 #[ts(export)]
 pub struct PlayitSignupData {
     pub url: String,
@@ -200,25 +201,34 @@ pub async fn start_cli(
     .unwrap()
     .to_string();
 
-    let cli_path = lodestone_path().join(cli_name);
+    let cli_path = lodestone_path()
+        .join("playitgg")
+        .join(cli_name);
     let mut cli_start_command = Command::new(cli_path);
+    println!("{:?}" , cli_start_command);
 
-    if dont_spawn_terminal(&mut cli_start_command) 
+    match dont_spawn_terminal(&mut cli_start_command) 
         .stdout(Stdio::piped())
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
-        .is_ok()
     {
-        println!("Started playit cli");
-        Ok(Json(()))
-    } else {
-        Err(Error{
-            kind: ErrorKind::Internal,
-            source: eyre!(
-                "Failed to start playit cli"
-            ),
+        Ok(child) => {
+            println!("Started playit cli");
+            state.playit_cli_handle.lock().await.replace(child);
+            Ok(Json(()))
+        }
+        Err(e) => {
+            println!("{:?}", e);
+            Err(Error{
+                kind: ErrorKind::Internal,
+                source: eyre!(
+                    "Failed to start playit cli"
+                ),
         })
+    }
+
     }
 }
 
@@ -235,6 +245,7 @@ pub async fn generate_signup_link(
         })
         .unwrap();
     let signup_data = Json(PlayitSignupData { url: url.clone(), claim_code: claim_code.clone() });
+    let ret_data = signup_data.clone();
     
     tokio::spawn(async move {
         loop {
@@ -272,10 +283,80 @@ pub async fn generate_signup_link(
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
         };
-        Ok(())
+
+        let api = PlayitApi::create(API_BASE.to_string(), None);
+        match api.claim_exchange(ReqClaimExchange { code: signup_data.claim_code.to_string() }).await {
+            Ok(res) => {
+                let mut secret_key_path = lodestone_path().clone();
+                secret_key_path.push("playit.toml");
+
+                let mut toml = toml::map::Map::new();
+                toml.insert("last_update".to_string(), Value::Integer(0));
+                toml.insert("ping_target_addresses".to_string(), Value::Array(vec![Value::String("23.133.216.1:5530".to_string()), Value::String("ping.ply.gg".to_string())]));
+                toml.insert("last_update".to_string(), Value::String("control.playit.gg".to_string()));
+                toml.insert("refresh_from_api".to_string(), Value::Boolean(true));
+                toml.insert("api_refresh_rate".to_string(), Value::Integer(0));
+                toml.insert("ping_interval".to_string(), Value::Integer(0));
+                toml.insert("secret_key".to_string(), Value::String(res.secret_key.clone()));
+                
+                let mut file = tokio::fs::File::create(secret_key_path).await.map_err(|e| {
+                    eyre!("Failed to create playit secret file with error {:?}" , e)
+                })?;
+                file.write_all(toml.to_string().as_bytes()).await.map_err(|e| {
+                    eyre!("Failed to write playit secret key with error {:?}" , e)
+                })?;
+                
+                let api = PlayitApi::create(API_BASE.to_string(), Some(res.secret_key.clone()));
+                
+                let lookup = Arc::new(LocalLookup {
+                    data: vec![],
+                });
+            
+                let runner = TunnelRunner::new(res.secret_key.clone(), lookup.clone())
+                    .await
+                    .map_err(|e| {
+                        eyre!("Failed to create tunnel object with error {:?}" , e)
+                    })
+                    .unwrap();
+
+                tokio::spawn(async move {
+                    let signal = runner.keep_running();
+                    tokio::spawn(runner.run());
+                    loop {
+                        let tunnels = api.tunnels_list(ReqTunnelsList { tunnel_id: None, agent_id: None })
+                            .await
+                            .map_err(|e| {
+                                eyre!("Failed to get tunnels from playitgg with error {:?}" , e)
+                            })
+                            .unwrap();
+
+                        if !tunnels.tunnels.is_empty() {
+                            signal.store(false, Ordering::SeqCst);
+                            break;
+                        }
+                        
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+
+                    }
+                });
+                Ok(())
+            }
+            Err(ApiError::Fail(error)) => Err(Error{
+                    kind: ErrorKind::Internal,
+                    source: eyre!(
+                        "Api error: {:?}" , error
+                    ),
+            }),
+            Err(error) =>  Err(Error{
+                    kind: ErrorKind::Internal,
+                    source: eyre!(
+                        "Failed to confirm signup with error {:?}" , error
+                    ),
+            })
+        }
     });
     println!("generate_signup_link");
-    Ok(signup_data)
+    Ok(ret_data)
 }
 
 pub async fn confirm_singup(
@@ -287,14 +368,23 @@ pub async fn confirm_singup(
         Ok(res) => {
             let mut secret_key_path = lodestone_path().clone();
             secret_key_path.push("playit.toml");
-            let toml = format!("secret_key='{}'", res.secret_key);
+
+            let mut toml = toml::map::Map::new();
+            toml.insert("last_update".to_string(), Value::Integer(0));
+            toml.insert("ping_target_addresses".to_string(), Value::Array(vec![Value::String("23.133.216.1:5530".to_string()), Value::String("ping.ply.gg".to_string())]));
+            toml.insert("last_update".to_string(), Value::String("control.playit.gg".to_string()));
+            toml.insert("refresh_from_api".to_string(), Value::Boolean(true));
+            toml.insert("api_refresh_rate".to_string(), Value::Integer(0));
+            toml.insert("ping_interval".to_string(), Value::Integer(0));
+            toml.insert("secret_key".to_string(), Value::String(res.secret_key.clone()));
+            
             let mut file = tokio::fs::File::create(secret_key_path).await.map_err(|e| {
                 eyre!("Failed to create playit secret file with error {:?}" , e)
             })?;
-            file.write_all(toml.as_bytes()).await.map_err(|e| {
+            file.write_all(toml.to_string().as_bytes()).await.map_err(|e| {
                 eyre!("Failed to write playit secret key with error {:?}" , e)
             })?;
-            state.playitgg_key.lock().await.replace(res.secret_key.clone());
+            
             let api = PlayitApi::create(API_BASE.to_string(), Some(res.secret_key.clone()));
             
             let lookup = Arc::new(LocalLookup {
