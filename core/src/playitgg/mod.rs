@@ -73,21 +73,17 @@ pub struct PlayitSignupData {
     pub claim_code: String,
 }
 
-pub async fn get_playit_cli_url() -> Option<String> {
-    match std::env::consts::OS {
-        "windows" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3-unsigned.exe")),
-        "linux" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3")),
-        "macos" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3-apple-m1")),
-        _ => None,
-    }
-}
-
 pub async fn start_cli(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<()>, Error> {
+    if state.playit_running.load(Ordering::SeqCst) {
+        return Ok(Json(()));
+    }
+
+    state.playit_running.store(true, Ordering::SeqCst);
     let config_path = lodestone_path().join("playit.toml");
     tokio::spawn(async move {
-        run_playit_cli(config_path).await;       
+        run_playit_cli(config_path, state.playit_running).await;       
     });
 
     Ok(Json(()))
@@ -97,7 +93,7 @@ pub async fn start_cli(
 pub async fn stop_cli(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<()>, Error> {
-    state.playit_cli_handle.lock().await.take();
+    state.playit_running.store(false, Ordering::SeqCst);
     Ok(Json(()))
 }
 

@@ -13,6 +13,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use crate::error::{Error, ErrorKind};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -96,7 +97,7 @@ pub async fn is_valid_secret_key(secret: String) -> bool {
         .is_ok()
 }
 
-pub(super) async fn run_playit_cli(config_path: PathBuf) {
+pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<AtomicBool>) {
     let status = Arc::new(RwLock::new(AgentConfigStatus::default()));
     let config_path_str = match config_path.to_str() {
         Some(path) => path,
@@ -121,6 +122,10 @@ pub(super) async fn run_playit_cli(config_path: PathBuf) {
 
         if prepare_config_task.is_finished() {
             break prepare_config_task.await.unwrap();
+        }
+
+        if !keep_running.load(Ordering::SeqCst) {
+            return;
         }
     };
 
@@ -168,19 +173,23 @@ pub(super) async fn run_playit_cli(config_path: PathBuf) {
         ..AgentState::default()
     }));
 
-    let agent_update_loop = {
+    let _agent_update_loop = {
         let agent_updater = agent_updater.clone();
-
+        let keep_running = keep_running.clone();
         tokio::spawn(async move {
             loop {
                 let wait = match agent_updater.update().await {
                     Ok(wait) => wait,
-                    Err(error) => {
+                    Err(_error) => {
                         1000
                     }
                 };
 
                 tokio::time::sleep(Duration::from_millis(wait)).await;
+                
+                if !keep_running.load(Ordering::SeqCst) {
+                    return;
+                }
             }
         })
     };
@@ -200,6 +209,10 @@ pub(super) async fn run_playit_cli(config_path: PathBuf) {
         tokio::spawn(async move {
             loop {
                 println!("poggers");
+                if !keep_running.load(Ordering::SeqCst) {
+                    return;
+                }
+
                 match agent_updater.process_tunnel_feed().await {
                     Ok(Some(client)) => {
                         let agent_updater = agent_updater.clone();

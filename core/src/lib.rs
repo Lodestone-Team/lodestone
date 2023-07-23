@@ -50,6 +50,7 @@ use fs3::FileExt;
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use toml::Table;
+use std::sync::atomic::AtomicBool;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -113,7 +114,7 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
-    playit_cli_handle: Arc<Mutex<Option<tokio::process::Child>>>,
+    playit_running: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -506,7 +507,7 @@ pub async fn run(
         playitgg_key: Arc::new(Mutex::new(playitgg_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
-        playit_cli_handle: Arc::new(Mutex::new(None)),
+        playit_running: Arc::new(AtomicBool::new(false)),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
