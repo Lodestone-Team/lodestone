@@ -44,7 +44,7 @@ use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use playitgg::{TunnelHandle, TunnelUuid};
+use playitgg::utils::is_valid_secret_key;
 
 use fs3::FileExt;
 use semver::Version;
@@ -113,7 +113,6 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
-    tunnels: Arc<Mutex<HashMap<TunnelUuid, TunnelHandle>>>,
     playit_cli_handle: Arc<Mutex<Option<tokio::process::Child>>>,
 }
 
@@ -462,16 +461,21 @@ pub async fn run(
         None
     };
 
-    let playitgg_key;
-    if let Ok(playitgg_file) = tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await {
+    let playitgg_key = if let Ok(playitgg_file) = tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await {
         let toml_data: toml::Table = toml::from_str(&playitgg_file).unwrap();
-        playitgg_key = Some(String::from(toml_data["secret_key"].as_str().unwrap()));
+        if let Some(res) = toml_data["secret_key"].as_str() {
+            if is_valid_secret_key(res.to_string()).await {
+                println!("Validated playitgg key...");
+                Some(res.to_string())
+            } else {
+                None
+            }        
+        } else {
+            None
+        }
     } else {
-        playitgg_key = None;
-    }
-
-    println!("playitgg_key: {:?}", playitgg_key);
-
+        None
+    };
 
     let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
@@ -502,7 +506,6 @@ pub async fn run(
         playitgg_key: Arc::new(Mutex::new(playitgg_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
-        tunnels: Arc::new(Mutex::new(HashMap::new())),
         playit_cli_handle: Arc::new(Mutex::new(None)),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,

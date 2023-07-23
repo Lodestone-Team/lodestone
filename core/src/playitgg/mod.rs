@@ -1,4 +1,4 @@
-mod utils;
+pub mod utils;
 use std::process::Stdio;
 mod playit_secret;
 use tokio::process::Command;
@@ -73,110 +73,6 @@ pub struct PlayitSignupData {
     pub claim_code: String,
 }
 
-#[derive(Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum SignupStatus {
-	CodeNotFound,
-	CodeExpired,
-	UserRejected,
-	NotAccepted,
-	NotSetup,
-    Completed,
-}
-
-impl From<ClaimExchangeError> for SignupStatus {
-    fn from(error: ClaimExchangeError) -> Self {
-        match error {
-            ClaimExchangeError::CodeNotFound => SignupStatus::CodeNotFound,
-            ClaimExchangeError::CodeExpired => SignupStatus::CodeExpired,
-            ClaimExchangeError::UserRejected => SignupStatus::UserRejected,
-            ClaimExchangeError::NotAccepted => SignupStatus::NotAccepted,
-            ClaimExchangeError::NotSetup => SignupStatus::NotSetup,
-        }
-    }
-}
-
-pub async fn start_tunnel(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    Json(params): Json<PlayitTunnelParams>,
-) -> Result<Json<PlayitTunnelInfo>, Error> {
-    let secret = state
-        .playitgg_key
-        .lock()
-        .await
-        .clone()
-        .ok_or_else(|| {
-            eyre!("Failed to get playitgg secret from state")
-        })
-        .unwrap();
-    let tunnel_type: Option<TunnelType> = None;
-    let name = Some(String::from(""));
-    let api = make_client(String::from("https://api.playit.gg"), secret.clone());
-    let port_count = 1;
-    let exact = false;
-    let ignore_name = true;
-
-    let port_type = params.port_type;
-    let port_num = params.local_port;
-
-    let tunnels = api.tunnels_list(ReqTunnelsList { tunnel_id: None, agent_id: None })
-        .await
-        .map_err(|e| {
-            eyre!("Failed to get tunnels from playitgg with error {:?}" , e)
-        })
-        .unwrap();
-    println!("{:?}", tunnels);
-    let tunnel = find_tunnel(tunnels, name, port_type.clone().into(), port_count, tunnel_type, exact, ignore_name)
-        .ok_or_else(|| {
-            eyre!("Couldn't find tunnel.")
-        })
-        .unwrap();
-
-    if let AccountTunnelAllocation::Allocated(allocated) = tunnel.clone().alloc {
-        let tunnel_runner = get_tunnel(tunnel.clone(), allocated.clone(), secret, port_type.into(), port_num)
-            .await
-            .map_err(|e| {
-                eyre!("Failed to create tunnel object with error {:?}" , e)
-            })
-            .unwrap();
-
-        let tunnel_future = TunnelHandle(
-            tunnel_runner.keep_running(),
-            tokio::spawn(async move {
-                tunnel_runner.run().await;
-            })
-        );
-        state.tunnels.lock().await.insert(TunnelUuid(allocated.id.to_string()), tunnel_future);
-        Ok(Json(PlayitTunnelInfo { public_ip: allocated.assigned_domain, public_port: allocated.port_start, tunnel_id: TunnelUuid(allocated.id.to_string()) }))
-    } else {
-        Err(Error{
-                kind: ErrorKind::Internal,
-                source: eyre!(
-                    "Couldn't allocate tunnel."
-                ),
-        }) 
-    }
-}
-
-
-pub async fn kill_tunnel(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    Json(tunnel_info): Json<PlayitTunnelInfo>,
-) -> Result<Json<()>, Error> {
-    let tunnel_id = tunnel_info.tunnel_id;
-    let tunnel = state
-        .tunnels
-        .lock()
-        .await
-        .remove(&tunnel_id)
-        .ok_or_else(|| {
-            eyre!("Couldn't find tunnel to kill.")
-        })
-        .unwrap();
-    tunnel.0.store(false, Ordering::SeqCst);
-    Ok(Json(()))
-}
-
 pub async fn get_playit_cli_url() -> Option<String> {
     match std::env::consts::OS {
         "windows" => Some(String::from("https://github.com/playit-cloud/playit-agent/releases/download/v0.9.3/playit-0.9.3-unsigned.exe")),
@@ -233,6 +129,14 @@ pub async fn start_cli(
 }
 
 
+pub async fn stop_cli(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Result<Json<()>, Error> {
+    state.playit_cli_handle.lock().await.take();
+    Ok(Json(()))
+}
+
+
 pub async fn generate_signup_link(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<PlayitSignupData>, Error> {
@@ -260,13 +164,6 @@ pub async fn generate_signup_link(
             .unwrap();
 
             match setup {
-                ClaimSetupResponse::WaitingForUserVisit => {
-                    let msg = format!("Waiting for user to visit {}", url);
-                    println!("{}", msg);
-                }
-                ClaimSetupResponse::WaitingForUser => {
-                    println!("Waiting for user to approve");
-                }
                 ClaimSetupResponse::UserAccepted => {
                     println!("User accepted, exchanging code for secret");
                     break;
@@ -280,6 +177,7 @@ pub async fn generate_signup_link(
                         ),
                     });
                 }
+                _ => {}
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
         };
@@ -292,12 +190,14 @@ pub async fn generate_signup_link(
 
                 let mut toml = toml::map::Map::new();
                 toml.insert("last_update".to_string(), Value::Integer(0));
+                toml.insert("api_url".to_string(), Value::String("https://api.playit.cloud/agent".to_string()));
                 toml.insert("ping_target_addresses".to_string(), Value::Array(vec![Value::String("23.133.216.1:5530".to_string()), Value::String("ping.ply.gg".to_string())]));
-                toml.insert("last_update".to_string(), Value::String("control.playit.gg".to_string()));
+                toml.insert("control_address".to_string(), Value::String("control.playit.gg".to_string()));
                 toml.insert("refresh_from_api".to_string(), Value::Boolean(true));
-                toml.insert("api_refresh_rate".to_string(), Value::Integer(0));
-                toml.insert("ping_interval".to_string(), Value::Integer(0));
+                toml.insert("api_refresh_rate".to_string(), Value::Integer(5000));
+                toml.insert("ping_interval".to_string(), Value::Integer(5000));
                 toml.insert("secret_key".to_string(), Value::String(res.secret_key.clone()));
+                toml.insert("mappings".to_string(), Value::Array(vec![]));
                 
                 let mut file = tokio::fs::File::create(secret_key_path).await.map_err(|e| {
                     eyre!("Failed to create playit secret file with error {:?}" , e)
@@ -332,11 +232,11 @@ pub async fn generate_signup_link(
 
                         if !tunnels.tunnels.is_empty() {
                             signal.store(false, Ordering::SeqCst);
+                            state.playitgg_key.lock().await.replace(res.secret_key.clone());
                             break;
                         }
                         
                         tokio::time::sleep(Duration::from_secs(3)).await;
-
                     }
                 });
                 Ok(())
@@ -355,79 +255,26 @@ pub async fn generate_signup_link(
             })
         }
     });
-    println!("generate_signup_link");
+
     Ok(ret_data)
 }
 
+
+
 pub async fn confirm_singup(
     axum::extract::State(state): axum::extract::State<AppState>,
-    Json(signup_data): Json<PlayitSignupData>,
-) -> Result<Json<SignupStatus>, Error> {
-    let api = PlayitApi::create(API_BASE.to_string(), None);
-    match api.claim_exchange(ReqClaimExchange { code: signup_data.claim_code.to_string() }).await {
-        Ok(res) => {
-            let mut secret_key_path = lodestone_path().clone();
-            secret_key_path.push("playit.toml");
-
-            let mut toml = toml::map::Map::new();
-            toml.insert("last_update".to_string(), Value::Integer(0));
-            toml.insert("ping_target_addresses".to_string(), Value::Array(vec![Value::String("23.133.216.1:5530".to_string()), Value::String("ping.ply.gg".to_string())]));
-            toml.insert("last_update".to_string(), Value::String("control.playit.gg".to_string()));
-            toml.insert("refresh_from_api".to_string(), Value::Boolean(true));
-            toml.insert("api_refresh_rate".to_string(), Value::Integer(0));
-            toml.insert("ping_interval".to_string(), Value::Integer(0));
-            toml.insert("secret_key".to_string(), Value::String(res.secret_key.clone()));
-            
-            let mut file = tokio::fs::File::create(secret_key_path).await.map_err(|e| {
-                eyre!("Failed to create playit secret file with error {:?}" , e)
-            })?;
-            file.write_all(toml.to_string().as_bytes()).await.map_err(|e| {
-                eyre!("Failed to write playit secret key with error {:?}" , e)
-            })?;
-            
-            let api = PlayitApi::create(API_BASE.to_string(), Some(res.secret_key.clone()));
-            
-            let lookup = Arc::new(LocalLookup {
-                data: vec![],
-            });
-        
-            let runner = TunnelRunner::new(res.secret_key.clone(), lookup.clone())
-                .await
-                .map_err(|e| {
-                    eyre!("Failed to create tunnel object with error {:?}" , e)
-                })
-                .unwrap();
-
-            tokio::spawn(async move {
-                let signal = runner.keep_running();
-                tokio::spawn(runner.run());
-                loop {
-                    let tunnels = api.tunnels_list(ReqTunnelsList { tunnel_id: None, agent_id: None })
-                        .await
-                        .map_err(|e| {
-                            eyre!("Failed to get tunnels from playitgg with error {:?}" , e)
-                        })
-                        .unwrap();
-
-                    if !tunnels.tunnels.is_empty() {
-                        signal.store(false, Ordering::SeqCst);
-                        break;
-                    }
-                    
-                    tokio::time::sleep(Duration::from_secs(3)).await;
-
-                }
-            });
-
-
-            Ok(Json(SignupStatus::Completed))
-        }
-        Err(ApiError::Fail(error)) => Ok(Json(error.into())),
-        Err(error) =>  Err(Error{
+) -> Result<Json<bool>, Error> {
+    let secret_key = match state.playitgg_key.lock().await.clone() {
+        Some(key) => key,
+        None => {
+            return Err(Error{
                 kind: ErrorKind::Internal,
                 source: eyre!(
-                    "Failed to confirm signup with error {:?}" , error
+                    "Failed to parse secret key"
                 ),
-        })
-    }
+            })
+        }
+    };
+    Ok(Json(is_valid_secret_key(secret_key).await))
 }
+

@@ -12,7 +12,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
+use crate::error::{Error, ErrorKind};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{atomic::Ordering, Arc, Mutex};
@@ -27,13 +27,7 @@ use playit_agent_core::api::ip_resource::IpResource;
 use playit_agent_core::api::PlayitApi;
 use playit_agent_core::network::address_lookup::{AddressLookup, AddressValue};
 
-use playit_agent_core::tunnel_runner::TunnelRunner;
-use playit_agent_core::utils::now_milli;
-
-use tokio::sync::RwLock;
-
 use super::playit_secret::*;
-use super::errors::CliError;
 
 #[derive(Clone)]
 pub struct SimpleTunnel {
@@ -52,7 +46,7 @@ pub struct LocalLookup {
 impl AddressLookup for LocalLookup {
     type Value = SocketAddr;
 
-    fn lookup(&self, ip: IpAddr, port: u16, proto: PortType) -> Option<AddressValue<SocketAddr>> {
+    fn lookup(&self, _ip: IpAddr, port: u16, proto: PortType) -> Option<AddressValue<SocketAddr>> {
         for tunnel in &*self.data {
             if tunnel.port_type != proto && tunnel.port_type != PortType::Both {
                 continue;
@@ -77,91 +71,13 @@ impl AddressLookup for LocalLookup {
 }
 
 
-pub fn make_client(api_base:String, secret: String) -> PlayitApiClient<HttpClient>{
-    PlayitApi::create(api_base, Some(secret))
-}
-
-pub fn find_tunnel(tunnels: AccountTunnels, name: Option<String>, port_type: PortType, port_count: u16, tunnel_type: Option<TunnelType>, exact: bool, ignore_name: bool) -> Option<AccountTunnel> {
-    let mut options = Vec::new();
-    for tunnel in tunnels.tunnels {
-        let tunnel_port_count = match &tunnel.alloc {
-            AccountTunnelAllocation::Allocated(alloc) => alloc.port_end - alloc.port_start,
-            _ => continue,
-        };
-
-        if exact {
-            if (ignore_name || tunnel.name.eq(&name)) && tunnel.port_type == port_type && port_count == tunnel_port_count && tunnel.tunnel_type == tunnel_type {
-                options.push(tunnel);
-            } else {
-                continue;
-            }
-        } else {
-            if (tunnel.port_type == PortType::Both || tunnel.port_type == port_type) && port_count <= tunnel_port_count && tunnel.tunnel_type == tunnel_type {
-                options.push(tunnel);
-            }
-        }
-    }
-
-    /* rank options by how much they match */
-    options.sort_by_key(|option| {
-        let mut points = 0;
-
-        if ignore_name {
-            if name.is_some() && option.name.eq(&name) {
-                points += 1;
-            }
-        } else {
-            if option.name.eq(&name) {
-                points += 10;
-            }
-        }
-
-        if option.port_type == port_type {
-            points += 200;
-        }
-
-        if port_count == option.port_count {
-            points += 100;
-        } else {
-            points += ((port_count as i32) - (option.port_count as i32)) * 10;
-        }
-
-        points += match option.alloc {
-            AccountTunnelAllocation::Pending => -10,
-            AccountTunnelAllocation::Disabled => -40,
-            AccountTunnelAllocation::Allocated(_) => 0,
-        };
-
-        points
-    });
-
-    let mut tunnel: Option<AccountTunnel> = None;
-    if let Some(found_tunnel) = options.pop() {
-        Some(found_tunnel)
-    } else {
-        None
-    }
-}
-
-pub async fn get_tunnel(tunnel: AccountTunnel, allocated: TunnelAllocated, secret: String, port_type: PortType, port_num: u16) -> Result<TunnelRunner<LocalLookup>, SetupError> {
-    let simple_tunnel = SimpleTunnel {
-        pub_address: allocated.ip_hostname,
-        port_type,
-        from_port: port_num,
-        to_port: port_num + 1,
-        local_start_address: "127.0.0.1:25655".parse().unwrap(),
-    };
-    let local_lookup = LocalLookup {
-        data: vec!(simple_tunnel.clone()),
-    };
-    TunnelRunner::new(secret.clone(), Arc::new(local_lookup)).await
-}
-
-pub async fn verify_user(mut secret: PlayitSecret) -> Result<String, CliError> {
-    secret
-        .with_default_path()
-        .ensure_valid()
-        .await?
-        .get_or_setup()
+pub async fn is_valid_secret_key(secret: String) -> bool {
+    let api = PlayitApi::create(API_BASE.to_string(), Some(secret));
+    api
+        .tunnels_list(ReqTunnelsList {
+            tunnel_id: None,
+            agent_id: None,
+        })
         .await
+        .is_ok()
 }

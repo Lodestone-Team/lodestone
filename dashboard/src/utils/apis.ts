@@ -507,38 +507,20 @@ export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
   return response;
 };
 
-export const confirmPlayitSignup = async (
-  signupData: PlayitSignupData 
-): Promise<SignupStatus> => {
-  console.log(signupData)
-  const response = await axiosWrapper<SignupStatus>({
-    method: 'post',
-    url: `/playitgg/confirm_signup`,
-    data: signupData,
-  });
-  return response;
-};
-
-
-export const startTunnel  = async (
-  tunnelParams: PlayitTunnelParams,
-): Promise<PlayitTunnelInfo> => {
-  const response = await axiosWrapper<PlayitTunnelInfo>({
-    method: 'post',
-    url: `/playitgg/run_tunnel`,
-    data: tunnelParams,
-  });
-  return response;
-};
-
-export const stopTunnel  = async (
-  tunnelParams: PlayitTunnelInfo,
-) => {
+export const startCli  = async () => {
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'post',
-      url: `/playitgg/kill_tunnel`,
-      data: tunnelParams,
+      url: `/playitgg/start_cli`,
+    })
+  );
+};
+
+export const stopCli  = async () => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'post',
+      url: `/playitgg/stop_cli`,
     })
   );
 };
