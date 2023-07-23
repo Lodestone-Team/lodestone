@@ -170,7 +170,8 @@ export default function InputBox({
 
   let icons = [];
 
-  if (typeModified !== 'password' && touched) {
+  // enable editing regardless of input type
+  if (touched) {
     icons.push(
       <FontAwesomeIcon
         icon={faFloppyDisk}
@@ -200,7 +201,8 @@ export default function InputBox({
           typeModified === 'password'
             ? setTypeModified('text')
             : setTypeModified('password');
-          formRef.current?.reset();
+          // allow in-progress password to persist between hide/show
+          // formRef.current?.reset();
         }}
         key="reveal password"
       />
@@ -255,7 +257,7 @@ export default function InputBox({
           </div>
         </div>
         <input
-          value={typeModified === 'password' ? 'xxxxxxxx' : value}
+          value={value}
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
@@ -267,7 +269,7 @@ export default function InputBox({
           onBlur={() => {
             setValue(value.trim());
           }}
-          disabled={typeModified === 'password' ? true : disabled}
+          disabled={disabled}
           type={typeModified}
           autoComplete={DISABLE_AUTOFILL}
         />
