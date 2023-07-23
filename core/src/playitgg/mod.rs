@@ -85,47 +85,12 @@ pub async fn get_playit_cli_url() -> Option<String> {
 pub async fn start_cli(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<()>, Error> {
-    let cli_name = get_playit_cli_url().await.ok_or_else(|| {
-        eyre!("Failed to get playit cli url")
-    })
-    .unwrap()
-    .split('/')
-    .last()
-    .ok_or_else(|| {
-        eyre!("Internal error: Misformatted playit cli url")
-    })
-    .unwrap()
-    .to_string();
+    let config_path = lodestone_path().join("playit.toml");
+    tokio::spawn(async move {
+        run_playit_cli(config_path).await;       
+    });
 
-    let cli_path = lodestone_path()
-        .join("playitgg")
-        .join(cli_name);
-    let mut cli_start_command = Command::new(cli_path);
-    println!("{:?}" , cli_start_command);
-
-    match dont_spawn_terminal(&mut cli_start_command) 
-        .stdout(Stdio::piped())
-        .stdin(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-    {
-        Ok(child) => {
-            println!("Started playit cli");
-            state.playit_cli_handle.lock().await.replace(child);
-            Ok(Json(()))
-        }
-        Err(e) => {
-            println!("{:?}", e);
-            Err(Error{
-                kind: ErrorKind::Internal,
-                source: eyre!(
-                    "Failed to start playit cli"
-                ),
-        })
-    }
-
-    }
+    Ok(Json(()))
 }
 
 
