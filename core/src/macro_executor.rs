@@ -627,7 +627,7 @@ fn extract_config_code(code: &str) -> Result<Option<String>, Error> {
 fn get_config_from_code(config_definition: &str) -> Result<IndexMap<String, SettingManifest>, Error> {
     let str_length = config_definition.len();
     let config_params_str = &config_definition[1..str_length-1].to_string();
-    let config_params_str = config_params_str.split('\n');
+    let config_params_str: Vec<_> = config_params_str.split('\n').collect();
 
     // parse config code into a collection of description and definition
     let mut comment_lines: Vec<String> = vec![];
@@ -635,7 +635,7 @@ fn get_config_from_code(config_definition: &str) -> Result<IndexMap<String, Sett
     let mut comments: Vec<String> = vec![];
     let mut codes: Vec<String> = vec![];
     let mut comment_block_count = 0;
-    for (_, line) in config_params_str.enumerate() {
+    for line in config_params_str {
         let line = line.replace('\r', "");
         let line = line.trim();
 
@@ -785,10 +785,10 @@ fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error>
         "number" => ConfigurableValueType::Float{ max: None, min: None},
         _ => {
             // try to parse it into an enum
-            let enum_options = type_str.split('|');
+            let enum_options: Vec<_> = type_str.split('|').collect();
             let mut options: Vec<String> = Vec::new();
 
-            for (_, option) in enum_options.enumerate() {
+            for option in enum_options {
                 // verify the enum options are strings
                 let first_quote_index = {
                     if let Some(i) = option.find('\'') {

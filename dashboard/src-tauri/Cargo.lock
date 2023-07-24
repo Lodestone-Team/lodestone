@@ -4126,6 +4126,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-localhost",
+ "tauri-plugin-single-instance",
  "tokio",
 ]
 
@@ -7664,6 +7665,20 @@ dependencies = [
  "serde_json",
  "tauri",
  "tiny_http",
+]
+
+[[package]]
+name = "tauri-plugin-single-instance"
+version = "0.0.0"
+source = "git+https://github.com/tauri-apps/plugins-workspace?branch=v1#180ec441aa64654e23369be3ed86c2a1fa99a803"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror",
+ "windows-sys 0.48.0",
+ "zbus",
 ]
 
 [[package]]
