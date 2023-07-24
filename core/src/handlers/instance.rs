@@ -5,7 +5,7 @@ use axum_auth::AuthBearer;
 
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -219,29 +219,75 @@ pub async fn create_generic_instance(
         .context("Failed to create instance directory")?;
 
     let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), GameType::Generic);
+    let event_broadcaster = state.event_broadcaster.clone();
+    tokio::task::spawn(async move {
+        let (progression_start_event, event_id) = Event::new_progression_event_start(
+            format!("Setting up instance {}", setup_config.setup_value.name),
+            Some(100.0),
+            Some(ProgressionStartValue::InstanceCreation {
+                instance_uuid: instance_uuid.clone(),
+            }),
+            CausedBy::User {
+                user_id: requester.uid,
+                user_name: requester.username,
+            },
+        );
+        event_broadcaster.send(progression_start_event);
+        let instance = match generic::GenericInstance::new(
+            setup_config.url,
+            setup_path.clone(),
+            dot_lodestone_config.clone(),
+            setup_config.setup_value,
+            &event_id,
+            state.event_broadcaster.clone(),
+            state.macro_executor.clone(),
+        )
+        .await
+        {
+            Ok(v) => {
+                info!("Atom created successfully");
+                event_broadcaster.send(Event::new_progression_event_end(
+                    event_id,
+                    true,
+                    Some("Instance created successfully"),
+                    Some(ProgressionEndValue::InstanceCreation(
+                        v.get_instance_info().await,
+                    )),
+                ));
+                v
+            }
+            Err(e) => {
+                error!("Atom creation failed: {:?}", e);
+                event_broadcaster.send(Event::new_progression_event_end(
+                    event_id,
+                    false,
+                    Some(&format!("Instance creation failed: {e}")),
+                    None,
+                ));
+                crate::util::fs::remove_dir_all(setup_path)
+                    .await
+                    .map_err(Error::log)
+                    .context("Failed to remove directory after instance creation failed")
+                    .unwrap();
+                return;
+            }
+        };
 
-    // write dot lodestone config
+        // write dot lodestone config
 
-    tokio::fs::write(
-        setup_path.join(".lodestone_config"),
-        serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
-    )
-    .await
-    .context("Failed to write .lodestone_config file")?;
+        tokio::fs::write(
+            setup_path.join(".lodestone_config"),
+            serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
+        )
+        .await
+        .context("Failed to write .lodestone_config file")
+        .unwrap();
 
-    let instance = generic::GenericInstance::new(
-        setup_config.url,
-        setup_path,
-        dot_lodestone_config,
-        setup_config.setup_value,
-        state.event_broadcaster.clone(),
-        state.macro_executor.clone(),
-    )
-    .await?;
+        state
+            .instances
+            .insert(instance_uuid.clone(), instance.into());
+    });
 
-    state
-        .instances
-        .insert(instance_uuid.clone(), instance.into());
     Ok(Json(()))
 }
 

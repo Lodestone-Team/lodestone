@@ -18,9 +18,6 @@ target/
 # jetbrains IDE project files
 .idea/
 
-# Test ground should be local to every developer
-src/test_ground/
-
 ## dev
 InstanceTest/
 .lodestone/

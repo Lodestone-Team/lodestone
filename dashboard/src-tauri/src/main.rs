@@ -15,6 +15,11 @@ use tauri::{utils::config::AppUrl, WindowUrl};
 use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
 use notify_rust::Notification;
+#[derive(Clone, serde::Serialize)]
+struct Payload {
+  args: Vec<String>,
+  cwd: String,
+}
 
 #[tauri::command]
 async fn is_setup(state: tauri::State<'_, AppState>) -> Result<bool, ()> {
@@ -99,36 +104,37 @@ async fn main() {
     let tray_menu = SystemTrayMenu::new().add_item(quit);
 
     match builder
-            .manage(app_state)
-            .invoke_handler(tauri::generate_handler![
-                is_setup,
-                setup_owner_account,
-                get_owner_jwt,
-                get_first_time_setup_key
-            ])
-            .on_window_event(|event| match event.event() {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    event.window().hide().unwrap();
-                    api.prevent_close();
-                }
-                _ => {}
-            })
-            .system_tray(SystemTray::new().with_menu(tray_menu))
-            .on_system_tray_event(move |app, event| match event {
-                SystemTrayEvent::MenuItemClick { id, .. } => {
-                    if id == "quit" {
-                        if let Some(tx) = shutdown_tx.lock().unwrap().take() {
-                            tx.send(()).unwrap();
-                        }
-                        app.exit(0);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            app.emit_all("single-instance", Payload { args: argv, cwd }).unwrap();
+        }))
+        .manage(app_state)
+        .invoke_handler(tauri::generate_handler![
+            is_setup,
+            setup_owner_account,
+            get_owner_jwt,
+            get_first_time_setup_key
+        ])
+        .on_window_event(|event| match event.event() {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                event.window().hide().unwrap();
+                api.prevent_close();
+            }
+            _ => {}
+        })
+        .system_tray(SystemTray::new().with_menu(tray_menu))
+        .on_system_tray_event(move |app, event| match event {
+            SystemTrayEvent::MenuItemClick { id, .. } => {
+                if id == "quit" {
+                    if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                        tx.send(()).unwrap();
                     }
                 }
-
-                SystemTrayEvent::LeftClick { .. } => {
-                    let window = app.get_window("main").unwrap();
-                    window.show().unwrap();
-                    window.set_focus().unwrap();
-                }
+            }
+            SystemTrayEvent::LeftClick { .. } => {
+                let window = app.get_window("main").unwrap();
+                window.show().unwrap();
+                window.set_focus().unwrap();
+            }
                 _ => {}
             })
             .run(context)
