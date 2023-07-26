@@ -1,5 +1,6 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
+use crate::error::ErrorKind;
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
@@ -387,19 +388,24 @@ pub async fn run(
     } else {
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
             Ok(v) => v,
-            Err(_) => home::home_dir()
-                .unwrap_or_else(|| {
-                    std::env::current_dir().expect("what kinda os are you running lodestone on???")
-                })
-                .join(".lodestone")
-                .to_str()
-                .unwrap()
-                .to_string(),
+            Err(_) => {
+                match home::home_dir()
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().expect("what kinda os are you running lodestone on???")
+                    })
+                    .join(".lodestone")
+                    .to_str() {
+                    Some(p) => p.to_string(),
+                    None => return Err(Error { kind: ErrorKind::Internal, source: Report::msg("Failed to get home dir") }),
+                }
+            }
         })
     };
     init_paths(lodestone_path.clone());
     info!("Lodestone path: {}", lodestone_path.display());
-    std::env::set_current_dir(&lodestone_path).unwrap();
+    std::env::set_current_dir(&lodestone_path).map_err(|_| 
+        Error { kind: ErrorKind::Internal, source: Report::msg("Failed to set current dir"), }
+    )?;
     let guard = setup_tracing();
     if args.is_desktop {
         info!("Lodestone Core running in Tauri");
@@ -415,7 +421,9 @@ pub async fn run(
     let lock_file =
         std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile");
     if lock_file.try_lock_exclusive().is_err() {
-        panic!("Another instance of lodestone might be running");
+        return Err(Error {
+            kind: ErrorKind::Internal, source: Report::msg("Another instance of lodestone is running"),
+        });
     }
 
     let _ = migrate(&lodestone_path).map_err(|e| {
@@ -427,7 +435,7 @@ pub async fn run(
 
     let mut users_manager = UsersManager::new(tx.clone(), HashMap::new(), path_to_users().clone());
 
-    users_manager.load_users().await.unwrap();
+    users_manager.load_users().await?;
 
     let mut global_settings = GlobalSettings::new(
         path_to_global_settings().clone(),
@@ -435,7 +443,7 @@ pub async fn run(
         GlobalSettingsData::default(),
     );
 
-    global_settings.load_from_file().await.unwrap();
+    global_settings.load_from_file().await?;
 
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
@@ -456,13 +464,12 @@ pub async fn run(
     let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
-        .map_err(|e| {
-            error!(
-                "Failed to restore instances: {}, lodestone will now crash...",
-                e
-            );
-        })
-        .unwrap();
+        .map_err(|_| {
+            Error {
+                kind: ErrorKind::Internal,
+                source: Report::msg("failed to restore instances"),
+            }
+        })?;
 
     let mut allocated_ports = HashSet::new();
     for instance_entry in instances.iter() {
@@ -488,11 +495,17 @@ pub async fn run(
                 "sqlite://{}/data.db",
                 path_to_stores().display()
             ))
-            .unwrap()
+            .map_err(|_| { Error {
+                kind: ErrorKind::Internal,
+                source: Report::msg("Failed to create sqlite connection options"),
+            }})?
             .create_if_missing(true),
         )
         .await
-        .unwrap(),
+        .map_err(|_| { Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg("Failed to create sqlite pool"),
+        }})?,
     };
 
     init_app_state(shared_state.clone());

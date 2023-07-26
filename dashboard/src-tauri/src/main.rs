@@ -66,7 +66,7 @@ async fn main() {
             _guard = guard;
             shutdown_tx = tx;
         }
-        Err(e) => {
+        Err(_) => {
             Notification::new()
                 .summary("Lodestone failed to start")
                 .body("Oh no! Looks like Lodestone was unable to start.")
@@ -103,7 +103,7 @@ async fn main() {
 
     let tray_menu = SystemTrayMenu::new().add_item(quit);
 
-    match builder
+    if let Err(_) = builder
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             app.emit_all("single-instance", Payload { args: argv, cwd }).unwrap();
         }))
@@ -139,14 +139,11 @@ async fn main() {
             })
             .run(context)
     {
-        Ok(_) => {}
-        Err(e) => {
-            Notification::new()
-                .summary("Lodestone failed to start")
-                .body("Oh no! Looks like Lodestone was unable to start.")
-                .auto_icon()
-                .show()
-                .expect("Failed to show notification");
-        }
-    }
+        Notification::new()
+            .summary("Lodestone failed to start")
+            .body("Oh no! Looks like Lodestone was unable to start.")
+            .auto_icon()
+            .show()
+            .expect("Failed to show notification");
+    } 
 }
