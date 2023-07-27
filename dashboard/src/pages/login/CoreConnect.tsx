@@ -32,7 +32,7 @@ const CoreConnect = () => {
   const { setCore, addCore } = useContext(LodestoneContext);
   const [ showBlurb, setShowBlurb ] = useState(false); 
   const [ showPopup, setShowPopup ] = useState(false);
-  const [ httpProtocol, sethttpProtocol ] = useState(true);
+  const [ httpProtocol, setHttpProtocol ] = useState(true);
 
   const initialValues: CoreConnectionInfo = {
     address: '',
@@ -45,12 +45,7 @@ const CoreConnect = () => {
     values: CoreConnectionInfo,
     actions: FormikHelpers<CoreConnectionInfo>
   ) => {
-    if (values.protocol == "https") {
-      sethttpProtocol(false);
-    }
-    else {
-      sethttpProtocol(true);
-    };
+    setHttpProtocol(values.protocol == "http");
     // check if core can be reached
     axios
       .get<CoreInfo>(`/info`, {
@@ -120,21 +115,19 @@ const CoreConnect = () => {
           Add a new core
         </h1>
         {showBlurb && (
-          <div className='w-full'>
-            <WarningAlert>
-                <p>
-                  You may need to adjust your network and browser settings. {' '}
-                  <a
-                    href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-200 underline hover:text-blue-300"
-                  >
-                  Learn more.
-                  </a>
-                </p>
-            </WarningAlert>
-          </div>
+          <WarningAlert className='w-full'>
+              <p>
+                You may need to adjust your network and browser settings. {' '}
+                <a
+                  href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-200 underline hover:text-blue-300"
+                >
+                Learn more.
+                </a>
+              </p>
+          </WarningAlert>
         )}
       </div>
       <Formik
@@ -151,14 +144,12 @@ const CoreConnect = () => {
             autoComplete={DISABLE_AUTOFILL}
           >
             {status && (
-              <div className="mt-[-35px]">
-                <WarningAlert>
-                  <p>
-                    <b>{status.error}</b>: Please ensure your fields are filled
-                    out correctly.
-                  </p>
-                </WarningAlert>
-              </div>
+              <WarningAlert className='-mt-9'>
+                <p>
+                  <b>{status.error}</b>: Please ensure your fields are filled
+                  out correctly.
+                </p>
+              </WarningAlert>
             )}
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <SelectField
