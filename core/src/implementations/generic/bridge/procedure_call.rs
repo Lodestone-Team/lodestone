@@ -392,11 +392,7 @@ impl ProcedureBridge {
         let (procedure_result_tx, mut procedure_result_rx) = tokio::sync::broadcast::channel(256);
 
         // keep the procedure_result_rx alive
-        tokio::spawn(async move {
-            loop {
-                procedure_result_rx.recv().await.unwrap();
-            }
-        });
+       std::mem::forget(procedure_result_rx);
 
         Self {
             ready: Arc::new(AtomicBool::new(false)),
