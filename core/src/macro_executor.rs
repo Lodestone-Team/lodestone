@@ -1,5 +1,6 @@
 use std::{
     fmt::{Debug, Display},
+    iter::zip,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -7,7 +8,6 @@ use std::{
         Arc,
     },
     time::Duration,
-    iter::zip,
 };
 
 use color_eyre::eyre::Context;
@@ -49,10 +49,12 @@ use deno_core::ResolutionKind;
 use deno_core::{anyhow, error::generic_error};
 use deno_core::{resolve_import, ModuleCode};
 
+use crate::traits::t_configurable::manifest::{
+    ConfigurableValue, ConfigurableValueType, SettingManifest,
+};
+use crate::util::fs;
 use futures::FutureExt;
 use indexmap::IndexMap;
-use crate::traits::t_configurable::manifest::{ConfigurableValue, ConfigurableValueType, SettingManifest};
-use crate::util::fs;
 
 pub trait WorkerOptionGenerator: Send + Sync {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions;
@@ -569,21 +571,15 @@ impl MacroExecutor {
         self.exit_status_table.get(&pid).map(|v| v.clone())
     }
 
-    pub async fn get_config_manifest(path: &PathBuf) -> Result<IndexMap<String, SettingManifest>, Error> {
+    pub async fn get_config_manifest(
+        path: &PathBuf,
+    ) -> Result<IndexMap<String, SettingManifest>, Error> {
         match extract_config_code(&fs::read_to_string(path).await?) {
-            Ok(optional_code) => {
-                match optional_code {
-                    Some((var_name, definition)) => {
-                        get_config_from_code(&var_name, &definition)
-                    },
-                    None => {
-                        Ok(IndexMap::<String, SettingManifest>::new())
-                    }
-                }
+            Ok(optional_code) => match optional_code {
+                Some((var_name, definition)) => get_config_from_code(&var_name, &definition),
+                None => Ok(IndexMap::<String, SettingManifest>::new()),
             },
-            Err(e) => {
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 }
@@ -623,7 +619,8 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
 
     // second occurrence of LodeStoneConfig must be the config variable declaration
     let config_var_code = {
-        let second_occur_index = config_indices[1].0 - config_indices[0].0 + "LodestoneConfig".len();
+        let second_occur_index =
+            config_indices[1].0 - config_indices[0].0 + "LodestoneConfig".len();
         &config_code[end_index..second_occur_index]
     };
 
@@ -642,7 +639,7 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
         }
         if keyword.is_empty() {
             return Err(Error::ts_syntax_error(
-                "Class definition detected but cannot find config declaration"
+                "Class definition detected but cannot find config declaration",
             ));
         }
         keyword
@@ -650,11 +647,15 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
 
     let config_var_code = config_var_code.replace(' ', "");
     let config_var_name = {
-        let decl_keyword_index = match config_var_code.match_indices(decl_keyword).collect::<Vec<_>>().last() {
+        let decl_keyword_index = match config_var_code
+            .match_indices(decl_keyword)
+            .collect::<Vec<_>>()
+            .last()
+        {
             Some(val) => val.0,
             None => {
                 return Err(Error::ts_syntax_error(
-                    "Class definition detected but cannot find config declaration"
+                    "Class definition detected but cannot find config declaration",
                 ));
             }
         };
@@ -664,7 +665,7 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
             Some(index) => index,
             None => {
                 return Err(Error::ts_syntax_error(
-                    "Class definition detected but cannot find config declaration"
+                    "Class definition detected but cannot find config declaration",
                 ));
             }
         };
@@ -672,16 +673,20 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
     };
 
     match config_code.find('{') {
-        Some(start_index) => Ok(Some(
-            (config_var_name.to_string(), config_code[start_index..end_index].to_string())
-        )),
-        None => Err(Error::ts_syntax_error("config"))
+        Some(start_index) => Ok(Some((
+            config_var_name.to_string(),
+            config_code[start_index..end_index].to_string(),
+        ))),
+        None => Err(Error::ts_syntax_error("config")),
     }
 }
 
-fn get_config_from_code(config_var_name: &str, config_definition: &str) -> Result<IndexMap<String, SettingManifest>, Error> {
+fn get_config_from_code(
+    config_var_name: &str,
+    config_definition: &str,
+) -> Result<IndexMap<String, SettingManifest>, Error> {
     let str_length = config_definition.len();
-    let config_params_str = &config_definition[1..str_length-1].to_string();
+    let config_params_str = &config_definition[1..str_length - 1].to_string();
     let config_params_str: Vec<_> = config_params_str.split('\n').collect();
 
     // parse config code into a collection of description and definition
@@ -739,11 +744,7 @@ fn get_config_from_code(config_var_name: &str, config_definition: &str) -> Resul
 
     let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
     for (definition, desc) in zip(codes, comments) {
-        let (name, config) = parse_config_single(
-            &definition,
-            &desc,
-            config_var_name,
-        )?;
+        let (name, config) = parse_config_single(&definition, &desc, config_var_name)?;
         configs.insert(name, config);
     }
 
@@ -758,18 +759,16 @@ fn parse_config_single(
     let entry = single_config_definition.trim().to_string();
 
     let (name_end_index, type_start_index) = match entry.find('?') {
-        Some(index) => (index, index+2),
-        None => {
-            match entry.find(':') {
-                Some(index) => (index, index+1),
-                None => {
-                    return Err(Error::ts_syntax_error("config"));
-                }
+        Some(index) => (index, index + 2),
+        None => match entry.find(':') {
+            Some(index) => (index, index + 1),
+            None => {
+                return Err(Error::ts_syntax_error("config"));
             }
-        }
+        },
     };
     let var_name = &entry[..name_end_index];
-    let is_optional = name_end_index+2 == type_start_index;
+    let is_optional = name_end_index + 2 == type_start_index;
 
     let default_value_index = match entry.find('=') {
         Some(index) => index,
@@ -794,32 +793,36 @@ fn parse_config_single(
         let val_str = entry[default_value_index + 1..].to_string();
         let val_str_len = val_str.len();
         Some(match config_type {
-            ConfigurableValueType::String{ .. } => ConfigurableValue::String(val_str[1..val_str_len-1].to_string()),
+            ConfigurableValueType::String { .. } => {
+                ConfigurableValue::String(val_str[1..val_str_len - 1].to_string())
+            }
             ConfigurableValueType::Boolean => {
                 let value = match val_str.parse::<bool>() {
                     Ok(val) => val,
                     Err(_) => {
                         return Err(Error {
                             kind: ErrorKind::Internal,
-                            source: eyre!("Cannot parse \"{val_str}\" to a bool")
+                            source: eyre!("Cannot parse \"{val_str}\" to a bool"),
                         });
                     }
                 };
                 ConfigurableValue::Boolean(value)
-            },
-            ConfigurableValueType::Float{ .. } => {
+            }
+            ConfigurableValueType::Float { .. } => {
                 let value = match val_str.parse::<f32>() {
                     Ok(val) => val,
                     Err(_) => {
                         return Err(Error {
                             kind: ErrorKind::Internal,
-                            source: eyre!("Cannot parse \"{val_str}\" to a number")
+                            source: eyre!("Cannot parse \"{val_str}\" to a number"),
                         });
                     }
                 };
                 ConfigurableValue::Float(value)
-            },
-            ConfigurableValueType::Enum{ .. } => ConfigurableValue::Enum(val_str[1..val_str_len-1].to_string()),
+            }
+            ConfigurableValueType::Enum { .. } => {
+                ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string())
+            }
             _ => panic!("TS config parsing error: invalid type not caught by the type parser"),
         })
     } else {
@@ -829,23 +832,29 @@ fn parse_config_single(
     let mut settings_id = setting_id_prefix.to_string();
     settings_id.push('|');
     settings_id.push_str(var_name);
-    Ok((var_name.to_string(), SettingManifest::new_value_with_type(
-        settings_id,
+    Ok((
         var_name.to_string(),
-        config_description.to_string(),
-        default_val.clone(),
-        config_type,
-        default_val,
-        false,
-        true,
-    )))
+        SettingManifest::new_value_with_type(
+            settings_id,
+            var_name.to_string(),
+            config_description.to_string(),
+            default_val.clone(),
+            config_type,
+            default_val,
+            false,
+            true,
+        ),
+    ))
 }
 
 fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error> {
     let result = match type_str {
-        "string" => ConfigurableValueType::String{ regex: None },
+        "string" => ConfigurableValueType::String { regex: None },
         "boolean" => ConfigurableValueType::Boolean,
-        "number" => ConfigurableValueType::Float{ max: None, min: None},
+        "number" => ConfigurableValueType::Float {
+            max: None,
+            min: None,
+        },
         _ => {
             // try to parse it into an enum
             let enum_options: Vec<_> = type_str.split('|').collect();
@@ -861,19 +870,18 @@ fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error>
                     } else {
                         return Err(Error {
                             kind: ErrorKind::Internal,
-                            source: eyre!("cannot parse type \"{}\"", type_str)
+                            source: eyre!("cannot parse type \"{}\"", type_str),
                         });
                     }
                 };
 
                 if first_quote_index == 0 {
                     let str_len = option.len();
-                    options.push(option[1..str_len-1].to_string());
-                }
-                else {
+                    options.push(option[1..str_len - 1].to_string());
+                } else {
                     return Err(Error {
                         kind: ErrorKind::Internal,
-                        source: eyre!("cannot parse type \"{}\"", type_str)
+                        source: eyre!("cannot parse type \"{}\"", type_str),
                     });
                 }
             }
@@ -967,7 +975,6 @@ mod tests {
     #[tokio::test]
     async fn test_http_url() {
         tracing_subscriber::fmt::try_init();
-
 
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
