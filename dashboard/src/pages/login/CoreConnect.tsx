@@ -16,8 +16,9 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { isIPv6 } from 'is-ip';
 
 const validationSchema = yup.object({
   address: yup.string().required('Required'),
@@ -30,21 +31,23 @@ const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
-  const [ ShowBlurb, setShowBlurb ] = useState(false); 
-  const [ showPopup, setShowPopup ] = useState(false);
+  const [ShowBlurb, setShowBlurb] = useState(false);
+  const [showPopup, setShowPopup] = useState(false);
 
   const initialValues: CoreConnectionInfo = {
     address: '',
     port: LODESTONE_PORT.toString(),
     apiVersion: 'v1',
-    protocol: 'http', //change to https when supported
+    protocol: 'http',
   };
 
   const onSubmit = (
     values: CoreConnectionInfo,
     actions: FormikHelpers<CoreConnectionInfo>
   ) => {
-    // check if core can be reached
+    if (isIPv6(values.address)) {
+      values.address = `[${values.address}]`;
+    }
     axios
       .get<CoreInfo>(`/info`, {
         baseURL: `${values.protocol}://${values.address}:${values.port}/api/${values.apiVersion}`,
@@ -73,13 +76,12 @@ const CoreConnect = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // http site hosted on kevins arm server 
+        // http site hosted on kevins arm server
         const response = await fetch('http://132.145.101.179:42069/');
         if (!response.ok) {
           setShowBlurb(true);
         }
-      }
-      catch (error) {
+      } catch (error) {
         setShowBlurb(true);
       }
     };
@@ -96,16 +98,17 @@ const CoreConnect = () => {
           title="HTTP Error"
           type="danger"
         >
-          Missing site permissions. Enable mixed content settings or disable any HTTPS browser plugins, then refresh the page. {' '}
+          Missing site permissions. Enable mixed content settings or disable any
+          HTTPS browser plugins, then refresh the page.{' '}
           <a
             href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
             target="_blank"
             rel="noreferrer"
             className="text-blue-200 underline hover:text-blue-300"
           >
-          Learn more.
-          </a>          
-        </ConfirmDialog>          
+            Learn more.
+          </a>
+        </ConfirmDialog>
       )}
       <div className="flex flex-col items-start">
         <img src="/logo.svg" alt="logo" className="h-8" />
@@ -115,19 +118,19 @@ const CoreConnect = () => {
         {ShowBlurb && (
           <WarningAlert>
             <p>
-              You may need to adjust your network and browser settings. {' '}
+              You may need to adjust your network and browser settings.{' '}
               <a
                 href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
                 target="_blank"
                 rel="noreferrer"
                 className="text-blue-200 underline hover:text-blue-300"
               >
-              Learn more.
+                Learn more.
               </a>
             </p>
           </WarningAlert>
         )}
-      </div>      
+      </div>
       <Formik
         initialValues={initialValues}
         validationSchema={validationSchema}
