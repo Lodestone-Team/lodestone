@@ -629,20 +629,16 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
         let mut config_var_tokens: Vec<_> = config_var_code.split(' ').collect();
         config_var_tokens.reverse();
 
-        let mut keyword: &str = "";
-        let keywords = vec!["let", "const", "var"];
-        for token in config_var_tokens {
-            if keywords.contains(&token) {
-                keyword = token;
-                break;
-            }
-        }
-        if keyword.is_empty() {
-            return Err(Error::ts_syntax_error(
+        let keywords = ["let", "const", "var"];
+        let keyword_found = config_var_tokens.iter().find(
+            |&kw| keywords.contains(kw)
+        );
+        match keyword_found {
+            Some(&kw) => kw,
+            None => return Err(Error::ts_syntax_error(
                 "Class definition detected but cannot find config declaration",
-            ));
+            ))
         }
-        keyword
     };
 
     let config_var_code = config_var_code.replace(' ', "");
