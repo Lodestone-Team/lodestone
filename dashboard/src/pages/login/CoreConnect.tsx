@@ -45,7 +45,11 @@ const CoreConnect = () => {
     values: CoreConnectionInfo,
     actions: FormikHelpers<CoreConnectionInfo>
   ) => {
-    if (isIPv6(values.address)) {
+    if (
+      isIPv6(values.address) &&
+      !values.address.startsWith('[') &&
+      !values.address.endsWith(']')
+    ) {
       values.address = `[${values.address}]`;
     }
     axios
