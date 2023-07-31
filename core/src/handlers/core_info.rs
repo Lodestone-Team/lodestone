@@ -9,6 +9,8 @@ use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 pub struct CoreInfo {
     version: semver::Version,
     is_setup: bool,
+    is_beta: bool,
+    first_launch: bool,
     os: String,
     arch: String,
     cpu: String,
@@ -28,6 +30,8 @@ pub async fn get_core_info(
     Json(CoreInfo {
         version: VERSION.with(|v| v.clone()),
         is_setup: state.first_time_setup_key.lock().await.is_none(),
+        first_launch: state.first_launch,
+        is_beta: state.is_beta,
         os: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
         cpu: {

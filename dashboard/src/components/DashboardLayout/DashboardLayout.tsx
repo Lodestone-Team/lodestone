@@ -29,6 +29,8 @@ export default function DashboardLayout() {
   const { data: localCoreInfo } = useLocalCoreInfo();
   const [showVersionMismatchModal, setShowVersionMismatchModal] =
     useState(false);
+  const [showThankYouModal, setShowThankYouModal] =
+    useState(true);
   const [showCoreErrorModal, setShowCoreErrorModal] = useState(false);
   const dashboardVersion = packageinfo.version;
 
@@ -43,6 +45,20 @@ export default function DashboardLayout() {
       setShowCoreErrorModal(false);
     }
   }, [coreConnectionStatus]);
+
+
+  const thankYouModal =  (
+    <ConfirmDialog
+      title={`Thanks for using Lodestone beta!`}
+      type={'info'}
+      isOpen={showThankYouModal}
+      onClose={() => setShowThankYouModal(false)}
+      closeButtonText={'Close'}
+    >
+      Thanks for using Lodestone beta! If you find any issues please let us 
+      know on our Discord server or on Github.
+    </ConfirmDialog>
+  )
 
   const versionMismatchModal = !coreInfoLoading && (
     <ConfirmDialog
@@ -183,6 +199,9 @@ export default function DashboardLayout() {
           <Outlet />
         </div>
       </div>
+      {
+        (coreInfo?.first_launch && coreInfo?.is_beta) && thankYouModal
+      }
     </>
   );
 }
