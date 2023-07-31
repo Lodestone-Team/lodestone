@@ -625,7 +625,7 @@ pub async fn run(
                     debug!("Port {port} is already in use, trying next port");
                     port += 1;
                 }
-                let addr = SocketAddr::from(([0, 0, 0, 0], port));
+                let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
                 let axum_server_handle = axum_server::Handle::new();
                 tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
