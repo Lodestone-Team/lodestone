@@ -592,10 +592,12 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
 
     // first occurrence of LodeStoneConfig must be the class declaration
     let config_code = &code[(config_indices[0].0)..];
+    // end_index is for extracting the class definition
     let end_index = {
         let mut open_count = 0;
         let mut close_count = 0;
         let mut i = 0;
+        // match for brackets to determine where the class definition ends
         for &char_item in config_code.to_string().as_bytes().iter() {
             if char_item == b'{' {
                 open_count += 1;
@@ -618,6 +620,7 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
     };
 
     // second occurrence of LodeStoneConfig must be the config variable declaration
+    // idea: slice from the end of class definition to 'let/const/var (name): LodestoneConfig'
     let config_var_code = {
         let second_occur_index =
             config_indices[1].0 - config_indices[0].0 + "LodestoneConfig".len();
@@ -643,6 +646,8 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
 
     let config_var_code = config_var_code.replace(' ', "");
     let config_var_name = {
+        // now check for the last occurrence of the keyword to find the starting index of
+        // 'let/const/var (name): LodestoneConfig'
         let decl_keyword_index = match config_var_code
             .match_indices(decl_keyword)
             .collect::<Vec<_>>()
@@ -656,7 +661,9 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
             }
         };
 
+        // slice from the keyword to the end to isolate 'let/const/var (name): LodestoneConfig'
         let decl_var_statement = &config_var_code[decl_keyword_index..];
+        // since spaces are removed, ':' is the separator between name and 'LodestoneConfig'
         let var_name_end_index = match decl_var_statement.find(':') {
             Some(index) => index,
             None => {
@@ -665,12 +672,16 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
                 ));
             }
         };
+
+        // the name is in between the keyword and ':'
         &decl_var_statement[decl_keyword.len()..var_name_end_index]
     };
 
+    // last sanity check: class definition must start with a '{'
     match config_code.find('{') {
         Some(start_index) => Ok(Some((
             config_var_name.to_string(),
+            // we no longer need the declaration, so slice after the '{'
             config_code[start_index..end_index].to_string(),
         ))),
         None => Err(Error::ts_syntax_error("config")),
@@ -754,6 +765,7 @@ fn parse_config_single(
 ) -> Result<(String, SettingManifest), Error> {
     let entry = single_config_definition.trim().to_string();
 
+    // compute indices to isolate class field names and types
     let (name_end_index, type_start_index) = match entry.find('?') {
         Some(index) => (index, index + 2),
         None => match entry.find(':') {
@@ -764,6 +776,7 @@ fn parse_config_single(
         },
     };
     let var_name = &entry[..name_end_index];
+    // if the field name is 2 char from the type, it must be optional ('?:')
     let is_optional = name_end_index + 2 == type_start_index;
 
     let default_value_index = match entry.find('=') {
@@ -786,6 +799,7 @@ fn parse_config_single(
     }
 
     let default_val = if has_default {
+        // default value as string
         let val_str = entry[default_value_index + 1..].to_string();
         let val_str_len = val_str.len();
         Some(match config_type {
