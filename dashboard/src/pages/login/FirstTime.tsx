@@ -95,7 +95,7 @@ const FirstTime = () => {
             <Button
               label="Connect to existing Core"
               onClick={() => setPathname('/login/core/new')}
-              intention="primary"
+              intention="info"
               size="large"
               className="whitespace-nowrap"
             />
@@ -109,13 +109,26 @@ const FirstTime = () => {
             className="whitespace-nowrap"
           />
         ) : (
-          <Button
-            label="Setup Lodestone Core"
-            onClick={() => setPathname('/login/core/first_setup')}
-            intention="primary"
-            size="large"
-            className="whitespace-nowrap"
-          />
+          <>
+            <Button
+              label="Setup core locally"
+              onClick={() => setPathname('/login/core/first_setup')}
+              intention="primary"
+              size="large"
+              className="whitespace-nowrap"
+            />
+            <Button
+              label="Connect to existing core"
+              onClick = {() => {
+                setPathname('/login/core/select')
+              }}
+              intention = 'primary'
+              size = "large"
+              className="whitespace-nowrap"
+            />
+          
+          </>
+          
         )}
       </div>
     </div>
