@@ -11,12 +11,14 @@ import {
   faClone,
   faDownload,
   faPlus,
+  faScrewdriverWrench
 } from '@fortawesome/free-solid-svg-icons';
 import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import { tauri } from 'utils/tauriUtil';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -133,6 +135,33 @@ const CoreSelectExisting = () => {
                   );
                 }}
               />
+              {
+                tauri && <Button
+                type="button"
+                iconRight={faScrewdriverWrench}
+                label="Setup Core Locally"
+                onClick={() => {
+                  // extremely sus setup that should probably be fixed by directly calling the onSubmit logic
+                  // rather than duplication
+                  const core = coreList[0]
+                  axios
+                    .get<CoreInfo>(`/info`, {
+                      baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
+                    })
+                    .then((res) => {
+                      if (res.status !== 200)
+                        throw new Error('Invalid response, setup may be invalid');
+                      setCore(core);
+                      if (res.data.is_setup === false) {
+                        setPathname('/login/core/first_setup');
+                      } else {
+                        setPathname('/login/user/select');
+                      }
+                  })
+                }}
+              />
+              }
+              
               <Button
                 type="submit"
                 intention="primary"
