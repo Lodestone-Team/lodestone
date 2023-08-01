@@ -41,35 +41,41 @@ const Macros = () => {
 
   const queryClient = useQueryClient();
 
-  const macros = useQuery(
+  const { data: macroEntry } = useQuery(
     ['instance', selectedInstance?.uuid, 'macroList'],
     () => getMacros(selectedInstance?.uuid as string),
     { enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always' }
-  ).data.map(
-    (macro, i) =>
-      ({
-        id: i + 1,
-        name: macro.name,
-        last_run: unixToFormattedTime(macro.last_run?.toString()),
-        path: macro.path,
-      } as TableRow)
   );
+  const macros = useMemo(() => {
+    return macroEntry.map(
+      (macro, i) =>
+        ({
+          id: i + 1,
+          name: macro.name,
+          last_run: unixToFormattedTime(macro.last_run?.toString()),
+          path: macro.path,
+        } as TableRow)
+    );
+  }, [macroEntry]);
 
-  const tasks = useQuery(
+  const { data: taskEntry } = useQuery(
     ['instance', selectedInstance?.uuid, 'taskList'],
     () => getTasks(selectedInstance?.uuid as string),
     { enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always' }
-  ).data.map(
-    (task, i) =>
-      ({
-        id: i + 1,
-        name: task.name,
-        creation_time: unixToFormattedTime(task.creation_time?.toString()),
-        pid: task.pid,
-      } as TableRow)
   );
+  const tasks = useMemo(() => {
+    return taskEntry.map(
+      (task, i) =>
+        ({
+          id: i + 1,
+          name: task.name,
+          creation_time: unixToFormattedTime(task.creation_time?.toString()),
+          pid: task.pid,
+        } as TableRow)
+    );
+  }, [taskEntry]);
 
-  const history = useQuery(
+  const { data: historyEntry } = useQuery(
     ['instance', selectedInstance?.uuid, 'historyList'],
     () => getInstanceHistory(selectedInstance?.uuid as string),
     {
@@ -77,16 +83,21 @@ const Macros = () => {
       initialData: [],
       refetchOnMount: 'always',
     }
-  ).data.map(
-    (entry, i) =>
-      ({
-        id: i + 1,
-        name: entry.task.name,
-        creation_time: unixToFormattedTime(entry.task.creation_time.toString()),
-        finished: unixToFormattedTime(entry.exit_status.time.toString()),
-        process_id: entry.task.pid,
-      } as TableRow)
   );
+  const history = useMemo(() => {
+    return historyEntry.map(
+      (entry, i) =>
+        ({
+          id: i + 1,
+          name: entry.task.name,
+          creation_time: unixToFormattedTime(
+            entry.task.creation_time.toString()
+          ),
+          finished: unixToFormattedTime(entry.exit_status.time.toString()),
+          process_id: entry.task.pid,
+        } as TableRow)
+    );
+  }, [historyEntry]);
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
