@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn test_macro_config_extraction() {
-        // should return None if no there is no class definition
+        // should return None if no there is no config definition
         let result = extract_config_code(
             r#"
             console.log("hello world");
@@ -1047,7 +1047,7 @@ mod tests {
             console.debug(message);
             "#
         );
-        assert!(!result.is_err());
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), None);
 
         // should return an error if the instance declaration is missing
@@ -1079,7 +1079,7 @@ mod tests {
             console.debug(config);
             "#
         );
-        assert!(!result.is_err());
+        assert!(result.is_ok());
         let (name, code) = result.unwrap().unwrap();
         assert_eq!(
             &code,
