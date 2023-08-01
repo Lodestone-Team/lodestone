@@ -584,10 +584,21 @@ impl MacroExecutor {
     }
 }
 
+///
+/// extract the class definition and the name of the declared config instance
+/// from the typescript code
+///
+/// *returns (instance_name, class_definition)*
+///
 fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
     let config_indices: Vec<_> = code.match_indices("LodestoneConfig").collect();
-    if config_indices.len() < 2 {
+    if config_indices.is_empty() {
         return Ok(None);
+    }
+    if config_indices.len() < 2 {
+        return Err(Error::ts_syntax_error(
+            "Class definition or config declaration is missing",
+        ));
     }
 
     // first occurrence of LodeStoneConfig must be the class declaration
@@ -692,8 +703,10 @@ fn get_config_from_code(
     config_var_name: &str,
     config_definition: &str,
 ) -> Result<IndexMap<String, SettingManifest>, Error> {
+    // remove the open and close brackets
     let str_length = config_definition.len();
     let config_params_str = &config_definition[1..str_length - 1].to_string();
+
     let config_params_str: Vec<_> = config_params_str.split('\n').collect();
 
     // parse config code into a collection of description and definition
@@ -913,7 +926,8 @@ mod tests {
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
-    use crate::macro_executor::SpawnResult;
+    use crate::macro_executor::{extract_config_code, get_config_from_code, parse_config_single, SpawnResult};
+    use crate::traits::t_configurable::manifest::ConfigurableValue;
 
     struct BasicMainWorkerGenerator;
 
@@ -1021,6 +1035,120 @@ mod tests {
             .await
             .unwrap();
         exit_future.await.unwrap();
+    }
+
+    #[test]
+    fn test_macro_config_extraction() {
+        // should return None if no there is no class definition
+        let result = extract_config_code(
+            r#"
+            console.log("hello world");
+            const message = "hello macro";
+            console.debug(message);
+            "#
+        );
+        assert!(!result.is_err());
+        assert_eq!(result.unwrap(), None);
+
+        // should return an error if the instance declaration is missing
+        let result = extract_config_code(
+            r#"
+            class LodestoneConfig {
+                id: string = 'defaultId';
+            }
+            "#
+        );
+        assert!(result.is_err());
+
+        // should return an error if the class definition is missing
+        let result = extract_config_code(
+            r#"
+            declare let config: LodestoneConfig;
+            console.debug(config);
+            "#
+        );
+        assert!(result.is_err());
+
+        // should extract the correct instance name and class definition
+        let result = extract_config_code(
+            r#"
+            class LodestoneConfig {
+                id: string = 'defaultId';
+            }
+            declare let config: LodestoneConfig;
+            console.debug(config);
+            "#
+        );
+        assert!(!result.is_err());
+        let (name, code) = result.unwrap().unwrap();
+        assert_eq!(
+            &code,
+            r#"{
+                id: string = 'defaultId';
+            }"#
+        );
+        assert_eq!(&name, "config");
+    }
+
+    #[test]
+    fn test_macro_config_single_parsing() {
+        // should return an error if a non-option variable does not have default value
+        let result = parse_config_single(
+            "id:string",
+            "",
+            "",
+        );
+        assert!(result.is_err());
+
+        // should return an error if the value and type does not match
+        let result = parse_config_single(
+            "id:number='defaultId'",
+            "",
+            "prefix",
+        );
+        assert!(result.is_err());
+
+        // should properly parse the optional variable
+        let result = parse_config_single(
+            "id?:string",
+            "",
+            "prefix",
+        );
+        let (name, config) = result.unwrap();
+        assert_eq!(&name, "id");
+        assert!(config.get_value().is_none());
+        assert_eq!(config.get_identifier(), "prefix|id");
+
+        // should properly parse the non-optional variable
+        let result = parse_config_single(
+            "id:string='defaultId'",
+            "",
+            "prefix",
+        );
+        let (name, config) = result.unwrap();
+        assert_eq!(&name, "id");
+        let value = config.get_value().unwrap();
+        match value {
+            ConfigurableValue::String(val) => assert_eq!(val, "defaultId"),
+            _ => panic!("incorrect value")
+        }
+        assert_eq!(config.get_identifier(), "prefix|id");
+    }
+
+    #[test]
+    fn test_macro_config_multi_parsing() {
+        let result = get_config_from_code(
+            "config",
+            r#"{
+                id: string = 'defaultId';
+                interval?: number;
+            }"#
+        ).unwrap();
+        let identifiers = ["config|id", "config|interval"];
+        let configs: Vec<_> = result.iter().collect();
+        for (_, settings) in configs {
+            assert_ne!(identifiers.iter().find(|&val| val == settings.get_identifier()), None);
+        }
     }
 }
 
