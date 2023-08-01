@@ -3,14 +3,14 @@ import { Table, TableColumn, TableRow } from 'components/Table';
 import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
+  createTask,
+  getInstanceHistory,
   getMacros,
   getTasks,
-  getInstanceHistory,
-  createTask,
   killTask,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useState, useMemo } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
@@ -136,19 +136,18 @@ const Macros = () => {
                 queryClient.setQueryData(
                   ['instance', selectedInstance?.uuid, 'macroList'],
                   (oldData: MacroEntry[] | undefined) => {
-                    if (oldData === undefined) {
-                      return undefined;
-                    }
-                    return oldData.map((macro) => {
-                      if (macro.name !== row.name) {
-                        return macro;
-                      }
-                      const newMacro = { ...macro };
-                      newMacro.last_run = BigInt(
-                        Math.floor(Date.now() / 1000).toString()
-                      );
-                      return newMacro;
-                    });
+                    return oldData === undefined
+                      ? undefined
+                      : oldData.map((macro) => {
+                          if (macro.name !== row.name) {
+                            return macro;
+                          }
+                          const newMacro = { ...macro };
+                          newMacro.last_run = BigInt(
+                            Math.floor(Date.now() / 1000).toString()
+                          );
+                          return newMacro;
+                        });
                   }
                 );
               },
@@ -199,17 +198,15 @@ const Macros = () => {
                   (
                     oldData: TaskEntry[] | undefined
                   ): TaskEntry[] | undefined => {
-                    if (oldData === undefined) {
-                      return undefined;
-                    }
-                    return oldData.filter((task) => {
-                      const shouldKeep = task.pid !== row.pid;
-                      if (!shouldKeep) {
-                        oldTask = task;
-                      }
-
-                      return shouldKeep;
-                    });
+                    return oldData === undefined
+                      ? undefined
+                      : oldData.filter((task) => {
+                          const shouldKeep = task.pid !== row.pid;
+                          if (!shouldKeep) {
+                            oldTask = task;
+                          }
+                          return shouldKeep;
+                        });
                   }
                 );
 
@@ -218,9 +215,8 @@ const Macros = () => {
                   (
                     oldData: HistoryEntry[] | undefined
                   ): HistoryEntry[] | undefined => {
-                    if (oldTask === undefined) {
-                      return oldData;
-                    }
+                    if (oldTask === undefined) return oldData;
+
                     const newHistory: HistoryEntry = {
                       task: oldTask,
                       exit_status: {
@@ -228,12 +224,9 @@ const Macros = () => {
                         time: BigInt(Math.floor(Date.now() / 1000).toString()),
                       },
                     };
-
-                    if (oldData === undefined) {
-                      return [newHistory];
-                    }
-
-                    return [newHistory, ...oldData];
+                    return oldData === undefined
+                      ? [newHistory]
+                      : [newHistory, ...oldData];
                   }
                 );
               },
