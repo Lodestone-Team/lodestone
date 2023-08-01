@@ -66,10 +66,10 @@ async fn main() {
             _guard = guard;
             shutdown_tx = tx;
         }
-        Err(_) => {
+        Err(e) => {
             Notification::new()
                 .summary("Lodestone failed to start")
-                .body("Oh no! Looks like Lodestone was unable to start.")
+                .body(&format!("Oh no! Looks like Lodestone was unable to start. Error: {}", e))
                 .auto_icon()
                 .show()
                 .expect("Failed to show notification");
@@ -90,7 +90,7 @@ async fn main() {
     #[cfg(not(dev))]
     {
         let port = portpicker::pick_unused_port().expect("Failed to pick unused port");
-        let url = format!("http://localhost:{}", port).parse().unwrap();
+        let url = format!(&"http://localhost:{}", port).parse().unwrap();
         let window_url = WindowUrl::External(url);
         // rewrite the config so the IPC is enabled on this URL
         context.config_mut().build.dist_dir = AppUrl::Url(window_url.clone());
@@ -103,7 +103,7 @@ async fn main() {
 
     let tray_menu = SystemTrayMenu::new().add_item(quit);
 
-    if let Err(_) = builder
+    if let Err(e) = builder
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             app.emit_all("single-instance", Payload { args: argv, cwd }).unwrap();
         }))
@@ -128,6 +128,7 @@ async fn main() {
                     if let Some(tx) = shutdown_tx.lock().unwrap().take() {
                         tx.send(()).unwrap();
                     }
+                    app.exit(0);
                 }
             }
             SystemTrayEvent::LeftClick { .. } => {
@@ -141,7 +142,7 @@ async fn main() {
     {
         Notification::new()
             .summary("Lodestone failed to start")
-            .body("Oh no! Looks like Lodestone was unable to start.")
+            .body(&format!("Oh no! Looks like Lodestone was unable to start. Error: {}", e))
             .auto_icon()
             .show()
             .expect("Failed to show notification");
