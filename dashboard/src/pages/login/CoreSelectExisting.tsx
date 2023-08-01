@@ -141,9 +141,13 @@ const CoreSelectExisting = () => {
                 iconRight={faScrewdriverWrench}
                 label="Setup Core Locally"
                 onClick={() => {
-                  // extremely sus setup that should probably be fixed by directly calling the onSubmit logic
-                  // rather than duplication
-                  const core = coreList[0]
+                  const core = {
+                    protocol: 'http',
+                    address: 'localhost',
+                    port: '16662',
+                    apiVersion: 'v1'
+                  }
+
                   axios
                     .get<CoreInfo>(`/info`, {
                       baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
