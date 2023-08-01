@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
 import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
@@ -43,17 +43,16 @@ const CoreSelectExisting = () => {
     core,
   };
 
-  const onSubmit = (
-    values: SelectCoreValue,
-    actions: FormikHelpers<SelectCoreValue>
-  ) => {
-    const { core } = values;
-    // check if core can be reached
+  const configureCore = (
+    core: CoreConnectionInfo, 
+    onComplete: ((res: AxiosResponse) => void) | null = null,
+    onError: ((res: AxiosResponse) => void) | null = null
+    ) => {
     axios
       .get<CoreInfo>(`/info`, {
         baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
       })
-      .then((res) => {
+      .then(res => {
         if (res.status !== 200)
           throw new Error('Invalid response, setup may be invalid');
         setCore(core);
@@ -62,14 +61,31 @@ const CoreSelectExisting = () => {
         } else {
           setPathname('/login/user/select');
         }
-        actions.setSubmitting(false);
+        return res
       })
-      .catch((err) => {
-        const errorMessages = errorToString(err);
+      .then(res => {
+        (onComplete && typeof onComplete === "function")? onComplete(res) : null
+      })
+      .catch(err => {
+        (onError && typeof onError === "function")? onError(err) : null
+      })
+
+  }
+
+  const onSubmit = (
+    values: SelectCoreValue,
+    actions: FormikHelpers<SelectCoreValue>
+  ) => {
+    const { core } = values;
+    // check if core can be reached
+    configureCore(core, () => {
+      actions.setSubmitting(false)
+    }, (err) => {
+      const errorMessages = errorToString(err);
         actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
         return;
-      });
+    })
   };
 
   return (
@@ -147,21 +163,7 @@ const CoreSelectExisting = () => {
                     port: '16662',
                     apiVersion: 'v1'
                   }
-
-                  axios
-                    .get<CoreInfo>(`/info`, {
-                      baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
-                    })
-                    .then((res) => {
-                      if (res.status !== 200)
-                        throw new Error('Invalid response, setup may be invalid');
-                      setCore(core);
-                      if (res.data.is_setup === false) {
-                        setPathname('/login/core/first_setup');
-                      } else {
-                        setPathname('/login/user/select');
-                      }
-                  })
+                  configureCore(core)
                 }}
               />
               }
