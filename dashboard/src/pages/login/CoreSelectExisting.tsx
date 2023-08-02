@@ -45,8 +45,8 @@ const CoreSelectExisting = () => {
 
   const configureCore = (
     core: CoreConnectionInfo, 
-    onComplete: ((res: AxiosResponse) => void) | null = null,
-    onError: ((res: AxiosResponse) => void) | null = null
+    onComplete?: (res: AxiosResponse) => void,
+    onError?: (res: AxiosResponse) => void
     ) => {
     axios
       .get<CoreInfo>(`/info`, {
