@@ -222,7 +222,7 @@ pub async fn generate_signup_link(
 
 
 
-pub async fn confirm_singup(
+pub async fn verify_key(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<bool>, Error> {
     let secret_key = match state.playitgg_key.lock().await.clone() {

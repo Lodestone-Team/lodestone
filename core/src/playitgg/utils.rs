@@ -188,6 +188,7 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
                 tokio::time::sleep(Duration::from_millis(wait)).await;
                 
                 if !keep_running.load(Ordering::SeqCst) {
+                    println!("exiting loop1");
                     return;
                 }
             }
@@ -205,11 +206,12 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
     let _message_process_task = {
         let agent_updater = agent_updater.clone();
         let tcp_clients = tcp_clients.clone();
+        let keep_running = keep_running.clone();
 
         tokio::spawn(async move {
             loop {
-                println!("poggers");
                 if !keep_running.load(Ordering::SeqCst) {
+                    println!("exiting loop2");
                     return;
                 }
 
@@ -258,7 +260,12 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
         })
     };
 
+    let keep_running = keep_running.clone();
     loop {
+        if !keep_running.load(Ordering::SeqCst) {
+            println!("exiting loop3");
+            return;
+        }
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         if agent_updater.state().authenticate_times.has_ack() {

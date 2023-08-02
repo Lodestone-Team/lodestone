@@ -507,6 +507,14 @@ export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
   return response;
 };
 
+export const verifyKey = async (): Promise<boolean> => {
+  const response = await axiosWrapper<boolean>({
+      method: 'post',
+      url: `/playitgg/verify_key`,
+  });
+  return response;
+};
+
 export const startCli  = async () => {
   return await catchAsyncToString(
     axiosWrapper<null>({
