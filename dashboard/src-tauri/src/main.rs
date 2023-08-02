@@ -90,7 +90,7 @@ async fn main() {
     #[cfg(not(dev))]
     {
         let port = portpicker::pick_unused_port().expect("Failed to pick unused port");
-        let url = format!(&"http://localhost:{}", port).parse().unwrap();
+        let url = format!("http://localhost:{}", port).parse().unwrap();
         let window_url = WindowUrl::External(url);
         // rewrite the config so the IPC is enabled on this URL
         context.config_mut().build.dist_dir = AppUrl::Url(window_url.clone());
