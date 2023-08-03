@@ -13,6 +13,7 @@ import { DEFAULT_LOCAL_CORE } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { major, minor, patch, valid, eq } from 'semver';
 import { toast } from 'react-toastify';
+import { useLocalStorage } from 'usehooks-ts';
 import packageinfo from '../../../package.json';
 
 export default function DashboardLayout() {
@@ -30,8 +31,9 @@ export default function DashboardLayout() {
   const [showVersionMismatchModal, setShowVersionMismatchModal] =
     useState(false);
   const [showThankYouModal, setShowThankYouModal] =
-    useState(true);
+    useState(false);
   const [showCoreErrorModal, setShowCoreErrorModal] = useState(false);
+  const [latestVersion, setLatestVersion] = useLocalStorage('latestVersion', '0.0.0');
   const dashboardVersion = packageinfo.version;
 
   // open the error modal is coreConnectionStatus is error for more than 3 seconds
@@ -45,6 +47,17 @@ export default function DashboardLayout() {
       setShowCoreErrorModal(false);
     }
   }, [coreConnectionStatus]);
+
+  useEffect(() => {
+    if (latestVersion === coreInfo?.version || !coreInfo?.version)
+      return;
+    
+    if (coreInfo.version !== latestVersion || latestVersion === '0.0.0')
+      setShowThankYouModal(true);
+     
+    setLatestVersion(coreInfo.version);
+    
+  }, [coreInfo])
 
 
   const thankYouModal =  (
@@ -199,9 +212,7 @@ export default function DashboardLayout() {
           <Outlet />
         </div>
       </div>
-      {
-        (coreInfo?.first_launch && coreInfo?.is_beta) && thankYouModal
-      }
+      {thankYouModal}
     </>
   );
 }

@@ -46,8 +46,6 @@ export const useCPUInfo = () => {
 export interface CoreInfo {
   version: string;
   is_setup: boolean;
-  first_launch: boolean;
-  is_beta: boolean;
   os: string;
   arch: string;
   cpu: string;

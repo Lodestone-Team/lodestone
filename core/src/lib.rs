@@ -8,7 +8,6 @@ use crate::prelude::{
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
-use crate::util::parse_metadata_version;
 use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
@@ -108,8 +107,6 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
-    first_launch: bool,
-    is_beta: bool,
 }
 
 impl AppState {
@@ -421,27 +418,9 @@ pub async fn run(
         panic!("Another instance of lodestone might be running");
     }
     
-    let metadata_version = if let Ok(res) = parse_metadata_version().await {
-        res
-    } else {
-        None
-    };
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
-
-    let first_launch;
-    let is_beta;
-
-    if let Ok(res) = parse_metadata_version().await {
-        first_launch = res != metadata_version;
-        is_beta = match res {
-            Some(version) => version.to_string().contains("beta"),
-            None => false,
-        }
-    } else {
-        panic!("Failed to parse metadata version");
-    }
 
     let path_to_instances = lodestone_path.join("instances");
 
@@ -515,8 +494,6 @@ pub async fn run(
         )
         .await
         .unwrap(),
-        first_launch: first_launch,
-        is_beta: is_beta,
     };
 
     init_app_state(shared_state.clone());

@@ -555,26 +555,6 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
 
     cmd
 }
-
-pub async fn parse_metadata_version() -> Result<Option<semver::Version>, Error> {
-    let lodestone_path = lodestone_path();
-    let metadata_path = lodestone_path.join(".lodestone_metadata.json");
-    if !metadata_path.is_file() {
-        return Ok(None)
-    }
-    let metadata = tokio::fs::read_to_string(metadata_path)
-        .await
-        .map_err(|_e| Error {
-            kind: ErrorKind::Internal,
-            source: eyre!("Couldn't read metadata file"),
-        })?;
-    let metadata: LodestoneMetadata = serde_json::from_str(&metadata)
-        .map_err(|_e| Error {
-            kind: ErrorKind::Internal,
-            source: eyre!("Metadata file incorrectly formatted"),
-        })?;
-    Ok(Some(metadata.semver))
-}
  
 pub fn format_byte_download(mut bytes: u64, mut total: u64) -> String {
     let mut unit = "B";
