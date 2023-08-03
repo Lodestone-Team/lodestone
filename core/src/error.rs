@@ -37,6 +37,15 @@ impl Error {
     }
 }
 
+impl Error {
+    pub fn ts_syntax_error(context: &str) -> Error {
+        Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg(format!("Syntax error parsing ts ({context})")),
+        }
+    }
+}
+
 
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
