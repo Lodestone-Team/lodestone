@@ -5,6 +5,7 @@ import {
   faEyeSlash,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import Tooltip from 'components/Tooltip';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import {
@@ -43,6 +44,8 @@ export default function InputBox({
   isLoading: isLoadingProp = false,
   id = '',
   showIcons = true,
+  tooltip = false,
+  tooltipText,
   validate: validateProp, //throws error if invalid
   onChange: onChangeProp,
   description,
@@ -64,6 +67,8 @@ export default function InputBox({
   isLoading?: boolean;
   id?: string;
   showIcons?: boolean;
+  tooltip?: boolean;
+  tooltipText?: string;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
   onChange?: (arg: string) => Promise<void>;
@@ -230,7 +235,15 @@ export default function InputBox({
       className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-medium`}
     >
       <div className={`flex min-w-0 grow flex-col`}>
-        <label className="text-medium font-medium text-gray-300">{label}</label>
+        <div className="flex row">
+          <label className="text-medium font-medium text-gray-300">{label}</label>
+          { tooltip && tooltipText && 
+            <Tooltip
+              tooltip={tooltipText}
+              className="ml-2"
+            />
+          }
+        </div>
         {errorText ? (
           <div className="text-small font-medium tracking-medium text-red">
             {errorText || 'Unknown error'}

@@ -2,10 +2,11 @@ import type React from "react";
 import { useState } from "react";
 import { usePopper } from "react-popper";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleQuestion } from '@fortawesome/free-solid-svg-icons';
+import { faInfoCircle } from '@fortawesome/free-solid-svg-icons';
+import clsx from 'clsx';
 
 
-const TooltipButton = ({
+const Tooltip = ({
   className,
   tooltip,
 } : { 
@@ -29,8 +30,8 @@ const TooltipButton = ({
           className="relative inline-block w-auto"
       >
         <FontAwesomeIcon
-          icon={faCircleQuestion}
-          className={className}
+          icon={faInfoCircle}
+          className={clsx(className, "text-gray-400")}
         />
       </div>
 
@@ -38,7 +39,7 @@ const TooltipButton = ({
         ref={setPopperElement}
         style={styles.popper}
         {...attributes.popper}
-        className={`relative rounded-md bg-gray-900 p-1 transition-opacity ${isOpen ? "opacity-100" : "opacity-0"}`}
+        className={`relative rounded-md bg-gray-900 text-white shadow-lg max-w-xs p-2 transition-opacity ${isOpen ? "opacity-100" : "opacity-0"}`}
       >
         {tooltip}
       </div>
@@ -46,4 +47,4 @@ const TooltipButton = ({
   )
 }
 
-export default TooltipButton;
+export default Tooltip;
