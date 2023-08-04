@@ -5,7 +5,7 @@ import {
   faEyeSlash,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import Tooltip from 'components/Tooltip';
+import InfoTooltip from 'components/InfoTooltip';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import {
@@ -238,7 +238,7 @@ export default function InputBox({
         <div className="flex row">
           <label className="text-medium font-medium text-gray-300">{label}</label>
           { tooltip && tooltipText && 
-            <Tooltip
+            <InfoTooltip
               tooltip={tooltipText}
               className="ml-2"
             />

@@ -15,7 +15,6 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
-import TooltipButton from 'components/Tooltip';
 
 type ConfigNewCoreFormValues = {
   coreName: string;
