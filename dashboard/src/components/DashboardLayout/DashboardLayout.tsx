@@ -52,7 +52,8 @@ export default function DashboardLayout() {
     if (latestVersion === coreInfo?.version || !coreInfo?.version)
       return;
     
-    if (coreInfo.version !== latestVersion || latestVersion === '0.0.0')
+    if ((coreInfo.version !== latestVersion || latestVersion === '0.0.0') 
+        && coreInfo.version.includes("beta"))
       setShowThankYouModal(true);
      
     setLatestVersion(coreInfo.version);
