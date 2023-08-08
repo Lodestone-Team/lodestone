@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { PublicUser } from 'bindings/PublicUser';
+import { PublicUser } from '@bindings/PublicUser';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';

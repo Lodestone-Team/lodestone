@@ -1,7 +1,7 @@
-import { ConfigurableValue } from 'bindings/ConfigurableValue';
-import { SectionManifest } from 'bindings/SectionManifest';
-import { SettingManifest } from 'bindings/SettingManifest';
-import { SetupManifest } from 'bindings/SetupManifest';
+import { ConfigurableValue } from '@bindings/ConfigurableValue';
+import { SectionManifest } from '@bindings/SectionManifest';
+import { SettingManifest } from '@bindings/SettingManifest';
+import { SetupManifest } from '@bindings/SetupManifest';
 import * as yup from 'yup';
 
 export const formId = 'minecraftCreateNewInstanceForm';

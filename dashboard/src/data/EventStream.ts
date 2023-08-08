@@ -3,17 +3,17 @@ import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
-import { InstanceState } from 'bindings/InstanceState';
-import { ClientEvent } from 'bindings/ClientEvent';
+import { InstanceState } from '@bindings/InstanceState';
+import { ClientEvent } from '@bindings/ClientEvent';
 import { match, otherwise } from 'variant';
 import { NotificationContext } from './NotificationContext';
-import { EventQuery } from 'bindings/EventQuery';
+import { EventQuery } from '@bindings/EventQuery';
 import axios from 'axios';
 import { LODESTONE_PORT } from 'utils/util';
-import { UserPermission } from 'bindings/UserPermission';
-import { PublicUser } from 'bindings/PublicUser';
+import { UserPermission } from '@bindings/UserPermission';
+import { PublicUser } from '@bindings/PublicUser';
 import { toast } from 'react-toastify';
-import { Player } from 'bindings/Player';
+import { Player } from '@bindings/Player';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream

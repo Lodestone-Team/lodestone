@@ -1,5 +1,5 @@
 // a wrapper around TextField that fetches a single setting from the server
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { InstanceInfo } from '@bindings/InstanceInfo';
 import { axiosPutSingleValue, errorToString } from 'utils/util';
 import Dropdown from './Atoms/Config/SelectBox';
 import InputBox from './Atoms/Config/InputBox';
@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
 import ToggleBox from './Atoms/Config/ToggleBox';
-import { ConfigurableValue } from 'bindings/ConfigurableValue';
+import { ConfigurableValue } from '@bindings/ConfigurableValue';
 import { AxiosError } from 'axios';
 import { toast } from 'react-toastify';
 import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';

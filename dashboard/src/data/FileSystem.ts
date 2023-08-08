@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ClientFile } from 'bindings/ClientFile';
+import { ClientFile } from '@bindings/ClientFile';
 import { Base64 } from 'js-base64';
 import { axiosWrapper, fileSorter } from 'utils/util';
 

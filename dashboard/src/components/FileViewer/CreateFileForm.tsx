@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ClientFile } from 'bindings/ClientFile';
-import { FileType } from 'bindings/FileType';
+import { ClientFile } from '@bindings/ClientFile';
+import { FileType } from '@bindings/FileType';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { InstanceContext } from 'data/InstanceContext';

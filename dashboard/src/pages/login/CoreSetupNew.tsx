@@ -12,7 +12,7 @@ import { useCoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
 import { useQueryClient } from '@tanstack/react-query';
-import { LoginReply } from 'bindings/LoginReply';
+import { LoginReply } from '@bindings/LoginReply';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import useAnalyticsEventTracker from 'utils/hooks';
 

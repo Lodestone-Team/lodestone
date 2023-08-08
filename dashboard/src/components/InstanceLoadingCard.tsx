@@ -2,10 +2,10 @@ import Button from './Atoms/Button';
 import Label from './Atoms/Label';
 import GameIcon from './Atoms/GameIcon';
 import LoadingStatusIcon from './Atoms/LoadingStatusIcon';
-import { EventLevel } from 'bindings/EventLevel';
+import { EventLevel } from '@bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 import ProgressBar from './Atoms/ProgressBar';
-import { Game } from 'bindings/Game';
+import { Game } from '@bindings/Game';
 
 const NotificationLevelToBgColorClass = (
   level: EventLevel,

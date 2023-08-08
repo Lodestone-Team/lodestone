@@ -7,7 +7,7 @@ import React, {
   useMemo,
 } from 'react';
 import clsx from 'clsx';
-import { Game } from 'bindings/Game';
+import { Game } from '@bindings/Game';
 import Button from 'components/Atoms/Button';
 import { GameInstanceContext } from 'data/GameInstanceContext';
 import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';

@@ -1,6 +1,6 @@
 import { stateToColor } from 'utils/util';
 import { useState } from 'react';
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { InstanceInfo } from '@bindings/InstanceInfo';
 import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';

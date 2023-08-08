@@ -1,7 +1,7 @@
 import ProgressBar from 'components/Atoms/ProgressBar';
 import { formatNotificationTime } from 'utils/util';
 import LoadingStatusIcon from './LoadingStatusIcon';
-import { EventLevel } from 'bindings/EventLevel';
+import { EventLevel } from '@bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 
 const NotificationLevelToBgColorClass = (

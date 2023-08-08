@@ -7,8 +7,8 @@ import {
 import Label from './Atoms/Label';
 import { Fragment, useContext, useState } from 'react';
 import axios from 'axios';
-import { InstanceState } from 'bindings/InstanceState';
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { InstanceState } from '@bindings/InstanceState';
+import { InstanceInfo } from '@bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
 import GameIcon from './Atoms/GameIcon';
 import clsx from 'clsx';
@@ -28,7 +28,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
 import Avatar from 'boring-avatars';
 import Button from './Atoms/Button';
-import { PortStatus } from 'bindings/PortStatus';
+import { PortStatus } from '@bindings/PortStatus';
 
 // // for the css style of the double border when focused
 // const stateToBorderMap: { [key in InstanceState]: string[] } = {

@@ -1,10 +1,10 @@
-import { ProgressionStartValue } from './../bindings/ProgressionStartValue';
+import { ProgressionStartValue } from './../@bindings/ProgressionStartValue';
 import { getSnowflakeTimestamp } from './../utils/util';
-import { ClientEvent } from 'bindings/ClientEvent';
+import { ClientEvent } from '@bindings/ClientEvent';
 import { createContext, useReducer } from 'react';
-import { ProgressionEvent } from 'bindings/ProgressionEvent';
+import { ProgressionEvent } from '@bindings/ProgressionEvent';
 import { fields, match, variant, VariantOf } from 'variant';
-import { EventLevel } from 'bindings/EventLevel';
+import { EventLevel } from '@bindings/EventLevel';
 
 export type NotificationItem = {
   title: string;

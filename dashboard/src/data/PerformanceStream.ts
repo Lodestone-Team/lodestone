@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
-import { PerformanceReport } from 'bindings/PerformanceReport';
+import { PerformanceReport } from '@bindings/PerformanceReport';
 import { useInterval } from 'usehooks-ts';
 import { LODESTONE_PORT } from 'utils/util';
 

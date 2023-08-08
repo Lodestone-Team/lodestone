@@ -1,11 +1,11 @@
 import React, { useState, useEffect, forwardRef } from 'react';
 import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
-import { ClientFile } from 'bindings/ClientFile';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { ClientFile } from '@bindings/ClientFile';
+import { UnzipOption } from '@bindings/UnzipOptions';
 import { supportedZip } from 'utils/util';
 import { requestInstanceFileUrl } from 'utils/apis';
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { InstanceInfo } from '@bindings/InstanceInfo';
 
 function generateZipText(
   tickedFiles: ClientFile[] | undefined,

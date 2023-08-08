@@ -1,7 +1,7 @@
 import { Dialog, Switch, Transition } from '@headlessui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { PublicUser } from 'bindings/PublicUser';
-import { UserPermission } from 'bindings/UserPermission';
+import { PublicUser } from '@bindings/PublicUser';
+import { UserPermission } from '@bindings/UserPermission';
 import clsx from 'clsx';
 import Button from 'components/Atoms/Button';
 import { HorizontalLine } from 'components/Atoms/HorizontalLine';

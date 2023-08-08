@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import { PublicUser } from '../bindings/PublicUser';
+import { PublicUser } from '../@bindings/PublicUser';
 
 interface SettingsContextType {
   userList: { [uuid: string]: PublicUser };

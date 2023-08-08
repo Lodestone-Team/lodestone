@@ -14,7 +14,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import Avatar from 'components/Atoms/Avatar';
 import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
 import { tauri } from 'utils/tauriUtil';
-import { JwtToken } from 'bindings/JwtToken';
+import { JwtToken } from '@bindings/JwtToken';
 import { isLocalCore } from 'utils/util';
 
 const UserSelectExisting = () => {

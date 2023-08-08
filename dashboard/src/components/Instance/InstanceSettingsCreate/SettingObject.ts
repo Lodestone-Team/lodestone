@@ -1,7 +1,7 @@
-import { ConfigurableManifest } from 'bindings/ConfigurableManifest';
-import { ConfigurableValue } from 'bindings/ConfigurableValue';
-import { ConfigurableValueType } from 'bindings/ConfigurableValueType';
-import { SectionManifest } from 'bindings/SectionManifest';
+import { ConfigurableManifest } from '@bindings/ConfigurableManifest';
+import { ConfigurableValue } from '@bindings/ConfigurableValue';
+import { ConfigurableValueType } from '@bindings/ConfigurableValueType';
+import { SectionManifest } from '@bindings/SectionManifest';
 
 export type SectionFieldObject = {
   section_id: string;

@@ -1,4 +1,4 @@
-import { GlobalSettingsData } from './../bindings/GlobalSettingsData';
+import { GlobalSettingsData } from './../@bindings/GlobalSettingsData';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 

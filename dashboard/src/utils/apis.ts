@@ -1,10 +1,10 @@
 import { QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { ClientError } from 'bindings/ClientError';
-import { ClientFile } from 'bindings/ClientFile';
-import { MacroEntry } from 'bindings/MacroEntry';
-import { LoginReply } from 'bindings/LoginReply';
-import { UserPermission } from 'bindings/UserPermission';
+import { ClientError } from '@bindings/ClientError';
+import { ClientFile } from '@bindings/ClientFile';
+import { MacroEntry } from '@bindings/MacroEntry';
+import { LoginReply } from '@bindings/LoginReply';
+import { UserPermission } from '@bindings/UserPermission';
 import { Base64 } from 'js-base64';
 import { LoginValues } from 'pages/login/UserLogin';
 import { toast } from 'react-toastify';
@@ -16,11 +16,11 @@ import {
   isAxiosError,
   parentPath,
 } from './util';
-import { UnzipOption } from 'bindings/UnzipOptions';
-import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
-import { ZipRequest } from 'bindings/ZipRequest';
-import { TaskEntry } from 'bindings/TaskEntry';
-import { HistoryEntry } from 'bindings/HistoryEntry';
+import { UnzipOption } from '@bindings/UnzipOptions';
+import { CopyInstanceFileRequest } from '@bindings/CopyInstanceFileRequest';
+import { ZipRequest } from '@bindings/ZipRequest';
+import { TaskEntry } from '@bindings/TaskEntry';
+import { HistoryEntry } from '@bindings/HistoryEntry';
 
 /***********************
  * Start Files API

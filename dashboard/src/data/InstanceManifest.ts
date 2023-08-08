@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { ConfigurableManifest } from 'bindings/ConfigurableManifest';
+import { ConfigurableManifest } from '@bindings/ConfigurableManifest';
 
 export const useInstanceManifest = (uuid: string) => {
   return useQuery<ConfigurableManifest, AxiosError>(

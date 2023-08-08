@@ -6,7 +6,7 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { PublicUser } from 'bindings/PublicUser';
+import { PublicUser } from '@bindings/PublicUser';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
 import { Fragment, useState } from 'react';

@@ -1,5 +1,5 @@
 import Tooltip from 'rc-tooltip';
-import { Game } from 'bindings/Game';
+import { Game } from '@bindings/Game';
 import {
   game_to_game_icon,
   game_to_game_title,

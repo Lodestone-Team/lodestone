@@ -1,13 +1,13 @@
 import { faClipboardQuestion } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { ClientFile } from 'bindings/ClientFile';
+import { ClientFile } from '@bindings/ClientFile';
 import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
 import { formatBytes, formatTimeAgo, supportedZip } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
 import React, { useState, useEffect, useRef } from 'react';
 import { useEventListener, useOnClickOutside } from 'usehooks-ts';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { UnzipOption } from '@bindings/UnzipOptions';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {

@@ -16,16 +16,16 @@ import {
   SetupGenericInstanceManifest,
   SetupInstanceManifest,
 } from 'data/InstanceGameTypes';
-import { HandlerGameType } from 'bindings/HandlerGameType';
+import { HandlerGameType } from '@bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import clsx from 'clsx';
 import * as yup from 'yup';
 import { GameInstanceContext } from 'data/GameInstanceContext';
-import { ConfigurableValue } from 'bindings/ConfigurableValue';
-import { SetupManifest } from 'bindings/SetupManifest';
-import { SetupValue } from 'bindings/SetupValue';
-import { SectionManifestValue } from 'bindings/SectionManifestValue';
+import { ConfigurableValue } from '@bindings/ConfigurableValue';
+import { SetupManifest } from '@bindings/SetupManifest';
+import { SetupValue } from '@bindings/SetupValue';
+import { SectionManifestValue } from '@bindings/SectionManifestValue';
 import { toast } from 'react-toastify';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;

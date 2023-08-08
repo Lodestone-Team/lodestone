@@ -23,7 +23,7 @@ import {
   useState,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ClientFile } from 'bindings/ClientFile';
+import { ClientFile } from '@bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import { chooseFiles, parentPath } from 'utils/util';
 import {
@@ -55,7 +55,7 @@ import RenameFileForm from './RenameFileForm';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { UnzipOption } from '@bindings/UnzipOptions';
 
 export default function FileViewer() {
   useDocumentTitle('Instance File Viewer - Lodestone');

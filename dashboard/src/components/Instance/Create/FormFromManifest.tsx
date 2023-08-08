@@ -1,5 +1,5 @@
 import { FieldFromManifest } from './FieldFromManifest';
-import { SetupManifest } from 'bindings/SetupManifest';
+import { SetupManifest } from '@bindings/SetupManifest';
 
 export const FormFromManifest = ({
   name,

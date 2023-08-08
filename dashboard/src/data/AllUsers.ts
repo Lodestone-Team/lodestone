@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { PublicUser } from 'bindings/PublicUser';
+import { PublicUser } from '@bindings/PublicUser';
 
 export const useAllUsers = (enabled = true) =>
   useQuery<{ [uid: string]: PublicUser }, Error>(

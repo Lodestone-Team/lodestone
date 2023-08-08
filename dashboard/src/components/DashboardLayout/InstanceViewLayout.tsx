@@ -1,4 +1,4 @@
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { InstanceInfo } from '@bindings/InstanceInfo';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { InstanceContext } from 'data/InstanceContext';

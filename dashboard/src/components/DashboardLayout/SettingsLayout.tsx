@@ -1,4 +1,4 @@
-import { PublicUser } from 'bindings/PublicUser';
+import { PublicUser } from '@bindings/PublicUser';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { useAllUsers } from 'data/AllUsers';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';

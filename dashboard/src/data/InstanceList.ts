@@ -1,6 +1,6 @@
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { InstanceInfo } from '@bindings/InstanceInfo';
 
 export const updateInstance = (
   uuid: string,

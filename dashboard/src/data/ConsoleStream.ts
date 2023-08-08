@@ -1,11 +1,11 @@
 import { getSnowflakeTimestamp, LODESTONE_PORT } from './../utils/util';
-import { InstanceEvent } from './../bindings/InstanceEvent';
+import { InstanceEvent } from './../@bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
-import { ClientEvent } from 'bindings/ClientEvent';
+import { ClientEvent } from '@bindings/ClientEvent';
 
 export type ConsoleStreamStatus =
   | 'no-permission'

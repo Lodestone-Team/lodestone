@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import { InstanceInfo } from './../bindings/InstanceInfo';
+import { InstanceInfo } from './../@bindings/InstanceInfo';
 
 interface InstanceContextType {
   instanceList: { [uuid: string]: InstanceInfo };

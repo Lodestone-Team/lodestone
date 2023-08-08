@@ -1,4 +1,4 @@
-import { ClientFile } from 'bindings/ClientFile';
+import { ClientFile } from '@bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext } from 'react';
 

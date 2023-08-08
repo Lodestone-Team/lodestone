@@ -1,7 +1,7 @@
 import GameIcon from 'components/Atoms/GameIcon';
 import React from 'react';
 import clsx from 'clsx';
-import { Game } from 'bindings/Game';
+import { Game } from '@bindings/Game';
 const SelectGameCard = ({
   title,
   description,

@@ -4,7 +4,7 @@ import {
   faCircleCheck,
   faCircleXmark,
 } from '@fortawesome/free-regular-svg-icons';
-import { EventLevel } from 'bindings/EventLevel';
+import { EventLevel } from '@bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 
 export default function LoadingStatusIcon({

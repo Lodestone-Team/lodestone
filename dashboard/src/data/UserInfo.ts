@@ -1,11 +1,11 @@
 import jwt from 'jsonwebtoken';
-import { ClientError } from 'bindings/ClientError';
+import { ClientError } from '@bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
-import { PublicUser } from 'bindings/PublicUser';
+import { PublicUser } from '@bindings/PublicUser';
 import { useContext, useMemo } from 'react';
 import { LodestoneContext } from './LodestoneContext';
-import { UserPermission } from 'bindings/UserPermission';
+import { UserPermission } from '@bindings/UserPermission';
 import { errorToString } from 'utils/util';
 
 // this won't ever change. if it does it will be invalidated manually

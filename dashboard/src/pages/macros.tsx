@@ -11,7 +11,7 @@ import {
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext, useEffect, useState, useMemo } from 'react';
-import { MacroEntry } from 'bindings/MacroEntry';
+import { MacroEntry } from '@bindings/MacroEntry';
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
