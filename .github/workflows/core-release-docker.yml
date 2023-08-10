@@ -2,7 +2,7 @@ name: Core - Release Docker
 
 on:
   release:
-    types: [released]
+    types: [published]
   workflow_dispatch:
 
 env:
@@ -51,6 +51,12 @@ jobs:
         id: substring
         run: echo "version=${VERSION:1}" >> $GITHUB_OUTPUT
 
+      - name: set docker version label
+        env:
+          LABEL: ${{ !github.event.release.prerelease && 'latest-stable' || 'latest-beta' }}
+        id: release_type
+        run: echo "label=${LABEL}" >> $GITHUB_OUTPUT
+
       - name: build and push
         uses: docker/build-push-action@v3
         with:
@@ -60,4 +66,7 @@ jobs:
           build-args: |
             lodestone_version=${{ steps.release_asset.outputs.version }}
           push: true
-          tags: ${{ steps.string_tag.outputs.lowercase }}:latest,${{ steps.string_tag.outputs.lowercase }}:${{ steps.substring.outputs.version }}
+          tags: |
+            ${{ steps.string_tag.outputs.lowercase }}:latest
+            ${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_type.outputs.label }}
+            ${{ steps.string_tag.outputs.lowercase }}:${{ steps.substring.outputs.version }}
