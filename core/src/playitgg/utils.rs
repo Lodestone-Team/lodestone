@@ -1,4 +1,4 @@
-/* 
+/*
 Copyright 2022 Developed Methods LLC
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
@@ -10,23 +10,31 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use crate::error::{Error, ErrorKind};
+use crate::event_broadcaster::EventBroadcaster;
+use crate::events::{CausedBy, Event, EventInner, PlayitggRunnerEvent, PlayitggRunnerEventInner};
+use crate::types::Snowflake;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{atomic::Ordering, Arc, Mutex};
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
+use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 
 use color_eyre::eyre::eyre;
 use playit_agent_common::Proto;
 use playit_agent_core::tunnel::setup::SetupError;
 
-use playit_agent_core::api::api::{AccountTunnel, AccountTunnelAllocation, AgentType, ApiError, ApiErrorNoFail, ApiResponseError, AssignedManagedCreate, ClaimSetupResponse, PortType, ReqClaimExchange, ReqClaimSetup, ReqTunnelsCreate, ReqTunnelsList, TunnelAllocated, TunnelOriginCreate, TunnelType, PlayitApiClient, AccountTunnels};
-use playit_agent_core::api::http_client::{HttpClientError, HttpClient};
+use super::tcp_client::{TcpClients, TcpConnection};
+use playit_agent_core::api::api::{
+    AccountTunnel, AccountTunnelAllocation, AccountTunnels, AgentType, ApiError, ApiErrorNoFail,
+    ApiResponseError, AssignedManagedCreate, ClaimSetupResponse, PlayitApiClient, PortType,
+    ReqClaimExchange, ReqClaimSetup, ReqTunnelsCreate, ReqTunnelsList, TunnelAllocated,
+    TunnelOriginCreate, TunnelType,
+};
+use playit_agent_core::api::http_client::{HttpClient, HttpClientError};
 use playit_agent_core::api::ip_resource::IpResource;
 use playit_agent_core::api::PlayitApi;
 use playit_agent_core::network::address_lookup::{AddressLookup, AddressValue};
@@ -35,12 +43,10 @@ use playit_agent_core_v09::agent_updater::AgentUpdater;
 use playit_agent_core_v09::api_client::ApiClient;
 use playit_agent_core_v09::control_lookup::get_working_io;
 use playit_agent_core_v09::ping_task::PingTask;
-use playit_agent_core_v09::setup_config::{AgentConfigStatus, prepare_config};
-use playit_agent_core_v09::tcp_client::{TcpClients, TcpConnection};
+use playit_agent_core_v09::setup_config::{prepare_config, AgentConfigStatus};
 use playit_agent_core_v09::tunnel_api::TunnelApi;
 use tokio::sync::RwLock;
 
-use crate::prelude::lodestone_path;
 use super::playit_secret::*;
 
 #[derive(Clone)]
@@ -52,11 +58,9 @@ pub struct SimpleTunnel {
     pub local_start_address: SocketAddr,
 }
 
-
 pub struct LocalLookup {
     pub data: Vec<SimpleTunnel>,
-} 
-
+}
 
 impl AddressLookup for LocalLookup {
     type Value = SocketAddr;
@@ -66,7 +70,6 @@ impl AddressLookup for LocalLookup {
             if tunnel.port_type != proto && tunnel.port_type != PortType::Both {
                 continue;
             }
-
 
             if tunnel.from_port <= port && port < tunnel.to_port {
                 return Some(AddressValue {
@@ -85,19 +88,30 @@ impl AddressLookup for LocalLookup {
     }
 }
 
-
 pub async fn is_valid_secret_key(secret: String) -> bool {
     let api = PlayitApi::create(API_BASE.to_string(), Some(secret));
-    api
-        .tunnels_list(ReqTunnelsList {
-            tunnel_id: None,
-            agent_id: None,
-        })
-        .await
-        .is_ok()
+    api.tunnels_list(ReqTunnelsList {
+        tunnel_id: None,
+        agent_id: None,
+    })
+    .await
+    .is_ok()
 }
 
-pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<AtomicBool>) {
+pub(super) async fn run_playit_cli(
+    config_path: PathBuf,
+    keep_running: Arc<AtomicBool>,
+    event_broadcaster: EventBroadcaster,
+) {
+    event_broadcaster.clone().send(Event {
+        event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
+            playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerLoading,
+        }),
+        snowflake: Snowflake::default(),
+        details: "Starting runner".to_string(),
+        caused_by: CausedBy::System,
+    });
+
     let status = Arc::new(RwLock::new(AgentConfigStatus::default()));
     let config_path_str = match config_path.to_str() {
         Some(path) => path,
@@ -109,9 +123,7 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
     let prepare_config_task = {
         let status = status.clone();
         let config_path_str = config_path_str.to_string();
-        tokio::spawn(async move {
-            prepare_config(&config_path_str, &status).await
-        })
+        tokio::spawn(async move { prepare_config(&config_path_str, &status).await })
     };
 
     let agent_config_res = loop {
@@ -138,7 +150,10 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
     };
 
     if agent_config.api_refresh_rate.is_some() {
-        let api_client = ApiClient::new(agent_config.api_url.clone(), Some(agent_config.secret_key.clone()));
+        let api_client = ApiClient::new(
+            agent_config.api_url.clone(),
+            Some(agent_config.secret_key.clone()),
+        );
         agent_config = match api_client.get_agent_config().await {
             Ok(updated) => agent_config.to_updated(updated.build()),
             Err(error) => {
@@ -146,7 +161,7 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
             }
         };
     }
-    
+
     let tunnel_io = match get_working_io(&agent_config.control_address).await {
         Some(v) => v,
         None => {
@@ -167,11 +182,14 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
     };
 
     let tunnel_api = TunnelApi::new(api_client, tunnel_io);
-    let agent_updater = Arc::new(AgentUpdater::new(tunnel_api, AgentState {
-        agent_config: RwLock::new(Arc::new(agent_config)),
-        agent_config_save_path: Some(config_path_str.to_string()),
-        ..AgentState::default()
-    }));
+    let agent_updater = Arc::new(AgentUpdater::new(
+        tunnel_api,
+        AgentState {
+            agent_config: RwLock::new(Arc::new(agent_config)),
+            agent_config_save_path: Some(config_path_str.to_string()),
+            ..AgentState::default()
+        },
+    ));
 
     let _agent_update_loop = {
         let agent_updater = agent_updater.clone();
@@ -180,15 +198,12 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
             loop {
                 let wait = match agent_updater.update().await {
                     Ok(wait) => wait,
-                    Err(_error) => {
-                        1000
-                    }
+                    Err(_error) => 1000,
                 };
 
                 tokio::time::sleep(Duration::from_millis(wait)).await;
-                
+
                 if !keep_running.load(Ordering::SeqCst) {
-                    println!("exiting loop1");
                     return;
                 }
             }
@@ -202,23 +217,35 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
 
     let tcp_clients = Arc::new(TcpClients::default());
 
+    event_broadcaster.send(Event {
+        event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
+            playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerStarted,
+        }),
+        snowflake: Snowflake::default(),
+        details: "Started".to_string(),
+        caused_by: CausedBy::System,
+    });
+
     /* process messages from tunnel server */
     let _message_process_task = {
         let agent_updater = agent_updater.clone();
         let tcp_clients = tcp_clients.clone();
         let keep_running = keep_running.clone();
+        let _event_broadcaster = event_broadcaster.clone();
 
         tokio::spawn(async move {
             loop {
                 if !keep_running.load(Ordering::SeqCst) {
-                    println!("exiting loop2");
                     return;
                 }
 
+                let _event_broadcaster = event_broadcaster.clone();
                 match agent_updater.process_tunnel_feed().await {
                     Ok(Some(client)) => {
                         let agent_updater = agent_updater.clone();
                         let tcp_clients = tcp_clients.clone();
+
+                        let tcp_keep_running = keep_running.clone();
 
                         tokio::spawn(async move {
                             let (_bind_ip, local_addr) = {
@@ -238,7 +265,9 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
                                 client,
                                 local_addr,
                                 tcp_clients,
-                            ).await;
+                                tcp_keep_running,
+                            )
+                            .await;
 
                             let connection = match conn_res {
                                 Ok(connection) => connection,
@@ -263,7 +292,6 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
     let keep_running = keep_running.clone();
     loop {
         if !keep_running.load(Ordering::SeqCst) {
-            println!("exiting loop3");
             return;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -272,4 +300,8 @@ pub(super) async fn run_playit_cli(config_path: PathBuf, keep_running: Arc<Atomi
             break;
         }
     }
+}
+
+pub fn make_client(api_base: String, secret: String) -> PlayitApiClient<HttpClient> {
+    PlayitApi::create(api_base, Some(secret))
 }

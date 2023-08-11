@@ -1,6 +1,5 @@
 import { useContext, useEffect, useState } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
-import { useDocumentTitle } from 'usehooks-ts';
 import { useLocation } from 'react-router-dom';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
@@ -22,7 +21,6 @@ import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
 import Macros from 'pages/macros';
 import { PlayitggSignup } from 'components/PlayitggSignup';
-import { TunnelList } from 'components/TunnelList';
 
 export const tabs = [
   {
@@ -97,16 +95,6 @@ export const tabs = [
     icon: <FontAwesomeIcon icon={faInbox} />,
     content: (
       <PlayitggSignup />
-    ),
-  },
-  {
-    title: 'Tunnels',
-    displayTitle: 'Tunnels',
-    path: 'tunnels',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faInbox} />,
-    content: (
-      <TunnelList />
     ),
   },
 ];

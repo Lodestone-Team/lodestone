@@ -284,8 +284,7 @@ export const zipInstanceFiles = async (
     return;
   } else {
     toast.info(
-      `Zipping ${zipRequest.target_relative_paths.length} item${
-        zipRequest.target_relative_paths.length > 1 ? 's' : ''
+      `Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''
       }...`
     );
   }
@@ -495,7 +494,7 @@ export const killTask = async (
 /***********************
  * End Tasks/Macro API
  ***********************/
- 
+
 /***********************
  * Playitgg API
  ***********************/
@@ -509,13 +508,13 @@ export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
 
 export const verifyKey = async (): Promise<boolean> => {
   const response = await axiosWrapper<boolean>({
-      method: 'post',
-      url: `/playitgg/verify_key`,
+    method: 'post',
+    url: `/playitgg/verify_key`,
   });
   return response;
 };
 
-export const startCli  = async () => {
+export const startCli = async () => {
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'post',
@@ -524,11 +523,27 @@ export const startCli  = async () => {
   );
 };
 
-export const stopCli  = async () => {
+export const stopCli = async () => {
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'post',
       url: `/playitgg/stop_cli`,
     })
   );
+};
+
+export const cliIsRunning = async () => {
+  const response = await axiosWrapper<boolean>({
+    method: 'get',
+    url: `/playitgg/cli_is_running`,
+  });
+  return response;
+};
+
+export const getTunnels = async () => {
+  const response = await axiosWrapper<PlayitTunnelInfo[]>({
+    method: 'get',
+    url: `/playitgg/get_tunnels`,
+  });
+  return response;
 };
