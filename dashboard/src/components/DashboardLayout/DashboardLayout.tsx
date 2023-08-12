@@ -38,14 +38,7 @@ export default function DashboardLayout() {
 
   // open the error modal is coreConnectionStatus is error for more than 3 seconds
   useEffect(() => {
-    if (coreConnectionStatus === 'error') {
-      const timeout = setTimeout(() => {
-        setShowCoreErrorModal(true);
-      }, 3000);
-      return () => clearTimeout(timeout);
-    } else {
-      setShowCoreErrorModal(false);
-    }
+    setShowCoreErrorModal(coreConnectionStatus === 'error')
   }, [coreConnectionStatus]);
 
   useEffect(() => {
@@ -193,11 +186,11 @@ export default function DashboardLayout() {
         title="Core Connection Error"
         type="info"
         z-index="20"
-        confirmButtonText="Change Core"
+        confirmButtonText="Back to Core selection"
         onConfirm={() => {
           setPathname('/login/core/select');
         }}
-        closeButtonText="Refresh"
+        closeButtonText="Continue with current Core"
         onClose={() => {
           window.location.reload();
         }}
