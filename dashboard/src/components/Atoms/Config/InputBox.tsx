@@ -44,7 +44,6 @@ export default function InputBox({
   isLoading: isLoadingProp = false,
   id = '',
   showIcons = true,
-  tooltip = false,
   tooltipText,
   validate: validateProp, //throws error if invalid
   onChange: onChangeProp,
@@ -67,7 +66,6 @@ export default function InputBox({
   isLoading?: boolean;
   id?: string;
   showIcons?: boolean;
-  tooltip?: boolean;
   tooltipText?: string;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
@@ -237,7 +235,7 @@ export default function InputBox({
       <div className={`flex min-w-0 grow flex-col`}>
         <div className="flex row">
           <label className="text-medium font-medium text-gray-300">{label}</label>
-          { tooltip && tooltipText && 
+          {tooltipText &&
             <InfoTooltip
               tooltip={tooltipText}
               className="ml-2"
@@ -275,9 +273,8 @@ export default function InputBox({
           onChange={onChange}
           maxLength={maxLength}
           style={{ paddingRight: `${icons.length * 1.5 + 0.75}rem` }} //0.75, 2.25, 3.75
-          className={`input-shape input-background input-outlines input-text-style w-full ${
-            errorText ? 'input-border-error' : 'input-border-normal'
-          }
+          className={`input-shape input-background input-outlines input-text-style w-full ${errorText ? 'input-border-error' : 'input-border-normal'
+            }
            `}
           onBlur={() => {
             setValue(value.trim());
