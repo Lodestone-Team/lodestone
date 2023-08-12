@@ -95,7 +95,6 @@ export const CoreSettings = () => {
           domain: domain,
         });
       }}
-      tooltip={true}
       tooltipText={"This is your public IP if you are port-forwarded. If not, leave this as is."}
     />
   );
