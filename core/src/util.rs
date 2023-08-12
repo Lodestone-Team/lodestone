@@ -22,8 +22,9 @@ pub struct Authentication {
     password: String,
 }
 
-use crate::error::Error;
-use crate::prelude::path_to_tmp;
+use crate::error::{Error, ErrorKind};
+use crate::prelude::{path_to_tmp, lodestone_path};
+use crate::types::LodestoneMetadata;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -554,7 +555,7 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
 
     cmd
 }
-
+ 
 pub fn format_byte_download(mut bytes: u64, mut total: u64) -> String {
     let mut unit = "B";
     if bytes > 1024 {

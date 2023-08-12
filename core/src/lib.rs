@@ -425,10 +425,11 @@ pub async fn run(
             kind: ErrorKind::Internal, source: Report::msg("Another instance of lodestone is running"),
         });
     }
-
+    
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
+
     let path_to_instances = lodestone_path.join("instances");
 
     let (tx, _rx) = EventBroadcaster::new(512);
