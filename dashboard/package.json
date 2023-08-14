@@ -1,6 +1,6 @@
 {
   "name": "lodestone",
-  "version": "0.5.0-beta.2",
+  "version": "0.5.0-beta.3",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
@@ -33,6 +33,7 @@
     "class-variance-authority": "^0.4.0",
     "clsx": "^1.2.1",
     "formik": "^2.2.9",
+    "is-ip": "^5.0.0",
     "js-base64": "^3.7.3",
     "jsonwebtoken": "^8.5.1",
     "minecraft-motd-util": "^1.1.12",

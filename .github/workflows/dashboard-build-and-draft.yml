@@ -3,11 +3,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: 'Version to tag release with, leave empty to not make a release'
+        description: "Version to tag release with, leave empty to not make a release"
         required: true
         type: string
       debug:
-        description: 'Whether to build in debug mode, uses less time but might run out of space on windows'
+        description: "Whether to build in debug mode, uses less time but might run out of space on windows"
         required: true
         default: true
         type: boolean
@@ -15,11 +15,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to tag release with, leave empty to not make a release'
+        description: "Version to tag release with, leave empty to not make a release"
         required: false
         type: string
       debug:
-        description: 'Whether to build in debug mode, uses less time but might run out of space on windows'
+        description: "Whether to build in debug mode, uses less time but might run out of space on windows"
         required: true
         default: true
         type: boolean
@@ -30,12 +30,12 @@ jobs:
       fail-fast: true
       matrix:
         include:
-        - platform: "windows-latest"
-          target: "x86_64-pc-windows-msvc"
-        - platform: "ubuntu-latest"
-          target: "x86_64-unknown-linux-gnu"
-        - platform: "macos-latest"
-          target: "x86_64-apple-darwin"
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+          - platform: "ubuntu-latest"
+            target: "x86_64-unknown-linux-gnu"
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
 
     runs-on: ${{ matrix.platform }}
 
@@ -47,7 +47,7 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18.x
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: ./dashboard/package-lock.json
 
       - name: Install Rust stable
@@ -88,7 +88,6 @@ jobs:
           prerelease: true
           includeDebug: ${{ inputs.debug }}
           includeRelease: ${{ !inputs.debug }}
-
 
       - name: Add windows portable exe to release
         uses: softprops/action-gh-release@v1

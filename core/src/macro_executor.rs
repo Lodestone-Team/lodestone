@@ -1,5 +1,6 @@
 use std::{
     fmt::{Debug, Display},
+    iter::zip,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -48,7 +49,12 @@ use deno_core::ResolutionKind;
 use deno_core::{anyhow, error::generic_error};
 use deno_core::{resolve_import, ModuleCode};
 
+use crate::traits::t_configurable::manifest::{
+    ConfigurableValue, ConfigurableValueType, SettingManifest,
+};
+use crate::util::fs;
 use futures::FutureExt;
+use indexmap::IndexMap;
 
 pub trait WorkerOptionGenerator: Send + Sync {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions;
@@ -564,6 +570,349 @@ impl MacroExecutor {
     pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
         self.exit_status_table.get(&pid).map(|v| v.clone())
     }
+
+    pub async fn get_config_manifest(
+        path: &PathBuf,
+    ) -> Result<IndexMap<String, SettingManifest>, Error> {
+        match extract_config_code(&fs::read_to_string(path).await?) {
+            Ok(optional_code) => match optional_code {
+                Some((var_name, definition)) => get_config_from_code(&var_name, &definition),
+                None => Ok(IndexMap::<String, SettingManifest>::new()),
+            },
+            Err(e) => Err(e),
+        }
+    }
+}
+
+///
+/// extract the class definition and the name of the declared config instance
+/// from the typescript code
+///
+/// *returns (instance_name, class_definition)*
+///
+fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
+    let config_indices: Vec<_> = code.match_indices("LodestoneConfig").collect();
+    if config_indices.is_empty() {
+        return Ok(None);
+    }
+    if config_indices.len() < 2 {
+        return Err(Error::ts_syntax_error(
+            "Class definition or config declaration is missing",
+        ));
+    }
+
+    // first occurrence of LodeStoneConfig must be the class declaration
+    let config_code = &code[(config_indices[0].0)..];
+    // end_index is for extracting the class definition
+    let end_index = {
+        let mut open_count = 0;
+        let mut close_count = 0;
+        let mut i = 0;
+        // match for brackets to determine where the class definition ends
+        for &char_item in config_code.to_string().as_bytes().iter() {
+            if char_item == b'{' {
+                open_count += 1;
+            }
+            if char_item == b'}' {
+                close_count += 1;
+            }
+            i += 1;
+
+            if open_count == close_count && open_count > 0 {
+                break;
+            }
+        }
+
+        if i == 0 || open_count != close_count {
+            return Err(Error::ts_syntax_error("config"));
+        }
+
+        i
+    };
+
+    // second occurrence of LodeStoneConfig must be the config variable declaration
+    // idea: slice from the end of class definition to 'let/const/var (name): LodestoneConfig'
+    let config_var_code = {
+        let second_occur_index =
+            config_indices[1].0 - config_indices[0].0 + "LodestoneConfig".len();
+        &config_code[end_index..second_occur_index]
+    };
+
+    // parse whether the keyword 'var', 'let', or 'const' is used
+    let decl_keyword = {
+        let mut config_var_tokens: Vec<_> = config_var_code.split(' ').collect();
+        config_var_tokens.reverse();
+
+        let keywords = ["let", "const", "var"];
+        let keyword_found = config_var_tokens.iter().find(
+            |&kw| keywords.contains(kw)
+        );
+        match keyword_found {
+            Some(&kw) => kw,
+            None => return Err(Error::ts_syntax_error(
+                "Class definition detected but cannot find config declaration",
+            ))
+        }
+    };
+
+    let config_var_code = config_var_code.replace(' ', "");
+    let config_var_name = {
+        // now check for the last occurrence of the keyword to find the starting index of
+        // 'let/const/var (name): LodestoneConfig'
+        let decl_keyword_index = match config_var_code
+            .match_indices(decl_keyword)
+            .collect::<Vec<_>>()
+            .last()
+        {
+            Some(val) => val.0,
+            None => {
+                return Err(Error::ts_syntax_error(
+                    "Class definition detected but cannot find config declaration",
+                ));
+            }
+        };
+
+        // slice from the keyword to the end to isolate 'let/const/var (name): LodestoneConfig'
+        let decl_var_statement = &config_var_code[decl_keyword_index..];
+        // since spaces are removed, ':' is the separator between name and 'LodestoneConfig'
+        let var_name_end_index = match decl_var_statement.find(':') {
+            Some(index) => index,
+            None => {
+                return Err(Error::ts_syntax_error(
+                    "Class definition detected but cannot find config declaration",
+                ));
+            }
+        };
+
+        // the name is in between the keyword and ':'
+        &decl_var_statement[decl_keyword.len()..var_name_end_index]
+    };
+
+    // last sanity check: class definition must start with a '{'
+    match config_code.find('{') {
+        Some(start_index) => Ok(Some((
+            config_var_name.to_string(),
+            // we no longer need the declaration, so slice after the '{'
+            config_code[start_index..end_index].to_string(),
+        ))),
+        None => Err(Error::ts_syntax_error("config")),
+    }
+}
+
+fn get_config_from_code(
+    config_var_name: &str,
+    config_definition: &str,
+) -> Result<IndexMap<String, SettingManifest>, Error> {
+    // remove the open and close brackets
+    let str_length = config_definition.len();
+    let config_params_str = &config_definition[1..str_length - 1].to_string();
+
+    let config_params_str: Vec<_> = config_params_str.split('\n').collect();
+
+    // parse config code into a collection of description and definition
+    let mut comment_lines: Vec<String> = vec![];
+    let mut code_lines: Vec<String> = vec![];
+    let mut comments: Vec<String> = vec![];
+    let mut codes: Vec<String> = vec![];
+    let mut comment_block_count = 0;
+    for line in config_params_str {
+        let line = line.replace('\r', "");
+        let line = line.trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        // comments within a comment block
+        if comment_block_count > 0 {
+            // closing the comment block
+            if line.starts_with("*/") {
+                comment_block_count -= 1;
+                continue;
+            }
+
+            // comments within a comment block
+            if let Some(line) = line.strip_prefix('*') {
+                comment_lines.push(line.trim().to_string());
+            } else {
+                comment_lines.push(line.to_string());
+            }
+            continue;
+        }
+
+        // single line comment & opening of a comment block
+        if line.starts_with("//") {
+            comment_lines.push(line.strip_prefix("//").unwrap().trim().to_string());
+        } else if line.starts_with("/**") {
+            comment_lines.push(line.strip_prefix("/**").unwrap().trim().to_string());
+            comment_block_count += 1;
+        } else if line.starts_with("/*") {
+            comment_lines.push(line.strip_prefix("/*").unwrap().trim().to_string());
+            comment_block_count += 1;
+        } else {
+            // if non of those are satisfied, it must be a line of actual code instead of a comment
+            let code_line = line.replace([' ', '\t'], "").trim().to_string();
+            code_lines.push(code_line.clone());
+            if code_line.ends_with(';') {
+                comments.push(comment_lines.join(" "));
+                comment_lines.clear();
+                codes.push(code_lines.join("").strip_suffix(';').unwrap().to_string());
+                code_lines.clear();
+            }
+        }
+    }
+
+    let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
+    for (definition, desc) in zip(codes, comments) {
+        let (name, config) = parse_config_single(&definition, &desc, config_var_name)?;
+        configs.insert(name, config);
+    }
+
+    Ok(configs)
+}
+
+fn parse_config_single(
+    single_config_definition: &str,
+    config_description: &str,
+    setting_id_prefix: &str,
+) -> Result<(String, SettingManifest), Error> {
+    let entry = single_config_definition.trim().to_string();
+
+    // compute indices to isolate class field names and types
+    let (name_end_index, type_start_index) = match entry.find('?') {
+        Some(index) => (index, index + 2),
+        None => match entry.find(':') {
+            Some(index) => (index, index + 1),
+            None => {
+                return Err(Error::ts_syntax_error("config"));
+            }
+        },
+    };
+    let var_name = &entry[..name_end_index];
+    // if the field name is 2 char from the type, it must be optional ('?:')
+    let is_optional = name_end_index + 2 == type_start_index;
+
+    let default_value_index = match entry.find('=') {
+        Some(index) => index,
+        None => entry.len(),
+    };
+    if type_start_index >= default_value_index {
+        return Err(Error::ts_syntax_error("config"));
+    }
+
+    let var_type = &entry[type_start_index..default_value_index];
+    let config_type = get_config_value_type(var_type)?;
+    let has_default = default_value_index != entry.len();
+
+    if !is_optional && !has_default {
+        return Err(Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("{var_name} is not optional and thus must have a default value"),
+        });
+    }
+
+    let default_val = if has_default {
+        // default value as string
+        let val_str = entry[default_value_index + 1..].to_string();
+        let val_str_len = val_str.len();
+        Some(match config_type {
+            ConfigurableValueType::String { .. } => {
+                ConfigurableValue::String(val_str[1..val_str_len - 1].to_string())
+            }
+            ConfigurableValueType::Boolean => {
+                let value = match val_str.parse::<bool>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Cannot parse \"{val_str}\" to a bool"),
+                        });
+                    }
+                };
+                ConfigurableValue::Boolean(value)
+            }
+            ConfigurableValueType::Float { .. } => {
+                let value = match val_str.parse::<f32>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Cannot parse \"{val_str}\" to a number"),
+                        });
+                    }
+                };
+                ConfigurableValue::Float(value)
+            }
+            ConfigurableValueType::Enum { .. } => {
+                ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string())
+            }
+            _ => panic!("TS config parsing error: invalid type not caught by the type parser"),
+        })
+    } else {
+        None
+    };
+
+    let mut settings_id = setting_id_prefix.to_string();
+    settings_id.push('|');
+    settings_id.push_str(var_name);
+    Ok((
+        var_name.to_string(),
+        SettingManifest::new_value_with_type(
+            settings_id,
+            var_name.to_string(),
+            config_description.to_string(),
+            default_val.clone(),
+            config_type,
+            default_val,
+            false,
+            true,
+        ),
+    ))
+}
+
+fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error> {
+    let result = match type_str {
+        "string" => ConfigurableValueType::String { regex: None },
+        "boolean" => ConfigurableValueType::Boolean,
+        "number" => ConfigurableValueType::Float {
+            max: None,
+            min: None,
+        },
+        _ => {
+            // try to parse it into an enum
+            let enum_options: Vec<_> = type_str.split('|').collect();
+            let mut options: Vec<String> = Vec::new();
+
+            for option in enum_options {
+                // verify the enum options are strings
+                let first_quote_index = {
+                    if let Some(i) = option.find('\'') {
+                        i
+                    } else if let Some(i) = option.find('"') {
+                        i
+                    } else {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("cannot parse type \"{}\"", type_str),
+                        });
+                    }
+                };
+
+                if first_quote_index == 0 {
+                    let str_len = option.len();
+                    options.push(option[1..str_len - 1].to_string());
+                } else {
+                    return Err(Error {
+                        kind: ErrorKind::Internal,
+                        source: eyre!("cannot parse type \"{}\"", type_str),
+                    });
+                }
+            }
+
+            ConfigurableValueType::Enum { options }
+        }
+    };
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -577,7 +926,8 @@ mod tests {
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
-    use crate::macro_executor::SpawnResult;
+    use crate::macro_executor::{extract_config_code, get_config_from_code, parse_config_single, SpawnResult};
+    use crate::traits::t_configurable::manifest::ConfigurableValue;
 
     struct BasicMainWorkerGenerator;
 
@@ -650,7 +1000,6 @@ mod tests {
     async fn test_http_url() {
         tracing_subscriber::fmt::try_init();
 
-
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor =
@@ -686,6 +1035,120 @@ mod tests {
             .await
             .unwrap();
         exit_future.await.unwrap();
+    }
+
+    #[test]
+    fn test_macro_config_extraction() {
+        // should return None if no there is no config definition
+        let result = extract_config_code(
+            r#"
+            console.log("hello world");
+            const message = "hello macro";
+            console.debug(message);
+            "#
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+
+        // should return an error if the instance declaration is missing
+        let result = extract_config_code(
+            r#"
+            class LodestoneConfig {
+                id: string = 'defaultId';
+            }
+            "#
+        );
+        assert!(result.is_err());
+
+        // should return an error if the class definition is missing
+        let result = extract_config_code(
+            r#"
+            declare let config: LodestoneConfig;
+            console.debug(config);
+            "#
+        );
+        assert!(result.is_err());
+
+        // should extract the correct instance name and class definition
+        let result = extract_config_code(
+            r#"
+            class LodestoneConfig {
+                id: string = 'defaultId';
+            }
+            declare let config: LodestoneConfig;
+            console.debug(config);
+            "#
+        );
+        assert!(result.is_ok());
+        let (name, code) = result.unwrap().unwrap();
+        assert_eq!(
+            &code,
+            r#"{
+                id: string = 'defaultId';
+            }"#
+        );
+        assert_eq!(&name, "config");
+    }
+
+    #[test]
+    fn test_macro_config_single_parsing() {
+        // should return an error if a non-option variable does not have default value
+        let result = parse_config_single(
+            "id:string",
+            "",
+            "",
+        );
+        assert!(result.is_err());
+
+        // should return an error if the value and type does not match
+        let result = parse_config_single(
+            "id:number='defaultId'",
+            "",
+            "prefix",
+        );
+        assert!(result.is_err());
+
+        // should properly parse the optional variable
+        let result = parse_config_single(
+            "id?:string",
+            "",
+            "prefix",
+        );
+        let (name, config) = result.unwrap();
+        assert_eq!(&name, "id");
+        assert!(config.get_value().is_none());
+        assert_eq!(config.get_identifier(), "prefix|id");
+
+        // should properly parse the non-optional variable
+        let result = parse_config_single(
+            "id:string='defaultId'",
+            "",
+            "prefix",
+        );
+        let (name, config) = result.unwrap();
+        assert_eq!(&name, "id");
+        let value = config.get_value().unwrap();
+        match value {
+            ConfigurableValue::String(val) => assert_eq!(val, "defaultId"),
+            _ => panic!("incorrect value")
+        }
+        assert_eq!(config.get_identifier(), "prefix|id");
+    }
+
+    #[test]
+    fn test_macro_config_multi_parsing() {
+        let result = get_config_from_code(
+            "config",
+            r#"{
+                id: string = 'defaultId';
+                interval?: number;
+            }"#
+        ).unwrap();
+        let identifiers = ["config|id", "config|interval"];
+        let configs: Vec<_> = result.iter().collect();
+        for (_, settings) in configs {
+            assert_ne!(identifiers.iter().find(|&val| val == settings.get_identifier()), None);
+        }
     }
 }
 

@@ -4156,21 +4156,23 @@ dependencies = [
 
 [[package]]
 name = "lodestone-client"
-version = "0.5.0-beta.2"
+version = "0.5.0-beta.3"
 dependencies = [
  "lodestone_core",
+ "notify-rust",
  "portpicker",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-localhost",
+ "tauri-plugin-single-instance",
  "tokio",
 ]
 
 [[package]]
 name = "lodestone_core"
-version = "0.5.0-beta.2"
+version = "0.5.0-beta.3"
 dependencies = [
  "ansi_term",
  "argon2",
@@ -7677,6 +7679,20 @@ dependencies = [
  "serde_json",
  "tauri",
  "tiny_http",
+]
+
+[[package]]
+name = "tauri-plugin-single-instance"
+version = "0.0.0"
+source = "git+https://github.com/tauri-apps/plugins-workspace?branch=v1#51f20b438e42050cdbfd6c6dc72dbc985a31bbc1"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror",
+ "windows-sys 0.48.0",
+ "zbus",
 ]
 
 [[package]]

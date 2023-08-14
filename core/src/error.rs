@@ -9,6 +9,8 @@ use serde_json::json;
 use thiserror::Error;
 use ts_rs::TS;
 
+use crate::error;
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[ts(export)]
 pub enum ErrorKind {
@@ -26,6 +28,24 @@ pub struct Error {
     pub kind: ErrorKind,
     pub source: color_eyre::Report,
 }
+
+
+impl Error {
+    pub fn log(self) -> Self {
+        error!("An error occurred ({kind}): {source}", kind = self.kind, source = self.source);
+        self
+    }
+}
+
+impl Error {
+    pub fn ts_syntax_error(context: &str) -> Error {
+        Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg(format!("Syntax error parsing ts ({context})")),
+        }
+    }
+}
+
 
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -217,12 +217,8 @@ pub enum ProgressionEndValue {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionStartValue {
-    InstanceCreation {
-        instance_uuid: InstanceUuid,
-    },
-    InstanceDelete {
-        instance_uuid: InstanceUuid,
-    },
+    InstanceCreation { instance_uuid: InstanceUuid },
+    InstanceDelete { instance_uuid: InstanceUuid },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
@@ -284,6 +280,12 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
 #[serde(transparent)]
 #[ts(export)]
 pub struct ProgressionEventID(Snowflake);
+
+impl ProgressionEventID {
+    pub fn inner(&self) -> Snowflake {
+        self.0
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]

@@ -63,10 +63,6 @@ const SelectGenericGameCard = ({
   }, [errorText]);
 
   const loadInstanceFunc = () => {
-    if (!isValidUrl(url)) {
-      setUrlErrorText('Invalid Url');
-      return;
-    }
     setUrlErrorText('');
     setGenericFetchReady(true);
   };
@@ -77,14 +73,6 @@ const SelectGenericGameCard = ({
     }
   };
 
-  const isValidUrl = (url: string) => {
-    try {
-      new URL(url);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  };
 
   return (
     <div
