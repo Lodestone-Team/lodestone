@@ -29,7 +29,7 @@ impl From<&Event> for ClientEvent {
             },
             EventInner::UserEvent(_) => EventLevel::Info,
             EventInner::MacroEvent(m) => match m.macro_event_inner {
-                MacroEventInner::Started => EventLevel::Info,
+                MacroEventInner::Started { .. } => EventLevel::Info,
                 MacroEventInner::Stopped { ref exit_status } => {
                     if exit_status.is_success() {
                         EventLevel::Info
