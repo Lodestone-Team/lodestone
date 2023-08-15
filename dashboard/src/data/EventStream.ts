@@ -16,6 +16,7 @@ import { toast } from 'react-toastify';
 import { Player } from 'bindings/Player';
 import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
+import { MacroPID } from '../bindings/MacroPID';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -273,9 +274,22 @@ export const useEventStream = () => {
           macro_event_inner: event_inner,
         }) =>
           match(event_inner, {
-            Started: () => {
+            Started: ({ macro_name, time }) => {
               console.log(`Macro ${macro_pid} started on ${uuid}`);
-              queryClient.invalidateQueries(['instance', uuid, 'taskList']); // need to invalidate the query to get the new task list
+
+              queryClient.setQueryData(
+                ['instance', uuid, 'taskList'],
+                (oldData?: TaskEntry[]): TaskEntry[] => {
+                  const newTask: TaskEntry = {
+                    name: macro_name,
+                    creation_time: time,
+                    pid: macro_pid,
+                  };
+
+                  return oldData ? [...oldData, newTask] : [newTask];
+                }
+              );
+
               dispatch({
                 title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
