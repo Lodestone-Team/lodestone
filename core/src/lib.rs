@@ -129,6 +129,7 @@ async fn restore_instances(
     macro_executor: MacroExecutor,
 ) -> Result<DashMap<InstanceUuid, GameInstance>, Error> {
     let ret: DashMap<InstanceUuid, GameInstance> = DashMap::new();
+    let uuid_map: DashMap<String, bool> = DashMap::new();
 
     for entry in instances_path
         .read_dir()
@@ -157,6 +158,14 @@ async fn restore_instances(
                 continue;
             }
         };
+
+        let uuid: String = dot_lodestone_config.uuid().to_string();
+        if uuid_map.contains_key(&uuid) {
+            warn!("Repeated UUID - {}", &uuid)
+        } else {
+            uuid_map.insert(uuid, true);
+        }
+        
         debug!("restoring instance: {}", path.display());
         match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
