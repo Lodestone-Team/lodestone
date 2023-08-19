@@ -1,7 +1,10 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context};
+use indexmap::IndexMap;
 
 use crate::{
     error::Error,
@@ -9,6 +12,8 @@ use crate::{
     macro_executor::{DefaultWorkerOptionGenerator, MacroPID, SpawnResult},
     traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
 };
+use crate::macro_executor::MacroExecutor;
+use crate::traits::t_configurable::manifest::SettingManifest;
 
 use super::MinecraftInstance;
 
@@ -147,5 +152,11 @@ impl TMacro for MinecraftInstance {
     async fn kill_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_executor.abort_macro(pid)?;
         Ok(())
+    }
+
+    async fn get_macro_config(&self, name: &str) -> Result<IndexMap<String, SettingManifest>, Error> {
+        let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
+            .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
+        MacroExecutor::get_config_manifest(&path_to_macro).await
     }
 }

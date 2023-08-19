@@ -6,6 +6,7 @@ use axum::{
 
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
+use indexmap::IndexMap;
 
 use crate::{
     auth::user::UserAction,
@@ -16,6 +17,7 @@ use crate::{
     types::InstanceUuid,
     AppState,
 };
+use crate::traits::t_configurable::manifest::SettingManifest;
 
 pub async fn get_instance_task_list(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -102,11 +104,27 @@ pub async fn kill_macro(
     Ok(Json(()))
 }
 
+pub async fn get_macro_configs(
+    Path((uuid, macro_name)): Path<(InstanceUuid, String)>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+) -> Result<Json<IndexMap<String, SettingManifest>>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    let macro_configs = instance.get_macro_config(&macro_name).await?;
+    Ok(Json(macro_configs))
+}
+
 pub fn get_instance_macro_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
         .route("/instance/:uuid/macro/kill/:pid", put(kill_macro))
         .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
+        .route("/instance/:uuid/macro/configure/:macro_name", get(get_macro_configs))
         .route("/instance/:uuid/task/list", get(get_instance_task_list))
         .route(
             "/instance/:uuid/history/list",

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::path::PathBuf;
+use indexmap::IndexMap;
 use ts_rs::TS;
 
 use crate::{
@@ -12,6 +13,7 @@ use crate::{
 
 use serde::Deserialize;
 use serde::Serialize;
+use crate::traits::t_configurable::manifest::SettingManifest;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
 #[ts(export)]
@@ -85,6 +87,15 @@ pub trait TMacro {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support killing macro"),
+        })
+    }
+    async fn get_macro_config(
+        &self,
+        _name: &str,
+    ) -> Result<IndexMap<String, SettingManifest>, Error> {
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support running macro"),
         })
     }
 }
