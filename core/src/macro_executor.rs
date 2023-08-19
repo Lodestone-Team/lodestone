@@ -732,22 +732,34 @@ fn get_config_from_code(
             }
 
             // comments within a comment block
-            if let Some(line) = line.strip_prefix('*') {
-                comment_lines.push(line.trim().to_string());
-            } else {
-                comment_lines.push(line.to_string());
+            let comment_str = {
+                if let Some(line) = line.strip_prefix('*') {
+                    line.trim()
+                } else {
+                    line
+                }
+            };
+            // do not push empty comment at the beginning of the comment block
+            if !comment_str.is_empty() || !comment_lines.is_empty()  {
+                comment_lines.push(comment_str.to_string());
             }
             continue;
         }
 
         // single line comment & opening of a comment block
         if line.starts_with("//") {
-            comment_lines.push(line.strip_prefix("//").unwrap().trim().to_string());
+            if let Some(comment_str) = cleanup_comment_line(line, "//") {
+                comment_lines.push(comment_str.to_string());
+            }
         } else if line.starts_with("/**") {
-            comment_lines.push(line.strip_prefix("/**").unwrap().trim().to_string());
+            if let Some(comment_str) = cleanup_comment_line(line, "/**") {
+                comment_lines.push(comment_str.to_string());
+            }
             comment_block_count += 1;
         } else if line.starts_with("/*") {
-            comment_lines.push(line.strip_prefix("/*").unwrap().trim().to_string());
+            if let Some(comment_str) = cleanup_comment_line(line, "/*") {
+                comment_lines.push(comment_str.to_string());
+            }
             comment_block_count += 1;
         } else {
             // if non of those are satisfied, it must be a line of actual code instead of a comment
@@ -769,6 +781,15 @@ fn get_config_from_code(
     }
 
     Ok(configs)
+}
+
+fn cleanup_comment_line(comment_line: &str, comment_prefix: &str) -> Option<String> {
+    let result_str = comment_line.strip_prefix(comment_prefix).unwrap().trim();
+    if result_str.is_empty() {
+        None
+    } else {
+        Some(result_str.to_string())
+    }
 }
 
 fn parse_config_single(
