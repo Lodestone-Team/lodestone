@@ -5,6 +5,7 @@ import {
   faEyeSlash,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import InfoTooltip from 'components/InfoTooltip';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import {
@@ -43,6 +44,7 @@ export default function InputBox({
   isLoading: isLoadingProp = false,
   id = '',
   showIcons = true,
+  tooltipText,
   validate: validateProp, //throws error if invalid
   onChange: onChangeProp,
   description,
@@ -64,6 +66,7 @@ export default function InputBox({
   isLoading?: boolean;
   id?: string;
   showIcons?: boolean;
+  tooltipText?: string;
   onSubmit: (arg: string) => Promise<void>;
   validate?: (arg: string) => Promise<void>;
   onChange?: (arg: string) => Promise<void>;
@@ -230,7 +233,15 @@ export default function InputBox({
       className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-medium`}
     >
       <div className={`flex min-w-0 grow flex-col`}>
-        <label className="text-medium font-medium text-gray-300">{label}</label>
+        <div className="flex row">
+          <label className="text-medium font-medium text-gray-300">{label}</label>
+          {tooltipText &&
+            <InfoTooltip
+              tooltip={tooltipText}
+              className="ml-2"
+            />
+          }
+        </div>
         {errorText ? (
           <div className="text-small font-medium tracking-medium text-red">
             {errorText || 'Unknown error'}
@@ -262,9 +273,8 @@ export default function InputBox({
           onChange={onChange}
           maxLength={maxLength}
           style={{ paddingRight: `${icons.length * 1.5 + 0.75}rem` }} //0.75, 2.25, 3.75
-          className={`input-shape input-background input-outlines input-text-style w-full ${
-            errorText ? 'input-border-error' : 'input-border-normal'
-          }
+          className={`input-shape input-background input-outlines input-text-style w-full ${errorText ? 'input-border-error' : 'input-border-normal'
+            }
            `}
           onBlur={() => {
             setValue(value.trim());

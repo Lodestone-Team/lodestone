@@ -1,0 +1,15 @@
+name: Developer Workflow
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  workspace-check:
+    uses: ./.github/workflows/workspace-check.yml
+    secrets: inherit
+
+  core-cargo-test:
+    uses: ./.github/workflows/core-cargo-test.yml
+    secrets: inherit
