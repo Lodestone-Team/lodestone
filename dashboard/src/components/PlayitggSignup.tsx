@@ -1,6 +1,6 @@
-import { ReactNode, useContext, useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 import * as React from 'react';
-import { generatePlayitSignupLink, startCli, stopCli, verifyKey, cliIsRunning, getTunnels } from 'utils/apis';
+import { generatePlayitSignupLink, startCli, stopCli, verifyKey, getTunnels } from 'utils/apis';
 import { useEffectOnce } from 'usehooks-ts';
 import clsx from 'clsx';
 import Button from './Atoms/Button';
@@ -26,7 +26,7 @@ export function PlayitggSignup() {
   const [signupStatus, setSignupStatus] = React.useState<SignupStatus>("CodeNotFound");
   const [playitTunnels, setPlayitTunnels] = React.useState<PlayitTunnelInfo[]>([]);
   const queryClient = useQueryClient();
-  const { notifications, ongoingNotifications } = useContext(NotificationContext);
+  const { notifications } = useContext(NotificationContext);
 
 
   useEffectOnce(() => {
@@ -90,7 +90,7 @@ export function PlayitggSignup() {
             </h3>
             <div className="flex row">
               {
-                (runnerStatus === RunnerStatus.Stopped || runnerStatus === undefined)?
+                (runnerStatus === RunnerStatus.Stopped || runnerStatus === undefined) ?
                   <Button label="Start" onClick={() => { startCli(); setRunnerStatus(RunnerStatus.Loading); }} />
                   :
                   <Button label="Stop" onClick={() => { stopCli(); setRunnerStatus(RunnerStatus.Stopped); }} />
@@ -99,13 +99,13 @@ export function PlayitggSignup() {
                 icon={faCircle}
                 className={clsx(
                   `select-none ml-2 text-[9px] mt-[9px] text-gray-faded/30`,
-                  runnerStatus === RunnerStatus.Started && 'text-green-300', 
+                  runnerStatus === RunnerStatus.Started && 'text-green-300',
                   runnerStatus === RunnerStatus.Loading && `text-yellow-300`)}
               />
             </div>
             <div className="mt-3">{playitTunnels.length > 0 && playitTunnels.map(
               tunnel => (
-                <div>
+                <div key={tunnel.server_address} >
                   <div className='flex row'>
                     <h3 className="text-h3 font-medium font-bold tracking-medium text-white">
                       {tunnel.name}
@@ -136,6 +136,6 @@ export function PlayitggSignup() {
             )}</div>
           </div>
       }
-    </div>
+    </div >
   );
 }
