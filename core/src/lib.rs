@@ -158,8 +158,9 @@ async fn restore_instances(
                 continue;
             }
         };
+        
         debug!("restoring instance: {}", path.display());
-        match dot_lodestone_config.game_type() {
+        let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
                 let instance = match minecraft::MinecraftInstance::restore(
                     path.to_owned(),
@@ -179,7 +180,7 @@ async fn restore_instances(
                     }
                 };
                 debug!("Restored Minecraft Java instance successfully");
-                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+                (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
             GameType::Generic => {
                 let instance = match generic::GenericInstance::restore(
@@ -200,10 +201,16 @@ async fn restore_instances(
                     }
                 };
                 debug!("Restored Generic instance successfully");
-                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+                (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
-            GameType::MinecraftBedrock => todo!(),
+            GameType::MinecraftBedrock => todo!()
+        };
+        let uuid = uuid_instance.0;
+        let instance = uuid_instance.1;
+        if ret.contains_key(&uuid) {
+            warn!("UUID {} is repeated.", uuid.to_string());
         }
+        ret.insert(uuid, instance);
     }
     Ok(ret)
 }
