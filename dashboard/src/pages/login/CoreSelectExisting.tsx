@@ -155,7 +155,7 @@ const CoreSelectExisting = () => {
                 tauri && <Button
                 type="button"
                 iconRight={faScrewdriverWrench}
-                label="Setup Core Locally"
+                label="Use local Core"
                 onClick={() => {
                   const core = {
                     protocol: 'http',
