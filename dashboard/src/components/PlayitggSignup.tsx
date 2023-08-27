@@ -86,9 +86,9 @@ export function PlayitggSignup() {
               Start Playitgg and get your server online!
             </h2>
             <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-              If you're having trouble, make sure your tunnel is set up correctly on the website!
+              If you&apos;re having trouble, make sure your tunnel is set up correctly on the website!
             </h3>
-            <div className="flex row">
+            <div className="flex flex-row">
               {
                 (runnerStatus === RunnerStatus.Stopped || runnerStatus === undefined) ?
                   <Button label="Start" onClick={() => { startCli(); setRunnerStatus(RunnerStatus.Loading); }} />
@@ -106,8 +106,8 @@ export function PlayitggSignup() {
             <div className="mt-3">{playitTunnels.length > 0 && playitTunnels.map(
               tunnel => (
                 <div key={tunnel.server_address} >
-                  <div className='flex row'>
-                    <h3 className="text-h3 font-medium font-bold tracking-medium text-white">
+                  <div className='flex flex-row'>
+                    <h3 className="text-h3 font-bold tracking-medium text-white ">
                       {tunnel.name}
                     </h3>
                     <FontAwesomeIcon
@@ -115,9 +115,9 @@ export function PlayitggSignup() {
                       className={clsx(`select-none ml-2 text-[9px] mt-[9px]`, (tunnel.active && runnerStatus === RunnerStatus.Started) ? 'text-green-300' : `text-gray-faded/30`)}
                     />
                   </div>
-                  <div className="flex row">
+                  <div className="flex flex-row">
                     <h3
-                      className="hover:cursor-pointer hover:underline text-h3 font-small font-bold tracking-medium text-white/50"
+                      className="font-small text-h3 font-bold tracking-medium text-white/50 hover:cursor-pointer hover:underline"
                       onClick={() => { navigator.clipboard.writeText(tunnel.server_address) }}
                     >
                       {tunnel.server_address}
@@ -126,8 +126,8 @@ export function PlayitggSignup() {
                       onClick={() => { navigator.clipboard.writeText(tunnel.server_address) }}
                     />
                   </div>
-                  <div className="flex row">
-                    <h3 className="hover:cursor-pointer hover:underline text-h3 font-small font-bold tracking-medium text-white/50">
+                  <div className="flex flex-row">
+                    <h3 className="font-small text-h3 font-bold tracking-medium text-white/50 hover:cursor-pointer hover:underline">
                       Local server at {tunnel.local_ip}:{tunnel.local_port}
                     </h3>
                   </div>
