@@ -46,11 +46,13 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
 use fs3::FileExt;
 use semver::Version;
+use serde_json::json;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
+    io::{BufWriter, Write},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -149,7 +151,7 @@ async fn restore_instances(
                 continue;
             }
         };
-        let dot_lodestone_config: DotLodestoneConfig = match serde_json::from_reader(
+        let mut dot_lodestone_config: DotLodestoneConfig = match serde_json::from_reader(
             dot_lodestone_config_file,
         ) {
             Ok(v) => v,
@@ -160,6 +162,36 @@ async fn restore_instances(
         };
         
         debug!("restoring instance: {}", path.display());
+
+        // regenerate duplicate UUID
+        let uuid = dot_lodestone_config.uuid().to_owned();
+        if ret.contains_key(&uuid) {
+            let uuid_string = uuid.to_string();
+            warn!("UUID {} is repeated.", uuid_string);
+
+            dot_lodestone_config = DotLodestoneConfig::new(
+                InstanceUuid::default(),
+                *dot_lodestone_config.game_type()
+            );
+            
+            let updated_config_json = json!(&dot_lodestone_config);
+            let updated_file_contents =  match serde_json::to_string_pretty(&updated_config_json) {
+                Ok(v) => v,
+                Err(error) => {
+                    error!("Error with parsing regenerated config - {}", error);
+                    continue;
+                }
+            };
+            match std::fs::write(path.join(".lodestone_config"), updated_file_contents) {
+                Ok(_) => {
+                    info!("Instance with duplicate UUID {} updated to new UUID {}", uuid_string, dot_lodestone_config.uuid().to_string());
+                },
+                Err(e) => {
+                    info!("Error with regenerating duplicate UUID {}, {}", uuid_string, e);
+                }
+            }
+        }
+        
         let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
                 let instance = match minecraft::MinecraftInstance::restore(
@@ -205,12 +237,9 @@ async fn restore_instances(
             }
             GameType::MinecraftBedrock => todo!()
         };
-        let uuid = uuid_instance.0;
-        let instance = uuid_instance.1;
-        if ret.contains_key(&uuid) {
-            warn!("UUID {} is repeated.", uuid.to_string());
-        }
-        ret.insert(uuid, instance);
+    
+        ret.insert(uuid_instance.0, uuid_instance.1);
+        
     }
     Ok(ret)
 }
