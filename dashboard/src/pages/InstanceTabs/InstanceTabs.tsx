@@ -8,6 +8,7 @@ import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InstanceOverview from 'components/Instance/InstanceOverview';
 import {
+  faCarTunnel,
   faChartLine,
   faCodeCompare,
   faCog,
@@ -20,7 +21,7 @@ import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
 import Macros from 'pages/macros';
-import { PlayitggSignup } from 'components/PlayitggSignup';
+import { PlayitggOverview } from 'components/PlayitggOverview';
 
 export const tabs = [
   {
@@ -92,9 +93,9 @@ export const tabs = [
     displayTitle: 'Playitgg',
     path: 'playitgg',
     width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faInbox} />,
+    icon: <FontAwesomeIcon icon={faCarTunnel} />,
     content: (
-      <PlayitggSignup />
+      <PlayitggOverview />
     ),
   },
 ];
