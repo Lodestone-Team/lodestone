@@ -780,3 +780,29 @@ impl SectionManifest {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SettingLocalCache {
+    setting_id: String,
+    value: Option<ConfigurableValue>,
+    value_type: ConfigurableValueType,
+}
+
+impl SettingLocalCache {
+    pub fn from(manifest: &SettingManifest) -> SettingLocalCache {
+        SettingLocalCache {
+            setting_id: manifest.setting_id.clone(),
+            value: manifest.value.clone(),
+            value_type: manifest.value_type.clone(),
+        }
+    }
+
+    pub fn match_type(&self, manifest: &SettingManifest) -> bool {
+        manifest.value_type == self.value_type
+    }
+
+    pub fn get_identifier(&self) -> &String {
+        &self.setting_id
+    }
+}

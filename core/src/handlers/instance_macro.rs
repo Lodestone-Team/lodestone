@@ -1,6 +1,6 @@
 use axum::{
     extract::Path,
-    routing::{get, put},
+    routing::{get, put, post},
     Json, Router,
 };
 
@@ -17,6 +17,7 @@ use crate::{
     types::InstanceUuid,
     AppState,
 };
+use crate::prelude::GameInstance;
 use crate::traits::t_configurable::manifest::SettingManifest;
 
 pub async fn get_instance_task_list(
@@ -119,12 +120,29 @@ pub async fn get_macro_configs(
     Ok(Json(macro_configs))
 }
 
+pub async fn store_config_to_local(
+    Path((uuid, macro_name)): Path<(InstanceUuid, String)>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+    Json(config_to_store): Json<IndexMap<String, SettingManifest>>,
+) -> Result<(), Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
+    instance.store_macro_config_to_local(&macro_name, &config_to_store).await?;
+    Ok(())
+}
+
 pub fn get_instance_macro_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
         .route("/instance/:uuid/macro/kill/:pid", put(kill_macro))
         .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
-        .route("/instance/:uuid/macro/configure/:macro_name", get(get_macro_configs))
+        .route("/instance/:uuid/macro/config/get/:macro_name", get(get_macro_configs))
+        .route("/instance/:uuid/macro/config/store/:macro_name", post(store_config_to_local))
         .route("/instance/:uuid/task/list", get(get_instance_task_list))
         .route(
             "/instance/:uuid/history/list",

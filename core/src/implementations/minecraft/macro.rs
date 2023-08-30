@@ -13,7 +13,7 @@ use crate::{
     traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
 };
 use crate::macro_executor::MacroExecutor;
-use crate::traits::t_configurable::manifest::SettingManifest;
+use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
 
 use super::MinecraftInstance;
 
@@ -158,5 +158,35 @@ impl TMacro for MinecraftInstance {
         let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
         MacroExecutor::get_config_manifest(&path_to_macro).await
+    }
+
+    async fn store_macro_config_to_local(
+        &self,
+        name: &str,
+        config_to_store: &IndexMap<String, SettingManifest>,
+    ) -> Result<(), Error> {
+        let config_folder_path = self.path_to_instance.join("macro_config");
+
+        std::fs::create_dir_all(config_folder_path.clone()).context("failed to create the config folder")?;
+
+        let mut local_configs: IndexMap<String, SettingLocalCache> = IndexMap::new();
+        config_to_store.iter().for_each(|(_, config)| {
+           local_configs.insert(config.get_identifier().clone(), SettingLocalCache::from(config));
+        });
+
+        let config_file_path = config_folder_path.join(format!("{name}_config")).with_extension("json");
+        std::fs::write(
+            config_file_path,
+            serde_json::to_string_pretty(&local_configs).unwrap(),
+        ).context("failed to create the config file")?;
+
+        Ok(())
+    }
+
+    async fn validate_local_config(
+        &self,
+        _name: &str,
+    ) -> Result<(), Error> {
+        todo!()
     }
 }
