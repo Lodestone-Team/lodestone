@@ -164,8 +164,8 @@ async fn restore_instances(
         debug!("restoring instance: {}", path.display());
 
         // regenerate duplicate UUID
-        let uuid = dot_lodestone_config.uuid().to_owned();
-        if ret.contains_key(&uuid) {
+        let uuid = dot_lodestone_config.uuid();
+        if ret.contains_key(uuid) {
             let uuid_string = uuid.to_string();
             warn!("UUID {} is repeated.", uuid_string);
 
@@ -184,10 +184,10 @@ async fn restore_instances(
             };
             match std::fs::write(path.join(".lodestone_config"), updated_file_contents) {
                 Ok(_) => {
-                    info!("Instance with duplicate UUID {} updated to new UUID {}", uuid_string, dot_lodestone_config.uuid().to_string());
+                    warn!("Instance with duplicate UUID {} updated to new UUID {}", uuid_string, dot_lodestone_config.uuid().to_string());
                 },
                 Err(e) => {
-                    info!("Error with regenerating duplicate UUID {}, {}", uuid_string, e);
+                    error!("Error with regenerating duplicate UUID {}, {}", uuid_string, e);
                 }
             }
         }
