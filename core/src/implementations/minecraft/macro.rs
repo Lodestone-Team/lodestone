@@ -10,6 +10,7 @@ use crate::{
     macro_executor::{DefaultWorkerOptionGenerator, MacroPID, SpawnResult},
     traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
 };
+use crate::error::ErrorKind;
 use crate::macro_executor::MacroExecutor;
 use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
 
@@ -179,8 +180,53 @@ impl TMacro for MinecraftInstance {
 
     async fn validate_local_config(
         &self,
-        _name: &str,
-    ) -> Result<(), Error> {
-        todo!()
+        name: &str,
+        config_to_validate: Option<&IndexMap<String, SettingManifest>>,
+    ) -> Result<IndexMap<String, SettingLocalCache>, Error> {
+        let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
+            .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
+
+        let is_config_needed = match config_to_validate {
+            None => std::fs::read_to_string(path_to_macro).context("failed to read macro file")?.contains("LodestoneConfig"),
+            Some(_) => true,
+        };
+
+        // if the macro does not need a config, pass the validation ("vacuously true")
+        if !is_config_needed {
+            return Ok(IndexMap::new());
+        }
+
+        let config_file_path = self.path_to_macros.join(name).join(format!("{name}_config")).with_extension("json");
+        match std::fs::read_to_string(config_file_path) {
+            Ok(config_string) => {
+                let local_configs: IndexMap<String, SettingLocalCache> = serde_json::from_str(&config_string)
+                    .context("failed to parse local config cache")?;
+
+                let configs = match config_to_validate {
+                    Some(config) => config.clone(),
+                    None => self.get_macro_config(name).await?,
+                };
+
+                let validation_result = local_configs.iter().fold(true, |partial_result, (setting_id, local_cache)| {
+                    if !partial_result {
+                        return false;
+                    }
+                    local_cache.match_type(&configs[setting_id])
+                });
+
+                if !validation_result {
+                    return Err(Error {
+                        kind: ErrorKind::Internal,
+                        source: eyre!("There is a mismatch between a config type and its locally-stored value"),
+                    });
+                }
+
+                Ok(local_configs)
+            },
+            Err(_) => Err(Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Local config cache is not found"),
+            }),
+        }
     }
 }

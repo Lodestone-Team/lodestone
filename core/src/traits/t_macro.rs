@@ -13,7 +13,7 @@ use crate::{
 
 use serde::Deserialize;
 use serde::Serialize;
-use crate::traits::t_configurable::manifest::SettingManifest;
+use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
 #[ts(export)]
@@ -111,7 +111,8 @@ pub trait TMacro {
     async fn validate_local_config(
         &self,
         _name: &str,
-    ) -> Result<(), Error> {
+        _config_to_validate: Option<&IndexMap<String, SettingManifest>>,
+    ) -> Result<IndexMap<String, SettingLocalCache>, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support running macro"),

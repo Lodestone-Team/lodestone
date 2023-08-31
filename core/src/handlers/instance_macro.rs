@@ -7,6 +7,7 @@ use axum::{
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     auth::user::UserAction,
@@ -18,6 +19,12 @@ use crate::{
     AppState,
 };
 use crate::traits::t_configurable::manifest::SettingManifest;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetConfigResponse {
+    config: IndexMap<String, SettingManifest>,
+    message: Option<String>,
+}
 
 pub async fn get_instance_task_list(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -108,15 +115,32 @@ pub async fn get_macro_configs(
     Path((uuid, macro_name)): Path<(InstanceUuid, String)>,
     axum::extract::State(state): axum::extract::State<AppState>,
     AuthBearer(token): AuthBearer,
-) -> Result<Json<IndexMap<String, SettingManifest>>, Error> {
+) -> Result<Json<GetConfigResponse>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
-    let macro_configs = instance.get_macro_config(&macro_name).await?;
-    Ok(Json(macro_configs))
+    let mut config = instance.get_macro_config(&macro_name).await?;
+    match instance.validate_local_config(&macro_name, Some(&config)).await {
+        Ok(local_value) => {
+            local_value.iter().for_each(|(setting_id, local_cache)| {
+                config[setting_id].set_optional_value(local_cache.get_value().clone()).unwrap();
+            });
+            Ok(Json(GetConfigResponse{ config, message: None }))
+        },
+        Err(e) => {
+            match e.kind {
+                ErrorKind::NotFound => {
+                    Ok(Json(GetConfigResponse { config, message: Some("Local config cache not found".to_string()) }))
+                },
+                _ => {
+                    Ok(Json(GetConfigResponse { config, message: Some("There is a mismatch between a config type and its locally-stored value".to_string()) }))
+                }
+            }
+        },
+    }
 }
 
 pub async fn store_config_to_local(
