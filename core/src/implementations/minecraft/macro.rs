@@ -163,16 +163,12 @@ impl TMacro for MinecraftInstance {
         name: &str,
         config_to_store: &IndexMap<String, SettingManifest>,
     ) -> Result<(), Error> {
-        let config_folder_path = self.path_to_instance.join("macro_config");
-
-        std::fs::create_dir_all(config_folder_path.clone()).context("failed to create the config folder")?;
-
         let mut local_configs: IndexMap<String, SettingLocalCache> = IndexMap::new();
         config_to_store.iter().for_each(|(_, config)| {
            local_configs.insert(config.get_identifier().clone(), SettingLocalCache::from(config));
         });
 
-        let config_file_path = config_folder_path.join(format!("{name}_config")).with_extension("json");
+        let config_file_path = self.path_to_macros.join(name).join(format!("{name}_config")).with_extension("json");
         std::fs::write(
             config_file_path,
             serde_json::to_string_pretty(&local_configs).unwrap(),
