@@ -798,7 +798,7 @@ impl SettingLocalCache {
         }
     }
 
-    pub fn match_type(&self, manifest: &SettingManifest) -> bool {
+    pub fn validate_type(&self, manifest: &SettingManifest) -> bool {
         manifest.value_type == self.value_type
     }
 

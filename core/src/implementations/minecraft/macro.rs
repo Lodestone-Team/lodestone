@@ -211,7 +211,7 @@ impl TMacro for MinecraftInstance {
                     if !partial_result {
                         return false;
                     }
-                    local_cache.match_type(&configs[setting_id])
+                    local_cache.validate_type(&configs[setting_id])
                 });
 
                 if !validation_result {
