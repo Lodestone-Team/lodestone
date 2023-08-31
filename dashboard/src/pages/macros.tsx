@@ -259,31 +259,6 @@ const Macros = () => {
   }, [macros, tasks, history, selectedInstance, queryClient]);
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
-  const Navbar = ({ pages }: { pages: MacrosPage[] }) => {
-    return (
-      <>
-        <div className="flex flex-row justify-start">
-          {pages.map((page) => (
-            <button
-              key={page}
-              className={clsx(
-                selectedPage === page &&
-                  'border-b-2 border-blue-200 text-blue-200',
-                'mr-4 font-mediumbold hover:cursor-pointer',
-                'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
-              )}
-              onClick={() => setSelectedPage(page)}
-            >
-              {page}
-            </button>
-          ))}
-        </div>
-        <div className="w-full">
-          <div className="h-[1px] bg-gray-400"></div>
-        </div>
-      </>
-    );
-  };
 
   return (
     <div className="relative">
@@ -297,7 +272,22 @@ const Macros = () => {
         />
       </div> */}
       <div className="mt-[-3rem] mb-4">All macros for your instance</div>
-      <Navbar pages={pages} />
+      <div className="flex flex-row justify-start border-b border-gray-400">
+        {pages.map((page) => (
+          <button
+            key={page}
+            className={clsx(
+              selectedPage === page &&
+                'border-b-2 border-blue-200 text-blue-200',
+              'font-mediumbold mr-4 hover:cursor-pointer',
+              'enabled:focus-visible:ring-blue-faded/50 focus-visible:outline-none enabled:focus-visible:ring-4'
+            )}
+            onClick={() => setSelectedPage(page)}
+          >
+            {page}
+          </button>
+        ))}
+      </div>
       <div className="relative mx-auto mt-9 flex h-full w-full flex-row justify-center">
         <Table
           rows={MacrosPageMap[selectedPage].rows}
