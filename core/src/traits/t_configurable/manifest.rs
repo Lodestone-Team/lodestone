@@ -805,4 +805,8 @@ impl SettingLocalCache {
     pub fn get_identifier(&self) -> &String {
         &self.setting_id
     }
+
+    pub fn get_value(&self) -> &Option<ConfigurableValue> {
+        &self.value
+    }
 }
