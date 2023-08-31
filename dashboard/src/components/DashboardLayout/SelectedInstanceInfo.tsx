@@ -68,7 +68,7 @@ export const SelectedInstanceInfo = ({
         SELECTED INSTANCE
       </RadioGroup.Label>
 
-      <InstanceCard {...selectedInstance} />
+      <InstanceCard {...selectedInstance} key={selectedInstance.uuid} />
 
       {selectedInstance &&
         tabs.map((tab) => (
