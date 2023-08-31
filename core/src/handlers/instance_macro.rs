@@ -83,6 +83,7 @@ pub async fn run_macro(
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
+    let _local_value = instance.validate_local_config(&macro_name, None).await?;
     instance
         .run_macro(
             &macro_name,
