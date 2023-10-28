@@ -153,6 +153,7 @@ pub struct SetupConfig {
     pub version: String,
     pub flavour: Flavour,
     pub port: u32,
+    pub existing_server_path: Option<String>,
     pub cmd_args: Vec<String>,
     pub description: Option<String>,
     pub min_ram: Option<u32>,
@@ -560,6 +561,17 @@ impl MinecraftInstance {
             true,
         );
 
+        let existing_server_path_setting = SettingManifest::new_value_with_type(
+            "existing_server_path".to_string(),
+            "Existing Server Path".to_string(),
+            "Optionally specify path to an existing server to import into lodestone".to_string(),
+            None,
+            ConfigurableValueType::String { regex: None },
+            None,
+            false,
+            true,
+        );
+
         let min_ram_setting = SettingManifest::new_value_with_type(
             "min_ram".to_string(),
             "Minimum RAM".to_string(),
@@ -603,6 +615,7 @@ impl MinecraftInstance {
 
         section_1_map.insert("version".to_string(), version_setting);
         section_1_map.insert("port".to_string(), port_setting);
+        section_1_map.insert("existing_server_path".to_string(), existing_server_path_setting);
 
         let mut section_2_map = IndexMap::new();
 
@@ -659,6 +672,13 @@ impl MinecraftInstance {
         if min_ram > max_ram {
             return Err(bad_request("Minimum RAM cannot be larger than maximum RAM"));
         }
+        let existing_server_path = match setup_value
+            .get_unique_setting("existing_server_path")
+            .and_then(|s| s.get_value())
+        {
+            Some(value) => Some(value.try_as_string()?.clone()),
+            None => None,
+        };
         let cmd_args = match setup_value
             .get_unique_setting("cmd_args")
             .and_then(|s| s.get_value())
@@ -672,6 +692,7 @@ impl MinecraftInstance {
             description: setup_value.description.clone(),
             version,
             port,
+            existing_server_path,
             min_ram: Some(min_ram),
             max_ram: Some(max_ram),
             cmd_args,
@@ -779,6 +800,20 @@ impl MinecraftInstance {
             "1/4: Creating directories",
             1.0,
         ));
+        if let Some(existing_server_path) = &config.existing_server_path {
+            if !existing_server_path.trim().is_empty() {
+                let existing_server_path = std::path::Path::new(existing_server_path);
+                tokio::fs::create_dir_all(&path_to_instance)
+                    .await
+                    .context("Could not create the instance directory")?;
+                fs_extra::dir::copy(existing_server_path, &path_to_instance, &fs_extra::dir::CopyOptions::new().content_only(true))
+                    .context("Could not copy existing server for instance")
+                    .map_err(|e| {
+                        error!("{e}");
+                        e
+                    })?;
+            }
+        }
         Self::create_instance_files(&path_to_instance, &config).await?;
 
         // Step 2: Download JRE

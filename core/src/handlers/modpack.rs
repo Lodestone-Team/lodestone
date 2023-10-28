@@ -280,6 +280,7 @@ async fn create_modpack_instance(
             installer_version: None,
         },
         port,
+        existing_server_path: None,
         cmd_args: Vec::new(),
         description: request.description.clone(),
         min_ram: request.min_ram,
