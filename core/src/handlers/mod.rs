@@ -2,6 +2,7 @@
 // pub mod instance;
 // pub mod users;
 pub mod checks;
+pub mod console;
 pub mod core_info;
 pub mod events;
 pub mod gateway;
