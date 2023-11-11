@@ -10,7 +10,7 @@ use crate::{
     macro_executor::MacroPID,
     output_types::ClientEvent,
     traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
-    types::{InstanceUuid, Snowflake, TimeRange, EventCount},
+    types::{EventCount, InstanceUuid, Snowflake, TimeRange},
 };
 
 #[derive(Deserialize, Clone, Debug, TS)]
@@ -24,7 +24,6 @@ pub struct EventQuery {
     pub event_instance_ids: Option<Vec<InstanceUuid>>,
     pub bearer_token: Option<String>,
     pub time_range: Option<TimeRange>,
-    pub event_count: Option<EventCount>,
 }
 
 impl EventQuery {
