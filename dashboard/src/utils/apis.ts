@@ -21,6 +21,9 @@ import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
 import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
+import { ConsoleQueryParams } from 'bindings/ConsoleQueryParams';
+import { ClientEvent } from 'bindings/ClientEvent';
+import { ConsoleEvent, toConsoleEvent } from 'data/ConsoleEvent';
 
 /***********************
  * Start Files API
@@ -280,8 +283,7 @@ export const zipInstanceFiles = async (
     return;
   } else {
     toast.info(
-      `Zipping ${zipRequest.target_relative_paths.length} item${
-        zipRequest.target_relative_paths.length > 1 ? 's' : ''
+      `Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''
       }...`
     );
   }
@@ -490,4 +492,19 @@ export const killTask = async (
 };
 /***********************
  * End Tasks/Macro API
+ ***********************/
+
+export const getConsoleEvents = async (uuid: string, query_params: ConsoleQueryParams) => {
+  const clientEventList = await axiosWrapper<[ClientEvent]>({
+    method: 'get',
+    url: `/instance/${uuid}/console?start_snowflake_id=${query_params.start_snowflake_id}&count=${query_params.count}`,
+  });
+
+  const consoleEventList = clientEventList.map((clientEvent) => toConsoleEvent(clientEvent));
+
+  return consoleEventList;
+};
+
+/***********************
+ * End Console API
  ***********************/

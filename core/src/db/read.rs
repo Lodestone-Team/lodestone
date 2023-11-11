@@ -1,9 +1,11 @@
 use crate::{
-    error::Error, output_types::ClientEvent,
-    prelude::LODESTONE_EPOCH_MIL, events::EventQuery,
+    error::{Error, ErrorKind},
+    events::EventQuery,
+    output_types::ClientEvent,
+    prelude::LODESTONE_EPOCH_MIL,
 };
 
-use color_eyre::eyre::Context;
+use color_eyre::eyre::{eyre, Context};
 use sqlx::sqlite::SqlitePool;
 use tracing::error;
 
@@ -69,6 +71,58 @@ FROM ClientEvents"#
     Ok(filtered)
 }
 
+pub async fn search_events_limited(
+    pool: &SqlitePool,
+    event_query: EventQuery,
+    limit: u32,
+) -> Result<Vec<ClientEvent>, Error> {
+    // TODO do not return sqlx::Error
+    let mut connection = pool
+        .acquire()
+        .await
+        .context("Failed to aquire connection to db")?;
+    let parsed_client_events = if let Some(time_range) = &event_query.time_range {
+        let start = time_range.start;
+        // let end = (time_range.end + 1 - LODESTONE_EPOCH_MIL.with(|p| *p)) << 22;
+        let rows = sqlx::query!(
+            r#"
+SELECT
+event_value, details, snowflake, level, caused_by_user_id, instance_id
+FROM ClientEvents
+WHERE snowflake >= ($1)
+LIMIT $2"#,
+            start,
+            limit,
+        ) // TODO bit shift
+        .fetch_all(&mut connection)
+        .await
+        .context("Failed to fetch events")?;
+
+        let mut parsed_client_events: Vec<ClientEvent> = Vec::new();
+        for row in rows {
+            if let Ok(client_event) = serde_json::from_str(&row.event_value) {
+                parsed_client_events.push(client_event);
+            } else {
+                error!("Failed to parse client event: {}", row.event_value);
+            }
+        }
+        parsed_client_events
+    } else {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Queries without time_range are unsupported"),
+        });
+    };
+
+    println!("{:?}", parsed_client_events);
+
+    let filtered = parsed_client_events
+        .into_iter()
+        .filter(|client_event| event_query.filter(client_event))
+        .collect();
+    println!("{:?}", filtered);
+    Ok(filtered)
+}
 #[cfg(test)]
 #[allow(unused_imports)]
 mod tests {

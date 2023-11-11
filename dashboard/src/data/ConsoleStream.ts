@@ -1,11 +1,10 @@
-import { getSnowflakeTimestamp, LODESTONE_PORT } from './../utils/util';
-import { InstanceEvent } from './../bindings/InstanceEvent';
-import { match, otherwise } from 'variant';
+import { LODESTONE_PORT } from './../utils/util';
 import { useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { ClientEvent } from 'bindings/ClientEvent';
+import { ConsoleEvent, toConsoleEvent} from 'data/ConsoleEvent';
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -15,52 +14,6 @@ export type ConsoleStreamStatus =
   | 'live-no-buffer'
   | 'closed'
   | 'error';
-
-// simplified version of a ClientEvent with just InstanceOutput
-export type ConsoleEvent = {
-  timestamp: number;
-  snowflake: string;
-  detail: string;
-  uuid: string;
-  name: string;
-  message: string;
-};
-
-// function to convert a ClientEvent to a ConsoleEvent
-const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
-  const event_inner: InstanceEvent = match(
-    event.event_inner,
-    otherwise(
-      {
-        InstanceEvent: (instanceEvent) => instanceEvent,
-      },
-      () => {
-        throw new Error('Expected InstanceEvent');
-      }
-    )
-  );
-
-  const message = match(
-    event_inner.instance_event_inner,
-    otherwise(
-      {
-        InstanceOutput: (instanceOutput) => instanceOutput.message,
-      },
-      () => {
-        throw new Error('Expected InstanceOutput');
-      }
-    )
-  );
-
-  return {
-    timestamp: getSnowflakeTimestamp(event.snowflake),
-    snowflake: event.snowflake,
-    detail: event.details,
-    uuid: event_inner.instance_uuid,
-    name: event_inner.instance_name,
-    message: message,
-  };
-};
 
 /**
  * Does two things:
