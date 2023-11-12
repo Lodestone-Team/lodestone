@@ -1,7 +1,6 @@
 use crate::error::Error;
+use crate::events::{EventQuery, EventType, InstanceEventKind};
 use crate::{
-    db::read::search_events_limited,
-    events::{EventQuery, EventType, InstanceEventKind},
     output_types::ClientEvent,
     types::{InstanceUuid, TimeRange},
     AppState,
@@ -13,6 +12,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use color_eyre::eyre::{eyre, Context};
+use sqlx::sqlite::SqlitePool;
+use tracing::error;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -26,11 +28,40 @@ async fn get_console_messages(
     Path(uuid): Path<String>,
     Query(query_params): Query<ConsoleQueryParams>,
 ) -> Result<Json<Vec<ClientEvent>>, Error> {
-    let event_instance_ids = vec![InstanceUuid::from(uuid)];
     let time_range = TimeRange {
         start: query_params.start_snowflake_id,
         end: i64::MAX,
     };
+
+    let pool = &state.sqlite_pool;
+
+    let mut connection = pool
+        .acquire()
+        .await
+        .context("Failed to aquire connection to db")?;
+
+    let rows = sqlx::query!(
+        r#"
+SELECT
+event_value, details, snowflake, level, caused_by_user_id, instance_id
+FROM ClientEvents
+WHERE snowflake >= ($1)
+LIMIT $2"#,
+        query_params.start_snowflake_id,
+        query_params.count,
+    )
+    .fetch_all(&mut connection)
+    .await
+    .context("Failed to fetch events")?;
+
+    let mut parsed_client_events: Vec<ClientEvent> = Vec::new();
+    for row in rows {
+        if let Ok(client_event) = serde_json::from_str(&row.event_value) {
+            parsed_client_events.push(client_event);
+        } else {
+            error!("Failed to parse client event: {}", row.event_value);
+        }
+    }
 
     let event_query = EventQuery {
         event_levels: None,
@@ -38,15 +69,17 @@ async fn get_console_messages(
         instance_event_types: Some(vec![InstanceEventKind::InstanceOutput]),
         user_event_types: None,
         event_user_ids: None,
-        event_instance_ids: Some(event_instance_ids),
+        event_instance_ids: Some(vec![InstanceUuid::from(uuid)]),
         bearer_token: None,
-        time_range: Some(time_range),
+        time_range: None,
     };
 
-    let client_events =
-        dbg!(search_events_limited(&state.sqlite_pool, event_query, query_params.count).await)?;
+    let filtered = parsed_client_events
+        .into_iter()
+        .filter(|client_event| event_query.filter(client_event))
+        .collect();
 
-    return Ok(Json(client_events));
+    return Ok(Json(filtered));
 }
 
 pub fn get_console_routes(state: AppState) -> Router {

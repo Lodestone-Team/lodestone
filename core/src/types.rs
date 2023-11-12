@@ -27,13 +27,6 @@ pub struct TimeRange {
     pub end: i64,
 }
 
-#[derive(Deserialize, Clone, Debug, TS)]
-#[ts(export)]
-pub struct EventCount {
-    pub start: i64,
-    pub count: i64,
-}
-
 impl From<Snowflake> for String {
     fn from(snowflake: Snowflake) -> Self {
         snowflake.to_string()

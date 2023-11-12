@@ -10,7 +10,7 @@ use crate::{
     macro_executor::MacroPID,
     output_types::ClientEvent,
     traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
-    types::{EventCount, InstanceUuid, Snowflake, TimeRange},
+    types::{InstanceUuid, Snowflake, TimeRange},
 };
 
 pub trait EventFilter {

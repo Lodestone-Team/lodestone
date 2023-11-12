@@ -41,10 +41,6 @@ export const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
     )
   );
 
-  console.log(event.snowflake);
-  getConsoleEvents(event_inner.instance_uuid, { start_snowflake_id: event.snowflake as unknown as bigint, count: 1})
-    .then((e) => console.log(e));
-
   return {
     timestamp: getSnowflakeTimestamp(event.snowflake),
     snowflake: event.snowflake,
