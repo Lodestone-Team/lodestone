@@ -10,11 +10,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 use color_eyre::eyre::{eyre, Context};
+use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use tracing::error;
+use ts_rs::TS;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -39,16 +39,20 @@ async fn get_console_messages(
         .acquire()
         .await
         .context("Failed to aquire connection to db")?;
+    
+    let limit_num = &query_params.count * 2 + 10;
 
     let rows = sqlx::query!(
         r#"
 SELECT
 event_value, details, snowflake, level, caused_by_user_id, instance_id
 FROM ClientEvents
-WHERE snowflake >= ($1)
-LIMIT $2"#,
+WHERE snowflake <= ($1) AND event_value IS NOT NULL
+ORDER BY snowflake DESC
+LIMIT $2
+"#,
         query_params.start_snowflake_id,
-        query_params.count,
+        limit_num, // hacky, but need more since filter
     )
     .fetch_all(&mut connection)
     .await
@@ -56,10 +60,14 @@ LIMIT $2"#,
 
     let mut parsed_client_events: Vec<ClientEvent> = Vec::new();
     for row in rows {
-        if let Ok(client_event) = serde_json::from_str(&row.event_value) {
-            parsed_client_events.push(client_event);
+        if let Some(event_value) = &row.event_value {
+            if let Ok(client_event) = serde_json::from_str(event_value) {
+                parsed_client_events.push(client_event);
+            } else {
+                error!("Failed to parse client event: {}", event_value);
+            }
         } else {
-            error!("Failed to parse client event: {}", row.event_value);
+            error!("Failed to parse row");
         }
     }
 
@@ -74,10 +82,16 @@ LIMIT $2"#,
         time_range: None,
     };
 
-    let filtered = parsed_client_events
+    let filtered: Vec<ClientEvent> = parsed_client_events
         .into_iter()
         .filter(|client_event| event_query.filter(client_event))
         .collect();
+
+    let filtered = if filtered.len() as u32 > query_params.count {
+        filtered[0..query_params.count as usize].to_vec()
+    } else {
+        filtered
+    };
 
     return Ok(Json(filtered));
 }
