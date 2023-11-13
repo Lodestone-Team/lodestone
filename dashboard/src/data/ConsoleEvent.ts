@@ -41,11 +41,11 @@ export const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
     )
   );
 
-  // console.log(event.snowflake);
-  // getConsoleEvents(event_inner.instance_uuid, { start_snowflake_id: event.snowflake as unknown as bigint, count: 5 })
-  //   .then((e) => console.log(e));
-
-
+  if (event.snowflake as unknown as number % 100 == 0) {
+    console.log(event.snowflake);
+    getConsoleEvents(event_inner.instance_uuid, { start_snowflake_id: event.snowflake as unknown as bigint, count: 5 })
+      .then((e) => console.log(e));
+  }
 
   return {
     timestamp: getSnowflakeTimestamp(event.snowflake),
