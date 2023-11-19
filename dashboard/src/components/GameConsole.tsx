@@ -6,7 +6,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import { CommandHistoryContext } from 'data/CommandHistoryContext';
 import { useUserAuthorized } from 'data/UserInfo';
 import Tooltip from 'rc-tooltip';
-import { useContext, useEffect } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { useRef, useState } from 'react';
 import { usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
@@ -29,6 +29,7 @@ export default function GameConsole() {
   const { commandHistory, appendCommandHistory } = useContext(
     CommandHistoryContext
   );
+  const [lastScrollPos, setLastScrollPos] = useState(0);
   const [commandNav, setCommandNav] = useState(commandHistory.length);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
@@ -162,6 +163,22 @@ export default function GameConsole() {
         <ol
           className="font-light flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
           ref={listRef}
+          onScroll={(e: React.SyntheticEvent) => {
+            if (!e.currentTarget || !e.currentTarget.scrollTop) {
+              return;
+            }
+            const prevScrollPos = lastScrollPos;
+            setLastScrollPos(e.currentTarget.scrollTop)
+            
+            const scrollPosDiff = e.currentTarget.scrollTop - prevScrollPos; // should be negative to be considered proper trigger
+            const triggerThreshhold = e.currentTarget.scrollTop == autoScrollThreshold * 15;
+            
+            if (!triggerThreshhold || scrollPosDiff >= 0) {
+              return;
+            }
+            console.log("make a call here!")
+
+          }}
         >
           {consoleLog.map((line) => (
             <li
