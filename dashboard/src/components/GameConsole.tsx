@@ -24,7 +24,7 @@ export default function GameConsole() {
     'can_access_instance_console',
     uuid
   );
-  const { consoleLog, consoleStatus } = useConsoleStream(uuid);
+  const { consoleLog, consoleStatus, fetchConsolePage } = useConsoleStream(uuid, undefined);
   const [command, setCommand] = useState('');
   const { commandHistory, appendCommandHistory } = useContext(
     CommandHistoryContext
@@ -33,9 +33,9 @@ export default function GameConsole() {
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -
-        listRef.current.scrollTop -
-        listRef.current.clientHeight <
-      autoScrollThreshold
+    listRef.current.scrollTop -
+    listRef.current.clientHeight <
+    autoScrollThreshold
     : false;
   const oldIsAtBottom = usePrevious(isAtBottom);
 
@@ -129,7 +129,7 @@ export default function GameConsole() {
   };
 
   return (
-    <div className="relative flex h-full w-full grow flex-col rounded-lg border border-gray-faded/30">
+    <div className="border-gray-faded/30 relative flex h-full w-full grow flex-col rounded-lg border">
       <Tooltip
         overlay={<span>{consoleStatusMessage}</span>}
         placement="bottom"
@@ -139,14 +139,14 @@ export default function GameConsole() {
       >
         <FontAwesomeIcon
           icon={faCircle}
-          className={`absolute top-0 right-0 select-none p-1.5 text-small ${consoleStatusColor}`}
+          className={`text-small absolute top-0 right-0 select-none p-1.5 ${consoleStatusColor}`}
         />
       </Tooltip>
       {!canAccessConsole || consoleStatus === 'no-permission' ? (
         <ErrorGraphic
           icon={faServer}
           message="You don't have permission to access this console"
-          className="rounded-t-lg border-b border-gray-faded/30"
+          className="border-gray-faded/30 rounded-t-lg border-b"
           iconClassName="text-gray-400"
           messageClassName="text-white/50"
         />
@@ -154,26 +154,26 @@ export default function GameConsole() {
         <ErrorGraphic
           icon={faServer}
           message="No console messages yet"
-          className="rounded-t-lg border-b border-gray-faded/30"
+          className="border-gray-faded/30 rounded-t-lg border-b"
           iconClassName="text-gray-400"
           messageClassName="text-white/50"
         />
       ) : (
         <ol
-          className="font-light flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
+          className="border-gray-faded/30 text-small flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b bg-gray-900 py-3 font-mono font-light tracking-tight text-gray-300"
           ref={listRef}
         >
           {consoleLog.map((line) => (
             <li
               key={line.snowflake}
-              className="py-[0.125rem] px-4 hover:bg-gray-800"
+              className="px-4 py-[0.125rem] hover:bg-gray-800"
             >
               {line.message}
             </li>
           ))}
         </ol>
       )}
-      <div className="font-mono text-small">
+      <div className="text-small font-mono">
         <form
           noValidate
           autoComplete={DISABLE_AUTOFILL}
@@ -186,7 +186,7 @@ export default function GameConsole() {
           }}
         >
           <input
-            className="w-full rounded-b-lg bg-gray-850 py-3 px-4 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
+            className="bg-gray-850 w-full rounded-b-lg px-4 py-3 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
             placeholder={consoleInputMessage || 'Enter command...'}
             value={command}
             onChange={(e) => setCommand(e.target.value)}

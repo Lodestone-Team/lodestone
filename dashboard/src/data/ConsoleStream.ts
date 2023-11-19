@@ -4,7 +4,8 @@ import axios from 'axios';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { ClientEvent } from 'bindings/ClientEvent';
-import { ConsoleEvent, toConsoleEvent} from 'data/ConsoleEvent';
+import { ConsoleEvent, toConsoleEvent } from 'data/ConsoleEvent';
+import { getConsoleEvents } from 'utils/apis';
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -26,10 +27,11 @@ export type ConsoleStreamStatus =
  * @param uuid the uuid of the instance to subscribe to
  * @return whatever useQuery returns
  */
-export const useConsoleStream = (uuid: string) => {
+export const useConsoleStream = (uuid: string, logLimit: number | undefined) => {
   const { core, token } = useContext(LodestoneContext);
   const { address, port, apiVersion, protocol } = core;
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
+  const [limit, setLimit] = useState<number | undefined>(logLimit);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
   statusRef.current = status;
@@ -55,10 +57,28 @@ export const useConsoleStream = (uuid: string) => {
 
       const mergedLog = [...oldLog, ...consoleEvents];
       // this is slow ik
-      return mergedLog.filter(
+      const filteredLog = mergedLog.filter(
         (event, index) =>
           mergedLog.findIndex((e) => e.snowflake === event.snowflake) === index
       );
+
+      return filteredLog.slice(limit ? -limit : 0);
+    });
+  };
+
+  const fetchConsolePage = async (snowflake: bigint, count: number) => {
+    console.log("called with ", snowflake);
+    console.log(consoleLog[0].snowflake);
+    const paginatedEvents = await getConsoleEvents(uuid, { start_snowflake_id: snowflake, count: count })
+    setLimit(undefined);
+    setConsoleLog((oldLog) => {
+      const mergedLog = [...paginatedEvents, ...oldLog];
+      const filteredLog = mergedLog.filter(
+        (event, index) =>
+          mergedLog.findIndex((e) => e.snowflake === event.snowflake) === index
+      );
+      console.log(oldLog.length, filteredLog.length)
+      return filteredLog.slice(limit ? -limit : 0);
     });
   };
 
@@ -71,8 +91,7 @@ export const useConsoleStream = (uuid: string) => {
 
     try {
       const websocket = new WebSocket(
-        `${protocol === 'https' ? 'wss' : 'ws'}://${address}:${
-          port ?? LODESTONE_PORT
+        `${protocol === 'https' ? 'wss' : 'ws'}://${address}:${port ?? LODESTONE_PORT
         }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
       );
 
@@ -115,5 +134,6 @@ export const useConsoleStream = (uuid: string) => {
   return {
     consoleLog,
     consoleStatus: status,
+    fetchConsolePage,
   };
 };
