@@ -30,6 +30,8 @@ export default function GameConsole() {
     CommandHistoryContext
   );
   const [lastScrollPos, setLastScrollPos] = useState(0);
+  const [additionalLogs, setAdditionaLogs] = useState(0);
+  const [logsRecentlyIncreased, setLogsRecentlyIncreased] = useState(false);
   const [commandNav, setCommandNav] = useState(commandHistory.length);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
@@ -164,19 +166,30 @@ export default function GameConsole() {
           className="border-gray-faded/30 text-small flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b bg-gray-900 py-3 font-mono font-light tracking-tight text-gray-300"
           ref={listRef}
           onScroll={(e: React.SyntheticEvent) => {
-            if (!e.currentTarget || !e.currentTarget.scrollTop) {
+            // check that position is close to top
+            if (!e.currentTarget || !e.currentTarget.scrollTop || logsRecentlyIncreased) {
               return;
             }
             const prevScrollPos = lastScrollPos;
             setLastScrollPos(e.currentTarget.scrollTop)
             
             const scrollPosDiff = e.currentTarget.scrollTop - prevScrollPos; // should be negative to be considered proper trigger
-            const triggerThreshhold = e.currentTarget.scrollTop == autoScrollThreshold * 15;
+            const triggerThreshhold = 
+              e.currentTarget.scrollTop >= autoScrollThreshold * 15 && 
+              e.currentTarget.scrollTop <= autoScrollThreshold * 20; // consider range to factor in scroll speed
             
-            if (!triggerThreshhold || scrollPosDiff >= 0) {
+            if (!triggerThreshhold || scrollPosDiff >= 0 || logsRecentlyIncreased) {
+              //allow new logs to be generated again if user scrolls down first
               return;
             }
-            console.log("make a call here!")
+            fetchConsolePage(consoleLog[0].snowflake as unknown as bigint, additionalLogs + 40);
+            setAdditionaLogs(currNumLogs => currNumLogs + 40);
+            setLogsRecentlyIncreased(true);
+
+            // debounce log generation
+            setTimeout(() => {
+              setLogsRecentlyIncreased(false);
+            }, 1000)
 
           }}
         >
