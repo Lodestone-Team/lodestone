@@ -72,7 +72,7 @@ export const useConsoleStream = (uuid: string, logLimit: number | undefined) => 
     const paginatedEvents = await getConsoleEvents(uuid, { start_snowflake_id: snowflake, count: count })
     setLimit(undefined);
     setConsoleLog((oldLog) => {
-      const mergedLog = [...paginatedEvents, ...oldLog];
+      const mergedLog = [...paginatedEvents.reverse(), ...oldLog];
       const filteredLog = mergedLog.filter(
         (event, index) =>
           mergedLog.findIndex((e) => e.snowflake === event.snowflake) === index
