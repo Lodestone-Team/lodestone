@@ -57,6 +57,7 @@ export default function EditableTextfield({
     setError(error);
     setIsLoading(false);
     if (!error) setDisplayText(trimmed);
+    setIsEditing(false);
   };
 
   const onCancel = () => {
@@ -152,7 +153,7 @@ export default function EditableTextfield({
             type === 'heading'
               ? 'text-gray-300 decoration-2 underline-offset-[6px]'
               : 'text-gray-500'
-          } 
+          }
           ml-[-1ch] mr-[-0.5ch] truncate bg-transparent group-hover:text-gray-300 group-hover:underline ${textClassName}`}
             onClick={() => {
               setIsEditing(true);
