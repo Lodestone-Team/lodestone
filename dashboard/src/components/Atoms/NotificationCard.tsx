@@ -51,7 +51,7 @@ export default function NotificationCard({
       >
         <LoadingStatusIcon level={level} state={state} />
         <div className="flex flex-col items-start">
-          <p className="w-full text-medium font-bold tracking-medium">
+          <p className="w-full text-medium font-bold tracking-medium break-all">
             {title}
           </p>
           <p className="w-full text-medium font-medium tracking-medium">
