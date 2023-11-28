@@ -58,9 +58,6 @@ export default function NotificationCard({
             {message}
           </p>
           {!message && ( 
-            /**
-             * https://tailwindcss.com/docs/word-break
-             */
             <span className="whitespace-nowrap text-medium font-medium tracking-medium text-white/50 break-all">
               {formatNotificationTime(timestamp)}
             </span>
