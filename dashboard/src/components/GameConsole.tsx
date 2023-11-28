@@ -12,8 +12,8 @@ import { useLocalStorageQueryParam, usePrevious } from 'utils/hooks';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
 import { useDocumentTitle } from 'usehooks-ts';
-import Checkbox from './Atoms/Checkbox';
 import Button from './Atoms/Button';
+import Checkbox from './Atoms/Checkbox';
 
 const autoScrollThreshold = 10;
 
@@ -33,7 +33,8 @@ export default function GameConsole() {
   }
   const { consoleLog, consoleStatus, clearConsoleLog } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
-  const [filters, setFilters] = useLocalStorageQueryParam("filter", JSON.stringify(defaultFilters))
+  const [filter, setFilter] = useState('');
+  const [regex, setRegex] = useState(true);
   const { commandHistory, appendCommandHistory } = useContext(
     CommandHistoryContext
   );
@@ -136,76 +137,28 @@ export default function GameConsole() {
     }
   };
 
-  const updatePlayerMFilter = (checked: boolean) => {
-    let filtersJSON: any = filters;
-    while (typeof filtersJSON == "string") {
-      console.log(filtersJSON)
-      filtersJSON = JSON.parse(filtersJSON)
-    }
-    filtersJSON["PlayerMessage"] = checked;
-    setFilters(JSON.stringify(filtersJSON))
-  }
-
-  const updateSystemMFilter = (checked: boolean) => {
-    let filtersJSON: any = filters;
-    while (typeof filtersJSON == "string") {
-      console.log(filtersJSON)
-      filtersJSON = JSON.parse(filtersJSON)
-    }
-    filtersJSON["SystemMessage"] = checked;
-    setFilters(JSON.stringify(filtersJSON))
-  }
-
-  const updateInstanceIOFilter = (checked: boolean) => {
-    console.log(filters, typeof filters)
-    let filtersJSON: any = filters;
-    while (typeof filtersJSON == "string") {
-      console.log(filtersJSON)
-      filtersJSON = JSON.parse(filtersJSON)
-    }
-    filtersJSON["InstanceOutput"] = checked;
-    setFilters(JSON.stringify(filtersJSON))
-  }
-
   const filterMessage = (line: ConsoleEvent) => {
-    const playerm_ = new RegExp(/\[.+\]+: <(.+)> (.+)/);
-    const systemm_ = new RegExp(/\[.+\]+: (?!<)(.+)/);
+    if (filter == '') return true;
+    if (regex) {
+      try {
+        const filterRegex = new RegExp(filter, "i");
+        if (line.message.match(filterRegex)) return true;
+      } catch (e) {
+        console.log("regex invalid!!!");
+      }
+    } else {
+      if (line.message.toLowerCase().indexOf(filter.toLowerCase()) != -1) return true;
+    }
+    return false;
+  }
 
-    let filtersJSON: any = filters;
-    while (typeof filtersJSON == "string") {
-      filtersJSON = JSON.parse(filtersJSON)
-    }
-
-    let found = false; 
-    if (filtersJSON["PlayerMessage"]) {
-      if (line.message.match(playerm_)) found = true
-    }
-    if (filtersJSON["SystemMessage"]) {
-      console.log(line.message)
-      console.log(line.message.match(systemm_))
-      if (line.message.match(systemm_)) found = true
-    }
-    if (filtersJSON["InstanceOutput"]) {
-      found = true
-    }
-    
-    return found
+  const checkRegex = (checked: boolean) => {
+  setRegex(checked)
   }
 
   return (
     <div className="relative flex h-full w-full grow flex-col pt-0">
-      <div className="flex flex-row mb-3 justify-between">
-        <div className="flex flex-row">
-          <Checkbox label="Player message" checked={JSON.parse(filters)["PlayerMessage"]} 
-            onChange={updatePlayerMFilter} className="mx-3"
-          />
-          <Checkbox label="System message" checked={JSON.parse(filters)["SystemMessage"]} 
-            onChange={updateSystemMFilter} className="mx-3"
-          />
-          <Checkbox label="Instance output" checked={JSON.parse(filters)["InstanceOutput"]} 
-            onChange={updateInstanceIOFilter} className="mx-3"
-          />
-        </div>
+      {/* <div className="flex flex-row mb-3 justify-between">
         <Button
             align="start"
             labelGrow={true}
@@ -213,6 +166,17 @@ export default function GameConsole() {
             onClick={() => clearConsoleLog()}
             disabled={false}
         />
+      </div> */}
+      <div className="font-mono text-small mb-3 flex flex-row w-full justify-between">
+            <input
+              className="w-full rounded-lg bg-gray-850 py-1 px-4 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus:outline-none disabled:placeholder:text-gray-500"
+              placeholder={'Search console...'}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              id="search"
+              type="text"
+            />
+          <Checkbox label='Regex' checked={regex} onChange={checkRegex} className="ml-3"/>
       </div>
       <div className="relative flex h-full w-full grow flex-col rounded-lg border border-gray-faded/30">
         <Tooltip
@@ -224,14 +188,14 @@ export default function GameConsole() {
         >
           <FontAwesomeIcon
             icon={faCircle}
-            className={`absolute top-0 right-0 select-none p-1.5 text-small ${consoleStatusColor}`}
+            className={`absolute top-1 right-1 select-none p-1.5 text-small ${consoleStatusColor}`}
           />
         </Tooltip>
         {!canAccessConsole || consoleStatus === 'no-permission' ? (
           <ErrorGraphic
             icon={faServer}
             message="You don't have permission to access this console"
-            className="rounded-t-lg border-b border-gray-faded/30"
+            className="border-b border-gray-faded/30"
             iconClassName="text-gray-400"
             messageClassName="text-white/50"
           />
@@ -239,13 +203,13 @@ export default function GameConsole() {
           <ErrorGraphic
             icon={faServer}
             message="No console messages yet"
-            className="rounded-t-lg border-b border-gray-faded/30"
+            className="border-b border-gray-faded/30"
             iconClassName="text-gray-400"
             messageClassName="text-white/50"
           />
         ) : (
           <ol
-            className="font-light flex h-0 grow flex-col overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
+            className="font-light flex h-0 grow rounded-t-lg flex-col overflow-y-auto whitespace-pre-wrap break-words border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
             ref={listRef}
           >
             {consoleLog.map((line) => {
@@ -272,7 +236,7 @@ export default function GameConsole() {
             }}
           >
             <input
-              className="w-full rounded-b-lg bg-gray-850 py-3 px-4 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
+              className="w-full rounded-b-lg bg-gray-850 py-3 px-4 text-gray-300 outline-white/50 focus:outline-none placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
               placeholder={consoleInputMessage || 'Enter command...'}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
