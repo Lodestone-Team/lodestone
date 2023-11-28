@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: "${{ github.repository }}-dashboard"
+  IMAGE_NAME: "${{ github.repository }}_dashboard"
 
 jobs:
   dashboard-release-docker:
