@@ -89,6 +89,11 @@ export const useConsoleStream = (uuid: string) => {
     uuid
   );
 
+  const clearConsoleLog = () => {
+    const econsoleLog: ConsoleEvent[] = []
+    setConsoleLog(econsoleLog)
+  }
+
   const mergeConsoleLog = (newLog: ClientEvent[]) => {
     setConsoleLog((oldLog) => {
       const consoleEvents = newLog
@@ -99,7 +104,6 @@ export const useConsoleStream = (uuid: string) => {
           );
         })
         .map(toConsoleEvent);
-
       const mergedLog = [...oldLog, ...consoleEvents];
       // this is slow ik
       return mergedLog.filter(
@@ -135,6 +139,7 @@ export const useConsoleStream = (uuid: string) => {
 
       websocket.onclose = (event) => {
         setStatus(event.code === 1000 ? 'closed' : 'error');
+        console.log("event: ", event)
       };
 
       return () => {
@@ -162,5 +167,6 @@ export const useConsoleStream = (uuid: string) => {
   return {
     consoleLog,
     consoleStatus: status,
+    clearConsoleLog
   };
 };
