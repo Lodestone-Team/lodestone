@@ -204,7 +204,7 @@ export const UserSettings = () => {
     disabled: boolean
   ) =>
     selectedUser && (
-      <div className="flex w-full flex-col gap-10">
+      <div className="flex w-full flex-col gap-10 mb-10">
         {permissionList.map((permission) => {
           const currentSettings =
             selectedUser.permissions[permission.permission];
@@ -245,6 +245,7 @@ export const UserSettings = () => {
                   optionKey={(uuid) => uuid}
                   onChange={(newSettings) => {
                     // I hate typescript
+                    // |- me too
                     const newPermissions = {
                       ...selectedUser.permissions,
                       [permission.permission]: newSettings,

@@ -65,12 +65,8 @@ export default function UserBox({
             <div className="flex min-h-full items-center justify-center p-4">
               <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
                 <h1 className="text-h1 font-bold tracking-tight text-gray-300">
-                  Create a new user account
+                  Change password
                 </h1>
-                <p>
-                  This user will start with no permissions. You can grant them
-                  permissions later.
-                </p>
                 {isSelf ? (
                   <ChangeSelfPasswordForm
                     onSuccess={() => setShowChangePassword(false)}
