@@ -369,6 +369,7 @@ fn emit_result(
     result: ProcedureCallResultIR,
 ) -> Result<(), anyhow::Error> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
+    let rx = bridge.procedure_result_tx.subscribe();
     bridge
         .procedure_result_tx
         .send(result)
@@ -389,10 +390,7 @@ pub struct ProcedureBridge {
 impl ProcedureBridge {
     pub fn new() -> Self {
         let (procedure_tx, procedure_rx) = tokio::sync::broadcast::channel(256);
-        let (procedure_result_tx, mut procedure_result_rx) = tokio::sync::broadcast::channel(256);
-
-        // keep the procedure_result_rx alive
-       std::mem::forget(procedure_result_rx);
+        let (procedure_result_tx, procedure_result_rx) = tokio::sync::broadcast::channel(256);
 
         Self {
             ready: Arc::new(AtomicBool::new(false)),

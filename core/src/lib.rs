@@ -736,6 +736,8 @@ pub async fn run(
                 for handle in handles {
                     let _ = handle.await;
                 }
+                shared_state.instances.clear();
+                shared_state.macro_executor.shutdown_all();
             }
         },
         shared_state,
