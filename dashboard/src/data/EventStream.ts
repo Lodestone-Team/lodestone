@@ -1,4 +1,4 @@
-import { useUid, useUserInfo } from 'data/UserInfo';
+import { useUid } from 'data/UserInfo';
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,9 @@ import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
 import { toast } from 'react-toastify';
 import { Player } from 'bindings/Player';
+import { TaskEntry } from 'bindings/TaskEntry';
+import { HistoryEntry } from 'bindings/HistoryEntry';
+import { MacroPID } from '../bindings/MacroPID';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -248,7 +251,10 @@ export const useEventStream = () => {
                   ['user', 'list'],
                   (oldList: { [uid: string]: PublicUser } | undefined) => {
                     if (!oldList) return oldList;
-                    const newUser = {...oldList[uid], permissions: new_permissions};
+                    const newUser = {
+                      ...oldList[uid],
+                      permissions: new_permissions,
+                    };
                     const newList = { ...oldList };
                     newList[uid] = newUser;
                     return newList;
@@ -268,8 +274,22 @@ export const useEventStream = () => {
           macro_event_inner: event_inner,
         }) =>
           match(event_inner, {
-            Started: () => {
+            Started: ({ macro_name, time }) => {
               console.log(`Macro ${macro_pid} started on ${uuid}`);
+
+              queryClient.setQueryData(
+                ['instance', uuid, 'taskList'],
+                (oldData?: TaskEntry[]): TaskEntry[] => {
+                  const newTask: TaskEntry = {
+                    name: macro_name,
+                    creation_time: time,
+                    pid: macro_pid,
+                  };
+
+                  return oldData ? [...oldData, newTask] : [newTask];
+                }
+              );
+
               dispatch({
                 title: `Macro ${macro_pid} started on ${uuid}`,
                 event,
@@ -278,16 +298,40 @@ export const useEventStream = () => {
               });
             },
             Detach: () => {
-                console.log(`Macro ${macro_pid} detached on ${uuid}`);
-                dispatch({
-                    title: `Macro ${macro_pid} detached on ${uuid}`,
-                    event,
-                    type: 'add',
-                    fresh,
-                });
+              console.log(`Macro ${macro_pid} detached on ${uuid}`);
+              dispatch({
+                title: `Macro ${macro_pid} detached on ${uuid}`,
+                event,
+                type: 'add',
+                fresh,
+              });
             },
             Stopped: ({ exit_status }) => {
-              console.log(`Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`);
+              console.log(
+                `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`
+              );
+
+              let oldTask: TaskEntry | undefined;
+              queryClient.setQueryData(
+                ['instance', uuid, 'taskList'],
+                (oldData?: TaskEntry[]): TaskEntry[] | undefined => {
+                  oldTask = oldData?.find((task) => task.pid === macro_pid);
+                  return oldData?.filter((task) => task.pid !== macro_pid);
+                }
+              );
+
+              queryClient.setQueryData(
+                ['instance', uuid, 'historyList'],
+                (oldData?: HistoryEntry[]): HistoryEntry[] | undefined => {
+                  if (!oldTask) return oldData;
+                  const newHistory: HistoryEntry = {
+                    task: oldTask,
+                    exit_status,
+                  };
+
+                  return [newHistory, ...(oldData || [])];
+                }
+              );
               dispatch({
                 title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
                 event,
@@ -320,14 +364,22 @@ export const useEventStream = () => {
                             addInstance(instance_info, queryClient),
                           InstanceDelete: ({ instance_uuid: uuid }) =>
                             deleteInstance(uuid, queryClient),
-                          FSOperationCompleted: ({ instance_uuid, success, message }) => {
+                          FSOperationCompleted: ({
+                            instance_uuid,
+                            success,
+                            message,
+                          }) => {
                             if (success) {
-                              toast.success(message)
+                              toast.success(message);
                             } else {
-                              toast.error(message)
+                              toast.error(message);
                             }
-                            queryClient.invalidateQueries(['instance', instance_uuid, 'fileList']);
-                          }
+                            queryClient.invalidateQueries([
+                              'instance',
+                              instance_uuid,
+                              'fileList',
+                            ]);
+                          },
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => {}
@@ -407,11 +459,11 @@ export const useEventStream = () => {
     if (!token) return;
 
     const connectWebsocket = () => {
-      const wsAddress = `${core.protocol === 'https' ? 'wss' : 'ws'}://${core.address}:${
-        core.port ?? LODESTONE_PORT
-      }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
-        eventQuery
-      )}`;
+      const wsAddress = `${core.protocol === 'https' ? 'wss' : 'ws'}://${
+        core.address
+      }:${core.port ?? LODESTONE_PORT}/api/${
+        core.apiVersion
+      }/events/all/stream?filter=${JSON.stringify(eventQuery)}`;
 
       if (wsRef.current) wsRef.current.close();
 

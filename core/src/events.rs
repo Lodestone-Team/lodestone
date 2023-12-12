@@ -170,7 +170,10 @@ pub struct UserEvent {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum MacroEventInner {
-    Started,
+    Started {
+        macro_name: String,
+        time: i64
+    },
     /// Macro requests to be detached, useful for macros that run in the background such as prelaunch script
     Detach,
     Stopped {

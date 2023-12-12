@@ -364,10 +364,15 @@ impl MacroExecutor {
                             }
                         };
 
+                        let macro_name: String = path_to_main_module.file_name().unwrap().to_str().unwrap().to_string();
+
                         event_broadcaster.send(
                             MacroEvent {
                                 macro_pid: pid,
-                                macro_event_inner: MacroEventInner::Started,
+                                macro_event_inner: MacroEventInner::Started {
+                                    macro_name: String::from(&macro_name[..macro_name.len() - 3]),
+                                    time: chrono::Utc::now().timestamp(),
+                                },
                                 instance_uuid: instance_uuid.clone(),
                             }
                             .into(),
@@ -492,7 +497,7 @@ impl MacroExecutor {
                 if let Ok(event) = rx.recv().await {
                     if let EventInner::MacroEvent(MacroEvent {
                         macro_pid,
-                        macro_event_inner: MacroEventInner::Started,
+                        macro_event_inner: MacroEventInner::Started { .. },
                         ..
                     }) = event.event_inner
                     {

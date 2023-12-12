@@ -3,27 +3,26 @@ import { Table, TableColumn, TableRow } from 'components/Table';
 import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
+  createTask,
+  getInstanceHistory,
   getMacros,
   getTasks,
-  getInstanceHistory,
-  createTask,
   killTask,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useEffect, useState, useMemo } from 'react';
-import { MacroEntry } from 'bindings/MacroEntry';
+import { useContext, useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
+
+import { MacroEntry } from 'bindings/MacroEntry';
+import { TaskEntry } from 'bindings/TaskEntry';
+import { HistoryEntry } from 'bindings/HistoryEntry';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
   useDocumentTitle('Instance Macros - Lodestone');
   const { selectedInstance } = useContext(InstanceContext);
-  const [macros, setMacros] = useState<TableRow[]>([]);
-  const [tasks, setTasks] = useState<TableRow[]>([]);
-  const [history, setHistory] = useState<TableRow[]>([]);
-
   const unixToFormattedTime = (unix: string | undefined) => {
     if (!unix) return 'N/A';
     const date = new Date(parseInt(unix) * 1000);
@@ -42,66 +41,63 @@ const Macros = () => {
 
   const queryClient = useQueryClient();
 
-  const fetchMacros = async (instanceUuid: string) => {
-    const response: MacroEntry[] = await getMacros(instanceUuid);
-    setMacros(
-      response.map(
-        (macro, i) =>
-          ({
-            id: i + 1,
-            name: macro.name,
-            last_run: unixToFormattedTime(macro.last_run?.toString()),
-            path: macro.path,
-          } as TableRow)
-      )
+  const { data: macroEntry } = useQuery(
+    ['instance', selectedInstance?.uuid, 'macroList'],
+    () => getMacros(selectedInstance?.uuid as string),
+    { enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always' }
+  );
+  const macros = useMemo(() => {
+    return macroEntry.map(
+      (macro, i) =>
+        ({
+          id: i + 1,
+          name: macro.name,
+          last_run: unixToFormattedTime(macro.last_run?.toString()),
+          path: macro.path,
+        } as TableRow)
     );
-  };
+  }, [macroEntry]);
 
-  const fetchTasks = async (instanceUuid: string) => {
-    const response = await getTasks(instanceUuid);
-    setTasks(
-      response.map(
-        (task, i) =>
-          ({
-            id: i + 1,
-            name: task.name,
-            creation_time: unixToFormattedTime(task.creation_time.toString()),
-            pid: task.pid,
-          } as TableRow)
-      )
+  const { data: taskEntry } = useQuery(
+    ['instance', selectedInstance?.uuid, 'taskList'],
+    () => getTasks(selectedInstance?.uuid as string),
+    { enabled: !!selectedInstance, initialData: [], refetchOnMount: 'always' }
+  );
+  const tasks = useMemo(() => {
+    return taskEntry.map(
+      (task, i) =>
+        ({
+          id: i + 1,
+          name: task.name,
+          creation_time: unixToFormattedTime(task.creation_time?.toString()),
+          pid: task.pid,
+        } as TableRow)
     );
-  };
+  }, [taskEntry]);
 
-  const fetchHistory = async (instanceUuid: string) => {
-    const response = await getInstanceHistory(instanceUuid);
-    setHistory(
-      response.map(
-        (entry, i) =>
-          ({
-            id: i + 1,
-            name: entry.task.name,
-            creation_time: unixToFormattedTime(
-              entry.task.creation_time.toString()
-            ),
-            finished: unixToFormattedTime(entry.exit_status.time.toString()),
-            process_id: entry.task.pid,
-          } as TableRow)
-      )
+  const { data: historyEntry } = useQuery(
+    ['instance', selectedInstance?.uuid, 'historyList'],
+    () => getInstanceHistory(selectedInstance?.uuid as string),
+    {
+      enabled: !!selectedInstance,
+      initialData: [],
+      refetchOnMount: 'always',
+    }
+  );
+  const history = useMemo(() => {
+    return historyEntry.map(
+      (entry, i) =>
+        ({
+          id: i + 1,
+          name: entry.task.name,
+          creation_time: unixToFormattedTime(
+            entry.task.creation_time.toString()
+          ),
+          finished: unixToFormattedTime(entry.exit_status.time.toString()),
+          process_id: entry.task.pid,
+        } as TableRow)
     );
-  };
-
-  useEffect(() => {
-    if (!selectedInstance) return;
-
-    const fetchAll = async () => {
-      if (!selectedInstance) return;
-      fetchMacros(selectedInstance.uuid);
-      fetchTasks(selectedInstance.uuid);
-      fetchHistory(selectedInstance.uuid);
-    };
-
-    fetchAll();
-  }, [selectedInstance]);
+  }, [historyEntry]);
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
@@ -136,18 +132,24 @@ const Macros = () => {
                   row.name as string,
                   []
                 );
-                const newMacros = macros.map((macro) => {
-                  if (macro.name !== row.name) {
-                    return macro;
+
+                queryClient.setQueryData(
+                  ['instance', selectedInstance?.uuid, 'macroList'],
+                  (oldData: MacroEntry[] | undefined) => {
+                    return oldData === undefined
+                      ? undefined
+                      : oldData.map((macro) => {
+                          if (macro.name !== row.name) {
+                            return macro;
+                          }
+                          const newMacro = { ...macro };
+                          newMacro.last_run = BigInt(
+                            Math.floor(Date.now() / 1000).toString()
+                          );
+                          return newMacro;
+                        });
                   }
-                  const newMacro = { ...macro };
-                  newMacro.last_run = unixToFormattedTime(
-                    Math.floor(Date.now() / 1000).toString()
-                  );
-                  return newMacro;
-                });
-                setMacros(newMacros);
-                fetchTasks(selectedInstance.uuid);
+                );
               },
             },
           ],
@@ -188,17 +190,45 @@ const Macros = () => {
                   selectedInstance.uuid,
                   row.pid as string
                 );
-                setTasks(tasks.filter((task) => task.id !== row.id)); //rather than refetching, we just update the display
-                const newHistory = {
-                  id: row.id,
-                  name: row.name,
-                  creation_time: row.creation_time,
-                  finished: unixToFormattedTime(
-                    Math.floor(Date.now() / 1000).toString()
-                  ), //unix time in seconds
-                  process_id: row.pid,
-                };
-                setHistory([newHistory, ...history]);
+
+                let oldTask: TaskEntry | undefined;
+
+                queryClient.setQueryData(
+                  ['instance', selectedInstance?.uuid, 'taskList'],
+                  (
+                    oldData: TaskEntry[] | undefined
+                  ): TaskEntry[] | undefined => {
+                    return oldData === undefined
+                      ? undefined
+                      : oldData.filter((task) => {
+                          const shouldKeep = task.pid !== row.pid;
+                          if (!shouldKeep) {
+                            oldTask = task;
+                          }
+                          return shouldKeep;
+                        });
+                  }
+                );
+
+                queryClient.setQueryData(
+                  ['instance', selectedInstance?.uuid, 'historyList'],
+                  (
+                    oldData: HistoryEntry[] | undefined
+                  ): HistoryEntry[] | undefined => {
+                    if (oldTask === undefined) return oldData;
+
+                    const newHistory: HistoryEntry = {
+                      task: oldTask,
+                      exit_status: {
+                        type: 'Killed',
+                        time: BigInt(Math.floor(Date.now() / 1000).toString()),
+                      },
+                    };
+                    return oldData === undefined
+                      ? [newHistory]
+                      : [newHistory, ...oldData];
+                  }
+                );
               },
             },
           ],
