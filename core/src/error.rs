@@ -19,6 +19,7 @@ pub enum ErrorKind {
     BadRequest,
     PermissionDenied,
     Unauthorized,
+    External,
     Internal,
 }
 
@@ -56,6 +57,7 @@ impl Display for ErrorKind {
             ErrorKind::PermissionDenied => write!(f, "Permission Denied"),
             ErrorKind::Unauthorized => write!(f, "Unauthorized"),
             ErrorKind::Internal => write!(f, "Internal Error"),
+            ErrorKind::External => write!(f, "External Error")
         }
     }
 }
@@ -92,6 +94,7 @@ impl IntoResponse for Error {
             ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
             ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorKind::External => StatusCode::BAD_GATEWAY,
         };
         (status, json!(self).to_string()).into_response()
     }

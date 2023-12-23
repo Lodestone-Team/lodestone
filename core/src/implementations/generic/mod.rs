@@ -88,7 +88,7 @@ impl WorkerOptionGenerator for InitWorkerGenerator {
 
 impl GenericInstance {
     pub async fn new(
-        link_to_source: String,
+        path_to_source: PathBuf,
         path: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         setup_value: SetupValue,
@@ -102,7 +102,7 @@ impl GenericInstance {
         ))?;
         let path_to_config = path.join(".lodestone_config");
         let run_ts_content =
-            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &link_to_source);
+            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &path_to_source.join("main.ts").as_os_str().to_string_lossy());
 
         let path_to_bootstrap = path.join("run.ts");
         tokio::fs::write(&path_to_bootstrap, run_ts_content)

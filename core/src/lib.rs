@@ -2,6 +2,7 @@
 
 use crate::error::ErrorKind;
 use crate::event_broadcaster::EventBroadcaster;
+use crate::handlers::extension::get_extension_routes;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
@@ -89,6 +90,7 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 pub mod util;
+mod extension;
 use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
@@ -631,6 +633,7 @@ pub async fn run(
                     .merge(get_global_fs_routes(shared_state.clone()))
                     .merge(get_global_settings_routes(shared_state.clone()))
                     .merge(get_gateway_routes(shared_state.clone()))
+                    .merge(get_extension_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);

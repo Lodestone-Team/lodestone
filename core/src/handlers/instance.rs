@@ -234,7 +234,7 @@ pub async fn create_generic_instance(
         );
         event_broadcaster.send(progression_start_event);
         let instance = match generic::GenericInstance::new(
-            setup_config.url,
+            setup_config.url.into(),
             setup_path.clone(),
             dot_lodestone_config.clone(),
             setup_config.setup_value,

@@ -12,7 +12,7 @@ use std::{
 
 use color_eyre::eyre::Context;
 use dashmap::DashMap;
-use deno_runtime::permissions::Permissions;
+use deno_runtime::permissions::{Permissions, PermissionsOptions};
 use futures_util::Future;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -268,6 +268,18 @@ impl MacroExecutor {
         }
     }
 
+    fn default_permissions(path_to_main : PathBuf) -> Permissions {
+        // only allow access to the directory of the main module
+        let option = PermissionsOptions {
+            allow_read: Some(vec![path_to_main.parent().unwrap().to_path_buf()]),
+            allow_write: Some(vec![path_to_main.parent().unwrap().to_path_buf()]),
+            ..Default::default()
+        };
+
+        Permissions::from_options(&option).unwrap()
+
+    }
+
     /// For timeout:
     ///
     /// If `None`, the handle will never timeout.
@@ -323,7 +335,7 @@ impl MacroExecutor {
                         let mut main_worker = deno_runtime::worker::MainWorker::from_options(
                             main_module,
                             deno_runtime::permissions::PermissionsContainer::new(
-                                permissions.unwrap_or_else(Permissions::allow_all),
+                                permissions.unwrap_or_else(|| Self::default_permissions(path_to_main_module.clone())),
                             ),
                             worker_option,
                         );
