@@ -54,6 +54,17 @@ pub struct Manifest {
     pub permission: Option<Permission>,
 }
 
+/// Manifest but with github username, repo, url, and domain
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ManifestWithMetadata {
+    pub manifest : Manifest,
+    /// GitHub username
+    pub username: String,
+    pub repo: String,
+    pub url: String,
+    pub domain: String,
+}
+
 #[derive(serde::Serialize)]
 pub enum FetchExtensionManifestError {
     NotFound,
@@ -72,7 +83,7 @@ impl From<FetchExtensionManifestError> for Error {
             },
             FetchExtensionManifestError::Other(status_code, e) => Error {
                 kind: crate::error::ErrorKind::External,
-                source: eyre::eyre!("GitHub API returned {}: {}", status_code, e)
+                source: eyre::eyre!("GitHub API returned {}: {}", status_code, e),
             },
             FetchExtensionManifestError::Http(e) => Error {
                 kind: crate::error::ErrorKind::Internal,
@@ -86,20 +97,50 @@ impl From<FetchExtensionManifestError> for Error {
                 kind: crate::error::ErrorKind::Internal,
                 source: eyre::eyre!(e),
             },
-
         }
     }
 }
 
-pub async fn get_manifest(
-    username: impl AsRef<str>,
-    repo: impl AsRef<str>,
-) -> Result<Manifest, FetchExtensionManifestError> {
-    let url = format!(
-        "https://api.github.com/repos/{}/{}/contents/lodestone.json",
-        username.as_ref(),
-        repo.as_ref()
-    );
+pub async fn get_manifest(url: impl AsRef<str>) -> Result<ManifestWithMetadata, FetchExtensionManifestError> {
+    // https://github.com/Lodestone-Team/lodestone
+
+    let _url = url::Url::parse(url.as_ref()).map_err(|e| {
+        error!("Failed to parse url: {}", e);
+        FetchExtensionManifestError::Other(500, e.to_string())
+    })?;
+    let domain = _url
+        .domain()
+        .ok_or_else(|| {
+            error!("Failed to get domain");
+            FetchExtensionManifestError::Other(500, "Failed to get domain".to_string())
+        })?
+        .to_string();
+    let username = _url
+        .path_segments()
+        .ok_or_else(|| {
+            error!("Failed to get path segments");
+            FetchExtensionManifestError::Other(500, "Failed to get path segments".to_string())
+        })?
+        .nth(0)
+        .ok_or_else(|| {
+            error!("Failed to get username");
+            FetchExtensionManifestError::Other(500, "Failed to get username".to_string())
+        })?
+        .to_string();
+    let repo = _url
+        .path_segments()
+        .ok_or_else(|| {
+            error!("Failed to get path segments");
+            FetchExtensionManifestError::Other(500, "Failed to get path segments".to_string())
+        })?
+        .nth(1)
+        .ok_or_else(|| {
+            error!("Failed to get repo");
+            FetchExtensionManifestError::Other(500, "Failed to get repo".to_string())
+        })?
+        .to_string();
+
+    let url = format!("https://api.github.com/repos/{username}/{repo}/contents/lodestone.json",);
 
     let http = reqwest::Client::new();
 
@@ -123,7 +164,13 @@ pub async fn get_manifest(
                 error!("Failed to parse extension manifest: {}", e);
                 FetchExtensionManifestError::BadManifest(e.to_string())
             })?;
-            Ok(manifest)
+            Ok(ManifestWithMetadata {
+                manifest,
+                username,
+                repo,
+                url: _url.to_string(),
+                domain,
+            })
         }
         Err(e) => {
             error!("Failed to fetch extension manifest: {}", e);
@@ -148,7 +195,6 @@ pub struct ExtensionManager {
 }
 
 impl ExtensionManager {
-
     pub fn new(extension_path: PathBuf) -> Self {
         let atom_path = extension_path.join("atom");
         let macro_path = extension_path.join("macro");
@@ -159,26 +205,31 @@ impl ExtensionManager {
         }
     }
 
-    pub async fn install_extension(&self, username: impl AsRef<str>, repo: impl AsRef<str>) -> Result<PathBuf, Error> {
+    pub async fn install_extension(&self, url: impl AsRef<str>) -> Result<PathBuf, Error> {
         // a possible race condition, but it's fine
-        let manifest = get_manifest(&username, &repo).await?;
-        let extension_path = match manifest.r#type {
-            Type::Atom => self.install_atom(username, repo, &manifest.name).await?,
+        let manifest = get_manifest(url).await?;
+        let extension_path = match manifest.manifest.r#type {
+            Type::Atom => self.install_atom(&manifest.username, &manifest.url, &manifest.manifest.name).await?,
             Type::Macro => todo!(),
         };
         Ok(extension_path)
-
     }
 
-    async fn install_atom(&self, username: impl AsRef<str>, repo: impl AsRef<str>, name : &str) -> Result<PathBuf, Error> {
-        tokio::fs::create_dir_all(&self.atom_path).await.context("Failed to create atom directory")?;
+    async fn install_atom(
+        &self,
+        username: &str,
+        url: &str,
+        atom_name: &str,
+    ) -> Result<PathBuf, Error> {
+        tokio::fs::create_dir_all(&self.atom_path)
+            .await
+            .context("Failed to create atom directory")?;
         // check if the extension already exists
-        let path = self.atom_path.join(name);
+        let path = self.atom_path.join(atom_name);
         if path.exists() {
             return Ok(path);
         }
-        let url = format!("https://github.com/{}/{}", username.as_ref(), repo.as_ref());
-        let git = git::GitClient::clone(url, &self.atom_path, name).await?;
+        let git = git::GitClient::clone(url, &self.atom_path, format!("{atom_name}.{username}")).await?;
         Ok(git.cwd())
     }
 }

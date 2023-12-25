@@ -12,10 +12,11 @@ use serde_json::Value;
 use tracing::error;
 
 use crate::{
+    auth::user::UserAction,
     error::{Error, ErrorKind},
     extension::{self, FetchExtensionManifestError},
     prelude::lodestone_path,
-    AppState, auth::user::UserAction,
+    AppState,
 };
 
 async fn is_git_installed() -> Json<bool> {
@@ -23,9 +24,8 @@ async fn is_git_installed() -> Json<bool> {
 }
 
 #[derive(serde::Deserialize)]
-struct FetchExtensionManifestBody {
-    username: String,
-    repo: String,
+struct ExtensionRequestBody {
+    url: String,
 }
 
 impl axum::response::IntoResponse for FetchExtensionManifestError {
@@ -52,16 +52,28 @@ impl axum::response::IntoResponse for FetchExtensionManifestError {
     }
 }
 
+#[derive(serde::Serialize)]
+struct FetchManifestRet {
+    manifest: extension::Manifest,
+    /// GitHub username
+    username: String,
+    is_domain_true: bool,
+}
+
 async fn fetch_extension_manifest(
-    Json(body): Json<FetchExtensionManifestBody>,
-) -> Result<Json<extension::Manifest>, FetchExtensionManifestError> {
-    let manifest = extension::get_manifest(&body.username, &body.repo).await?;
-    Ok(Json(manifest))
+    Json(body): Json<ExtensionRequestBody>,
+) -> Result<Json<FetchManifestRet>, FetchExtensionManifestError> {
+    let manifest = extension::get_manifest(&body.url).await?;
+    Ok(Json(FetchManifestRet {
+        manifest: manifest.manifest,
+        username: manifest.username,
+        is_domain_true: manifest.domain == body.url,
+    }))
 }
 
 async fn install_extension(
-    Path((username, repo)): Path<(String, String)>,
     axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<ExtensionRequestBody>,
     // AuthBearer(token): AuthBearer,
 ) -> Result<(), Error> {
     // let requester = state
@@ -75,9 +87,11 @@ async fn install_extension(
     //     })?;
     // requester.try_action(&UserAction::InstallExtension)?;
     let path = lodestone_path().join("extensions");
-    tokio::fs::create_dir_all(&path).await.context("Failed to create extensions directory")?;
+    tokio::fs::create_dir_all(&path)
+        .await
+        .context("Failed to create extensions directory")?;
     let manager = extension::ExtensionManager::new(path);
-    manager.install_extension(&username, &repo).await?;
+    manager.install_extension(&body.url).await?;
     Ok(())
 }
 
@@ -85,6 +99,6 @@ pub fn get_extension_routes(state: AppState) -> Router {
     Router::new()
         .route("/extension/gitstatus", get(is_git_installed))
         .route("/extension/fetchmanifest", get(fetch_extension_manifest))
-        .route("/extension/install/:username/:repo", put(install_extension))
+        .route("/extension/install", put(install_extension))
         .with_state(state)
 }
