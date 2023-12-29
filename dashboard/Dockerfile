@@ -1,10 +1,13 @@
-FROM node as build
+FROM node:21 as build
 
 WORKDIR /app
 
-COPY . ./
+ENV NODE_ENV production
 
-RUN npm install
+COPY package*.json /app/
+RUN npm ci --legacy-peer-deps
+
+COPY . ./
 RUN npm run build
 
 FROM nginx

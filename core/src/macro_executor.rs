@@ -582,6 +582,12 @@ impl MacroExecutor {
             Err(e) => Err(e),
         }
     }
+
+    pub fn shutdown_all(&self) {
+        for element in self.macro_process_table.iter(){
+            element.value().terminate_execution();
+        }
+    }
 }
 
 ///
