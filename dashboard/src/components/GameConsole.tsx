@@ -33,6 +33,7 @@ export default function GameConsole() {
   const [additionalLogs, setAdditionaLogs] = useState(0);
   const [logsRecentlyIncreased, setLogsRecentlyIncreased] = useState(false);
   const [commandNav, setCommandNav] = useState(commandHistory.length);
+  const [initialScroll, setInitialScroll] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
   const isAtBottom = listRef.current
     ? listRef.current.scrollHeight -
@@ -54,6 +55,13 @@ export default function GameConsole() {
     if (oldIsAtBottom) scrollToBottom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [consoleLog]);
+
+  useEffect(() => {
+    if (listRef.current && !initialScroll) {
+      setInitialScroll(true);
+      scrollToBottom();
+    }
+  })
 
   const sendCommand = (command: string) => {
     axios({
