@@ -798,8 +798,11 @@ impl SettingLocalCache {
         }
     }
 
-    pub fn validate_type(&self, manifest: &SettingManifest) -> bool {
-        manifest.value_type == self.value_type
+    pub fn validate_type(&self, target_manifest: Option<&SettingManifest>) -> bool {
+        match target_manifest {
+            None => false,
+            Some(manifest) => manifest.value_type == self.value_type
+        }
     }
 
     pub fn get_identifier(&self) -> &String {
