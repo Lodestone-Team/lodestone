@@ -24,6 +24,7 @@ use crate::traits::t_configurable::manifest::SettingManifest;
 pub struct GetConfigResponse {
     config: IndexMap<String, SettingManifest>,
     message: Option<String>,
+    error: Option<ErrorKind>,
 }
 
 pub async fn get_instance_task_list(
@@ -83,7 +84,14 @@ pub async fn run_macro(
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
-    let _local_value = instance.validate_local_config(&macro_name, None).await?;
+
+    if instance.validate_local_config(&macro_name, None).await.is_err() {
+        return Err(Error {
+            kind: ErrorKind::Internal,
+            source: eyre!("Config error"),
+        });
+    }
+
     instance
         .run_macro(
             &macro_name,
@@ -129,15 +137,15 @@ pub async fn get_macro_configs(
             local_value.iter().for_each(|(setting_id, local_cache)| {
                 config[setting_id].set_optional_value(local_cache.get_value().clone()).unwrap();
             });
-            Ok(Json(GetConfigResponse{ config, message: None }))
+            Ok(Json(GetConfigResponse{ config, message: None, error: None }))
         },
         Err(e) => {
             match e.kind {
                 ErrorKind::NotFound => {
-                    Ok(Json(GetConfigResponse { config, message: Some("Local config cache not found".to_string()) }))
+                    Ok(Json(GetConfigResponse { config, message: Some("Local config cache not found".to_string()), error: Some(ErrorKind::NotFound) }))
                 },
                 _ => {
-                    Ok(Json(GetConfigResponse { config, message: Some("There is a mismatch between a config type and its locally-stored value".to_string()) }))
+                    Ok(Json(GetConfigResponse { config, message: Some("There is a mismatch between a config type and its locally-stored value".to_string()), error: Some(ErrorKind::Internal) }))
                 }
             }
         },
