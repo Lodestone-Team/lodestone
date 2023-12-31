@@ -51,6 +51,8 @@ pub struct Manifest {
     pub version: String,
     pub description: String,
     #[serde(default)]
+    pub release_notes : Option<String>,
+    #[serde(default)]
     pub permission: Option<Permission>,
 }
 
