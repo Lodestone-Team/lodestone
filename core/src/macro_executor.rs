@@ -832,6 +832,7 @@ fn parse_config_single(
     let has_default = default_value_index != entry.len();
 
     // TODO: remove this. We will handle this in validation instead
+    // TODO: we actually can't remove this - a required settings manifest must have a value
     if !is_optional && !has_default {
         return Err(Error {
             kind: ErrorKind::NotFound,
