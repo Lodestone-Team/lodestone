@@ -19,8 +19,8 @@ use crate::{
         instance_macro::get_instance_macro_routes, instance_players::get_instance_players_routes,
         instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
-        playitgg::get_playitgg_routes,
+        playitgg::get_playitgg_routes, setup::get_setup_route, system::get_system_routes,
+        users::get_user_routes,
     },
     util::rand_alphanumeric,
 };
@@ -40,16 +40,16 @@ use futures_util::TryFutureExt;
 use global_settings::GlobalSettings;
 use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
+use playitgg::helper::TunnelRunner;
+use playitgg::utils::is_valid_secret_key;
 use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
-use playitgg::utils::is_valid_secret_key;
 
 use fs3::FileExt;
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
-use toml::Table;
 use std::sync::atomic::AtomicBool;
 use std::{
     collections::{HashMap, HashSet},
@@ -64,6 +64,7 @@ use tokio::{
     select,
     sync::{broadcast::error::RecvError, Mutex, RwLock},
 };
+use toml::Table;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -76,7 +77,6 @@ use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 
 pub mod auth;
-pub mod playitgg;
 pub mod db;
 mod deno_ops;
 pub mod error;
@@ -88,6 +88,7 @@ pub mod implementations;
 pub mod macro_executor;
 mod migration;
 mod output_types;
+pub mod playitgg;
 mod port_manager;
 pub mod prelude;
 pub mod tauri_export;
@@ -114,7 +115,7 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
-    playit_running: Arc<AtomicBool>,
+    playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
 }
 
 impl AppState {
@@ -462,7 +463,9 @@ pub async fn run(
         None
     };
 
-    let playitgg_key = if let Ok(playitgg_file) = tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await {
+    let playitgg_key = if let Ok(playitgg_file) =
+        tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await
+    {
         let toml_data: toml::Table = toml::from_str(&playitgg_file).unwrap();
         if let Some(res) = toml_data["secret_key"].as_str() {
             if is_valid_secret_key(res.to_string()).await {
@@ -470,7 +473,7 @@ pub async fn run(
                 Some(res.to_string())
             } else {
                 None
-            }        
+            }
         } else {
             None
         }
@@ -507,7 +510,7 @@ pub async fn run(
         playitgg_key: Arc::new(Mutex::new(playitgg_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
-        playit_running: Arc::new(AtomicBool::new(false)),
+        playit_keep_running: Arc::new(Mutex::new(None)),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(

@@ -1,4 +1,4 @@
-/* 
+/*
 Copyright 2022 Developed Methods LLC
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
@@ -10,24 +10,28 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-use std::time::Duration;
 use rand::Rng;
-use std::fmt::{Display, Formatter};
 use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::time::Duration;
 
 use playit_agent_core::api::{
-    api::{ApiErrorNoFail, ApiError, ApiResponseError, AuthError, ReqTunnelsList, AgentType},
-    PlayitApi, http_client::HttpClientError,
+    api::{AgentType, ApiError, ApiErrorNoFail, ApiResponseError, AuthError, ReqTunnelsList},
+    http_client::HttpClientError,
+    PlayitApi,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use playit_agent_core::api::api::{AccountTunnel, AccountTunnelAllocation, AssignedManagedCreate, ClaimSetupResponse, PortType, ReqClaimExchange, ReqClaimSetup, ReqTunnelsCreate, TunnelAllocated, TunnelOriginCreate, TunnelType};
+use super::errors::CliError;
+use playit_agent_core::api::api::{
+    AssignedManagedCreate, ClaimSetupResponse, PortType, ReqClaimExchange, ReqClaimSetup,
+    ReqTunnelsCreate, TunnelOriginCreate, TunnelType,
+};
 use playit_agent_core::api::ip_resource::IpResource;
 use playit_agent_core::network::address_lookup::{AddressLookup, AddressValue};
 use playit_agent_core::tunnel_runner::TunnelRunner;
 use playit_agent_core::utils::now_milli;
-use super::errors::CliError;
 
 pub fn claim_generate() -> String {
     let mut buffer = [0u8; 5];
@@ -40,13 +44,14 @@ pub fn claim_url(code: &str) -> Result<String, CliError> {
         return Err(CliError::InvalidClaimCode.into());
     }
 
-    Ok(format!(
-        "https://playit.gg/claim/{}",
-        code,
-    ))
+    Ok(format!("https://playit.gg/claim/{}", code,))
 }
 
-pub async fn claim_exchange(claim_code: &str, agent_type: AgentType, wait_sec: u32) -> Result<String, CliError> {
+pub async fn claim_exchange(
+    claim_code: &str,
+    agent_type: AgentType,
+    wait_sec: u32,
+) -> Result<String, CliError> {
     let api = PlayitApi::create(API_BASE.to_string(), None);
 
     let end_at = if wait_sec == 0 {
@@ -56,11 +61,13 @@ pub async fn claim_exchange(claim_code: &str, agent_type: AgentType, wait_sec: u
     };
 
     loop {
-        let setup = api.claim_setup(ReqClaimSetup {
-            code: claim_code.to_string(),
-            agent_type,
-            version: format!("playit-cli {}", env!("CARGO_PKG_VERSION")),
-        }).await?;
+        let setup = api
+            .claim_setup(ReqClaimSetup {
+                code: claim_code.to_string(),
+                agent_type,
+                version: format!("playit-cli {}", env!("CARGO_PKG_VERSION")),
+            })
+            .await?;
 
         match setup {
             ClaimSetupResponse::WaitingForUserVisit => {
@@ -84,7 +91,12 @@ pub async fn claim_exchange(claim_code: &str, agent_type: AgentType, wait_sec: u
     }
 
     let secret_key = loop {
-        match api.claim_exchange(ReqClaimExchange { code: claim_code.to_string() }).await {
+        match api
+            .claim_exchange(ReqClaimExchange {
+                code: claim_code.to_string(),
+            })
+            .await
+        {
             Ok(res) => break res.secret_key,
             Err(ApiError::Fail(status)) => {
                 let msg = format!("code \"{}\" not ready, {:?}", claim_code, status);
@@ -103,8 +115,6 @@ pub async fn claim_exchange(claim_code: &str, agent_type: AgentType, wait_sec: u
 
     Ok(secret_key)
 }
-
-
 
 pub struct PlayitSecret {
     secret: RwLock<Option<String>>,
@@ -143,20 +153,17 @@ impl PlayitSecret {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         loop {
-            match api
-                .tunnels_list(ReqTunnelsList {
-                    tunnel_id: None,
-                    agent_id: None,
-                })
-                .await
-            {
-                Ok(tunnels) => {
-                    println!("secret key valid, agent has {} tunnels", tunnels.tunnels.len());
+            match api.agents_rundata().await {
+                Ok(data) => {
+                    println!("secret key valid, agent has {} tunnels", data.tunnels.len());
                     tokio::time::sleep(Duration::from_secs(3)).await;
                     break;
                 }
                 Err(ApiErrorNoFail::ClientError(error)) => {
-                    println!("Failed to load data from api\nretrying in 3 seconds {:?}", error);
+                    println!(
+                        "Failed to load data from api\nretrying in 3 seconds {:?}",
+                        error
+                    );
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
                 Err(ApiErrorNoFail::ApiError(ApiResponseError::Auth(
@@ -186,7 +193,7 @@ impl PlayitSecret {
         }
 
         let claim_code = claim_generate();
-        let secret = claim_exchange(&claim_code, AgentType::Assignable ,0).await?;
+        let secret = claim_exchange(&claim_code, AgentType::Assignable, 0).await?;
 
         {
             let mut lock = self.secret.write().await;
@@ -287,4 +294,3 @@ impl PlayitSecret {
 struct OldConfig {
     secret_key: String,
 }
-

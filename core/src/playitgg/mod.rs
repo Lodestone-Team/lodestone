@@ -1,8 +1,10 @@
 pub mod tcp_client;
+pub mod helper;
 pub mod utils;
 
 use std::process::Stdio;
 mod playit_secret;
+use std::sync::Mutex;
 use std::time::Duration;
 use tokio::process::Command;
 use toml::{Table, Value};
@@ -15,19 +17,18 @@ use crate::AppState;
 use axum::Json;
 use color_eyre::eyre::eyre;
 use playit_agent_core::api::api::ApiError;
-use playit_agent_core::api::api::TunnelOrigin;
 use playit_agent_core::api::{
     api::{
-        AccountTunnelAllocation, AgentType, ClaimExchangeError, ClaimSetupResponse,
-        PortType as PlayitPortType, ReqClaimExchange, ReqClaimSetup, ReqTunnelsList, TunnelType,
+        AgentType, ClaimExchangeError, ClaimSetupResponse, PortType as PlayitPortType,
+        ReqClaimExchange, ReqClaimSetup, ReqTunnelsList, TunnelType,
     },
     PlayitApi,
 };
-use playit_agent_core::tunnel_runner::TunnelRunner;
 use playit_secret::*;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{atomic::Ordering, Arc};
+use helper::*;
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinHandle;
 use ts_rs::TS;
@@ -87,20 +88,48 @@ pub struct PlayitSignupData {
 pub async fn start_cli(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<()>, Error> {
-    if state.playit_running.load(Ordering::SeqCst) {
-        return Ok(Json(()));
+    if let Some(keep_running) = state.playit_keep_running.lock().await.clone() {
+        if keep_running.load(Ordering::SeqCst) {
+            return Ok(Json(()));
+        }
     }
 
-    state.playit_running.store(true, Ordering::SeqCst);
-    let config_path = lodestone_path().join("playit.toml");
-    tokio::spawn(async move {
-        run_playit_cli(
-            config_path,
-            state.playit_running,
-            state.event_broadcaster.clone(),
-        )
-        .await;
-    });
+    let playitgg_key = state.playitgg_key.lock().await.clone();
+    if let Some(playitgg_key) = playitgg_key {
+        let api = PlayitApi::create(API_BASE.to_string(), Some(playitgg_key.clone()));
+        let lookup = {
+            let data = api.agents_rundata().await;
+            if let Ok(data) = data {
+                let lookup = Arc::new(LocalLookup {
+                    data: Mutex::new(vec![]),
+                });
+                lookup.update(data.tunnels).await;
+
+                lookup
+            } else {
+                return Err(eyre!("Failed to get rundata").into());
+            }
+        };
+
+        let runner = TunnelRunner::new(API_BASE.to_string(), playitgg_key, lookup.clone()).await;
+
+        if let Ok(runner) = runner {
+            let keep_runing = runner.keep_running();
+            state
+                .playit_keep_running
+                .lock()
+                .await
+                .replace(keep_runing.clone());
+
+            tokio::spawn(async move {
+                runner.run(state.event_broadcaster.clone()).await;
+            });
+        } else {
+            return Err(eyre!("Failed to create runner").into());
+        }
+    } else {
+        return Err(eyre!("No playitgg key found").into());
+    }
 
     Ok(Json(()))
 }
@@ -108,22 +137,31 @@ pub async fn start_cli(
 pub async fn stop_cli(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<()>, Error> {
-    state.playit_running.store(false, Ordering::SeqCst);
-    state.event_broadcaster.send(Event {
-        event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
-            playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerStopped,
-        }),
-        snowflake: Snowflake::default(),
-        details: "Stopped".to_string(),
-        caused_by: CausedBy::System,
-    });
+    if let Some(keep_running) = state.playit_keep_running.lock().await.clone() {
+        if keep_running.load(Ordering::SeqCst) {
+            state.event_broadcaster.send(Event {
+                event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
+                    playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerStopped,
+                }),
+                snowflake: Snowflake::default(),
+                details: "Stopped".to_string(),
+                caused_by: CausedBy::System,
+            });
+            keep_running.store(false, Ordering::SeqCst);
+        }
+    }
+
     Ok(Json(()))
 }
 
 pub async fn cli_is_running(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<bool>, Error> {
-    Ok(Json(state.playit_running.load(Ordering::SeqCst)))
+    if let Some(keep_running) = state.playit_keep_running.lock().await.clone() {
+        return Ok(Json(keep_running.load(Ordering::SeqCst)));
+    } else {
+        return Ok(Json(false));
+    }
 }
 
 pub async fn generate_signup_link(
@@ -216,22 +254,32 @@ pub async fn generate_signup_link(
 
                 let api = PlayitApi::create(API_BASE.to_string(), Some(res.secret_key.clone()));
 
-                let lookup = Arc::new(LocalLookup { data: vec![] });
+                let lookup = {
+                    let data = api.agents_rundata().await;
+                    if let Ok(data) = data {
+                        let lookup = Arc::new(LocalLookup {
+                            data: Mutex::new(vec![]),
+                        });
+                        lookup.update(data.tunnels).await;
 
-                let runner = TunnelRunner::new(res.secret_key.clone(), lookup.clone())
-                    .await
-                    .map_err(|e| eyre!("Failed to create tunnel object with error {:?}", e))
-                    .unwrap();
+                        lookup
+                    } else {
+                        return Err(eyre!("Failed to get rundata").into());
+                    }
+                };
+
+                let runner =
+                    TunnelRunner::new(API_BASE.to_string(), res.secret_key.clone(), lookup.clone())
+                        .await
+                        .map_err(|e| eyre!("Failed to create tunnel object with error {:?}", e))
+                        .unwrap();
 
                 tokio::spawn(async move {
                     let signal = runner.keep_running();
-                    tokio::spawn(runner.run());
+                    tokio::spawn(runner.run(state.event_broadcaster.clone()));
                     loop {
                         let tunnels = api
-                            .tunnels_list(ReqTunnelsList {
-                                tunnel_id: None,
-                                agent_id: None,
-                            })
+                            .agents_rundata()
                             .await
                             .map_err(|e| {
                                 eyre!("Failed to get tunnels from playitgg with error {:?}", e)
@@ -280,50 +328,123 @@ pub async fn verify_key(
 pub async fn get_tunnels(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<Vec<PlayitTunnelInfo>>, Error> {
-    let secret = if let Some(secret) = state
-        .playitgg_key
-        .lock()
-        .await
-        .clone() {
+    let secret = if let Some(secret) = state.playitgg_key.lock().await.clone() {
         secret
     } else {
-        return Ok(Json(vec![]));
+        return Err(Error {
+            kind: ErrorKind::Internal,
+            source: eyre!("Couldn't find Playit key"),
+        });
     };
     let api = make_client(String::from("https://api.playit.gg"), secret.clone());
-
-    let tunnels = api
-        .tunnels_list(ReqTunnelsList {
+    let response = api
+        .tunnels_list_json(ReqTunnelsList {
             tunnel_id: None,
             agent_id: None,
         })
-        .await
-        .map_err(|e| eyre!("Failed to get tunnels from playitgg with error {:?}", e))
-        .unwrap()
-        .tunnels;
+        .await;
+    if let Ok(response) = response {
+        let tunnels_value = response.get("tunnels");
+        if let Some(tunnels_value) = tunnels_value {
+            let tunnels = tunnels_value.as_array();
 
-    let tunnel_info: Vec<PlayitTunnelInfo> = tunnels
-        .into_iter()
-        .map(|tunnel| PlayitTunnelInfo {
-            local_ip: match tunnel.clone().origin {
-                TunnelOrigin::Agent(agent) => agent.local_ip.to_string(),
-                TunnelOrigin::Default(def) => def.local_ip.to_string(),
-                TunnelOrigin::Managed(_) => String::from("unknown"),
-            },
-            local_port: match tunnel.origin {
-                TunnelOrigin::Agent(agent) => agent.local_port.unwrap_or(0),
-                TunnelOrigin::Default(def) => def.local_port.unwrap_or(0),
-                TunnelOrigin::Managed(_) => 0,
-            },
-            server_address: if let AccountTunnelAllocation::Allocated(aloc) = tunnel.alloc {
-                aloc.assigned_domain
+            if let Some(tunnels) = tunnels {
+                let mut res: Vec<PlayitTunnelInfo> = vec![];
+                for i in 0..tunnels.len() {
+                    let tunnel = &tunnels[i];
+                    let id_value = tunnel.get("id");
+                    let name_value = tunnel.get("name");
+                    let active_value = tunnel.get("active");
+
+                    if !((id_value.is_some() && id_value.unwrap().as_str().is_some())
+                        && (name_value.is_some() && name_value.unwrap().as_str().is_some())
+                        && (active_value.is_some() && active_value.unwrap().as_bool().is_some()))
+                    {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Got malformed response from Playit"),
+                        });
+                    }
+
+                    let id = id_value.unwrap().as_str().unwrap().to_string();
+                    let name = name_value.unwrap().as_str().unwrap().to_string();
+                    let active = active_value.unwrap().as_bool().unwrap();
+
+                    if !((tunnel.get("alloc").is_some()
+                        && tunnel.get("alloc").unwrap().get("data").is_some())
+                        && (tunnel.get("origin").is_some()
+                            && tunnel.get("origin").unwrap().get("data").is_some()))
+                    {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Got malformed response from Playit"),
+                        });
+                    }
+
+                    let alloc_data = tunnel.get("alloc").unwrap().get("data").unwrap();
+                    let origin_data = tunnel.get("origin").unwrap().get("data").unwrap();
+
+                    let local_port_value = origin_data.get("local_port");
+                    let local_ip_value = origin_data.get("local_ip");
+                    let assigned_domain_value = alloc_data.get("assigned_domain");
+
+                    if !(local_port_value.is_some()
+                        && local_ip_value.is_some()
+                        && assigned_domain_value.is_some())
+                    {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Got malformed response from Playit"),
+                        });
+                    }
+
+                    let local_port = local_port_value.unwrap().as_i64();
+                    let local_ip = local_ip_value.unwrap().as_str();
+                    let assigned_domain = assigned_domain_value.unwrap().as_str();
+
+                    if !(local_port.is_some() && local_ip.is_some() && assigned_domain.is_some()) {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Got malformed response from Playit"),
+                        });
+                    }
+
+                    res.push(PlayitTunnelInfo {
+                        local_ip: local_ip.unwrap().to_string(),
+                        local_port: local_port.unwrap() as u16,
+                        name,
+                        tunnel_id: TunnelUuid(id),
+                        active,
+                        server_address: assigned_domain.unwrap().to_string(),
+                    });
+                }
+                return Ok(Json(res));
             } else {
-                String::from("Unknown")
-            },
-            tunnel_id: TunnelUuid(tunnel.id.to_string()),
-            name: tunnel.name.unwrap_or(String::from("Unnamed Tunnel")),
-            active: tunnel.active,
-        })
-        .collect();
-
-    Ok(Json(tunnel_info))
+                return Err(Error {
+                    kind: ErrorKind::Internal,
+                    source: eyre!("Got malformed response from Playit"),
+                });
+            }
+        } else {
+            return Err(Error {
+                kind: ErrorKind::Internal,
+                source: eyre!("Got malformed response from Playit"),
+            });
+        }
+    } else {
+        return Err(Error {
+            kind: ErrorKind::Internal,
+            source: eyre!("Couldn't connect to Playit"),
+        });
+    }
+    //
+    // let tunnels = api
+    //     .tunnels_list_json(ReqTunnelsList {
+    //         tunnel_id: None,
+    //         agent_id: None,
+    //     })
+    //     .await
+    //     .map_err(|e| eyre!("Failed to get tunnels from playitgg with error {:?}", e))
+    //     .unwrap();
+    //
 }

@@ -27,6 +27,7 @@ export function PlayitggOverview() {
   const [showSignupModal, setShowSignupModal] = React.useState<boolean>(false);
   const [runnerStatus, setRunnerStatus] = React.useState<RunnerStatus>(RunnerStatus.Stopped);
   const [playitTunnels, setPlayitTunnels] = React.useState<PlayitTunnelInfo[]>([]);
+  const [loadingTunnels, setLoadingTunnels] = React.useState<boolean>(false);
   const queryClient = useQueryClient();
   const { notifications } = useContext(NotificationContext);
 
@@ -40,8 +41,14 @@ export function PlayitggOverview() {
 
   useEffect(() => {
     const inner = async () => {
-      const tuns = await getTunnels();
-      setPlayitTunnels(tuns);
+      try {
+        setLoadingTunnels(true);
+        const tuns = await getTunnels();
+        setPlayitTunnels(tuns);
+      } catch (e) {
+        setPlayitTunnels([]);
+      }
+      setLoadingTunnels(false);
     }
     inner();
   }, [verified]);
@@ -50,6 +57,12 @@ export function PlayitggOverview() {
     const status = queryClient.getQueryData<RunnerStatus>(["playitgg", "status"]);
     setRunnerStatus(status === undefined ? RunnerStatus.Stopped : status);
   }, [notifications, queryClient])
+
+  useEffect(() => {
+    if (verified === false) {
+      setShowSignupModal(true);
+    } 
+  }, [verified]);
 
   const generateLink = async () => {
     setSignupData(await generatePlayitSignupLink());
@@ -77,20 +90,20 @@ export function PlayitggOverview() {
   return (
     <div>
       <PlayitggSignupModal modalOpen={showSignupModal} setModalOpen={setShowSignupModal}>
-        <h2 className="text-h2 font-extrabold tracking-medium">
+        <h2 className="text-h2 tracking-medium font-extrabold">
           Set Up Playitgg
         </h2>
         {
           signupData === null ?
             <>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+              <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
                 You need to sign up for Playitgg before you can use this feature. Generate a signup link with the button below!
               </h3>
               <Button className='mt-6' label="Generate Link" onClick={generateLink} />
             </>
             :
             <>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+              <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
                 Follow the link below and make an account! After you make the account and get to the dashboard, press Verify below.
               </h3>
               <a target="_blank" href={signupData.url}>{signupData.url}</a>
@@ -99,13 +112,13 @@ export function PlayitggOverview() {
         }
       </PlayitggSignupModal>
       {verified === null ?
-        <h2 className="text-h2 font-extrabold tracking-medium">
+        <h2 className="text-h2 tracking-medium font-extrabold">
           Loading...
         </h2>
         :
         <div>
           <div className='flex flex-row'>
-            <h2 className="text-h2 font-extrabold tracking-medium">
+            <h2 className="text-h2 tracking-medium font-extrabold">
               Playitgg Runner
             </h2>
             <IconButton
@@ -125,16 +138,16 @@ export function PlayitggOverview() {
               {runnerStatus !== undefined ? runnerStatus : "Stopped"}
             </Label>
           </div>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+          <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
             {verified === true ?
               <>If you&apos;re having trouble, make sure your tunnel is set up correctly on the website!</>
               : <>You need to sign up for Playitgg before you can use this. <div className='font-bold hover:cursor-pointer hover:underline' onClick={() => setShowSignupModal(true)}>Press here to sign up.</div></>
             }
           </h3>
-          <h2 className="mt-9 text-h2 font-extrabold tracking-medium">
+          <h2 className="text-h2 tracking-medium mt-9 font-extrabold">
             Tunnels
           </h2>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+          <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
             Your tunnels are listed below. You can create more and change the settings on your dashboard on the <a target="_blank" className='underline' href="https://playit.gg/">playit.gg</a> website.
           </h3>
           {playitTunnels.length > 0 ?
@@ -142,7 +155,7 @@ export function PlayitggOverview() {
               tunnel => (
                 <TunnelListItem className='m-2' key={tunnel.server_address} >
                   <div className='flex flex-row'>
-                    <h3 className="text-h3 font-bold tracking-medium text-white ">
+                    <h3 className="text-h3 tracking-medium font-bold text-white ">
                       {tunnel.name}
                     </h3>
                     <FontAwesomeIcon
@@ -151,7 +164,7 @@ export function PlayitggOverview() {
                     />
                   </div>
                   <h3
-                    className="text-h3 font-bold tracking-medium text-white/50 hover:cursor-pointer hover:underline"
+                    className="text-h3 tracking-medium font-bold text-white/50 hover:cursor-pointer hover:underline"
                     onClick={() => { navigator.clipboard.writeText(tunnel.server_address) }}
                   >
                     {tunnel.server_address}
@@ -176,8 +189,9 @@ export function PlayitggOverview() {
                     icon={faCarTunnel}
                     className="mx-1 h-4 w-4 text-white/50"
                   />
-                  <div className="mx-1 text-medium italic text-white/50">
-                    {verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet"}
+                  <div className="text-medium mx-1 italic text-white/50">
+                    { loadingTunnels === true ? "Loading..." :
+                    (verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet")} 
                   </div>
                 </div>
               </TunnelListItem>
