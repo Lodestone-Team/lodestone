@@ -4,6 +4,7 @@ use axum::Json;
 use color_eyre::eyre::{self, Context};
 use serde_json::Value;
 use tracing::error;
+use ts_rs::TS;
 
 use crate::error::Error;
 
@@ -11,7 +12,8 @@ pub mod atom;
 pub mod git;
 pub mod r#macro;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 /// https://docs.deno.com/runtime/manual/basics/permissions
 pub struct Permission {
     // override permissions
@@ -37,15 +39,17 @@ pub struct Permission {
     pub allow_run: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum r#Type {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
+pub enum ExtensionType {
     Atom,
     Macro,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
+#[ts(export)]
 pub struct Manifest {
-    pub r#type: Type,
+    pub r#type: ExtensionType,
     pub author: String,
     pub name: String,
     pub version: String,
@@ -211,8 +215,8 @@ impl ExtensionManager {
         // a possible race condition, but it's fine
         let manifest = get_manifest(url).await?;
         let extension_path = match manifest.manifest.r#type {
-            Type::Atom => self.install_atom(&manifest.username, &manifest.url, &manifest.manifest.name).await?,
-            Type::Macro => todo!(),
+            ExtensionType::Atom => self.install_atom(&manifest.username, &manifest.url, &manifest.manifest.name).await?,
+            ExtensionType::Macro => todo!(),
         };
         Ok(extension_path)
     }
