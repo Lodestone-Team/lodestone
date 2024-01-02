@@ -782,8 +782,8 @@ fn get_config_from_code(
 
     let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
     for (definition, desc) in zip(codes, comments) {
-        let config = parse_config_single(&definition, &desc, config_var_name)?;
-        configs.insert(config.get_identifier().clone(), config);
+        let (var_name, config) = parse_config_single(&definition, &desc, config_var_name)?;
+        configs.insert(var_name, config);
     }
 
     Ok(configs)
@@ -802,7 +802,7 @@ fn parse_config_single(
     single_config_definition: &str,
     config_description: &str,
     setting_id_prefix: &str,
-) -> Result<SettingManifest, Error> {
+) -> Result<(String, SettingManifest), Error> {
     let entry = single_config_definition.trim().to_string();
 
     // compute indices to isolate class field names and types
@@ -884,15 +884,17 @@ fn parse_config_single(
     let mut settings_id = setting_id_prefix.to_string();
     settings_id.push('|');
     settings_id.push_str(var_name);
-    Ok(SettingManifest::new_value_with_type(
-        settings_id,
-        var_name.to_string(),
-        config_description.to_string(),
-        default_val.clone(),
-        config_type,
-        default_val,
-        false,
-        true,
+    Ok((var_name.to_string(),
+        SettingManifest::new_value_with_type(
+            settings_id,
+            var_name.to_string(),
+            config_description.to_string(),
+            default_val.clone(),
+            config_type,
+            default_val,
+            false,
+            true,
+        )
     ))
 }
 
@@ -1140,7 +1142,7 @@ mod tests {
             "",
             "prefix",
         );
-        let config = result.unwrap();
+        let (_, config) = result.unwrap();
         assert!(config.get_value().is_none());
         assert_eq!(config.get_identifier(), "prefix|id");
 
@@ -1150,7 +1152,7 @@ mod tests {
             "",
             "prefix",
         );
-        let config = result.unwrap();
+        let (_, config) = result.unwrap();
         let value = config.get_value().unwrap();
         match value {
             ConfigurableValue::String(val) => assert_eq!(val, "defaultId"),

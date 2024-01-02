@@ -165,8 +165,8 @@ impl TMacro for MinecraftInstance {
         config_to_store: &IndexMap<String, SettingManifest>,
     ) -> Result<(), Error> {
         let mut local_configs: IndexMap<String, SettingLocalCache> = IndexMap::new();
-        config_to_store.iter().for_each(|(_, config)| {
-           local_configs.insert(config.get_identifier().clone(), SettingLocalCache::from(config));
+        config_to_store.iter().for_each(|(var_name, config)| {
+           local_configs.insert(var_name.clone(), SettingLocalCache::from(config));
         });
 
         let config_file_path = self.path_to_macros.join(name).join(format!("{name}_config")).with_extension("json");
