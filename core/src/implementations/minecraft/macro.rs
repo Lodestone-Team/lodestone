@@ -12,7 +12,11 @@ use crate::{
 };
 use crate::error::ErrorKind;
 use crate::macro_executor::MacroExecutor;
-use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
+use crate::traits::t_configurable::manifest::{
+    SettingLocalCache,
+    SettingManifest,
+    ConfigurableValue,
+};
 
 use super::MinecraftInstance;
 
@@ -115,10 +119,38 @@ impl TMacro for MinecraftInstance {
         &self,
         name: &str,
         args: Vec<String>,
+        configs: Option<IndexMap<String, SettingLocalCache>>,
         caused_by: CausedBy,
     ) -> Result<TaskEntry, Error> {
         let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
+
+        // compose config injection code
+        if let Some(config_map) = configs {
+            let tokens: Vec<_> = config_map.get_index(0).unwrap().1.get_identifier().split('|').collect();
+            let config_var_name = tokens[0];
+            let mut code_string = format!("let {config_var_name} = {{\r\n");
+
+            for (var_name, meta) in config_map {
+                let value_code = match meta.get_value() {
+                    Some(val) => match val {
+                        ConfigurableValue::String(str_val) => format!("\'{str_val}\'"),
+                        ConfigurableValue::Enum(str_val) => format!("\'{str_val}\'"),
+                        ConfigurableValue::Boolean(b_val) => b_val.to_string(),
+                        ConfigurableValue::Float(num) => num.to_string(),
+                        _ => return Err(Error{
+                            kind: ErrorKind::Internal,
+                            source: eyre!("Unsupported config data type"),
+                        }),
+                    },
+                    None => "undefined".to_string(),
+                };
+                code_string.push_str(&format!("  {var_name}: {value_code},\r\n"))
+            }
+
+            code_string.push_str("};\r\n");
+            println!("{}", code_string);
+        }
 
         let SpawnResult { macro_pid: pid, .. } = self
             .macro_executor

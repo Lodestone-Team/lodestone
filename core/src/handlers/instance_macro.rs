@@ -85,24 +85,32 @@ pub async fn run_macro(
         source: eyre!("Instance not found"),
     })?;
 
-    if instance.validate_local_config(&macro_name, None).await.is_err() {
-        return Err(Error {
+    if let Ok(valid_config) = instance.validate_local_config(&macro_name, None).await {
+        let valid_config = if valid_config.is_empty() {
+            None
+        } else {
+            Some(valid_config)
+        };
+
+        instance
+            .run_macro(
+                &macro_name,
+                args,
+                valid_config,
+                CausedBy::User {
+                    user_id: requester.uid,
+                    user_name: requester.username,
+                },
+            )
+            .await?;
+
+        Ok(Json(()))
+    } else {
+        Err(Error {
             kind: ErrorKind::Internal,
             source: eyre!("Config error"),
-        });
+        })
     }
-
-    instance
-        .run_macro(
-            &macro_name,
-            args,
-            CausedBy::User {
-                user_id: requester.uid,
-                user_name: requester.username,
-            },
-        )
-        .await?;
-    Ok(Json(()))
 }
 
 pub async fn kill_macro(
@@ -127,11 +135,14 @@ pub async fn get_macro_configs(
 ) -> Result<Json<GetConfigResponse>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
+
     let mut config = instance.get_macro_config(&macro_name).await?;
+
     match instance.validate_local_config(&macro_name, Some(&config)).await {
         Ok(local_value) => {
             local_value.iter().for_each(|(setting_id, local_cache)| {
@@ -160,10 +171,12 @@ pub async fn store_config_to_local(
 ) -> Result<(), Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
     })?;
+
     instance.store_macro_config_to_local(&macro_name, &config_to_store).await?;
     Ok(())
 }

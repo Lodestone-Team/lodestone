@@ -76,6 +76,7 @@ pub trait TMacro {
         &self,
         _name: &str,
         _args: Vec<String>,
+        _configs: Option<IndexMap<String, SettingLocalCache>>,
         _caused_by: CausedBy,
     ) -> Result<TaskEntry, Error> {
         Err(Error {
