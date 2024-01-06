@@ -1,6 +1,6 @@
 import { useDocumentTitle } from 'usehooks-ts';
 import { Table, TableColumn, TableRow } from 'components/Table';
-import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
+import { faPlayCircle, faSkull, faGear } from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
   getMacros,
@@ -8,6 +8,7 @@ import {
   getInstanceHistory,
   createTask,
   killTask,
+  getMacroConfig,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext, useEffect, useState, useMemo } from 'react';
@@ -15,6 +16,12 @@ import { MacroEntry } from 'bindings/MacroEntry';
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { ReactNode } from 'react';
+import { FieldFromManifest } from 'components/Instance/Create/FieldFromManifest';
+import { FormFromManifest } from 'components/Instance/Create/FormFromManifest';
+import SettingField from 'components/SettingField';
+import { SettingFieldObject } from 'components/Instance/InstanceSettingsCreate/SettingObject';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
@@ -23,6 +30,8 @@ const Macros = () => {
   const [macros, setMacros] = useState<TableRow[]>([]);
   const [tasks, setTasks] = useState<TableRow[]>([]);
   const [history, setHistory] = useState<TableRow[]>([]);
+  const [ showMacroConfigModal, setShowMacroConfigModal ] = useState(false);
+  const [macroConfigContents, setMacroConfigContents] = useState<ReactNode>(null);
 
   const unixToFormattedTime = (unix: string | undefined) => {
     if (!unix) return 'N/A';
@@ -150,6 +159,35 @@ const Macros = () => {
                 fetchTasks(selectedInstance.uuid);
               },
             },
+            {
+              label: 'Edit Config',
+              icon: faGear,
+              variant: 'text',
+              intention: 'info',
+              disabled: false,
+              onClick: async (row: TableRow) => {
+                if (!selectedInstance) {
+                  toast.error('Error running macro: No instance selected');
+                  return;
+                }
+                const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
+                console.log(macroData.config)
+                setMacroConfigContents(
+                  <div>
+                    {
+                      Object.entries(macroData.config).map(([_, manifest], ind) => {
+                        return <SettingField 
+                        key = {ind}
+                         instance = {selectedInstance}
+                         {...manifest as SettingFieldObject}/>
+                      })
+                    }
+                  </div>
+                )
+                setShowMacroConfigModal(true)
+              }
+
+            }
           ],
         },
       },
@@ -241,6 +279,19 @@ const Macros = () => {
           onClick={() => setShowCreateMacro(true)}
         />
       </div> */}
+      {
+      showMacroConfigModal && 
+      <ConfirmDialog
+      title = "Macro Config"
+      type = "info"
+      isOpen = {showMacroConfigModal}
+      onClose = {() => {
+        setShowMacroConfigModal(false)
+      }}
+      >
+        {macroConfigContents}
+      </ConfirmDialog>
+      }
       <div className="mt-[-3rem] mb-4">All macros for your instance</div>
       <div className="flex flex-row justify-start border-b border-gray-400">
         {pages.map((page) => (

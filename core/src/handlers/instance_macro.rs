@@ -8,6 +8,7 @@ use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::{
     auth::user::UserAction,
@@ -20,11 +21,12 @@ use crate::{
 };
 use crate::traits::t_configurable::manifest::SettingManifest;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct GetConfigResponse {
-    config: IndexMap<String, SettingManifest>,
-    message: Option<String>,
-    error: Option<ErrorKind>,
+    pub config: IndexMap<String, SettingManifest>,
+    pub  message: Option<String>,
+    pub error: Option<ErrorKind>,
 }
 
 pub async fn get_instance_task_list(
