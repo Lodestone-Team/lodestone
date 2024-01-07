@@ -7,7 +7,7 @@ import Button from './Atoms/Button';
 import { PlayitSignupData } from 'bindings/PlayitSignupData';
 import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 import IconButton from './Atoms/IconButton';
-import { faCarTunnel, faCircle, faCopy, faPowerOff } from '@fortawesome/free-solid-svg-icons';
+import { faCarTunnel, faCircle, faCopy, faPowerOff, faRefresh } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { NotificationContext } from 'data/NotificationContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -40,18 +40,20 @@ export function PlayitggOverview() {
   });
 
   useEffect(() => {
-    const inner = async () => {
-      try {
-        setLoadingTunnels(true);
-        const tuns = await getTunnels();
-        setPlayitTunnels(tuns);
-      } catch (e) {
-        setPlayitTunnels([]);
-      }
-      setLoadingTunnels(false);
-    }
-    inner();
+    loadTunnels();
   }, [verified]);
+
+  const loadTunnels = async () => {
+    try {
+      setLoadingTunnels(true);
+      const tuns = await getTunnels();
+      setPlayitTunnels(tuns);
+    } catch (e) {
+      setPlayitTunnels([]);
+    }
+    setLoadingTunnels(false);
+    console.log("epic and based?")
+  }
 
   useEffect(() => {
     const status = queryClient.getQueryData<RunnerStatus>(["playitgg", "status"]);
@@ -61,7 +63,7 @@ export function PlayitggOverview() {
   useEffect(() => {
     if (verified === false) {
       setShowSignupModal(true);
-    } 
+    }
   }, [verified]);
 
   const generateLink = async () => {
@@ -144,13 +146,20 @@ export function PlayitggOverview() {
               : <>You need to sign up for Playitgg before you can use this. <div className='font-bold hover:cursor-pointer hover:underline' onClick={() => setShowSignupModal(true)}>Press here to sign up.</div></>
             }
           </h3>
-          <h2 className="text-h2 tracking-medium mt-9 font-extrabold">
-            Tunnels
-          </h2>
+          <div className="flex flex-row">
+            <h2 className="text-h2 tracking-medium mt-9 font-extrabold">
+              Tunnels
+            </h2>
+            <FontAwesomeIcon
+              icon={faRefresh}
+              className="mx-2 mb-0 mt-11 h-4 w-4 text-white/50 hover:cursor-pointer"
+              onClick={() => loadTunnels()}
+            />
+          </div>
           <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
             Your tunnels are listed below. You can create more and change the settings on your dashboard on the <a target="_blank" className='underline' href="https://playit.gg/">playit.gg</a> website.
           </h3>
-          {playitTunnels.length > 0 ?
+          {playitTunnels.length > 0 && !loadingTunnels ?
             <TunnelListCard className="mt-2">{playitTunnels.map(
               tunnel => (
                 <TunnelListItem className='m-2' key={tunnel.server_address} >
@@ -190,8 +199,8 @@ export function PlayitggOverview() {
                     className="mx-1 h-4 w-4 text-white/50"
                   />
                   <div className="text-medium mx-1 italic text-white/50">
-                    { loadingTunnels === true ? "Loading..." :
-                    (verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet")} 
+                    {loadingTunnels === true ? "Loading..." :
+                      (verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet")}
                   </div>
                 </div>
               </TunnelListItem>
