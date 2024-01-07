@@ -124,6 +124,29 @@ export const CoreSettings = () => {
     />
   );
 
+  const enablePlayitField = (
+    <ToggleBox
+      label={'Enable Playit Integration'}
+      value={globalSettings?.playit_enabled ?? false}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={
+        'Enable Playit integration allowing users to open their servers for public facing access without port forwarding'
+      }
+      onChange={async (value) => {
+        await axiosPutSingleValue('/global_settings/playit_enabled', value);
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          playit_enabled: value,
+        });
+      }}
+      optimistic={true}
+    />
+  );
+
+
   const openPortModal = (
     <Dialog
       open={showOpenPortDialog}
@@ -220,7 +243,7 @@ export const CoreSettings = () => {
   );
 
   const openPortField = (
-    <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
+    <div className="text-h3 relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3">
       <div className="flex min-w-0 grow flex-col">
         {can_change_core_settings ? (
           <label className="text-medium font-medium text-gray-300">
@@ -232,7 +255,7 @@ export const CoreSettings = () => {
           </label>
         )}
         {can_change_core_settings ? (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+          <div className="text-medium tracking-medium overflow-hidden text-ellipsis font-medium text-white/50">
             Attempt to port forward on your router using{' '}
             <a
               href="https://en.wikipedia.org/wiki/Universal_Plug_and_Play"
@@ -245,7 +268,7 @@ export const CoreSettings = () => {
             . This will allow people on the internet to connect to your server.
           </div>
         ) : (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+          <div className="text-medium tracking-medium overflow-hidden text-ellipsis font-medium text-white/50">
             No permission
           </div>
         )}
@@ -267,31 +290,32 @@ export const CoreSettings = () => {
     <>
       {safeModeDialog}
       {openPortModal}
-      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container ">
+      <div className="@container relative mx-auto flex h-full w-full max-w-2xl flex-col ">
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
           <h1 className="dashboard-instance-heading">Core Settings</h1>
-          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
+          <div className="@4xl:flex-row flex w-full flex-col gap-4">
             <div className="w-[28rem]">
-              <h2 className="text-h2 font-bold tracking-medium">
+              <h2 className="text-h2 tracking-medium font-bold">
                 General Settings
               </h2>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+              <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
                 These settings are for the core itself.
               </h3>
             </div>
-            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0 w-full rounded-lg border">
               {nameField}
               {domainField}
+              {enablePlayitField}
             </div>
           </div>
-          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
+          <div className="@4xl:flex-row flex w-full flex-col gap-4">
             <div className="w-[28rem]">
-              <h2 className="text-h2 font-bold tracking-medium">Danger Zone</h2>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+              <h2 className="text-h2 tracking-medium font-bold">Danger Zone</h2>
+              <h3 className="text-h3 tracking-medium font-medium italic text-white/50">
                 These settings can cause irreversible damage to your server!
               </h3>
             </div>
-            <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0 w-full rounded-lg border">
               {unsafeModeField}
               {openPortField}
             </div>
