@@ -100,6 +100,44 @@ const Macros = () => {
     );
   };
 
+  const openMacroModal = async (row: TableRow) => {
+    if (!selectedInstance) {
+      toast.error('Error running macro: No instance selected');
+      return;
+    }
+    const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
+    setMacroConfigContents(
+      <span>
+        {
+          Object.entries(macroData.config).map(([_, manifest], index) => {
+            return (<>
+              <SettingField 
+                key = {index} 
+                instance = {selectedInstance}
+                sectionId={`${selectedInstance.uuid}-${row.name}`}
+                settingId={manifest.setting_id}
+                setting={adaptSettingManifest(manifest)}
+                error = {null}
+                onSubmit={async (value) => {
+                  const newSettings = macroData.config;
+                  newSettings[`${manifest.name}`].value = value
+                  const result = await storeMacroConfig(
+                    selectedInstance.uuid,
+                    row.name as string,
+                    newSettings
+                  );
+                  console.log({result})
+                }}
+              />
+              <br></br>
+            </>)
+          })
+        }
+      </span>
+    )
+    setShowMacroConfigModal(true)
+  }
+
   useEffect(() => {
     if (!selectedInstance) return;
 
@@ -140,12 +178,16 @@ const Macros = () => {
                   toast.error('Error running macro: No instance selected');
                   return;
                 }
-                await createTask(
+                const result = await createTask(
                   queryClient,
                   selectedInstance.uuid,
                   row.name as string,
                   []
                 );
+                if (result !== '') {
+                  await openMacroModal(row)
+                  return;
+                }
                 const newMacros = macros.map((macro) => {
                   if (macro.name !== row.name) {
                     return macro;
@@ -166,44 +208,7 @@ const Macros = () => {
               variant: 'text',
               intention: 'info',
               disabled: false,
-              onClick: async (row: TableRow) => {
-                if (!selectedInstance) {
-                  toast.error('Error running macro: No instance selected');
-                  return;
-                }
-                const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
-                setMacroConfigContents(
-                  <span>
-                    {
-                      Object.entries(macroData.config).map(([_, manifest], index) => {
-                        return (<>
-                          <SettingField 
-                            key = {index} 
-                            instance = {selectedInstance}
-                            sectionId={`${selectedInstance.uuid}-${row.name}`}
-                            settingId={manifest.setting_id}
-                            setting={adaptSettingManifest(manifest)}
-                            error = {null}
-                            onSubmit={async (value) => {
-                              const newSettings = macroData.config;
-                              newSettings[`${manifest.name}`].value = value
-                              const result = await storeMacroConfig(
-                                selectedInstance.uuid,
-                                row.name as string,
-                                newSettings
-                              );
-                              console.log({result})
-                            }}
-                          />
-                          <br></br>
-                        </>)
-                      })
-                    }
-                  </span>
-                )
-                setShowMacroConfigModal(true)
-              }
-
+              onClick: openMacroModal
             }
           ],
         },
@@ -305,6 +310,7 @@ const Macros = () => {
       onClose = {() => {
         setShowMacroConfigModal(false)
       }}
+      confirmButtonText='Close'
       >
         {macroConfigContents}
       </ConfirmDialog>
