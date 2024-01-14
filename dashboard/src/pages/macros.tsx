@@ -9,6 +9,7 @@ import {
   createTask,
   killTask,
   getMacroConfig,
+  storeMacroConfig,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext, useEffect, useState, useMemo } from 'react';
@@ -21,7 +22,7 @@ import { ReactNode } from 'react';
 import { FieldFromManifest } from 'components/Instance/Create/FieldFromManifest';
 import { FormFromManifest } from 'components/Instance/Create/FormFromManifest';
 import SettingField from 'components/SettingField';
-import { SettingFieldObject } from 'components/Instance/InstanceSettingsCreate/SettingObject';
+import { SettingFieldObject, adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
@@ -171,18 +172,36 @@ const Macros = () => {
                   return;
                 }
                 const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
-                console.log(macroData.config)
                 setMacroConfigContents(
-                  <div>
+                  <span>
                     {
-                      Object.entries(macroData.config).map(([_, manifest], ind) => {
-                        return <SettingField 
-                        key = {ind}
-                         instance = {selectedInstance}
-                         {...manifest as SettingFieldObject}/>
+                      Object.entries(macroData.config).map(([_, manifest], index) => {
+                        return (<>
+                          <SettingField 
+                            key = {index} 
+                            instance = {selectedInstance}
+                            sectionId={`${selectedInstance.uuid}-${row.name}`}
+                            settingId={manifest.setting_id}
+                            setting={adaptSettingManifest(manifest)}
+                            error = {null}
+                            onSubmit={async (value) => {
+                              const newSettings = macroData.config;
+                              newSettings[`${manifest.name}`].value = value
+                              const result = await storeMacroConfig(
+                                selectedInstance.uuid,
+                                row.name as string,
+                                newSettings
+                              );
+                              console.log({result})
+                            }}
+                          />
+                          {
+                            // note: add break here between settings
+                          }
+                        </>)
                       })
                     }
-                  </div>
+                  </span>
                 )
                 setShowMacroConfigModal(true)
               }

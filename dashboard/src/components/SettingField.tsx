@@ -19,13 +19,15 @@ export default function SettingField({
   settingId,
   error,
   descriptionFunc,
+  onSubmit
 }: {
   instance: InstanceInfo;
   setting: SettingFieldObject;
   sectionId: string;
   settingId: string;
   error?: AxiosError<unknown, any> | null;
-  descriptionFunc?: (arg: string | boolean) => React.ReactNode;
+  descriptionFunc?: (arg: string | boolean) => React.ReactNode,
+  onSubmit?: (updated: ConfigurableValue | null) => void
 }) {
   const {
     name: label,
@@ -76,7 +78,7 @@ export default function SettingField({
           return null;
       }
     };
-    await axiosPutSingleValue<void>(`${URL}`, getConfigurableValue(value));
+    await (onSubmit? onSubmit(getConfigurableValue(value)) : axiosPutSingleValue<void>(`${URL}`, getConfigurableValue(value)));
   };
   // const isLoading = can_access_instance_setting ? isSettingLoading : false;
 

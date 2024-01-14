@@ -22,6 +22,7 @@ import { ZipRequest } from 'bindings/ZipRequest';
 import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
+import { SettingManifest } from 'bindings/SettingManifest';
 
 /***********************
  * Start Files API
@@ -450,12 +451,26 @@ export const getMacros = async (uuid: string) => {
   return macroList;
 };
 
+// get macro config
 export const getMacroConfig = async (uuid: string, macro_name: string) => {
   const macroConfig = await axiosWrapper<GetConfigResponse>({
     method: 'get',
     url: `/instance/${uuid}/macro/config/get/${macro_name}`
   })
   return macroConfig
+}
+
+// write macro local config
+export const storeMacroConfig = async (
+  uuid: string, 
+  macro_name: string, 
+  config: Record<string, SettingManifest>) => {
+    const serverResponse = await axiosWrapper<unknown>({
+      method: 'post',
+      url: `/instance/${uuid}/macro/config/store/${macro_name}`,
+      data: config
+    })
+    return serverResponse;
 }
 
 export const getInstanceHistory = async (uuid: string) => {
