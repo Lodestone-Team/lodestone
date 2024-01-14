@@ -195,9 +195,7 @@ const Macros = () => {
                               console.log({result})
                             }}
                           />
-                          {
-                            // note: add break here between settings
-                          }
+                          <br></br>
                         </>)
                       })
                     }

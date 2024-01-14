@@ -163,10 +163,13 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onChange={async (value) => {
-            await axiosPutSingleValue<void>(`${URL}`, {
+            await (onSubmit? onSubmit({
               type: 'Boolean',
               value: value,
-            });
+            }) : axiosPutSingleValue<void>(`${URL}`, {
+              type: 'Boolean',
+              value: value,
+            }));
           }}
           description={description}
           descriptionFunc={descriptionFunc}
