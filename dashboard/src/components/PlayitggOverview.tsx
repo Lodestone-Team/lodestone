@@ -57,7 +57,7 @@ export function PlayitggOverview() {
 
   useEffect(() => {
     const status = queryClient.getQueryData<RunnerStatus>(["playitgg", "status"]);
-    setRunnerStatus(status === undefined ? RunnerStatus.Stopped : status);
+    setRunnerStatus(status === undefined ? runnerStatus : status);
   }, [notifications, queryClient])
 
   useEffect(() => {
