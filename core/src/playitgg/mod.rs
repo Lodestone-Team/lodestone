@@ -2,12 +2,10 @@ pub mod tcp_client;
 pub mod helper;
 pub mod utils;
 
-use std::process::Stdio;
 mod playit_secret;
 use std::sync::Mutex;
 use std::time::Duration;
-use tokio::process::Command;
-use toml::{Table, Value};
+use toml::Value;
 mod errors;
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, PlayitggRunnerEvent, PlayitggRunnerEventInner};
@@ -19,8 +17,8 @@ use color_eyre::eyre::eyre;
 use playit_agent_core::api::api::ApiError;
 use playit_agent_core::api::{
     api::{
-        AgentType, ClaimExchangeError, ClaimSetupResponse, PortType as PlayitPortType,
-        ReqClaimExchange, ReqClaimSetup, ReqTunnelsList, TunnelType,
+        AgentType, ClaimSetupResponse, PortType as PlayitPortType,
+        ReqClaimExchange, ReqClaimSetup, ReqTunnelsList,
     },
     PlayitApi,
 };
@@ -158,9 +156,9 @@ pub async fn cli_is_running(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<Json<bool>, Error> {
     if let Some(keep_running) = state.playit_keep_running.lock().await.clone() {
-        return Ok(Json(keep_running.load(Ordering::SeqCst)));
+        Ok(Json(keep_running.load(Ordering::SeqCst)))
     } else {
-        return Ok(Json(false));
+        Ok(Json(false))
     }
 }
 
@@ -174,7 +172,7 @@ pub async fn generate_signup_link(
         .map_err(|e| eyre!("Failed to generate signup url with error code {:?}", e))
         .unwrap();
     let signup_data = Json(PlayitSignupData {
-        url: url.clone(),
+        url,
         claim_code: claim_code.clone(),
     });
     let ret_data = signup_data.clone();
@@ -418,33 +416,23 @@ pub async fn get_tunnels(
                         server_address: assigned_domain.unwrap().to_string(),
                     });
                 }
-                return Ok(Json(res));
+                Ok(Json(res))
             } else {
-                return Err(Error {
+                Err(Error {
                     kind: ErrorKind::Internal,
                     source: eyre!("Got malformed response from Playit"),
-                });
+                })
             }
         } else {
-            return Err(Error {
+            Err(Error {
                 kind: ErrorKind::Internal,
                 source: eyre!("Got malformed response from Playit"),
-            });
+            })
         }
     } else {
-        return Err(Error {
+        Err(Error {
             kind: ErrorKind::Internal,
             source: eyre!("Couldn't connect to Playit"),
-        });
+        })
     }
-    //
-    // let tunnels = api
-    //     .tunnels_list_json(ReqTunnelsList {
-    //         tunnel_id: None,
-    //         agent_id: None,
-    //     })
-    //     .await
-    //     .map_err(|e| eyre!("Failed to get tunnels from playitgg with error {:?}", e))
-    //     .unwrap();
-    //
 }

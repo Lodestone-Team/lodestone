@@ -16,7 +16,7 @@ use playit_agent_core::tunnel::simple_tunnel::SimpleTunnel;
 use playit_agent_core::tunnel::udp_tunnel::UdpTunnelRx;
 use playit_agent_core::utils::now_milli;
 
-use crate::event_broadcaster::{self, EventBroadcaster};
+use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{CausedBy, Event, EventInner, PlayitggRunnerEvent, PlayitggRunnerEventInner};
 use crate::types::Snowflake;
 

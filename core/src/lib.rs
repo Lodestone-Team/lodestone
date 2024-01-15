@@ -40,7 +40,6 @@ use futures_util::TryFutureExt;
 use global_settings::GlobalSettings;
 use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
-use playitgg::helper::TunnelRunner;
 use playitgg::utils::is_valid_secret_key;
 use port_manager::PortManager;
 use prelude::GameInstance;
