@@ -120,7 +120,7 @@ pub async fn start_cli(
                 .replace(keep_runing.clone());
 
             tokio::spawn(async move {
-                runner.run(state.event_broadcaster.clone()).await;
+                runner.run(state.event_broadcaster.clone(), true).await;
             });
         } else {
             return Err(eyre!("Failed to create runner").into());
@@ -274,7 +274,7 @@ pub async fn generate_signup_link(
 
                 tokio::spawn(async move {
                     let signal = runner.keep_running();
-                    tokio::spawn(runner.run(state.event_broadcaster.clone()));
+                    tokio::spawn(runner.run(state.event_broadcaster.clone(), false));
                     loop {
                         let tunnels = api
                             .agents_rundata()

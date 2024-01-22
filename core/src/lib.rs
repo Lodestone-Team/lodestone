@@ -63,7 +63,6 @@ use tokio::{
     select,
     sync::{broadcast::error::RecvError, Mutex, RwLock},
 };
-use toml::Table;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,

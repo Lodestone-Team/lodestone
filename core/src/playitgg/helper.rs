@@ -1,10 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-use tracing::Instrument;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use playit_agent_core::api::api::{AgentTunnel, PortType};
 use playit_agent_core::network::address_lookup::{AddressLookup, AddressValue};
@@ -58,15 +56,17 @@ where
         self.keep_running.clone()
     }
 
-    pub async fn run(self, event_broadcaster: EventBroadcaster) {
-        event_broadcaster.clone().send(Event {
-            event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
-                playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerLoading,
-            }),
-            snowflake: Snowflake::default(),
-            details: "Starting runner".to_string(),
-            caused_by: CausedBy::System,
-        });
+    pub async fn run(self, event_broadcaster: EventBroadcaster, broadcast: bool) {
+        if broadcast {
+            event_broadcaster.clone().send(Event {
+                event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
+                    playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerLoading,
+                }),
+                snowflake: Snowflake::default(),
+                details: "Starting runner".to_string(),
+                caused_by: CausedBy::System,
+            });
+        }
 
         let mut tunnel = self.tunnel;
         let udp = tunnel.udp_tunnel();
@@ -91,7 +91,7 @@ where
 
                 if let Some(new_client) = tunnel.update().await {
                     let clients = self.tcp_clients.clone();
-                    let span = tracing::info_span!("tcp client", ?new_client);
+                    // let span = tracing::info_span!("tcp client", ?new_client);
 
                     let local_addr = match self.lookup.lookup(
                         new_client.connect_addr.ip(),
@@ -104,49 +104,46 @@ where
                             SocketAddr::new(addr.ip(), port_offset + addr.port())
                         }
                         None => {
-                            tracing::info!("could not find local address for connection");
+                            //  tracing::info!("could not find local address for connection");
                             continue;
                         }
                     };
-                    
+
                     let pipe_run = tunnel_run.clone();
-                    tokio::spawn(
-                        async move {
-                            let peer_addr = new_client.peer_addr;
+                    tokio::spawn(async move {
+                        let peer_addr = new_client.peer_addr;
 
-                            let tunnel_conn = match clients.connect(new_client.clone()).await {
-                                Ok(Some(client)) => client,
-                                Ok(None) => return,
-                                Err(error) => {
-                                    tracing::error!(?error, "failed to accept new client");
-                                    return;
-                                }
-                            };
+                        let tunnel_conn = match clients.connect(new_client.clone()).await {
+                            Ok(Some(client)) => client,
+                            Ok(None) => return,
+                            Err(error) => {
+                                tracing::error!(?error, "failed to accept new client");
+                                return;
+                            }
+                        };
 
-                            tracing::info!("connected to TCP tunnel");
+                        // tracing::info!("connected to TCP tunnel");
 
-                            let local_conn = match LanAddress::tcp_socket(
-                                self.tcp_clients.use_special_lan,
-                                peer_addr,
-                                local_addr,
-                            )
-                            .await
-                            {
-                                Ok(v) => v,
-                                Err(error) => {
-                                    tracing::error!(?error, "failed to connect to local server");
-                                    return;
-                                }
-                            };
+                        let local_conn = match LanAddress::tcp_socket(
+                            self.tcp_clients.use_special_lan,
+                            peer_addr,
+                            local_addr,
+                        )
+                        .await
+                        {
+                            Ok(v) => v,
+                            Err(error) => {
+                                tracing::error!(?error, "failed to connect to local server");
+                                return;
+                            }
+                        };
 
-                            let (tunnel_read, tunnel_write) = tunnel_conn.into_split();
-                            let (local_read, local_write) = local_conn.into_split();
+                        let (tunnel_read, tunnel_write) = tunnel_conn.into_split();
+                        let (local_read, local_write) = local_conn.into_split();
 
-                            tokio::spawn(pipe(tunnel_read, local_write, pipe_run.clone()));
-                            tokio::spawn(pipe(local_read, tunnel_write, pipe_run.clone()));
-                        }
-                        .instrument(span),
-                    );
+                        tokio::spawn(pipe(tunnel_read, local_write, pipe_run.clone()));
+                        tokio::spawn(pipe(local_read, tunnel_write, pipe_run.clone()));
+                    });
                 }
             }
             drop(tunnel);
@@ -191,15 +188,16 @@ where
                 }
             }
         });
-
-        event_broadcaster.send(Event {
-            event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
-                playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerStarted,
-            }),
-            snowflake: Snowflake::default(),
-            details: "Started".to_string(),
-            caused_by: CausedBy::System,
-        });
+        if broadcast {
+            event_broadcaster.send(Event {
+                event_inner: EventInner::PlayitggRunnerEvent(PlayitggRunnerEvent {
+                    playitgg_runner_event_inner: PlayitggRunnerEventInner::RunnerStarted,
+                }),
+                snowflake: Snowflake::default(),
+                details: "Started".to_string(),
+                caused_by: CausedBy::System,
+            });
+        }
 
         tunnel_task.await.unwrap();
         udp_task.await.unwrap();
@@ -369,10 +367,13 @@ pub async fn pipe<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     while keep_running.load(Ordering::SeqCst) {
         tokio::task::yield_now().await;
 
-        let received = match tokio::time::timeout(Duration::from_secs(200), from.read(&mut buffer[..])).await {
-            Ok(Ok(received)) => {
-                received
-            }
+        let received = match tokio::time::timeout(
+            Duration::from_secs(200),
+            from.read(&mut buffer[..]),
+        )
+        .await
+        {
+            Ok(Ok(received)) => received,
             Ok(Err(error)) => {
                 tracing::error!(?error, "failed to read data");
                 return Err(error);
@@ -381,7 +382,7 @@ pub async fn pipe<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         };
 
         if received == 0 {
-            tracing::info!("pipe ended due to EOF");
+            // tracing::info!("pipe ended due to EOF");
             break;
         }
 
@@ -393,4 +394,3 @@ pub async fn pipe<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 
     Ok(())
 }
-

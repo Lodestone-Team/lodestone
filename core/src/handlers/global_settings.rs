@@ -121,7 +121,7 @@ pub async fn change_core_playit_enabled(
     if !requester.is_owner {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
-            source: eyre!("Not authorized to change core safe mode"),
+            source: eyre!("Not authorized to change Playit Enabled status."),
         });
     }
 
