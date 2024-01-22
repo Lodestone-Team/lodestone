@@ -32,7 +32,7 @@ pub enum MinecraftVariant {
 }
 
 /// The type of game this instance is
-/// 
+///
 /// Meant to be consumed by frontend to display the correct icon
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, EnumKind)]
 #[enum_kind(GameType, derive(Serialize, Deserialize, TS))]

@@ -20,7 +20,8 @@ use crate::{
         instance_macro::get_instance_macro_routes, instance_players::get_instance_players_routes,
         instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
+        playitgg::get_playitgg_routes, setup::get_setup_route, system::get_system_routes,
+        users::get_user_routes,
     },
     util::rand_alphanumeric,
 };
@@ -36,9 +37,11 @@ use dashmap::DashMap;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
+use futures_util::TryFutureExt;
 use global_settings::GlobalSettings;
 use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
+use playitgg::utils::is_valid_secret_key;
 use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
@@ -47,6 +50,7 @@ use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 use fs3::FileExt;
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
+use std::sync::atomic::AtomicBool;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -83,6 +87,7 @@ pub mod implementations;
 pub mod macro_executor;
 mod migration;
 mod output_types;
+pub mod playitgg;
 mod port_manager;
 pub mod prelude;
 pub mod tauri_export;
@@ -105,9 +110,11 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
+    playitgg_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
+    playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
 }
 
 impl AppState {
@@ -469,6 +476,25 @@ pub async fn run(
     } else {
         None
     };
+
+    let playitgg_key = if let Ok(playitgg_file) =
+        tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await
+    {
+        let toml_data: toml::Table = toml::from_str(&playitgg_file).unwrap();
+        if let Some(res) = toml_data["secret_key"].as_str() {
+            if is_valid_secret_key(res.to_string()).await {
+                println!("Validated playitgg key...");
+                Some(res.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
@@ -494,8 +520,10 @@ pub async fn run(
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
+        playitgg_key: Arc::new(Mutex::new(playitgg_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
+        playit_keep_running: Arc::new(Mutex::new(None)),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -631,6 +659,7 @@ pub async fn run(
                     .merge(get_global_fs_routes(shared_state.clone()))
                     .merge(get_global_settings_routes(shared_state.clone()))
                     .merge(get_gateway_routes(shared_state.clone()))
+                    .merge(get_playitgg_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);

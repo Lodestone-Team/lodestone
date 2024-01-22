@@ -111,11 +111,35 @@ pub async fn change_domain(
     Ok(())
 }
 
+pub async fn change_core_playit_enabled(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    AuthBearer(token): AuthBearer,
+    Json(playit_enabled): Json<bool>,
+) -> Result<(), Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+
+    if !requester.is_owner {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Not authorized to change Playit Enabled status."),
+        });
+    }
+
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_playit_enabled(playit_enabled)
+        .await?;
+    Ok(())
+}
+
 pub fn get_global_settings_routes(state: AppState) -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
         .route("/global_settings/name", put(change_core_name))
         .route("/global_settings/safe_mode", put(change_core_safe_mode))
         .route("/global_settings/domain", put(change_domain))
+        .route("/global_settings/playit_enabled", put(change_core_playit_enabled))
         .with_state(state)
 }
