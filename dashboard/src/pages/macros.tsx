@@ -23,6 +23,62 @@ import { FieldFromManifest } from 'components/Instance/Create/FieldFromManifest'
 import { FormFromManifest } from 'components/Instance/Create/FormFromManifest';
 import SettingField from 'components/SettingField';
 import { SettingFieldObject, adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
+import { RunningCard } from 'components/Atoms/Label.stories';
+import { GetConfigResponse } from 'bindings/GetConfigResponse';
+import { InstanceInfo } from 'bindings/InstanceInfo';
+
+const MacroModalContents = ({
+  data,
+  selectedInstance,
+  row
+}: {
+  data: GetConfigResponse,
+  selectedInstance: InstanceInfo,
+  row: TableRow
+}) => {
+  const [macroData, setMacroData] = useState(data);
+  return (
+    <span>
+      {
+        Object.entries(macroData.config).map(([_, manifest], index) => {
+          return (<>
+            <SettingField 
+              key = {index} 
+              instance = {selectedInstance}
+              sectionId={`${selectedInstance.uuid}-${row.name}`}
+              settingId={manifest.setting_id}
+              setting={adaptSettingManifest(manifest)}
+              error = {null}
+              onSubmit={async (value) => {
+                const newSettings = macroData.config;
+                newSettings[`${manifest.name}`].value = value
+                const result = await storeMacroConfig(
+                  selectedInstance.uuid,
+                  row.name as string,
+                  newSettings
+                );
+                // get new settings
+                const updatedSettings = await getMacroConfig(
+                  selectedInstance.uuid,
+                  row.name as string
+                )
+                setMacroData(updatedSettings);
+              }}
+            />
+            <br></br>
+          </>)
+        })
+      }
+      {
+        macroData.error && 
+        <RunningCard color='red' size='small'>
+          {macroData.message}
+        </RunningCard>
+      }
+      
+    </span>
+  )
+}
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
@@ -102,39 +158,16 @@ const Macros = () => {
 
   const openMacroModal = async (row: TableRow) => {
     if (!selectedInstance) {
-      toast.error('Error running macro: No instance selected');
+      toast.error('Error opening macro config: No instance selected');
       return;
     }
     const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
-    setMacroConfigContents(
-      <span>
-        {
-          Object.entries(macroData.config).map(([_, manifest], index) => {
-            return (<>
-              <SettingField 
-                key = {index} 
-                instance = {selectedInstance}
-                sectionId={`${selectedInstance.uuid}-${row.name}`}
-                settingId={manifest.setting_id}
-                setting={adaptSettingManifest(manifest)}
-                error = {null}
-                onSubmit={async (value) => {
-                  const newSettings = macroData.config;
-                  newSettings[`${manifest.name}`].value = value
-                  const result = await storeMacroConfig(
-                    selectedInstance.uuid,
-                    row.name as string,
-                    newSettings
-                  );
-                  console.log({result})
-                }}
-              />
-              <br></br>
-            </>)
-          })
-        }
-      </span>
-    )
+
+    setMacroConfigContents(<MacroModalContents
+      data={macroData}
+      selectedInstance={selectedInstance}
+      row={row}
+    />)
     setShowMacroConfigModal(true)
   }
 
@@ -185,6 +218,7 @@ const Macros = () => {
                   []
                 );
                 if (result !== '') {
+                  toast.error(result)
                   await openMacroModal(row)
                   return;
                 }
