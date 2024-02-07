@@ -779,7 +779,7 @@ mod tests {
 
         assert_eq!(
             unzip_file(
-                &dest_path.join("test_dest_2.zip"),
+                dest_path.join("test_dest_2.zip"),
                 UnzipOption::ToDir(dest_path.join("unzipped"))
             )
             .unwrap(),

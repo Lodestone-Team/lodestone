@@ -963,7 +963,7 @@ mod tests {
     #[tokio::test]
     async fn basic_execution() {
         // init tracing
-        tracing_subscriber::fmt::try_init();
+        let _ = tracing_subscriber::fmt::try_init();
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor =
@@ -1005,7 +1005,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_url() {
-        tracing_subscriber::fmt::try_init();
+        let _ = tracing_subscriber::fmt::try_init();
 
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
@@ -1222,6 +1222,6 @@ mod deno_errors {
                 e.downcast_ref::<ResolutionError>()
                     .map(get_resolution_error_class)
             })
-            .unwrap_or_else(|| "Error")
+            .unwrap_or("Error")
     }
 }

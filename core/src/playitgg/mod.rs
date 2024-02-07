@@ -360,8 +360,7 @@ pub async fn get_tunnels(
 
             if let Some(tunnels) = tunnels {
                 let mut res: Vec<PlayitTunnelInfo> = vec![];
-                for i in 0..tunnels.len() {
-                    let tunnel = &tunnels[i];
+                for tunnel in tunnels {
                     let id_value = tunnel.get("id");
                     let name_value = tunnel.get("name");
                     let active_value = tunnel.get("active");
