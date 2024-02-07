@@ -219,6 +219,7 @@ impl ModuleLoader for TypescriptModuleLoader {
 pub struct MacroExecutor {
     macro_process_table: Arc<DashMap<MacroPID, deno_core::v8::IsolateHandle>>,
     exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
+    #[allow(dead_code)]
     channel_table:
         Arc<DashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>,
     event_broadcaster: EventBroadcaster,

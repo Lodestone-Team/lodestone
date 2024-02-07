@@ -203,6 +203,7 @@ pub(super) enum InstanceSetting {
     ServerProperty(ServerPropertySetting),
 }
 
+#[allow(dead_code)]
 impl InstanceSetting {
     pub fn get_identifier(&self) -> String {
         match self {
@@ -1879,7 +1880,7 @@ impl ServerPropertySetting {
             _ => Ok(Self::Unknown(key.to_string(), value.to_string())),
         }
     }
-
+    #[allow(dead_code)]
     pub fn to_line(&self) -> String {
         match self {
             Self::EnableJmxMonitoring(v) => format!("{}={}", self.get_identifier(), v),

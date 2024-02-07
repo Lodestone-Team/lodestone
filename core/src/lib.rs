@@ -37,7 +37,6 @@ use dashmap::DashMap;
 use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
-use futures_util::TryFutureExt;
 use global_settings::GlobalSettings;
 use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
