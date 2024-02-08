@@ -284,6 +284,7 @@ impl MacroExecutor {
         args: Vec<String>,
         _caused_by: CausedBy,
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
+        pre_injection_code: Option<String>,
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
     ) -> Result<SpawnResult, Error> {
@@ -347,6 +348,15 @@ impl MacroExecutor {
                                 ),
                             )
                             .unwrap();
+
+                        if let Some(config_code) = pre_injection_code {
+                            main_worker
+                                .execute_script(
+                                    "config_inject",
+                                    ModuleCode::from(config_code),
+                                )
+                                .unwrap();
+                        }
 
                         let isolate_handle =
                             main_worker.js_runtime.v8_isolate().thread_safe_handle();
@@ -1018,6 +1028,7 @@ mod tests {
                 Box::new(basic_worker_generator),
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -1057,6 +1068,7 @@ mod tests {
                 Vec::new(),
                 CausedBy::Unknown,
                 Box::new(basic_worker_generator),
+                None,
                 None,
                 None,
             )
