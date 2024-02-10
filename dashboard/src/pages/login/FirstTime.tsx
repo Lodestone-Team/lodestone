@@ -15,10 +15,13 @@ const FirstTime = () => {
   const [tauriIsSetup, setTauriIsSetup] = useState(false);
 
   useEffectOnce(() => {
-    if (coreList.length > 0) {
-      setPathname('/login/core/select');
-      return;
-    }
+    
+    // if (coreList.length > 0) {
+    //   console.log({coreList})
+    //   setPathname('/login/core/select');
+    //   console.log("redirecting to /login/core/select")
+    //   return;
+    // }
     if (!tauri) return;
     tauri
       .invoke<string | null>('is_setup')
@@ -27,7 +30,7 @@ const FirstTime = () => {
         setCore(DEFAULT_LOCAL_CORE);
         setTauriIsSetup(is_setup === 'true');
       })
-      .catch((err: any) => {
+      .catch((err: Error) => {
         console.error('Tauri call failed is_setup', err);
       });
   });
@@ -95,7 +98,7 @@ const FirstTime = () => {
             <Button
               label="Connect to existing Core"
               onClick={() => setPathname('/login/core/new')}
-              intention="primary"
+              intention="info"
               size="large"
               className="whitespace-nowrap"
             />
@@ -109,13 +112,26 @@ const FirstTime = () => {
             className="whitespace-nowrap"
           />
         ) : (
-          <Button
-            label="Setup Lodestone Core"
-            onClick={() => setPathname('/login/core/first_setup')}
-            intention="primary"
-            size="large"
-            className="whitespace-nowrap"
-          />
+          <>
+            <Button
+              label="Use local core"
+              onClick={() => setPathname('/login/core/first_setup')}
+              intention="primary"
+              size="large"
+              className="whitespace-nowrap"
+            />
+            <Button
+              label="Connect to existing core"
+              onClick = {() => {
+                setPathname('/login/core/select')
+              }}
+              intention = 'primary'
+              size = "large"
+              className="whitespace-nowrap"
+            />
+          
+          </>
+          
         )}
       </div>
     </div>

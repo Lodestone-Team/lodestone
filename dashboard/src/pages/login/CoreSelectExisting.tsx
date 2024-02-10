@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
 import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
@@ -11,12 +11,14 @@ import {
   faClone,
   faDownload,
   faPlus,
+  faScrewdriverWrench
 } from '@fortawesome/free-solid-svg-icons';
 import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import { tauri } from 'utils/tauriUtil';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -41,17 +43,16 @@ const CoreSelectExisting = () => {
     core,
   };
 
-  const onSubmit = (
-    values: SelectCoreValue,
-    actions: FormikHelpers<SelectCoreValue>
-  ) => {
-    const { core } = values;
-    // check if core can be reached
+  const configureCore = (
+    core: CoreConnectionInfo, 
+    onComplete?: (res: AxiosResponse) => void,
+    onError?: (res: AxiosResponse) => void
+    ) => {
     axios
       .get<CoreInfo>(`/info`, {
         baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
       })
-      .then((res) => {
+      .then(res => {
         if (res.status !== 200)
           throw new Error('Invalid response, setup may be invalid');
         setCore(core);
@@ -60,14 +61,31 @@ const CoreSelectExisting = () => {
         } else {
           setPathname('/login/user/select');
         }
-        actions.setSubmitting(false);
+        return res
       })
-      .catch((err) => {
-        const errorMessages = errorToString(err);
+      .then(res => {
+        (onComplete && typeof onComplete === "function")? onComplete(res) : null
+      })
+      .catch(err => {
+        (onError && typeof onError === "function")? onError(err) : null
+      })
+
+  }
+
+  const onSubmit = (
+    values: SelectCoreValue,
+    actions: FormikHelpers<SelectCoreValue>
+  ) => {
+    const { core } = values;
+    // check if core can be reached
+    configureCore(core, () => {
+      actions.setSubmitting(false)
+    }, (err) => {
+      const errorMessages = errorToString(err);
         actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
         return;
-      });
+    })
   };
 
   return (
@@ -133,6 +151,23 @@ const CoreSelectExisting = () => {
                   );
                 }}
               />
+              {
+                tauri && <Button
+                type="button"
+                iconRight={faScrewdriverWrench}
+                label="Use local Core"
+                onClick={() => {
+                  const core = {
+                    protocol: 'http',
+                    address: 'localhost',
+                    port: '16662',
+                    apiVersion: 'v1'
+                  }
+                  configureCore(core)
+                }}
+              />
+              }
+              
               <Button
                 type="submit"
                 intention="primary"
