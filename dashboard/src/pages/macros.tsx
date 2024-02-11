@@ -52,17 +52,19 @@ const MacroModalContents = ({
               onSubmit={async (value) => {
                 const newSettings = macroData.config;
                 newSettings[`${manifest.name}`].value = value
-                const result = await storeMacroConfig(
+                await storeMacroConfig(
                   selectedInstance.uuid,
                   row.name as string,
                   newSettings
                 );
+                macroData.error = null;
+
                 // get new settings
-                const updatedSettings = await getMacroConfig(
-                  selectedInstance.uuid,
-                  row.name as string
-                )
-                setMacroData(updatedSettings);
+                // const updatedSettings = await getMacroConfig(
+                //   selectedInstance.uuid,
+                //   row.name as string
+                // )
+                // setMacroData(updatedSettings);
               }}
             />
             <br></br>
