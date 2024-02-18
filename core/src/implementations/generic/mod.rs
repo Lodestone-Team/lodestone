@@ -136,6 +136,7 @@ impl GenericInstance {
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
+                None,
                 Some(dot_lodestone_config.uuid().clone()),
             )
             .await?;
@@ -179,6 +180,7 @@ impl GenericInstance {
                 Vec::new(),
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
+                None,
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
             )
@@ -238,6 +240,7 @@ impl GenericInstance {
                 Box::new(InitWorkerGenerator {
                     bridge: procedure_bridge.clone(),
                 }),
+                None,
                 None,
                 None,
             )
