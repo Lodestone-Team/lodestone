@@ -347,6 +347,7 @@ const Macros = () => {
         setShowMacroConfigModal(false)
       }}
       confirmButtonText='Close'
+      closeButtonText='Close'
       >
         {macroConfigContents}
       </ConfirmDialog>
