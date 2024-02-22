@@ -329,6 +329,7 @@ impl SettingManifest {
             is_mutable,
         }
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn new_optional_value(
         setting_id: String,
         name: String,
@@ -357,6 +358,7 @@ impl SettingManifest {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_value_with_type(
         setting_id: String,
         name: String,

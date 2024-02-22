@@ -9,6 +9,9 @@ import InstanceCard from 'components/InstanceCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpand } from '@fortawesome/free-solid-svg-icons';
 import { tabs } from 'pages/InstanceTabs/InstanceTabs';
+import { useQueryClient } from '@tanstack/react-query';
+import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
+import { useGlobalSettings } from 'data/GlobalSettings';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -26,6 +29,7 @@ export const SelectedInstanceInfo = ({
   const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const { setPathname } = useContext(BrowserLocationContext);
   const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
+  const { data: globalSettings } = useGlobalSettings();
 
   useEffect(() => {
     if (!isReady) return;
@@ -36,7 +40,6 @@ export const SelectedInstanceInfo = ({
       Object.keys(instances).length
     );
   }, [isReady, instances]);
-
 
   const uuid = selectedInstance?.uuid;
   if (!selectedInstance || !uuid) {
@@ -61,7 +64,7 @@ export const SelectedInstanceInfo = ({
 
   return (
     <RadioGroup
-      className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
+      className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
       onChange={setPathname}
     >
       <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
@@ -72,6 +75,7 @@ export const SelectedInstanceInfo = ({
 
       {selectedInstance &&
         tabs.map((tab) => (
+          (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
           <RadioGroup.Option
             key={tab.path}
             value={`/dashboard/${tab.path}`}
@@ -80,7 +84,7 @@ export const SelectedInstanceInfo = ({
             <button
               className={clsx(
                 'flex flex-row items-center gap-x-1.5',
-                'cursor-pointer rounded-md py-1 px-2',
+                'cursor-pointer rounded-md px-2 py-1',
                 'text-medium font-medium leading-5 tracking-normal',
                 'hover:bg-gray-800',
                 'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',

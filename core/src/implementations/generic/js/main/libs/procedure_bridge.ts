@@ -175,7 +175,9 @@ async function tServerHandle(procedure: ProcedureCall, instance: AtomInstance) {
         } else if (inner.type === "KillInstance") {
             instance.kill(inner.caused_by);
         } else if (inner.type === "GetState") {
-            await instance.state();
+            ret = {
+                State: await instance.state()
+            };
         } else if (procedure.inner.type === "SendCommand") {
             await instance.sendCommand(procedure.inner.command, procedure.inner.caused_by)
         } else if (procedure.inner.type === "Monitor") {

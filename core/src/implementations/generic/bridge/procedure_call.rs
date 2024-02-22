@@ -11,7 +11,7 @@ use deno_core::{anyhow, op, OpState};
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::{debug, error};
+use tracing::error;
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
@@ -334,7 +334,6 @@ impl From<ErrorIR> for Error {
 pub struct ProcedureCallResultIR {
     id: u64,
     success: bool,
-    procedure_call_kind: ProcedureCallKind,
     /// MUST be None if success is false
     /// MUST be Some if success is true
     inner: Option<ProcedureCallResultInner>,
@@ -369,6 +368,7 @@ fn emit_result(
     result: ProcedureCallResultIR,
 ) -> Result<(), anyhow::Error> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
+    let _rx = bridge.procedure_result_tx.subscribe();
     bridge
         .procedure_result_tx
         .send(result)
@@ -389,10 +389,7 @@ pub struct ProcedureBridge {
 impl ProcedureBridge {
     pub fn new() -> Self {
         let (procedure_tx, procedure_rx) = tokio::sync::broadcast::channel(256);
-        let (procedure_result_tx, mut procedure_result_rx) = tokio::sync::broadcast::channel(256);
-
-        // keep the procedure_result_rx alive
-       std::mem::forget(procedure_result_rx);
+        let (procedure_result_tx, _) = tokio::sync::broadcast::channel(256);
 
         Self {
             ready: Arc::new(AtomicBool::new(false)),

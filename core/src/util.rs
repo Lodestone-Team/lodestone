@@ -22,9 +22,8 @@ pub struct Authentication {
     password: String,
 }
 
-use crate::error::{Error, ErrorKind};
-use crate::prelude::{path_to_tmp, lodestone_path};
-use crate::types::LodestoneMetadata;
+use crate::error::Error;
+use crate::prelude::path_to_tmp;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SetupProgress {
@@ -780,7 +779,7 @@ mod tests {
 
         assert_eq!(
             unzip_file(
-                &dest_path.join("test_dest_2.zip"),
+                dest_path.join("test_dest_2.zip"),
                 UnzipOption::ToDir(dest_path.join("unzipped"))
             )
             .unwrap(),

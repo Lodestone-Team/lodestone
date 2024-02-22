@@ -245,6 +245,7 @@ impl User {
             }
             // TODO!,
             EventInner::ProgressionEvent(_progression_event) => true,
+            EventInner::PlayitggRunnerEvent(_playitgg_runner_event) => true,
         }
     }
 
