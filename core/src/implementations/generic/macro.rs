@@ -2,10 +2,12 @@ use std::rc::Rc;
 
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
+use indexmap::IndexMap;
 
 use crate::error::{Error, ErrorKind};
 use crate::events::CausedBy;
 use crate::macro_executor::{self, WorkerOptionGenerator};
+use crate::traits::t_configurable::manifest::SettingLocalCache;
 use crate::traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry};
 
 use super::bridge::procedure_call::{
@@ -67,6 +69,7 @@ impl TMacro for GenericInstance {
         &self,
         _name: &str,
         _args: Vec<String>,
+        _configs: Option<IndexMap<String, SettingLocalCache>>,
         _caused_by: CausedBy,
     ) -> Result<TaskEntry, Error> {
         Err(Error {

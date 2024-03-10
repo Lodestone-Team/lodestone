@@ -1,7 +1,9 @@
+import { faV } from '@fortawesome/free-solid-svg-icons';
 import { ConfigurableManifest } from 'bindings/ConfigurableManifest';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
 import { ConfigurableValueType } from 'bindings/ConfigurableValueType';
 import { SectionManifest } from 'bindings/SectionManifest';
+import { SettingManifest } from 'bindings/SettingManifest';
 
 export type SectionFieldObject = {
   section_id: string;
@@ -21,28 +23,28 @@ export type SettingFieldObject = {
   is_mutable: boolean;
 };
 
-export const generateSectionDataObject = (settingSection: SectionManifest) => {
-  const getFieldType = (
-    value_type: ConfigurableValueType,
-    is_secret: boolean
-  ) => {
-    switch (value_type.type) {
-      case 'Boolean':
-        return 'toggle';
-      case 'UnsignedInteger':
-        return 'number';
-      case 'Float':
-        return 'text';
-      case 'Integer':
-        return 'number';
-      case 'String':
-        if (is_secret) return 'password';
-        else return 'text';
-      case 'Enum':
-        return 'dropdown';
-    }
-  };
+const getFieldType = (
+  value_type: ConfigurableValueType,
+  is_secret: boolean
+) => {
+  switch (value_type.type) {
+    case 'Boolean':
+      return 'toggle';
+    case 'UnsignedInteger':
+      return 'number';
+    case 'Float':
+      return 'text';
+    case 'Integer':
+      return 'number';
+    case 'String':
+      if (is_secret) return 'password';
+      else return 'text';
+    case 'Enum':
+      return 'dropdown';
+  }
+};
 
+export const generateSectionDataObject = (settingSection: SectionManifest) => {
   const settingsObject: Record<string, SettingFieldObject> = {};
   Object.keys(settingSection.settings).forEach((settingKey) => {
     const setting = settingSection.settings[settingKey];
@@ -83,3 +85,25 @@ export const iterateSections = (manifest: ConfigurableManifest) => {
   });
   return fieldSections;
 };
+
+export const adaptSettingManifest = (manifest: SettingManifest) => {
+  const settingObject: SettingFieldObject = {
+    name: manifest.name,
+    type: getFieldType(manifest.value_type, manifest.is_secret),
+    value: manifest.value,
+    description :manifest.description,
+    is_mutable: manifest.is_mutable
+  }
+
+  if (manifest.value_type.type == 'Enum') {
+    settingObject.options = manifest.value_type.options
+  }
+
+  if (manifest.value_type.type === "UnsignedInteger" ||
+      manifest.value_type.type === "Integer" ||
+      manifest.value_type.type === "Float") {
+      settingObject.min = manifest.value_type.min;
+      settingObject.max = manifest.value_type.max;
+  }
+  return settingObject;
+}
