@@ -108,6 +108,7 @@ use crate::AppState;
 #[enum_dispatch::enum_dispatch(
     TInstance,
     TConfigurable,
+    TComponent,
     TMacro,
     TPlayerManagement,
     TResourceManagement,

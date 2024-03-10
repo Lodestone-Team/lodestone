@@ -27,6 +27,7 @@ use crate::{
 use std::io::Write;
 
 mod bridge;
+pub mod component;
 pub mod configurable;
 mod r#macro;
 pub mod player;
@@ -92,7 +93,7 @@ impl GenericInstance {
         path: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         setup_value: SetupValue,
-        progression_event_id : &ProgressionEventID,
+        progression_event_id: &ProgressionEventID,
         event_broadcaster: EventBroadcaster,
         core_macro_executor: MacroExecutor,
     ) -> Result<Self, Error> {
@@ -144,7 +145,7 @@ impl GenericInstance {
             .call(ProcedureCallInner::SetupInstance {
                 dot_lodestone_config: dot_lodestone_config.clone(),
                 setup_value,
-                progression_event_id : progression_event_id.inner(),
+                progression_event_id: progression_event_id.inner(),
                 path: path.clone(),
             })
             .await?;

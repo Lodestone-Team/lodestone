@@ -10,10 +10,11 @@ use self::t_configurable::Game;
 use self::t_player::Player;
 use self::t_server::State;
 use self::{
-    t_configurable::TConfigurable, t_macro::TMacro, t_player::TPlayerManagement,
-    t_resource::TResourceManagement, t_server::TServer,
+    t_component::TComponent, t_configurable::TConfigurable, t_macro::TMacro,
+    t_player::TPlayerManagement, t_resource::TResourceManagement, t_server::TServer,
 };
 
+pub mod t_component;
 pub mod t_configurable;
 pub mod t_macro;
 pub mod t_player;
@@ -45,7 +46,7 @@ use crate::types::InstanceUuid;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
 pub trait TInstance:
-    TConfigurable + TMacro + TPlayerManagement + TResourceManagement + TServer + Clone
+    TConfigurable + TComponent + TMacro + TPlayerManagement + TResourceManagement + TServer + Clone
 {
     async fn get_instance_info(&self) -> InstanceInfo {
         InstanceInfo {

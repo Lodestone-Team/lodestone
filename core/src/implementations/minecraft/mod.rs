@@ -1,3 +1,4 @@
+pub mod r#component;
 pub mod configurable;
 pub mod fabric;
 mod forge;
