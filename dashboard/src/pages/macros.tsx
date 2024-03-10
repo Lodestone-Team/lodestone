@@ -1,6 +1,6 @@
 import { useDocumentTitle } from 'usehooks-ts';
 import { Table, TableColumn, TableRow } from 'components/Table';
-import { faPlayCircle, faSkull } from '@fortawesome/free-solid-svg-icons';
+import { faPlayCircle, faSkull, faGear } from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
   getMacros,
@@ -8,6 +8,8 @@ import {
   getInstanceHistory,
   createTask,
   killTask,
+  getMacroConfig,
+  storeMacroConfig,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext, useEffect, useState, useMemo } from 'react';
@@ -15,6 +17,70 @@ import { MacroEntry } from 'bindings/MacroEntry';
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
+import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { ReactNode } from 'react';
+import { FieldFromManifest } from 'components/Instance/Create/FieldFromManifest';
+import { FormFromManifest } from 'components/Instance/Create/FormFromManifest';
+import SettingField from 'components/SettingField';
+import { SettingFieldObject, adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
+import { RunningCard } from 'components/Atoms/Label.stories';
+import { GetConfigResponse } from 'bindings/GetConfigResponse';
+import { InstanceInfo } from 'bindings/InstanceInfo';
+
+const MacroModalContents = ({
+  data,
+  selectedInstance,
+  row
+}: {
+  data: GetConfigResponse,
+  selectedInstance: InstanceInfo,
+  row: TableRow
+}) => {
+  const [macroData, setMacroData] = useState(data);
+  return (
+    <span>
+      {
+        Object.entries(macroData.config).map(([_, manifest], index) => {
+          return (<>
+            <SettingField 
+              key = {index} 
+              instance = {selectedInstance}
+              sectionId={`${selectedInstance.uuid}-${row.name}`}
+              settingId={manifest.setting_id}
+              setting={adaptSettingManifest(manifest)}
+              error = {null}
+              onSubmit={async (value) => {
+                const newSettings = macroData.config;
+                newSettings[`${manifest.name}`].value = value
+                await storeMacroConfig(
+                  selectedInstance.uuid,
+                  row.name as string,
+                  newSettings
+                );
+                macroData.error = null;
+
+                // get new settings
+                // const updatedSettings = await getMacroConfig(
+                //   selectedInstance.uuid,
+                //   row.name as string
+                // )
+                // setMacroData(updatedSettings);
+              }}
+            />
+            <br></br>
+          </>)
+        })
+      }
+      {
+        macroData.error && 
+        <RunningCard color='red' size='small'>
+          {macroData.message}
+        </RunningCard>
+      }
+      
+    </span>
+  )
+}
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
@@ -23,6 +89,8 @@ const Macros = () => {
   const [macros, setMacros] = useState<TableRow[]>([]);
   const [tasks, setTasks] = useState<TableRow[]>([]);
   const [history, setHistory] = useState<TableRow[]>([]);
+  const [ showMacroConfigModal, setShowMacroConfigModal ] = useState(false);
+  const [macroConfigContents, setMacroConfigContents] = useState<ReactNode>(null);
 
   const unixToFormattedTime = (unix: string | undefined) => {
     if (!unix) return 'N/A';
@@ -90,6 +158,21 @@ const Macros = () => {
     );
   };
 
+  const openMacroModal = async (row: TableRow) => {
+    if (!selectedInstance) {
+      toast.error('Error opening macro config: No instance selected');
+      return;
+    }
+    const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
+
+    setMacroConfigContents(<MacroModalContents
+      data={macroData}
+      selectedInstance={selectedInstance}
+      row={row}
+    />)
+    setShowMacroConfigModal(true)
+  }
+
   useEffect(() => {
     if (!selectedInstance) return;
 
@@ -130,12 +213,17 @@ const Macros = () => {
                   toast.error('Error running macro: No instance selected');
                   return;
                 }
-                await createTask(
+                const result = await createTask(
                   queryClient,
                   selectedInstance.uuid,
                   row.name as string,
                   []
                 );
+                if (result !== '') {
+                  toast.error(result)
+                  await openMacroModal(row)
+                  return;
+                }
                 const newMacros = macros.map((macro) => {
                   if (macro.name !== row.name) {
                     return macro;
@@ -150,6 +238,14 @@ const Macros = () => {
                 fetchTasks(selectedInstance.uuid);
               },
             },
+            {
+              label: 'Edit Config',
+              icon: faGear,
+              variant: 'text',
+              intention: 'info',
+              disabled: false,
+              onClick: openMacroModal
+            }
           ],
         },
       },
@@ -241,6 +337,21 @@ const Macros = () => {
           onClick={() => setShowCreateMacro(true)}
         />
       </div> */}
+      {
+      showMacroConfigModal && 
+      <ConfirmDialog
+      title = "Macro Config"
+      type = "info"
+      isOpen = {showMacroConfigModal}
+      onClose = {() => {
+        setShowMacroConfigModal(false)
+      }}
+      confirmButtonText='Close'
+      closeButtonText='Close'
+      >
+        {macroConfigContents}
+      </ConfirmDialog>
+      }
       <div className="mt-[-3rem] mb-4">All macros for your instance</div>
       <div className="flex flex-row justify-start border-b border-gray-400">
         {pages.map((page) => (

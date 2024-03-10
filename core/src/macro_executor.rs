@@ -284,7 +284,7 @@ impl MacroExecutor {
         args: Vec<String>,
         _caused_by: CausedBy,
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
-        config_code: Option<String>,
+        pre_injection_code: Option<String>,
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
     ) -> Result<SpawnResult, Error> {
@@ -349,11 +349,11 @@ impl MacroExecutor {
                             )
                             .unwrap();
 
-                        if let Some(configs) = config_code {
+                        if let Some(config_code) = pre_injection_code {
                             main_worker
                                 .execute_script(
-                                "config_inject",
-                                ModuleCode::from(configs),
+                                    "config_inject",
+                                    ModuleCode::from(config_code),
                                 )
                                 .unwrap();
                         }

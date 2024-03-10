@@ -153,7 +153,7 @@ impl TMacro for MinecraftInstance {
 
                 Some(code_string)
             },
-            None => None
+            None => None,
         };
 
         let SpawnResult { macro_pid: pid, .. } = self
