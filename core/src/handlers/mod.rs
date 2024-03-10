@@ -18,4 +18,5 @@ pub mod monitor;
 pub mod setup;
 pub mod system;
 pub mod users;
+pub mod playitgg;
 mod util;

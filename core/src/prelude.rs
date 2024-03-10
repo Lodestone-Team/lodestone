@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use std::path::PathBuf;
 
 use once_cell::sync::OnceCell;
-use semver::{BuildMetadata, Prerelease};
 
 static LODESTONE_PATH: OnceCell<PathBuf> = OnceCell::new();
 

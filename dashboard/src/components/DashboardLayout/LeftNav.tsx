@@ -9,6 +9,8 @@ import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
+import IntegrationsList from './IntegrationsList';
+import { PlayitggOverview } from 'components/PlayitggOverview';
 export default function LeftNav({ className }: { className?: string }) {
   const { showCreateInstance, setShowCreateInstance } =
     useContext(InstanceContext);

@@ -30,9 +30,9 @@ mod bridge;
 pub mod configurable;
 mod r#macro;
 pub mod player;
-pub mod resource;
 pub mod server;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct GenericInstance {
     dot_lodestone_config: DotLodestoneConfig,
