@@ -1,11 +1,11 @@
 name: Dashboard - Test Frontend
 
 on: 
-  push
-  branches:
-      - main
-      - dev
-      - feature/*
+  push:
+    branches:
+        - main
+        - dev
+        - feature/*
 
 jobs:
   dashboard-test-frontend:
