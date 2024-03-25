@@ -27,6 +27,10 @@ jobs:
         working-directory: ./dashboard
 
       - name: Test dashboard
-        run: npm run test --if-present
+        env:
+          DD_CIVISIBILITY_AGENTLESS_ENABLED: true
+          DD_API_KEY: ded78d01eb647268cd23586ac415bae6
+          DD_SITE: us5.datadoghq.com
+        run: NODE_OPTIONS="-r dd-trace/ci/init" DD_ENV=ci DD_SERVICE=jest-tests npm test
         working-directory: ./dashboard
 
