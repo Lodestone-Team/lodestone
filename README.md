@@ -9,6 +9,8 @@
 
 A free, open source server hosting tool for Minecraft and other multiplayers
 
+A free, open source server hosting tool for Minecraft and other multiplayers
+
 🔗 Get Started: [https://www.lodestone.cc/](https://www.lodestone.cc/)
 
 ## Features and roadmap
