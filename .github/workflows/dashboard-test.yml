@@ -29,7 +29,7 @@ jobs:
       - name: Test dashboard
         env:
           DD_CIVISIBILITY_AGENTLESS_ENABLED: true
-          DD_API_KEY: ded78d01eb647268cd23586ac415bae6
+          DD_API_KEY: ${{ secrets.DATADOG_TEST_API_KEY }}
           DD_SITE: us5.datadoghq.com
         run: NODE_OPTIONS="-r dd-trace/ci/init" DD_ENV=ci DD_SERVICE=jest-tests npm test
         working-directory: ./dashboard
