@@ -119,7 +119,7 @@ async fn list_files(
             source: eyre!("Token error"),
         })?;
 
-    requester.try_action(&UserAction::ReadGlobalFile)?;
+    requester.try_action(&UserAction::ReadGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
     let caused_by = CausedBy::User {
@@ -158,7 +158,7 @@ async fn read_file(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::ReadGlobalFile)?;
+    requester.try_action(&UserAction::ReadGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
     let ret = tokio::fs::read_to_string(&path).await.context(
@@ -195,7 +195,7 @@ async fn write_file(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -231,7 +231,7 @@ async fn make_directory(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
     tokio::fs::create_dir(&path).await.context(format!(
@@ -271,7 +271,7 @@ async fn move_file(
             source: eyre!("Token error"),
         })?;
 
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     crate::util::fs::rename(&path_source, &path_dest).await?;
 
@@ -306,7 +306,7 @@ async fn remove_file(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -341,7 +341,7 @@ async fn remove_dir(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -377,7 +377,7 @@ async fn new_file(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -413,7 +413,7 @@ async fn download_file(
             kind: ErrorKind::Unauthorized,
             source: eyre!("Token error"),
         })?;
-    requester.try_action(&UserAction::ReadGlobalFile)?;
+    requester.try_action(&UserAction::ReadGlobalFile, state.global_settings.lock().await.safe_mode())?;
     let path = PathBuf::from(absolute_path);
     let downloadable_file_path: PathBuf;
     let downloadable_file = if fs::metadata(path.clone()).unwrap().is_dir() {
@@ -468,7 +468,7 @@ async fn upload_file(
             source: eyre!("Token error"),
         })?;
 
-    requester.try_action(&UserAction::WriteGlobalFile)?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.global_settings.lock().await.safe_mode())?;
 
     let path_to_dir = PathBuf::from(absolute_path);
 

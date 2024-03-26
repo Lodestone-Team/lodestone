@@ -76,7 +76,7 @@ async fn list_instance_files(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
 
-    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -118,7 +118,7 @@ async fn read_instance_file(
 ) -> Result<String, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -150,7 +150,7 @@ async fn write_instance_file(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -191,7 +191,7 @@ async fn make_instance_directory(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -231,7 +231,7 @@ async fn copy_instance_files(
     }): Json<CopyInstanceFileRequest>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -374,7 +374,7 @@ async fn move_instance_file(
     let relative_path_source = decode_base64(&base64_relative_path_source)?;
     let relative_path_dest = decode_base64(&base64_relative_path_dest)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -441,7 +441,7 @@ async fn remove_instance_file(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -478,7 +478,7 @@ async fn remove_instance_dir(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -540,7 +540,7 @@ async fn new_instance_file(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -577,7 +577,7 @@ async fn get_instance_file_url(
 ) -> Result<String, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -659,7 +659,7 @@ async fn upload_instance_file(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -795,7 +795,7 @@ pub async fn unzip_instance_file(
 ) -> Result<Json<()>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -868,7 +868,7 @@ async fn zip_instance_files(
     Json(zip_request): Json<ZipRequest>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()), state.global_settings.lock().await.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
