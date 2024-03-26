@@ -7,5 +7,5 @@
 [profile.release]
 strip = true
 opt-level= "s"
-lto = "thin"
+lto = true
 codegen-units = 1
