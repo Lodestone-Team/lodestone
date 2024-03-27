@@ -7,12 +7,18 @@ on:
       - releases/**
 
 jobs:
+  sonarqube-scan:
+    uses: ./.github/workflows/sonarqube-scan.yml
+    secrets: inherit
+
   workspace-check:
     uses: ./.github/workflows/workspace-check.yml
+    needs: [sonarqube-scan]
     secrets: inherit
 
   core-cargo-test:
     uses: ./.github/workflows/core-cargo-test.yml
+    needs: [workspace-check]
     secrets: inherit
 
   dashboard-build-and-draft:
