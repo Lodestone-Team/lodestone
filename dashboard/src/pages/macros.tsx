@@ -241,7 +241,7 @@ const Macros = () => {
           onClick={() => setShowCreateMacro(true)}
         />
       </div> */}
-      <div className="mt-[-3rem] mb-4">All macros for your instance</div>
+      <div className="mb-4">All macros for your instance</div>
       <div className="flex flex-row justify-start border-b border-gray-400">
         {pages.map((page) => (
           <button
