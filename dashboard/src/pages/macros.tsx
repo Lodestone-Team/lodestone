@@ -26,6 +26,7 @@ import { SettingFieldObject, adaptSettingManifest } from 'components/Instance/In
 import { RunningCard } from 'components/Atoms/Label.stories';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
+import TextCaption from 'components/Atoms/TextCaption';
 
 const MacroModalContents = ({
   data,
@@ -59,12 +60,6 @@ const MacroModalContents = ({
                 );
                 macroData.error = null;
 
-                // get new settings
-                // const updatedSettings = await getMacroConfig(
-                //   selectedInstance.uuid,
-                //   row.name as string
-                // )
-                // setMacroData(updatedSettings);
               }}
             />
             <br></br>
@@ -72,10 +67,9 @@ const MacroModalContents = ({
         })
       }
       {
-        macroData.error && 
-        <RunningCard color='red' size='small'>
-          {macroData.message}
-        </RunningCard>
+        macroData.error &&
+        
+        <TextCaption text = {macroData.message || ''} className = 'text-small text-red-300 whitespace-pre-wrap'/>
       }
       
     </span>
