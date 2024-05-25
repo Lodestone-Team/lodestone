@@ -19,16 +19,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { ReactNode } from 'react';
-import { FieldFromManifest } from 'components/Instance/Create/FieldFromManifest';
-import { FormFromManifest } from 'components/Instance/Create/FormFromManifest';
 import SettingField from 'components/SettingField';
-import { SettingFieldObject, adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
-import { RunningCard } from 'components/Atoms/Label.stories';
+import { adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import TextCaption from 'components/Atoms/TextCaption';
 
-// TODO - save original settings for macro in original component state, revert if cancelled.
 const MacroModalContents = ({
   data,
   selectedInstance,
@@ -67,11 +63,7 @@ const MacroModalContents = ({
           </>)
         })
       }
-      {
-        macroData.error &&
-        
-        <TextCaption text = {macroData.message || ''} className = 'text-small text-red-300 whitespace-pre-wrap'/>
-      }
+      {macroData.error && <TextCaption text = {macroData.message || ''} className = 'text-small text-red-300 whitespace-pre-wrap'/>}
       
     </span>
   )
