@@ -28,6 +28,7 @@ import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import TextCaption from 'components/Atoms/TextCaption';
 
+// TODO - save original settings for macro in original component state, revert if cancelled.
 const MacroModalContents = ({
   data,
   selectedInstance,
@@ -37,7 +38,7 @@ const MacroModalContents = ({
   selectedInstance: InstanceInfo,
   row: TableRow
 }) => {
-  const [macroData, setMacroData] = useState(data);
+  const [macroData, _] = useState(data);
   return (
     <span>
       {
@@ -85,6 +86,11 @@ const Macros = () => {
   const [history, setHistory] = useState<TableRow[]>([]);
   const [ showMacroConfigModal, setShowMacroConfigModal ] = useState(false);
   const [macroConfigContents, setMacroConfigContents] = useState<ReactNode>(null);
+
+  // macro settings state
+  const [initialMacroData, setInitialMacroData] = useState<GetConfigResponse>();
+  const [macroInstance, setMacroInstance] = useState<InstanceInfo>();
+  const [macroRow, setMacroRow] = useState<TableRow>();
 
   const unixToFormattedTime = (unix: string | undefined) => {
     if (!unix) return 'N/A';
@@ -159,8 +165,13 @@ const Macros = () => {
     }
     const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
 
+    // store initial settings to potentially rollback
+    setInitialMacroData(macroData);
+    setMacroInstance(selectedInstance);
+    setMacroRow(row);
+
     setMacroConfigContents(<MacroModalContents
-      data={macroData}
+      data={structuredClone(macroData)}
       selectedInstance={selectedInstance}
       row={row}
     />)
@@ -337,11 +348,15 @@ const Macros = () => {
       title = "Macro Config"
       type = "info"
       isOpen = {showMacroConfigModal}
-      onClose = {() => {
+      onClose = {async () => {
+        if (initialMacroData && macroInstance && macroRow) {
+          await storeMacroConfig(macroInstance.uuid, macroRow.name as string, initialMacroData.config);
+        }  
         setShowMacroConfigModal(false)
       }}
-      confirmButtonText='Close'
+      confirmButtonText='Save'
       closeButtonText='Close'
+      onConfirm={() => setShowMacroConfigModal(false)}
       >
         {macroConfigContents}
       </ConfirmDialog>
