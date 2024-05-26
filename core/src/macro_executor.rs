@@ -884,7 +884,9 @@ fn parse_config_single(
                 ConfigurableValue::Float(value)
             }
             ConfigurableValueType::Enum { .. } => {
-                ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string())
+                let value = ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string());
+                config_type.type_check(&value)?;
+                value
             }
             _ => panic!("TS config parsing error: invalid type not caught by the type parser"),
         })
