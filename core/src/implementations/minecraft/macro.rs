@@ -244,7 +244,7 @@ impl TMacro for MinecraftInstance {
                     None => self.get_macro_config(name).await?,
                 };
 
-                let validation_result = local_configs.iter().fold(true, |partial_result, (setting_id, local_cache)| {
+                let validation_result = local_configs.iter().fold(local_configs.len() == configs.len(), |partial_result, (setting_id, local_cache)| {
                     if !partial_result {
                         return false;
                     }
