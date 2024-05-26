@@ -155,19 +155,23 @@ const Macros = () => {
       toast.error('Error opening macro config: No instance selected');
       return;
     }
-    const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
+    try { 
+      const macroData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
+      // store initial settings to potentially rollback
+      setInitialMacroData(macroData);
+      setMacroInstance(selectedInstance);
+      setMacroRow(row);
 
-    // store initial settings to potentially rollback
-    setInitialMacroData(macroData);
-    setMacroInstance(selectedInstance);
-    setMacroRow(row);
-
-    setMacroConfigContents(<MacroModalContents
-      data={structuredClone(macroData)}
-      selectedInstance={selectedInstance}
-      row={row}
-    />)
-    setShowMacroConfigModal(true)
+      setMacroConfigContents(<MacroModalContents
+        data={structuredClone(macroData)}
+        selectedInstance={selectedInstance}
+        row={row}
+      />)
+      setShowMacroConfigModal(true)
+    } catch (error) {
+      // error potentialy thrown by axioswrapper - should be error type
+      toast.error((error as Error).message);
+    }
   }
 
   useEffect(() => {
