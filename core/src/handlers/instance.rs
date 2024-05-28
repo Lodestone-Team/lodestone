@@ -3,6 +3,8 @@ use axum::Router;
 use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
+use bollard::container::ListContainersOptions;
+use bollard::Docker;
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -17,8 +19,8 @@ use crate::traits::t_configurable::GameType;
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::{path_to_instances, GameInstance};
 use crate::traits::t_configurable::manifest::SetupValue;
+use crate::traits::t_configurable::Game::Generic;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
-
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::{implementations::minecraft, traits::t_server::State, AppState};
 
@@ -36,6 +38,10 @@ pub async fn get_instance_list(
             list_of_configs.push(instance.get_instance_info().await);
         }
     }
+    let docker_bridge = state.docker_bridge.clone();
+    let vec = docker_bridge.list_containers().await?;
+
+    list_of_configs.extend(vec);
 
     list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
 

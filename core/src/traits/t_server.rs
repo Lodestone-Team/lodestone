@@ -18,6 +18,19 @@ pub enum State {
     Error,
 }
 
+impl State {
+    pub fn from_docker_state(state: &str) -> Self {
+        match state {
+            "running" => State::Running,
+            "exited" => State::Stopped,
+            "paused" => State::Stopped,
+            "restarting" => State::Starting,
+            "dead" => State::Error,
+            _ => State::Error,
+        }
+    }
+}
+
 pub enum StateAction {
     UserStart,
     UserStop,

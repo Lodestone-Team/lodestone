@@ -77,6 +77,10 @@ async fn list_instance_files(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
 
     requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        let files = state.docker_bridge.list_files(&uuid, relative_path.into()).await?;
+        return Ok(Json(files));
+    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -99,6 +103,7 @@ async fn list_instance_files(
             Some(r)
         })
         .collect();
+    dbg!(&ret);
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,

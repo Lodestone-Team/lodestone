@@ -91,6 +91,7 @@ mod traits;
 pub mod types;
 pub mod util;
 mod extension;
+mod docker_bridge;
 use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
@@ -110,6 +111,7 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
+    docker_bridge : docker_bridge::DockerBridge,
 }
 
 impl AppState {
@@ -516,6 +518,7 @@ pub async fn run(
             kind: ErrorKind::Internal,
             source: Report::msg("Failed to create sqlite pool"),
         }})?,
+        docker_bridge: docker_bridge::DockerBridge::new(tx.clone(), path_to_stores().join("docker_bridge")).await.unwrap()
     };
 
     init_app_state(shared_state.clone());
