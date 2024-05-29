@@ -97,16 +97,20 @@ impl TConfigurable for MinecraftInstance {
     }
 
     async fn set_auto_start(&self, auto_start: bool) -> Result<(), Error> {
+        let _ = self.configurable_manifest.lock().await.set_auto_start(auto_start);
         self.config.lock().await.auto_start = auto_start;
         self.auto_start.store(auto_start, atomic::Ordering::Relaxed);
-        self.write_config_to_file().await
+        self.write_config_to_file().await?;
+        Ok(())
     }
 
     async fn set_restart_on_crash(&self, restart_on_crash: bool) -> Result<(), Error> {
+        let _ = self.configurable_manifest.lock().await.set_restart_on_crash(restart_on_crash);
         self.config.lock().await.restart_on_crash = restart_on_crash;
         self.auto_start
             .store(restart_on_crash, atomic::Ordering::Relaxed);
-        self.write_config_to_file().await
+        self.write_config_to_file().await?;
+        Ok(())
     }
 
     async fn change_version(&self, version: String) -> Result<(), Error> {
@@ -188,13 +192,32 @@ impl TConfigurable for MinecraftInstance {
         value: ConfigurableValue,
     ) -> Result<(), Error> {
         let _ = self.read_properties().await;
-        self.configurable_manifest
-            .lock()
-            .await
-            .update_setting_value(section_id, setting_id, value.clone())?;
-        self.sync_configurable_to_restore_config().await;
-        self.write_config_to_file().await?;
-        self.write_properties_to_file().await
+        if section_id == "auto_settings" {
+            match value {
+                ConfigurableValue::Boolean(value) => {
+                    if setting_id == "auto_start" {
+                        let _ = self.set_auto_start(value).await;
+                    } else {
+                        let _ = self.set_restart_on_crash(value).await;
+                    }
+                    Ok(())
+                },
+                _ => {
+                    Err(Error {
+                        kind: ErrorKind::NotFound,
+                        source: eyre!("Invalid value"),
+                    })
+                }
+            }
+        } else {
+            self.configurable_manifest
+                .lock()
+                .await
+                .update_setting_value(section_id, setting_id, value.clone())?;
+            self.sync_configurable_to_restore_config().await;
+            self.write_config_to_file().await?;
+            self.write_properties_to_file().await
+        }
     }
 }
 

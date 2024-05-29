@@ -666,14 +666,33 @@ impl ConfigurableManifest {
         setting_id: &str,
         value: Option<ConfigurableValue>,
     ) -> Result<(), Error> {
-        if let Some(setting) = self.get_setting_mut(section_id, setting_id) {
-            setting.set_optional_value(value)
+        if section_id == "auto_settings" {
+            if setting_id == "auto_start" {
+                self.auto_start = value.is_some();
+            } else {
+                self.restart_on_crash = value.is_some();
+            }
+            Ok(())
         } else {
-            Err(Error {
-                kind: ErrorKind::NotFound,
-                source: eyre!("Setting not found"),
-            })
+            if let Some(setting) = self.get_setting_mut(section_id, setting_id) {
+                setting.set_optional_value(value)
+            } else {
+                Err(Error {
+                    kind: ErrorKind::NotFound,
+                    source: eyre!("Setting not found"),
+                })
+            }
         }
+    }
+
+    pub fn set_auto_start(&mut self, value: bool) -> Result<(), Error> {
+        self.auto_start = value;
+        Ok(())
+    }
+
+    pub fn set_restart_on_crash(&mut self, value: bool) -> Result<(), Error> {
+        self.restart_on_crash = value;
+        Ok(())   
     }
 
     pub fn set_setting(&mut self, section_id: &str, setting: SettingManifest) -> Result<(), Error> {

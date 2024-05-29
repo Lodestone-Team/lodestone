@@ -423,7 +423,7 @@ impl MinecraftInstance {
             server_properties_section_manifest,
         );
 
-        ConfigurableManifest::new(false, false, setting_sections)
+        ConfigurableManifest::new(restore_config.auto_start, restore_config.restart_on_crash, setting_sections)
     }
 
     pub async fn new(
