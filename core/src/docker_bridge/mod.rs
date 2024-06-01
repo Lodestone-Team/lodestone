@@ -1,18 +1,21 @@
+mod virtual_fs;
+
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
 use bollard::container::{AttachContainerOptions, AttachContainerResults, ListContainersOptions};
 use bollard::{secret::EventMessage, system::EventsOptions, Docker};
-use color_eyre::eyre::Context;
+use color_eyre::eyre::{Context, ContextCompat};
 use futures::AsyncWrite;
 use tokio::fs::create_dir_all;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 use tracing::{error, event};
+use virtual_fs::{get_virtual_path, to_virtual_path};
 
 use crate::handlers::global_fs::FileEntry;
 use crate::traits::t_configurable::Game::Generic;
@@ -99,7 +102,9 @@ impl DockerBridge {
     ) -> Result<Self, Error> {
         let docker =
             Docker::connect_with_local_defaults().context("Failed to connect to docker")?;
-        create_dir_all(&working_dir).await.context("Failed to create working directory")?;
+        create_dir_all(&working_dir)
+            .await
+            .context("Failed to create working directory")?;
         // read or create watch_list.json
         let watch_list_file = working_dir.join("watch_list.json");
         let watch_list = if watch_list_file.exists() {
@@ -277,25 +282,106 @@ impl DockerBridge {
         if mounts.is_empty() {
             return Ok(Vec::new());
         }
-        let first_mount_point: PathBuf = mounts[0].source.clone().unwrap().into();
-
-        let path = scoped_join_win_safe(&first_mount_point, relative_path)?;
-
+        let safe_relative_path = scoped_join_win_safe("/", &relative_path)?;
+        if safe_relative_path == PathBuf::from("/") {
+            return Ok(mounts
+                .iter()
+                .filter_map(|m| {
+                    let path = PathBuf::from(m.clone().source?);
+                    let mut r: FileEntry = path.as_path().into();
+                    r.path = path.components().last()?.as_os_str().to_str()?.to_owned();
+                    Some(r)
+                })
+                .collect());
+        }
+        let virtual_roots: Vec<PathBuf> = mounts
+            .iter()
+            .filter_map(|m| m.source.as_ref())
+            .map(PathBuf::from)
+            .collect();
+        let (path, v_root, mount_point) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
+        dbg!(&path, &mount_point);
         let ret: Vec<FileEntry> = list_dir(&path, None)
             .await?
             .iter()
             .filter_map(move |p| -> Option<FileEntry> {
                 // remove the root path from the file path
                 let mut r: FileEntry = p.as_path().into();
-                r.path = p
-                    .strip_prefix(&first_mount_point)
-                    .ok()
-                    .and_then(|p| p.to_str())
-                    .map(|s| s.to_owned())?;
+                r.path = to_virtual_path(p, &v_root, &mount_point)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
                 Some(r)
             })
             .collect();
-        dbg!(&ret);
+
         Ok(ret)
+    }
+
+    pub async fn read_container_file(
+        &self,
+        uuid: &InstanceUuid,
+        relative_path: PathBuf,
+    ) -> Result<String, Error> {
+        let name = uuid.to_string().replace("DOCKER-", "");
+        let mounts = &self
+            .docker
+            .inspect_container(&name, None)
+            .await
+            .context("Failed to inspect container")?
+            .mounts;
+        if mounts.is_none() {
+            return Ok("".to_string());
+        }
+        let mounts = mounts.as_ref().unwrap();
+        if mounts.is_empty() {
+            return Ok("".to_string());
+        }
+        let virtual_roots: Vec<PathBuf> = mounts
+            .iter()
+            .filter_map(|m| m.source.as_ref())
+            .map(PathBuf::from)
+            .collect();
+        let (path, ..) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
+
+
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .context("Failed to read file")?;
+        Ok(content)
+    }
+
+    pub async fn write_container_file(
+        &self,
+        uuid: &InstanceUuid,
+        relative_path: PathBuf,
+        content: &[u8],
+    ) -> Result<(), Error> {
+        let name = uuid.to_string().replace("DOCKER-", "");
+        let mounts = &self
+            .docker
+            .inspect_container(&name, None)
+            .await
+            .context("Failed to inspect container")?
+            .mounts;
+        if mounts.is_none() {
+            return Ok(());
+        }
+        let mounts = mounts.as_ref().unwrap();
+        if mounts.is_empty() {
+            return Ok(());
+        }
+        let virtual_roots: Vec<PathBuf> = mounts
+        .iter()
+        .filter_map(|m| m.source.as_ref())
+        .map(PathBuf::from)
+        .collect();
+    let (path, ..) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
+
+        tokio::fs::write(&path, content)
+            .await
+            .context("Failed to write file")?;
+        Ok(())
     }
 }

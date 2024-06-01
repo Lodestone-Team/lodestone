@@ -124,6 +124,10 @@ async fn read_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::ReadInstanceFile(uuid.clone()))?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        let file = state.docker_bridge.read_container_file(&uuid, relative_path.into()).await?;
+        return Ok(file);
+    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -156,6 +160,13 @@ async fn write_instance_file(
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::WriteInstanceFile(uuid.clone()))?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        state
+            .docker_bridge
+            .write_container_file(&uuid, relative_path.into(), &body)
+            .await?;
+        return Ok(Json(()));
+    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
