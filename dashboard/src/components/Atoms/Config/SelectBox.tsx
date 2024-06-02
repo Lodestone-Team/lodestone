@@ -152,7 +152,7 @@ export default function SelectBox({
           >
             <Listbox.Options
               className={clsx(
-                'input-outlines input-text-style absolute z-40 mt-2 max-h-60 w-full overflow-auto rounded p-0 py-1',
+                'input-outlines input-text-style absolute z-40 mt-2 max-h-[100%] w-full overflow-auto rounded p-0 py-1',
                 'bg-gray-850 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
               )}
             >
