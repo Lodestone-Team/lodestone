@@ -36,36 +36,39 @@ const MacroModalContents = ({
 }) => {
   const [macroData, _] = useState(data);
   return (
-    <span>
+    <div className={
+      clsx('flex flex-col gap-4 @4xl:flex-row', macroData.error? '' : 'mb-2')}>
+    <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
       {
         Object.entries(macroData.config).map(([_, manifest], index) => {
           return (<>
-            <SettingField 
-              key = {index} 
-              instance = {selectedInstance}
-              sectionId={`${selectedInstance.uuid}-${row.name}`}
-              settingId={manifest.setting_id}
-              setting={adaptSettingManifest(manifest)}
-              error = {null}
-              onSubmit={async (value) => {
-                const newSettings = macroData.config;
-                newSettings[`${manifest.name}`].value = value
-                await storeMacroConfig(
-                  selectedInstance.uuid,
-                  row.name as string,
-                  newSettings
-                );
-                macroData.error = null;
-
-              }}
-            />
-            <br></br>
+            <div >
+              <SettingField 
+                key = {index} 
+                instance = {selectedInstance}
+                sectionId={`${selectedInstance.uuid}-${row.name}`}
+                settingId={manifest.setting_id}
+                setting={adaptSettingManifest(manifest)}
+                error = {null}
+                onSubmit={async (value) => {
+                  const newSettings = macroData.config;
+                  newSettings[`${manifest.name}`].value = value
+                  await storeMacroConfig(
+                    selectedInstance.uuid,
+                    row.name as string,
+                    newSettings
+                  );
+                  macroData.error = null;
+                }}
+              /> 
+            </div>
           </>)
         })
       }
-      {macroData.error && <TextCaption text = {macroData.message || ''} className = 'text-small text-red-300 whitespace-pre-wrap'/>}
       
     </span>
+    {macroData.error && <TextCaption text = {macroData.message || ''} className = 'text-small text-red-300 whitespace-pre-wrap'/>}
+    </div>
   )
 }
 
