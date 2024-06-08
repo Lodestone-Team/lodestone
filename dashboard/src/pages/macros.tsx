@@ -37,12 +37,11 @@ const MacroModalContents = ({
   const [macroData, _] = useState(data);
   return (
     <div className={
-      clsx('flex flex-col gap-4 @4xl:flex-row', macroData.error? '' : 'mb-2')}>
+      clsx(macroData.error? '' : 'mb-2', 'flex flex-col gap-2 @4xl:flex-row')}>
     <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
       {
         Object.entries(macroData.config).map(([_, manifest], index) => {
-          return (<>
-            <div >
+          return (
               <SettingField 
                 key = {index} 
                 instance = {selectedInstance}
@@ -60,9 +59,7 @@ const MacroModalContents = ({
                   );
                   macroData.error = null;
                 }}
-              /> 
-            </div>
-          </>)
+              /> )
         })
       }
       
