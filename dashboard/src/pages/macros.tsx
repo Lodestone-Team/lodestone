@@ -88,7 +88,6 @@ const Macros = () => {
 
   // macro settings state
   const [macroData, setMacroData] = useState<GetConfigResponse>();
-  const [macroInstance, setMacroInstance] = useState<InstanceInfo>();
   const [macroRow, setMacroRow] = useState<TableRow>();
 
   const unixToFormattedTime = (unix: string | undefined) => {
@@ -166,7 +165,6 @@ const Macros = () => {
       const initialData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
       // store initial settings to potentially rollback
       setMacroData(initialData);
-      setMacroInstance(selectedInstance);
       setMacroRow(row);
 
       setMacroConfigContents(<MacroModalContents
@@ -358,12 +356,12 @@ const Macros = () => {
       confirmButtonText='Save'
       closeButtonText='Close'
       onConfirm={async () => {
-        if (!macroInstance || !macroRow || !macroData) {
+        if (!selectedInstance || !macroRow || !macroData) {
           // theoretically, this should never occur
           toast.error("Error: Invalid state")
         } else {
           await storeMacroConfig(
-            macroInstance.uuid,
+            selectedInstance.uuid,
             macroRow.name as string,
             macroData.config
           );
