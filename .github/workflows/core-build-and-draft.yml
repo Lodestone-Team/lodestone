@@ -58,7 +58,7 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
-          override: true
+          override: false
           target: ${{ matrix.target }}
 
       - name: Install dependencies (ubuntu only)

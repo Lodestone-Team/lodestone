@@ -11,7 +11,7 @@ resolver = "2"
 inherits = "release"
 strip = true
 opt-level = "s"
-lto = true
+lto = "thin"
 codegen-units = 1
 
 [workspace.package]
