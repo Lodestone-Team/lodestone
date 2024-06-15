@@ -6,4 +6,4 @@ import type { PlayitggRunnerEvent } from "./PlayitggRunnerEvent";
 import type { ProgressionEvent } from "./ProgressionEvent";
 import type { UserEvent } from "./UserEvent";
 
-export type EventInner = { type: "InstanceEvent" } & InstanceEvent | { type: "UserEvent" } & UserEvent | { type: "MacroEvent" } & MacroEvent | { type: "FSEvent" } & FSEvent | { type: "ProgressionEvent" } & ProgressionEvent | { type: "PlayitggRunnerEvent" } & PlayitggRunnerEvent;
+export type EventInner = { "type": "InstanceEvent" } & InstanceEvent | { "type": "UserEvent" } & UserEvent | { "type": "MacroEvent" } & MacroEvent | { "type": "FSEvent" } & FSEvent | { "type": "ProgressionEvent" } & ProgressionEvent | { "type": "PlayitggRunnerEvent" } & PlayitggRunnerEvent;
