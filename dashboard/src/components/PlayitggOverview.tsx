@@ -208,6 +208,7 @@ export function PlayitggOverview() {
               </TunnelListItem>
             </TunnelListCard>
           }
+          <a className="mt-6 block text-h3 font-medium tracking-medium text-white/50 hover:cursor-pointer hover:underline" href="https://github.com/Lodestone-Team/lodestone/wiki/Playit.gg-Integration">Need help? </a>
         </div>
       }
     </div >
