@@ -803,7 +803,7 @@ impl SettingLocalCache {
     pub fn validate_type(&self, target_manifest: Option<&SettingManifest>) -> bool {
         match target_manifest {
             None => false,
-            Some(manifest) => manifest.value_type == self.value_type
+            Some(manifest) => manifest.value_type == self.value_type,
         }
     }
 

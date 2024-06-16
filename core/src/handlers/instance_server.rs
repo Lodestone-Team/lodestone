@@ -33,13 +33,10 @@ pub async fn start_instance(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
-    let instance = state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?;
+    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("Instance not found"),
+    })?;
     let port = instance.port().await;
 
     // check if port is already in use

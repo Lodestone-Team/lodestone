@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use std::path::PathBuf;
 use indexmap::IndexMap;
+use std::path::PathBuf;
 use ts_rs::TS;
 
 use crate::{
@@ -11,9 +11,9 @@ use crate::{
     traits::GameInstance,
 };
 
+use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
 use serde::Deserialize;
 use serde::Serialize;
-use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
 #[ts(export)]

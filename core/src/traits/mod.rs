@@ -42,9 +42,7 @@ use crate::prelude::GameInstance;
 use crate::types::InstanceUuid;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
-pub trait TInstance:
-    TConfigurable + TMacro + TPlayerManagement + TServer + Clone
-{
+pub trait TInstance: TConfigurable + TMacro + TPlayerManagement + TServer + Clone {
     async fn get_instance_info(&self) -> InstanceInfo {
         InstanceInfo {
             uuid: self.uuid().await,
