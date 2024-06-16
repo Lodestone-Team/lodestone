@@ -373,6 +373,15 @@ async fn check_for_core_update() {
             "Read how to update here: {url}",
             url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
         );
+    } else {
+        info!(
+            "A new pre-release version of lodestone_core is available: {}",
+            latest_version
+        );
+        info!(
+            "Read how to update here: {url}",
+            url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+        );
     }
 }
 
