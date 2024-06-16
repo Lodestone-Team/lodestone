@@ -78,9 +78,11 @@ use uuid::Uuid;
 pub mod auth;
 pub mod db;
 mod deno_ops;
+mod docker_bridge;
 pub mod error;
 mod event_broadcaster;
 mod events;
+mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
@@ -94,8 +96,6 @@ pub mod tauri_export;
 mod traits;
 pub mod types;
 pub mod util;
-mod extension;
-mod docker_bridge;
 use handlers::global_fs::DownloadableFile;
 
 #[derive(Clone)]
@@ -116,7 +116,7 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
-    docker_bridge : docker_bridge::DockerBridge,
+    docker_bridge: docker_bridge::DockerBridge,
     playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
 }
 
@@ -168,7 +168,7 @@ async fn restore_instances(
                 continue;
             }
         };
-        
+
         debug!("restoring instance: {}", path.display());
         let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
@@ -213,7 +213,7 @@ async fn restore_instances(
                 debug!("Restored Generic instance successfully");
                 (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
-            GameType::MinecraftBedrock => todo!()
+            GameType::MinecraftBedrock => todo!(),
         };
         let uuid = uuid_instance.0;
         let instance = uuid_instance.1;
@@ -360,22 +360,23 @@ async fn check_for_core_update() {
             return;
         }
     };
+    let current_version = VERSION.with(|v| v.clone());
+
+    if current_version >= latest_version {
+        info!("lodestone_core is up to date");
+        return;
+    }
 
     if latest_version.pre.is_empty() {
         // we don't want to update to a pre-release
-        let current_version = VERSION.with(|v| v.clone());
-        if current_version < latest_version {
-            info!(
-                "A new version of lodestone_core is available: {}",
-                latest_version
-            );
-            info!(
-                "Read how to update here: {url}",
-                url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
-            );
-        } else {
-            info!("lodestone_core is up to date");
-        }
+        info!(
+            "A new version of lodestone_core is available: {}",
+            latest_version
+        );
+        info!(
+            "Read how to update here: {url}",
+            url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+        );
     }
 }
 
@@ -391,12 +392,15 @@ pub struct Args {
 
 pub async fn run(
     args: Args,
-) -> Result<(
-    impl Future<Output = ()>,
-    AppState,
-    tracing_appender::non_blocking::WorkerGuard,
-    tokio::sync::oneshot::Sender<()>,
-), Error> {
+) -> Result<
+    (
+        impl Future<Output = ()>,
+        AppState,
+        tracing_appender::non_blocking::WorkerGuard,
+        tokio::sync::oneshot::Sender<()>,
+    ),
+    Error,
+> {
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -408,21 +412,29 @@ pub async fn run(
             Err(_) => {
                 match home::home_dir()
                     .unwrap_or_else(|| {
-                        std::env::current_dir().expect("what kinda os are you running lodestone on???")
+                        std::env::current_dir()
+                            .expect("what kinda os are you running lodestone on???")
                     })
                     .join(".lodestone")
-                    .to_str() {
+                    .to_str()
+                {
                     Some(p) => p.to_string(),
-                    None => return Err(Error { kind: ErrorKind::Internal, source: Report::msg("Failed to get home dir") }),
+                    None => {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: Report::msg("Failed to get home dir"),
+                        })
+                    }
                 }
             }
         })
     };
     init_paths(lodestone_path.clone());
     info!("Lodestone path: {}", lodestone_path.display());
-    std::env::set_current_dir(&lodestone_path).map_err(|_| 
-        Error { kind: ErrorKind::Internal, source: Report::msg("Failed to set current dir"), }
-    )?;
+    std::env::set_current_dir(&lodestone_path).map_err(|_| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg("Failed to set current dir"),
+    })?;
     let guard = setup_tracing();
     if args.is_desktop {
         info!("Lodestone Core running in Tauri");
@@ -439,10 +451,11 @@ pub async fn run(
         std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile");
     if lock_file.try_lock_exclusive().is_err() {
         return Err(Error {
-            kind: ErrorKind::Internal, source: Report::msg("Another instance of lodestone is running"),
+            kind: ErrorKind::Internal,
+            source: Report::msg("Another instance of lodestone is running"),
         });
     }
-    
+
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
@@ -501,11 +514,9 @@ pub async fn run(
     let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
-        .map_err(|_| {
-            Error {
-                kind: ErrorKind::Internal,
-                source: Report::msg("failed to restore instances"),
-            }
+        .map_err(|_| Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg("failed to restore instances"),
         })?;
 
     let mut allocated_ports = HashSet::new();
@@ -534,18 +545,23 @@ pub async fn run(
                 "sqlite://{}/data.db",
                 path_to_stores().display()
             ))
-            .map_err(|_| { Error {
+            .map_err(|_| Error {
                 kind: ErrorKind::Internal,
                 source: Report::msg("Failed to create sqlite connection options"),
-            }})?
+            })?
             .create_if_missing(true),
         )
         .await
-        .map_err(|_| { Error {
+        .map_err(|_| Error {
             kind: ErrorKind::Internal,
             source: Report::msg("Failed to create sqlite pool"),
-        }})?,
-        docker_bridge: docker_bridge::DockerBridge::new(tx.clone(), path_to_stores().join("docker_bridge")).await.unwrap()
+        })?,
+        docker_bridge: docker_bridge::DockerBridge::new(
+            tx.clone(),
+            path_to_stores().join("docker_bridge"),
+        )
+        .await
+        .unwrap(),
     };
 
     init_app_state(shared_state.clone());

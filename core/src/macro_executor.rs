@@ -373,10 +373,7 @@ impl MacroExecutor {
 
                         if let Some(config_code) = pre_injection_code {
                             main_worker
-                                .execute_script(
-                                    "config_inject",
-                                    ModuleCode::from(config_code),
-                                )
+                                .execute_script("config_inject", ModuleCode::from(config_code))
                                 .unwrap();
                         }
 
@@ -778,7 +775,7 @@ fn get_config_from_code(
                 }
             };
             // do not push empty comment at the beginning of the comment block
-            if !comment_str.is_empty() || !comment_lines.is_empty()  {
+            if !comment_str.is_empty() || !comment_lines.is_empty() {
                 comment_lines.push(comment_str.to_string());
             }
             continue;
@@ -918,7 +915,8 @@ fn parse_config_single(
     let mut settings_id = setting_id_prefix.to_string();
     settings_id.push('|');
     settings_id.push_str(var_name);
-    Ok((var_name.to_string(),
+    Ok((
+        var_name.to_string(),
         SettingManifest::new_value_with_type(
             settings_id,
             var_name.to_string(),
@@ -928,7 +926,7 @@ fn parse_config_single(
             default_val,
             false,
             true,
-        )
+        ),
     ))
 }
 
@@ -1167,21 +1165,13 @@ mod tests {
         assert!(result.is_err());
 
         // should properly parse the optional variable
-        let result = parse_config_single(
-            "id?:string",
-            "",
-            "prefix",
-        );
+        let result = parse_config_single("id?:string", "", "prefix");
         let (_, config) = result.unwrap();
         assert!(config.get_value().is_none());
         assert_eq!(config.get_identifier(), "prefix|id");
 
         // should properly parse the non-optional variable
-        let result = parse_config_single(
-            "id:string='defaultId'",
-            "",
-            "prefix",
-        );
+        let result = parse_config_single("id:string='defaultId'", "", "prefix");
         let (_, config) = result.unwrap();
         let value = config.get_value().unwrap();
         match value {

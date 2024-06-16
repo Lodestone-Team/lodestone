@@ -30,10 +30,13 @@ pub struct Error {
     pub source: color_eyre::Report,
 }
 
-
 impl Error {
     pub fn log(self) -> Self {
-        error!("An error occurred ({kind}): {source}", kind = self.kind, source = self.source);
+        error!(
+            "An error occurred ({kind}): {source}",
+            kind = self.kind,
+            source = self.source
+        );
         self
     }
 }
@@ -46,7 +49,6 @@ impl Error {
         }
     }
 }
-
 
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -554,7 +554,7 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
 
     cmd
 }
- 
+
 pub fn format_byte_download(mut bytes: u64, mut total: u64) -> String {
     let mut unit = "B";
     if bytes > 1024 {

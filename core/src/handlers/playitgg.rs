@@ -1,5 +1,10 @@
-use axum::{routing::{post, get}, Router};
-use crate::playitgg::{stop_cli, generate_signup_link, start_cli, verify_key, cli_is_running, get_tunnels};
+use crate::playitgg::{
+    cli_is_running, generate_signup_link, get_tunnels, start_cli, stop_cli, verify_key,
+};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 
 use crate::AppState;
 

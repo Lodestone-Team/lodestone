@@ -165,7 +165,6 @@ impl GlobalSettings {
     pub fn playit_enabled(&self) -> bool {
         self.global_settings_data.playit_enabled
     }
-
 }
 
 impl AsRef<GlobalSettingsData> for GlobalSettings {

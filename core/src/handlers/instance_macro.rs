@@ -1,6 +1,6 @@
 use axum::{
     extract::Path,
-    routing::{get, put, post},
+    routing::{get, post, put},
     Json, Router,
 };
 
@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::traits::t_configurable::manifest::SettingManifest;
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
@@ -19,13 +20,12 @@ use crate::{
     types::InstanceUuid,
     AppState,
 };
-use crate::traits::t_configurable::manifest::SettingManifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct GetConfigResponse {
     pub config: IndexMap<String, SettingManifest>,
-    pub  message: Option<String>,
+    pub message: Option<String>,
     pub error: Option<ErrorKind>,
 }
 
@@ -145,22 +145,36 @@ pub async fn get_macro_configs(
 
     let mut config = instance.get_macro_config(&macro_name).await?;
 
-    match instance.validate_local_config(&macro_name, Some(&config)).await {
+    match instance
+        .validate_local_config(&macro_name, Some(&config))
+        .await
+    {
         Ok(local_value) => {
             local_value.iter().for_each(|(setting_id, local_cache)| {
-                config[setting_id].set_optional_value(local_cache.get_value().clone()).unwrap();
+                config[setting_id]
+                    .set_optional_value(local_cache.get_value().clone())
+                    .unwrap();
             });
-            Ok(Json(GetConfigResponse{ config, message: None, error: None }))
-        },
-        Err(e) => {
-            match e.kind {
-                ErrorKind::NotFound => {
-                    Ok(Json(GetConfigResponse { config, message: Some("Local config cache not found".to_string()), error: Some(ErrorKind::NotFound) }))
-                },
-                _ => {
-                    Ok(Json(GetConfigResponse { config, message: Some("There is a mismatch between a config type and its locally-stored value".to_string()), error: Some(ErrorKind::Internal) }))
-                }
-            }
+            Ok(Json(GetConfigResponse {
+                config,
+                message: None,
+                error: None,
+            }))
+        }
+        Err(e) => match e.kind {
+            ErrorKind::NotFound => Ok(Json(GetConfigResponse {
+                config,
+                message: Some("Local config cache not found".to_string()),
+                error: Some(ErrorKind::NotFound),
+            })),
+            _ => Ok(Json(GetConfigResponse {
+                config,
+                message: Some(
+                    "There is a mismatch between a config type and its locally-stored value"
+                        .to_string(),
+                ),
+                error: Some(ErrorKind::Internal),
+            })),
         },
     }
 }
@@ -179,7 +193,9 @@ pub async fn store_config_to_local(
         source: eyre!("Instance not found"),
     })?;
 
-    instance.store_macro_config_to_local(&macro_name, &config_to_store).await?;
+    instance
+        .store_macro_config_to_local(&macro_name, &config_to_store)
+        .await?;
     Ok(())
 }
 
@@ -188,8 +204,14 @@ pub fn get_instance_macro_routes(state: AppState) -> Router {
         .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
         .route("/instance/:uuid/macro/kill/:pid", put(kill_macro))
         .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
-        .route("/instance/:uuid/macro/config/get/:macro_name", get(get_macro_configs))
-        .route("/instance/:uuid/macro/config/store/:macro_name", post(store_config_to_local))
+        .route(
+            "/instance/:uuid/macro/config/get/:macro_name",
+            get(get_macro_configs),
+        )
+        .route(
+            "/instance/:uuid/macro/config/store/:macro_name",
+            post(store_config_to_local),
+        )
         .route("/instance/:uuid/task/list", get(get_instance_task_list))
         .route(
             "/instance/:uuid/history/list",
