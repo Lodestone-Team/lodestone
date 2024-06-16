@@ -19,7 +19,7 @@ jobs:
   dashboard-build-and-draft:
     uses: ./.github/workflows/dashboard-build-and-draft.yml
     needs: [workspace-check, core-cargo-test]
-    if: github.event.pull_request.head.repo == 'Lodestone-Team/lodestone'
+    if: github.event.pull_request.head.repo.full_name == 'Lodestone-Team/lodestone'
     with:
       debug: false
       version: null
@@ -28,7 +28,7 @@ jobs:
   core-build-and-draft:
     uses: ./.github/workflows/core-build-and-draft.yml
     needs: [workspace-check, core-cargo-test]
-    if: github.event.pull_request.head.repo == 'Lodestone-Team/lodestone'
+    if: github.event.pull_request.head.repo.full_name == 'Lodestone-Team/lodestone'
     with:
       version: null
     secrets: inherit

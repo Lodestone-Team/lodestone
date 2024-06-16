@@ -30,9 +30,9 @@ mod bridge;
 pub mod configurable;
 mod r#macro;
 pub mod player;
-pub mod resource;
 pub mod server;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct GenericInstance {
     dot_lodestone_config: DotLodestoneConfig,
@@ -136,6 +136,7 @@ impl GenericInstance {
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
+                None,
                 Some(dot_lodestone_config.uuid().clone()),
             )
             .await?;
@@ -179,6 +180,7 @@ impl GenericInstance {
                 Vec::new(),
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
+                None,
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
             )
@@ -238,6 +240,7 @@ impl GenericInstance {
                 Box::new(InitWorkerGenerator {
                     bridge: procedure_bridge.clone(),
                 }),
+                None,
                 None,
                 None,
             )

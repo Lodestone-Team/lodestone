@@ -2,12 +2,20 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use color_eyre::eyre::{eyre, Context};
+use indexmap::IndexMap;
 
 use crate::{
     error::Error,
     events::CausedBy,
     macro_executor::{DefaultWorkerOptionGenerator, MacroPID, SpawnResult},
     traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
+};
+use crate::error::ErrorKind;
+use crate::macro_executor::MacroExecutor;
+use crate::traits::t_configurable::manifest::{
+    SettingLocalCache,
+    SettingManifest,
+    ConfigurableValue,
 };
 
 use super::MinecraftInstance;
@@ -111,10 +119,42 @@ impl TMacro for MinecraftInstance {
         &self,
         name: &str,
         args: Vec<String>,
+        configs: Option<IndexMap<String, SettingLocalCache>>,
         caused_by: CausedBy,
     ) -> Result<TaskEntry, Error> {
         let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
             .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
+
+        // compose config injection code
+        let config_code = match configs {
+            Some(config_map) => {
+                let tokens: Vec<_> = config_map.get_index(0).unwrap().1.get_identifier().split('|').collect();
+                let config_var_name = tokens[0];
+                let mut code_string = format!("let {config_var_name} = {{\r\n");
+
+                for (var_name, meta) in config_map {
+                    let value_code = match meta.get_value() {
+                        Some(val) => match val {
+                            ConfigurableValue::String(str_val) => format!("\'{str_val}\'"),
+                            ConfigurableValue::Enum(str_val) => format!("\'{str_val}\'"),
+                            ConfigurableValue::Boolean(b_val) => b_val.to_string(),
+                            ConfigurableValue::Float(num) => num.to_string(),
+                            _ => return Err(Error{
+                                kind: ErrorKind::Internal,
+                                source: eyre!("Unsupported config data type"),
+                            }),
+                        },
+                        None => "undefined".to_string(),
+                    };
+                    code_string.push_str(&format!("  {var_name}: {value_code},\r\n"))
+                }
+
+                code_string.push_str("};\r\n");
+
+                Some(code_string)
+            },
+            None => None,
+        };
 
         let SpawnResult { macro_pid: pid, .. } = self
             .macro_executor
@@ -123,6 +163,7 @@ impl TMacro for MinecraftInstance {
                 args,
                 caused_by,
                 Box::new(DefaultWorkerOptionGenerator),
+                config_code,
                 None,
                 Some(self.uuid.clone()),
             )
@@ -147,5 +188,82 @@ impl TMacro for MinecraftInstance {
     async fn kill_macro(&self, pid: MacroPID) -> Result<(), Error> {
         self.macro_executor.abort_macro(pid)?;
         Ok(())
+    }
+
+    async fn get_macro_config(&self, name: &str) -> Result<IndexMap<String, SettingManifest>, Error> {
+        let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
+            .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
+        MacroExecutor::get_config_manifest(&path_to_macro).await
+    }
+
+    async fn store_macro_config_to_local(
+        &self,
+        name: &str,
+        config_to_store: &IndexMap<String, SettingManifest>,
+    ) -> Result<(), Error> {
+        let mut local_configs: IndexMap<String, SettingLocalCache> = IndexMap::new();
+        config_to_store.iter().for_each(|(var_name, config)| {
+           local_configs.insert(var_name.clone(), SettingLocalCache::from(config));
+        });
+
+        let config_file_path = self.path_to_macros.join(name).join(format!("{name}_config")).with_extension("json");
+        std::fs::write(
+            config_file_path,
+            serde_json::to_string_pretty(&local_configs).unwrap(),
+        ).context("failed to create the config file")?;
+
+        Ok(())
+    }
+
+    async fn validate_local_config(
+        &self,
+        name: &str,
+        config_to_validate: Option<&IndexMap<String, SettingManifest>>,
+    ) -> Result<IndexMap<String, SettingLocalCache>, Error> {
+        let path_to_macro = resolve_macro_invocation(&self.path_to_macros, name)
+            .ok_or_else(|| eyre!("Failed to resolve macro invocation for {}", name))?;
+
+        let is_config_needed = match config_to_validate {
+            None => std::fs::read_to_string(path_to_macro).context("failed to read macro file")?.contains("LodestoneConfig"),
+            Some(_) => true,
+        };
+
+        // if the macro does not need a config, pass the validation ("vacuously true")
+        if !is_config_needed {
+            return Ok(IndexMap::new());
+        }
+
+        let config_file_path = self.path_to_macros.join(name).join(format!("{name}_config")).with_extension("json");
+        match std::fs::read_to_string(config_file_path) {
+            Ok(config_string) => {
+                let local_configs: IndexMap<String, SettingLocalCache> = serde_json::from_str(&config_string)
+                    .context("failed to parse local config cache")?;
+
+                let configs = match config_to_validate {
+                    Some(config) => config.clone(),
+                    None => self.get_macro_config(name).await?,
+                };
+
+                let validation_result = local_configs.iter().fold(local_configs.len() == configs.len(), |partial_result, (setting_id, local_cache)| {
+                    if !partial_result {
+                        return false;
+                    }
+                    local_cache.validate_type(configs.get(setting_id))
+                });
+
+                if !validation_result {
+                    return Err(Error {
+                        kind: ErrorKind::Internal,
+                        source: eyre!("There is a mismatch between a config type and its locally-stored value"),
+                    });
+                }
+
+                Ok(local_configs)
+            },
+            Err(_) => Err(Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Local config cache is not found"),
+            }),
+        }
     }
 }

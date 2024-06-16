@@ -1,7 +1,7 @@
-import { useUid, useUserInfo } from 'data/UserInfo';
+import { useUid } from 'data/UserInfo';
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useQueryClient } from '@tanstack/react-query';
+
 import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
@@ -14,6 +14,7 @@ import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
 import { toast } from 'react-toastify';
 import { Player } from 'bindings/Player';
+import { useQueryClient } from '@tanstack/react-query';
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -91,7 +92,7 @@ export const useEventStream = () => {
 
   const handleEvent = useCallback(
     (event: ClientEvent, fresh: boolean) => {
-      const { event_inner, snowflake } = event;
+      const { event_inner } = event;
 
       match(event_inner, {
         InstanceEvent: ({
@@ -103,15 +104,14 @@ export const useEventStream = () => {
             StateTransition: ({ to }) => {
               if (fresh) updateInstanceState(uuid, to);
               dispatch({
-                title: `Instance ${name} ${
-                  {
-                    Starting: `is starting`,
-                    Running: `started`,
-                    Stopping: `is stopping`,
-                    Stopped: `stopped`,
-                    Error: `encountered an error`,
-                  }[to]
-                }!`,
+                title: `Instance ${name} ${{
+                  Starting: `is starting`,
+                  Running: `started`,
+                  Stopping: `is stopping`,
+                  Stopped: `stopped`,
+                  Error: `encountered an error`,
+                }[to]
+                  }!`,
                 event,
                 type: 'add',
                 fresh,
@@ -156,7 +156,6 @@ export const useEventStream = () => {
               }
 
               // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
-              const player_list_names = player_list.map((p) => p.name);
               const players_joined_names = players_joined.map((p) => p.name);
               const players_left_names = players_left.map((p) => p.name);
 
@@ -248,7 +247,7 @@ export const useEventStream = () => {
                   ['user', 'list'],
                   (oldList: { [uid: string]: PublicUser } | undefined) => {
                     if (!oldList) return oldList;
-                    const newUser = {...oldList[uid], permissions: new_permissions};
+                    const newUser = { ...oldList[uid], permissions: new_permissions };
                     const newList = { ...oldList };
                     newList[uid] = newUser;
                     return newList;
@@ -278,13 +277,13 @@ export const useEventStream = () => {
               });
             },
             Detach: () => {
-                console.log(`Macro ${macro_pid} detached on ${uuid}`);
-                dispatch({
-                    title: `Macro ${macro_pid} detached on ${uuid}`,
-                    event,
-                    type: 'add',
-                    fresh,
-                });
+              console.log(`Macro ${macro_pid} detached on ${uuid}`);
+              dispatch({
+                title: `Macro ${macro_pid} detached on ${uuid}`,
+                event,
+                type: 'add',
+                fresh,
+              });
             },
             Stopped: ({ exit_status }) => {
               console.log(`Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`);
@@ -296,6 +295,38 @@ export const useEventStream = () => {
               });
             },
           }),
+        PlayitggRunnerEvent: ({ playitgg_runner_event_inner: event_inner }) => {
+          console.log(event_inner)
+          match(event_inner, {
+            RunnerStarted: () => {
+              queryClient.setQueryData(['playitgg', 'status'], "Started");
+              dispatch({
+                title: "Playitgg runner started!",
+                event,
+                type: 'add',
+                fresh,
+              });
+            },
+            RunnerLoading: () => {
+              queryClient.setQueryData(['playitgg', 'status'], "Loading");
+              dispatch({
+                title: "Playitgg runner loading...",
+                event,
+                type: 'add',
+                fresh,
+              });
+            },
+            RunnerStopped: () => {
+              queryClient.setQueryData(['playitgg', 'status'], "Stopped");
+              dispatch({
+                title: "Playitgg runner stopped!",
+                event,
+                type: 'add',
+                fresh,
+              });
+            }
+          })
+        },
         ProgressionEvent: (progressionEvent) => {
           ongoingDispatch({
             event,
@@ -310,7 +341,7 @@ export const useEventStream = () => {
               inner,
               otherwise(
                 {
-                  ProgressionEnd: ({ inner, message }) => {
+                  ProgressionEnd: ({ inner }) => {
                     if (!inner) return;
                     match(
                       inner,
@@ -330,7 +361,7 @@ export const useEventStream = () => {
                           }
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
-                        (_) => {}
+                        (_) => { }
                       )
                     );
                   },
@@ -344,18 +375,18 @@ export const useEventStream = () => {
                           //   deleteInstance(uuid, queryClient),
                         },
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
-                        (_) => {}
+                        (_) => { }
                       )
                     );
                   },
                 },
                 // eslint-disable-next-line @typescript-eslint/no-empty-function
-                (_) => {}
+                (_) => { }
               )
             );
           }
         },
-        FSEvent: ({ operation, target }) => {
+        FSEvent: () => {
           // console.log(`FS ${operation} on ${target.path}`);
           // match(target, {
           //   File: ({ path }) => {
@@ -407,11 +438,10 @@ export const useEventStream = () => {
     if (!token) return;
 
     const connectWebsocket = () => {
-      const wsAddress = `${core.protocol === 'https' ? 'wss' : 'ws'}://${core.address}:${
-        core.port ?? LODESTONE_PORT
-      }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
-        eventQuery
-      )}`;
+      const wsAddress = `${core.protocol === 'https' ? 'wss' : 'ws'}://${core.address}:${core.port ?? LODESTONE_PORT
+        }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
+          eventQuery
+        )}`;
 
       if (wsRef.current) wsRef.current.close();
 

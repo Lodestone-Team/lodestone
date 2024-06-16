@@ -1,6 +1,5 @@
 import { useContext, useEffect, useState } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
-import { useDocumentTitle } from 'usehooks-ts';
 import { useLocation } from 'react-router-dom';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
@@ -9,6 +8,7 @@ import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InstanceOverview from 'components/Instance/InstanceOverview';
 import {
+  faCarTunnel,
   faChartLine,
   faCodeCompare,
   faCog,
@@ -21,6 +21,7 @@ import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
 import Macros from 'pages/macros';
+import { PlayitggOverview } from 'components/PlayitggOverview';
 
 export const tabs = [
   {
@@ -85,6 +86,16 @@ export const tabs = [
           Coming soon to a dashboard near you!
         </p>
       </DashboardCard>
+    ),
+  },
+  {
+    title: 'Playitgg',
+    displayTitle: 'Playitgg',
+    path: 'playitgg',
+    width: 'max-w-4xl',
+    icon: <FontAwesomeIcon icon={faCarTunnel} />,
+    content: (
+      <PlayitggOverview />
     ),
   },
 ];
