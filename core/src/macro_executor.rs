@@ -275,8 +275,12 @@ impl MacroExecutor {
     ) -> PermissionsOptions {
         let parent = path_to_main.parent().unwrap().to_path_buf();
         if let Some(mut perm) = perm {
-            perm.allow_read.get_or_insert_with(std::vec::Vec::new).push(parent.clone());
-            perm.allow_write.get_or_insert_with(std::vec::Vec::new).push(parent);
+            perm.allow_read
+                .get_or_insert_with(std::vec::Vec::new)
+                .push(parent.clone());
+            perm.allow_write
+                .get_or_insert_with(std::vec::Vec::new)
+                .push(parent);
             perm
         } else {
             PermissionsOptions {
@@ -344,9 +348,8 @@ impl MacroExecutor {
                         let mut main_worker = deno_runtime::worker::MainWorker::from_options(
                             main_module,
                             deno_runtime::permissions::PermissionsContainer::new(
-                                Permissions::from_options(
-                                    &Self::add_default_permissions(permissions, path_to_main_module.clone())
-                                ).unwrap(),
+                                // TODO: limit permissions
+                                Permissions::allow_all(),
                             ),
                             worker_option,
                         );
