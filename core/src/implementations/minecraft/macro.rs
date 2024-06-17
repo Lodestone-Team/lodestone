@@ -51,17 +51,7 @@ impl TMacro for MinecraftInstance {
             // if the entry is a file, check if it has the .ts or .js extension
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == "ts" || ext == "js" {
-                        ret.push(MacroEntry {
-                            last_run: self.macro_name_to_last_run.lock().await.get(&name).cloned(),
-                            name,
-                            path,
-                        })
-                    }
-                }
-            } else if path.is_dir() {
+            if path.is_dir() {
                 // check if index.ts or index.js exists
                 let index_ts = path.join("index.ts");
                 let index_js = path.join("index.js");
