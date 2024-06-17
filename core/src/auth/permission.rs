@@ -28,6 +28,8 @@ pub struct UserPermission {
     pub can_write_global_file: bool,
     // owner exclusive unless explicitly granted
     pub can_manage_permission: bool,
+    #[serde(default)]
+    pub can_install_extension: bool,
 }
 
 impl UserPermission {
@@ -48,6 +50,7 @@ impl UserPermission {
             can_read_global_file: false,
             can_write_global_file: false,
             can_manage_permission: false,
+            can_install_extension: false,
         }
     }
 }

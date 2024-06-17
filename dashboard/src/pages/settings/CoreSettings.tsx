@@ -317,7 +317,7 @@ export const CoreSettings = () => {
                 These settings can cause irreversible damage to your server!
               </h3>
             </div>
-            <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0 mb-10">
               {unsafeModeField}
               {openPortField}
             </div>

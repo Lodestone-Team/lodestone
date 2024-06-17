@@ -32,6 +32,11 @@ pub async fn start_instance(
         &UserAction::StartInstance(uuid.clone()),
         state.global_settings.lock().await.safe_mode(),
     )?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        let docker_bridge = state.docker_bridge.clone();
+        docker_bridge.start_container(&uuid).await?;
+        return Ok(Json(()));
+    }
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -64,6 +69,11 @@ pub async fn stop_instance(
         &UserAction::StopInstance(uuid.clone()),
         state.global_settings.lock().await.safe_mode(),
     )?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        let docker_bridge = state.docker_bridge.clone();
+        docker_bridge.stop_container(&uuid).await?;
+        return Ok(Json(()));
+    }
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -89,16 +99,13 @@ pub async fn restart_instance(
     let safe_mode = state.global_settings.lock().await.safe_mode();
 
     requester
-        .try_action(
-            &UserAction::StopInstance(uuid.clone()),
-            safe_mode
-        )
-        .and_then(|_x| {
-            requester.try_action(
-                &UserAction::StartInstance(uuid.clone()),
-                safe_mode
-            )
-        })?;
+        .try_action(&UserAction::StopInstance(uuid.clone()), safe_mode)
+        .and_then(|_x| requester.try_action(&UserAction::StartInstance(uuid.clone()), safe_mode))?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        let docker_bridge = state.docker_bridge.clone();
+        docker_bridge.restart_container(&uuid).await?;
+        return Ok(Json(()));
+    }
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -126,6 +133,11 @@ pub async fn kill_instance(
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
     };
+    if uuid.to_string().starts_with("DOCKER-") {
+        let docker_bridge = state.docker_bridge.clone();
+        docker_bridge.kill_container(&uuid).await?;
+        return Ok(Json(json!("ok")));
+    }
     state
         .instances
         .get(&uuid)
@@ -176,6 +188,11 @@ pub async fn get_instance_state(
             kind: ErrorKind::PermissionDenied,
             source: eyre!("You don't have permission to view this instance"),
         });
+    }
+    if uuid.to_string().starts_with("DOCKER-") {
+        let docker_bridge = state.docker_bridge.clone();
+        let state = docker_bridge.get_container_state(&uuid).await?;
+        return Ok(Json(json!(state)));
     }
     Ok(Json(json!(
         state

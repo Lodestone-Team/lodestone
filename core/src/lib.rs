@@ -2,6 +2,7 @@
 
 use crate::error::ErrorKind;
 use crate::event_broadcaster::EventBroadcaster;
+use crate::handlers::extension::get_extension_routes;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
@@ -75,11 +76,14 @@ use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 
 pub mod auth;
+mod command_console;
 pub mod db;
 mod deno_ops;
+mod docker_bridge;
 pub mod error;
 mod event_broadcaster;
 mod events;
+mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
@@ -113,6 +117,7 @@ pub struct AppState {
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
+    docker_bridge: docker_bridge::DockerBridge,
     playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
 }
 
@@ -561,8 +566,15 @@ pub async fn run(
             kind: ErrorKind::Internal,
             source: Report::msg("Failed to create sqlite pool"),
         })?,
+        docker_bridge: docker_bridge::DockerBridge::new(
+            tx.clone(),
+            path_to_stores().join("docker_bridge.json"),
+        )
+        .await
+        .unwrap(),
     };
 
+    command_console::init(shared_state.clone());
     init_app_state(shared_state.clone());
 
     for mut entry in shared_state.instances.iter_mut() {
@@ -678,6 +690,7 @@ pub async fn run(
                     .merge(get_global_fs_routes(shared_state.clone()))
                     .merge(get_global_settings_routes(shared_state.clone()))
                     .merge(get_gateway_routes(shared_state.clone()))
+                    .merge(get_extension_routes(shared_state.clone()))
                     .merge(get_playitgg_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
@@ -786,6 +799,8 @@ pub async fn run(
                 }
                 shared_state.instances.clear();
                 shared_state.macro_executor.shutdown_all();
+                // exit
+                std::process::exit(0);
             }
         },
         shared_state,

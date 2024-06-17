@@ -151,7 +151,8 @@ pub async fn get_macro_configs(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<GetConfigResponse>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    let safe_mode = state.global_settings.lock().await.safe_mode();
+    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())), safe_mode)?;
 
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -201,7 +202,9 @@ pub async fn store_config_to_local(
     Json(config_to_store): Json<IndexMap<String, SettingManifest>>,
 ) -> Result<(), Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    let safe_mode = state.global_settings.lock().await.safe_mode();
+
+    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())), safe_mode)?;
 
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,

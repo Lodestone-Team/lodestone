@@ -1,6 +1,10 @@
 import { useDocumentTitle } from 'usehooks-ts';
 import { Table, TableColumn, TableRow } from 'components/Table';
-import { faPlayCircle, faSkull, faGear } from '@fortawesome/free-solid-svg-icons';
+import {
+  faPlayCircle,
+  faSkull,
+  faGear,
+} from '@fortawesome/free-solid-svg-icons';
 import { ButtonMenuConfig } from 'components/ButtonMenu';
 import {
   getMacros,
@@ -12,7 +16,14 @@ import {
   storeMacroConfig,
 } from 'utils/apis';
 import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useEffect, useState, useMemo, Dispatch, SetStateAction } from 'react';
+import {
+  useContext,
+  useEffect,
+  useState,
+  useMemo,
+  Dispatch,
+  SetStateAction,
+} from 'react';
 import { MacroEntry } from 'bindings/MacroEntry';
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,52 +40,55 @@ const MacroModalContents = ({
   initialMacroData,
   selectedInstance,
   row,
-  macroDataSetter
+  macroDataSetter,
 }: {
-  initialMacroData: GetConfigResponse,
-  selectedInstance: InstanceInfo,
-  row: TableRow,
-  macroDataSetter: Dispatch<SetStateAction<GetConfigResponse | undefined>>
+  initialMacroData: GetConfigResponse;
+  selectedInstance: InstanceInfo;
+  row: TableRow;
+  macroDataSetter: Dispatch<SetStateAction<GetConfigResponse | undefined>>;
 }) => {
   // mirror state so settings ui is in sync with what gets sent to backend
-  const [macroData, setMacroData] = useState<GetConfigResponse>(initialMacroData);
+  const [macroData, setMacroData] =
+    useState<GetConfigResponse>(initialMacroData);
   return (
-    <div className={
-      clsx('mb-2', 'flex flex-col gap-4 @4xl:flex-row')}>
-    <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
-      {
-        Object.entries(macroData.config).map(([_, manifest], index) => {
+    <div className={clsx('mb-2', 'flex flex-col gap-4 @4xl:flex-row')}>
+      <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+        {Object.entries(macroData.config).map(([_, manifest], index) => {
           return (
-              <SettingField 
-                key = {index} 
-                instance = {selectedInstance}
-                sectionId={`${selectedInstance.uuid}-${row.name}`}
-                settingId={manifest.setting_id}
-                setting={adaptSettingManifest(manifest)}
-                error = {null}
-                onSubmit={(value) => {
-                  const newState = {
-                    ...macroData,
-                    config: {
-                      ...macroData.config,
-                      [`${manifest.name}`]: {
-                        ...macroData.config[`${manifest.name}`],
-                        value
-                      }
-                    }
-                  }
-                  macroDataSetter(newState);
-                  setMacroData(newState);
-                }}
-              /> )
-        })
-      }
-      
-    </span>
-    {macroData && macroData.error && <TextCaption text = {'This macro requires additional config.' || ''} className = 'text-small text-red-300 whitespace-pre-wrap'/>}
+            <SettingField
+              key={index}
+              instance={selectedInstance}
+              sectionId={`${selectedInstance.uuid}-${row.name}`}
+              settingId={manifest.setting_id}
+              setting={adaptSettingManifest(manifest)}
+              error={null}
+              onSubmit={(value) => {
+                const newState = {
+                  ...macroData,
+                  config: {
+                    ...macroData.config,
+                    [`${manifest.name}`]: {
+                      ...macroData.config[`${manifest.name}`],
+                      value,
+                    },
+                  },
+                };
+                macroDataSetter(newState);
+                setMacroData(newState);
+              }}
+            />
+          );
+        })}
+      </span>
+      {macroData && macroData.error && (
+        <TextCaption
+          text={'This macro requires additional config.' || ''}
+          className="whitespace-pre-wrap text-small text-red-300"
+        />
+      )}
     </div>
-  )
-}
+  );
+};
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
@@ -83,8 +97,9 @@ const Macros = () => {
   const [macros, setMacros] = useState<TableRow[]>([]);
   const [tasks, setTasks] = useState<TableRow[]>([]);
   const [history, setHistory] = useState<TableRow[]>([]);
-  const [ showMacroConfigModal, setShowMacroConfigModal ] = useState(false);
-  const [macroConfigContents, setMacroConfigContents] = useState<ReactNode>(null);
+  const [showMacroConfigModal, setShowMacroConfigModal] = useState(false);
+  const [macroConfigContents, setMacroConfigContents] =
+    useState<ReactNode>(null);
 
   // macro settings state
   const [macroData, setMacroData] = useState<GetConfigResponse>();
@@ -161,24 +176,29 @@ const Macros = () => {
       toast.error('Error opening macro config: No instance selected');
       return;
     }
-    try { 
-      const initialData = await getMacroConfig(selectedInstance.uuid,  row.name as string);
+    try {
+      const initialData = await getMacroConfig(
+        selectedInstance.uuid,
+        row.name as string
+      );
       // store initial settings to potentially rollback
       setMacroData(initialData);
       setMacroRow(row);
 
-      setMacroConfigContents(<MacroModalContents
-        initialMacroData={initialData}
-        macroDataSetter={setMacroData}
-        selectedInstance={selectedInstance}
-        row={row}
-      />)
-      setShowMacroConfigModal(true)
+      setMacroConfigContents(
+        <MacroModalContents
+          initialMacroData={initialData}
+          macroDataSetter={setMacroData}
+          selectedInstance={selectedInstance}
+          row={row}
+        />
+      );
+      setShowMacroConfigModal(true);
     } catch (error) {
       // error potentialy thrown by axioswrapper - should be error type
       toast.error((error as Error).message);
     }
-  }
+  };
 
   useEffect(() => {
     if (!selectedInstance) return;
@@ -227,8 +247,8 @@ const Macros = () => {
                   []
                 );
                 if (result !== '') {
-                  toast.error(result)
-                  await openMacroModal(row)
+                  toast.error(result);
+                  await openMacroModal(row);
                   return;
                 }
                 const newMacros = macros.map((macro) => {
@@ -251,8 +271,8 @@ const Macros = () => {
               variant: 'text',
               intention: 'info',
               disabled: false,
-              onClick: openMacroModal
-            }
+              onClick: openMacroModal,
+            },
           ],
         },
       },
@@ -344,35 +364,34 @@ const Macros = () => {
           onClick={() => setShowCreateMacro(true)}
         />
       </div> */}
-      {
-      showMacroConfigModal && 
-      <ConfirmDialog
-      title = "Macro Config"
-      type = "info"
-      isOpen = {showMacroConfigModal}
-      onClose = {() => {
-        setShowMacroConfigModal(false)
-      }}
-      confirmButtonText='Save'
-      closeButtonText='Close'
-      onConfirm={async () => {
-        if (!selectedInstance || !macroRow || !macroData) {
-          // theoretically, this should never occur
-          toast.error("Error: Invalid state")
-        } else {
-          await storeMacroConfig(
-            selectedInstance.uuid,
-            macroRow.name as string,
-            macroData.config
-          );
-        }
-        
-        setShowMacroConfigModal(false)
-      }}
-      >
-        {macroConfigContents}
-      </ConfirmDialog>
-      }
+      {showMacroConfigModal && (
+        <ConfirmDialog
+          title="Macro Config"
+          type="info"
+          isOpen={showMacroConfigModal}
+          onClose={() => {
+            setShowMacroConfigModal(false);
+          }}
+          confirmButtonText="Save"
+          closeButtonText="Close"
+          onConfirm={async () => {
+            if (!selectedInstance || !macroRow || !macroData) {
+              // theoretically, this should never occur
+              toast.error('Error: Invalid state');
+            } else {
+              await storeMacroConfig(
+                selectedInstance.uuid,
+                macroRow.name as string,
+                macroData.config
+              );
+            }
+
+            setShowMacroConfigModal(false);
+          }}
+        >
+          {macroConfigContents}
+        </ConfirmDialog>
+      )}
       <div className="mt-[0rem] mb-4">All macros for your instance</div>
       <div className="flex flex-row justify-start border-b border-gray-400">
         {pages.map((page) => (
@@ -381,8 +400,8 @@ const Macros = () => {
             className={clsx(
               selectedPage === page &&
                 'border-b-2 border-blue-200 text-blue-200',
-              'font-mediumbold mr-4 hover:cursor-pointer',
-              'enabled:focus-visible:ring-blue-faded/50 focus-visible:outline-none enabled:focus-visible:ring-4'
+              'mr-4 font-mediumbold hover:cursor-pointer',
+              'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
             )}
             onClick={() => setSelectedPage(page)}
           >
