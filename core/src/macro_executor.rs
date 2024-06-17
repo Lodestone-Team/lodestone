@@ -12,7 +12,7 @@ use std::{
 
 use color_eyre::eyre::Context;
 use dashmap::DashMap;
-use deno_runtime::permissions::Permissions;
+use deno_runtime::permissions::{Permissions, PermissionsOptions};
 use futures_util::Future;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -269,6 +269,24 @@ impl MacroExecutor {
         }
     }
 
+    fn add_default_permissions(
+        perm: Option<PermissionsOptions>,
+        path_to_main: PathBuf,
+    ) -> PermissionsOptions {
+        let parent = path_to_main.parent().unwrap().to_path_buf();
+        if let Some(mut perm) = perm {
+            perm.allow_read.get_or_insert_with(std::vec::Vec::new).push(parent.clone());
+            perm.allow_write.get_or_insert_with(std::vec::Vec::new).push(parent);
+            perm
+        } else {
+            PermissionsOptions {
+                allow_read: Some(vec![parent.clone()]),
+                allow_write: Some(vec![parent]),
+                ..Default::default()
+            }
+        }
+    }
+
     /// For timeout:
     ///
     /// If `None`, the handle will never timeout.
@@ -286,7 +304,7 @@ impl MacroExecutor {
         _caused_by: CausedBy,
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
         pre_injection_code: Option<String>,
-        permissions: Option<Permissions>,
+        permissions: Option<PermissionsOptions>,
         instance_uuid: Option<InstanceUuid>,
     ) -> Result<SpawnResult, Error> {
         let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
@@ -305,6 +323,7 @@ impl MacroExecutor {
             &std::env::current_dir().context("Failed to get current directory")?,
         )
         .context("Failed to resolve path")?;
+
         std::thread::spawn({
             let process_table = self.macro_process_table.clone();
             let event_broadcaster = self.event_broadcaster.clone();
@@ -325,7 +344,9 @@ impl MacroExecutor {
                         let mut main_worker = deno_runtime::worker::MainWorker::from_options(
                             main_module,
                             deno_runtime::permissions::PermissionsContainer::new(
-                                permissions.unwrap_or_else(Permissions::allow_all),
+                                Permissions::from_options(
+                                    &Self::add_default_permissions(permissions, path_to_main_module.clone())
+                                ).unwrap(),
                             ),
                             worker_option,
                         );

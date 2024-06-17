@@ -172,6 +172,7 @@ impl User {
             UserAction::WriteGlobalFile => self.permissions.can_write_global_file,
             UserAction::ManageUser => self.is_owner,
             UserAction::ManagePermission => self.permissions.can_manage_permission,
+            UserAction::InstallExtension => self.permissions.can_install_extension,
         }
     }
 
@@ -230,6 +231,9 @@ impl User {
                     UserAction::ManagePermission => {
                         eyre!("You don't have permission to manage permission")
                     }
+                    UserAction::InstallExtension => {
+                        eyre!("You don't have permission to install extension")
+                    }
                 },
             })
         }
@@ -285,6 +289,7 @@ pub enum UserAction {
     WriteGlobalFile,
     ManageUser,
     ManagePermission,
+    InstallExtension,
 }
 
 impl UserAction {
@@ -306,6 +311,7 @@ impl UserAction {
             UserAction::WriteGlobalFile => false,
             UserAction::ManageUser => false,
             UserAction::ManagePermission => false,
+            UserAction::InstallExtension => false,
         }
     }
 }

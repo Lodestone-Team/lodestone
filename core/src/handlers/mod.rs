@@ -20,3 +20,4 @@ pub mod setup;
 pub mod system;
 pub mod users;
 mod util;
+pub mod extension;

@@ -44,6 +44,9 @@ pub async fn get_instance_settings(
         &UserAction::AccessSetting(uuid.clone()),
         state.global_settings.lock().await.safe_mode(),
     )?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        return Ok(Json(ConfigurableManifest::default()));
+    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),

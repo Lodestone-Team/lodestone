@@ -84,9 +84,13 @@ pub async fn get_generic_setup_manifest(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<GenericSetupManifestBody>,
 ) -> Result<Json<SetupManifest>, Error> {
-    generic::GenericInstance::setup_manifest(&body.url, state.macro_executor)
-        .await
-        .map(Json)
+    state
+        .docker_bridge
+        .add_to_watch_list(body.url.clone())
+        .await;
+    return Ok(Json(SetupManifest {
+        setting_sections: Default::default(),
+    }));
 }
 
 pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
