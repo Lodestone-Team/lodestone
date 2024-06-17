@@ -62,11 +62,12 @@ const InstanceTabs = lazyWithPreload(
   () => import('pages/InstanceTabs/InstanceTabs')
 );
 const ProfilePage = lazyWithPreload(() => import('pages/settings/profile'));
-const CoreSettings = lazyWithPreload(
-  () => import('pages/settings/CoreSettings')
-);
 const UserSettings = lazyWithPreload(
   () => import('pages/settings/UserSettings')
+);
+const GlobalTabs = lazyWithPreload(() => import('pages/settings/GlobalSettings'));
+const GenericSetting = lazyWithPreload(
+  () => import('pages/settings/GenericSettings')
 );
 
 /**
@@ -83,8 +84,9 @@ const preloadDashboard = () =>
       Home,
       InstanceTabs,
       ProfilePage,
-      CoreSettings,
       UserSettings,
+      GlobalTabs,
+      GenericSetting,
     ].map((component) => component.preload())
   ).catch(() => {
     // retried when the component renders, and its error shows there
@@ -110,12 +112,20 @@ const InstanceTabList = [
   'playitgg',
 ];
 
-export const CoreSettingsTabList = [
+const GlobalTabList = [
   {
-    title: 'General',
-    path: 'general',
-    content: <CoreSettings />,
+    title: 'Global Settings',
+    path: 'core-settings',
+    content: <GlobalTabs />,
   },
+  {
+    title: 'Version Info',
+    path: 'version',
+    content: <GenericSetting />,
+  },
+];
+
+export const CoreSettingsTabList = [
   {
     title: 'Users',
     path: 'users',
@@ -476,6 +486,13 @@ export default function App() {
                     <Route
                       path={`/dashboard/${path}`}
                       element={<InstanceTabs />}
+                      key={i}
+                    />
+                  ))}
+                  {GlobalTabList.map((tab, i) => (
+                    <Route
+                      path={`/dashboard/${tab.path}`}
+                      element={tab.content}
                       key={i}
                     />
                   ))}

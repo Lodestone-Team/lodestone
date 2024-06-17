@@ -136,7 +136,7 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
           title="Settings"
           onClick={() => {
             localStorage.setItem('lastVisitedRoute', location.pathname);
-            setPathname('/settings/general');
+            setPathname('/settings/users');
           }}
         />
       )}

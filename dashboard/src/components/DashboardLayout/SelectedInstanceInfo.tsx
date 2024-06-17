@@ -72,7 +72,7 @@ export const SelectedInstanceInfo = ({
   }
   if (!selectedInstance || !uuid) {
     return (
-      <div className="mx-1 px-1 text-gray-faded/30">
+      <div className="mx-1 mt-3 px-1 text-gray-faded/30">
         <div className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
           SELECTED INSTANCE
         </div>
@@ -92,7 +92,7 @@ export const SelectedInstanceInfo = ({
 
   return (
     <RadioGroup
-      className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
+      className={`child:w-full mx-1 mt-3 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
       onChange={setPathname}
     >
       <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
