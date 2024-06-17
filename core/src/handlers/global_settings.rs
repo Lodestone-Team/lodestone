@@ -140,6 +140,9 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
         .route("/global_settings/name", put(change_core_name))
         .route("/global_settings/safe_mode", put(change_core_safe_mode))
         .route("/global_settings/domain", put(change_domain))
-        .route("/global_settings/playit_enabled", put(change_core_playit_enabled))
+        .route(
+            "/global_settings/playit_enabled",
+            put(change_core_playit_enabled),
+        )
         .with_state(state)
 }

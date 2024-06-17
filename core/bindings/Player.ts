@@ -2,4 +2,4 @@
 import type { GenericPlayer } from "./GenericPlayer";
 import type { MinecraftPlayer } from "./MinecraftPlayer";
 
-export type Player = { type: "MinecraftPlayer" } & MinecraftPlayer | { type: "GenericPlayer" } & GenericPlayer;
+export type Player = { "type": "MinecraftPlayer" } & MinecraftPlayer | { "type": "GenericPlayer" } & GenericPlayer;

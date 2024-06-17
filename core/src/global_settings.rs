@@ -13,6 +13,7 @@ pub struct GlobalSettingsData {
     pub core_name: String,
     pub safe_mode: bool,
     pub domain: Option<String>,
+    #[serde(default)]
     pub playit_enabled: bool,
 }
 
@@ -164,7 +165,6 @@ impl GlobalSettings {
     pub fn playit_enabled(&self) -> bool {
         self.global_settings_data.playit_enabled
     }
-
 }
 
 impl AsRef<GlobalSettingsData> for GlobalSettings {

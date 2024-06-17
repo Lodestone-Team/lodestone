@@ -64,6 +64,7 @@ impl TServer for MinecraftInstance {
                     CausedBy::System,
                     Box::new(DefaultWorkerOptionGenerator),
                     None,
+                    None,
                     Some(self.uuid.clone()),
                 )
                 .await;
@@ -298,7 +299,8 @@ impl TServer for MinecraftInstance {
 
                                     if parse_server_started(&line) && !did_start {
                                         did_start = true;
-                                        __self.state
+                                        __self
+                                            .state
                                             .lock()
                                             .await
                                             .try_transition(
@@ -440,7 +442,8 @@ impl TServer for MinecraftInstance {
                             }
                         }
                         info!("Instance {} process shutdown", name);
-                        __self.state
+                        __self
+                            .state
                             .lock()
                             .await
                             .try_transition(

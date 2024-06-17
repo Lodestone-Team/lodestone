@@ -2,7 +2,7 @@
   "cSpell.words": ["clsx", "Formik", "reduxjs"],
 
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true
+    "source.fixAll.eslint": "explicit"
   },
   // lint only src folder
   "eslint.lintTask.options": "./src",
