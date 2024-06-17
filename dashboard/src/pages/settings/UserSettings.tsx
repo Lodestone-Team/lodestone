@@ -330,7 +330,7 @@ export const UserSettings = () => {
           </div>
         </Dialog>
       </Transition>
-      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
+      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container mb-10">
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
           <h1 className="dashboard-instance-heading">User Settings</h1>
           {UserBoxes}

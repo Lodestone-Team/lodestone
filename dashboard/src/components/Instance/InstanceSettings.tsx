@@ -78,7 +78,7 @@ export default function InstanceSetting() {
           key={section.section_id}
           className="mb-16 flex flex-col gap-4 @4xl:flex-row"
         >
-          <div className="w-80 shrink-0">
+          <div className="w-full shrink-0">
             <h2 className="text-h2 font-extrabold tracking-medium">
               {section.name}
             </h2>
@@ -119,7 +119,7 @@ export default function InstanceSetting() {
         </div>
       ))}
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-80 shrink-0">
+        <div className="w-full shrink-0">
           <h2 className="text-h2 font-extrabold tracking-medium">
             Danger Zone
           </h2>
