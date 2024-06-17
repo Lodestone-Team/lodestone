@@ -35,7 +35,10 @@ pub async fn get_instance_task_list(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<TaskEntry>>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    requester.try_action(
+        &UserAction::AccessMacro(Some(uuid.clone())),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -50,7 +53,10 @@ pub async fn get_instance_macro_list(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<MacroEntry>>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    requester.try_action(
+        &UserAction::AccessMacro(Some(uuid.clone())),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -65,7 +71,10 @@ pub async fn get_instance_history_list(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Vec<HistoryEntry>>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    requester.try_action(
+        &UserAction::AccessMacro(Some(uuid.clone())),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -81,7 +90,10 @@ pub async fn run_macro(
     Json(args): Json<Vec<String>>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    requester.try_action(
+        &UserAction::AccessMacro(Some(uuid.clone())),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -121,7 +133,10 @@ pub async fn kill_macro(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())))?;
+    requester.try_action(
+        &UserAction::AccessMacro(Some(uuid.clone())),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
