@@ -32,7 +32,7 @@ impl State {
     }
     pub fn from_container_state(state: &ContainerState) -> Self {
         state.status.map_or(State::Error, |status| {
-            State::from_docker_state_string(&status.to_string())
+            State::from_docker_state_string(status.as_ref())
         })
     }
 }
