@@ -44,9 +44,9 @@ import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import InstanceTabs from 'pages/InstanceTabs/InstanceTabs';
 import ProfilePage from 'pages/settings/profile';
-import CoreSettings from 'pages/settings/CoreSettings';
 import UserSettings from 'pages/settings/UserSettings';
-
+import GlobalTabs from 'pages/settings/GlobalSettings';
+import GenericSetting from 'pages/settings/GenericSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,12 +68,20 @@ const InstanceTabList = [
   'tunnels',
 ];
 
-export const CoreSettingsTabList = [
+const GlobalTabList = [
     {
-    title: 'General',
-      path: 'general',
-      content: <CoreSettings />,
+        title: 'Global Settings',
+        path: 'core-settings',
+        content: <GlobalTabs />,
     },
+    {
+        title: 'Version Info',
+        path: 'version',
+        content: <GenericSetting />,
+    },
+];
+
+export const CoreSettingsTabList = [
     {
       title: 'Users',
       path: 'users',
@@ -321,6 +329,13 @@ export default function App() {
                   <Route
                     path={`/dashboard/${path}`}
                     element={<InstanceTabs />}
+                    key={i}
+                  />
+                ))}
+                {GlobalTabList.map((tab, i) => (
+                  <Route
+                    path={`/dashboard/${tab.path}`}
+                    element={tab.content}
                     key={i}
                   />
                 ))}
