@@ -28,7 +28,10 @@ pub async fn start_instance(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::StartInstance(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::StartInstance(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     if uuid.to_string().starts_with("DOCKER-") {
         let docker_bridge = state.docker_bridge.clone();
         docker_bridge.start_container(&uuid).await?;
@@ -62,7 +65,10 @@ pub async fn stop_instance(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::StopInstance(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::StopInstance(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     if uuid.to_string().starts_with("DOCKER-") {
         let docker_bridge = state.docker_bridge.clone();
         docker_bridge.stop_container(&uuid).await?;
@@ -90,9 +96,11 @@ pub async fn restart_instance(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    let safe_mode = state.global_settings.lock().await.safe_mode();
+
     requester
-        .try_action(&UserAction::StopInstance(uuid.clone()))
-        .and_then(|_x| requester.try_action(&UserAction::StartInstance(uuid.clone())))?;
+        .try_action(&UserAction::StopInstance(uuid.clone()), safe_mode)
+        .and_then(|_x| requester.try_action(&UserAction::StartInstance(uuid.clone()), safe_mode))?;
     if uuid.to_string().starts_with("DOCKER-") {
         let docker_bridge = state.docker_bridge.clone();
         docker_bridge.restart_container(&uuid).await?;
@@ -117,7 +125,10 @@ pub async fn kill_instance(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<Value>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::StopInstance(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::StopInstance(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -146,7 +157,10 @@ pub async fn send_command(
     Json(command): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessConsole(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessConsole(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),

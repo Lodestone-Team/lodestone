@@ -60,7 +60,10 @@ pub async fn get_instance_info(
         source: eyre!("Instance not found"),
     })?;
 
-    requester.try_action(&UserAction::ViewInstance(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::ViewInstance(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     Ok(Json(instance.get_instance_info().await))
 }
 
@@ -71,7 +74,10 @@ pub async fn create_minecraft_instance(
     Json(manifest_value): Json<SetupValue>,
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::CreateInstance)?;
+    requester.try_action(
+        &UserAction::CreateInstance,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let mut perm = requester.permissions;
 
     let mut instance_uuid = InstanceUuid::default();
@@ -202,7 +208,10 @@ pub async fn create_generic_instance(
     Json(setup_config): Json<GenericSetupConfig>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::CreateInstance)?;
+    requester.try_action(
+        &UserAction::CreateInstance,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let mut instance_uuid = InstanceUuid::default();
     for entry in state.instances.iter() {
         if let Some(uuid) = entry.key().as_ref().get(0..8) {
@@ -303,7 +312,10 @@ pub async fn delete_instance(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::DeleteInstance)?;
+    requester.try_action(
+        &UserAction::DeleteInstance,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
