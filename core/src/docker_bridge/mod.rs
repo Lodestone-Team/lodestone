@@ -218,7 +218,6 @@ impl DockerBridge {
             let uuid = uuid.clone();
             async move {
                 while let Some(Ok(output)) = output.next().await {
-                    dbg!(output.to_string());
                     let name = name.clone();
                     let uuid = uuid.clone();
                     event_broadcaster.send(Event::new_instance_output(
@@ -321,7 +320,7 @@ impl DockerBridge {
             .map(PathBuf::from)
             .collect();
         let (path, v_root, mount_point) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
-        dbg!(&path, &mount_point);
+        // dbg!(&path, &mount_point);
         let ret: Vec<FileEntry> = list_dir(&path, None)
             .await?
             .iter()

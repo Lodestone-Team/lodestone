@@ -1,4 +1,7 @@
-use std::{path::{PathBuf, Path}, process::Stdio};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 use color_eyre::eyre::{eyre, Error};
 
@@ -7,12 +10,15 @@ pub struct GitClient {
 }
 
 impl GitClient {
-
     pub fn cwd(&self) -> PathBuf {
         self.cwd.clone()
     }
 
-    pub async fn clone(url: impl AsRef<str>, path : impl AsRef<Path>, name : impl AsRef<str>) -> Result<Self, Error> {
+    pub async fn clone(
+        url: impl AsRef<str>,
+        path: impl AsRef<Path>,
+        name: impl AsRef<str>,
+    ) -> Result<Self, Error> {
         // get output from stderr
         let output = tokio::process::Command::new("git")
             .arg("clone")
@@ -23,13 +29,19 @@ impl GitClient {
             .await
             .map_err(|e| eyre!("Failed to get output {}", e))?;
         if !output.status.success() {
-            return Err(eyre!("git clone failed : {}", String::from_utf8(output.stderr)?));
+            return Err(eyre!(
+                "git clone failed : {}",
+                String::from_utf8(output.stderr)?
+            ));
         }
         let output = String::from_utf8(output.stderr)?;
-        dbg!(&output);
+        // dbg!(&output);
         // extract the path from the output
         // ex. Cloning into 'PATH'...;
-        let path = output.split('\'').nth(1).ok_or_else(|| eyre!("Failed to parse git clone output"))?;
+        let path = output
+            .split('\'')
+            .nth(1)
+            .ok_or_else(|| eyre!("Failed to parse git clone output"))?;
 
         Ok(Self {
             cwd: PathBuf::from(path),

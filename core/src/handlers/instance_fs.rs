@@ -109,7 +109,6 @@ async fn list_instance_files(
             Some(r)
         })
         .collect();
-    dbg!(&ret);
     let caused_by = CausedBy::User {
         user_id: requester.uid,
         user_name: requester.username,
