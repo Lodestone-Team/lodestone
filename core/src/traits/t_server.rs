@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bollard::secret::ContainerState;
 use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +20,7 @@ pub enum State {
 }
 
 impl State {
-    pub fn from_docker_state(state: &str) -> Self {
+    pub fn from_docker_state_string(state: &str) -> Self {
         match state {
             "running" => State::Running,
             "exited" => State::Stopped,
@@ -28,6 +29,11 @@ impl State {
             "dead" => State::Error,
             _ => State::Error,
         }
+    }
+    pub fn from_container_state(state: &ContainerState) -> Self {
+        state.status.map_or(State::Error, |status| {
+            State::from_docker_state_string(&status.to_string())
+        })
     }
 }
 

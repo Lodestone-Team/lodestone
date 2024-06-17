@@ -76,6 +76,7 @@ use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 
 pub mod auth;
+mod command_console;
 pub mod db;
 mod deno_ops;
 mod docker_bridge;
@@ -558,12 +559,13 @@ pub async fn run(
         })?,
         docker_bridge: docker_bridge::DockerBridge::new(
             tx.clone(),
-            path_to_stores().join("docker_bridge"),
+            path_to_stores().join("docker_bridge.json"),
         )
         .await
         .unwrap(),
     };
 
+    command_console::init(shared_state.clone());
     init_app_state(shared_state.clone());
 
     for mut entry in shared_state.instances.iter_mut() {
@@ -788,6 +790,8 @@ pub async fn run(
                 }
                 shared_state.instances.clear();
                 shared_state.macro_executor.shutdown_all();
+                // exit
+                std::process::exit(0);
             }
         },
         shared_state,

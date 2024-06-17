@@ -1,20 +1,17 @@
 mod virtual_fs;
 
-use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::collections::HashSet;
+use std::fs::{File, OpenOptions};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use bollard::container::{AttachContainerOptions, AttachContainerResults, ListContainersOptions};
 use bollard::{secret::EventMessage, system::EventsOptions, Docker};
 use color_eyre::eyre::{Context, ContextCompat};
-use futures::AsyncWrite;
-use tokio::fs::create_dir_all;
-use tokio::sync::broadcast::Sender;
+
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
-use tracing::{error, event};
+use tracing::{error, info};
 use virtual_fs::{get_virtual_path, to_virtual_path};
 
 use crate::handlers::global_fs::FileEntry;
@@ -22,7 +19,7 @@ use crate::traits::t_configurable::Game::Generic;
 use crate::util::{list_dir, scoped_join_win_safe};
 use crate::{
     error::Error,
-    event_broadcaster::{self, EventBroadcaster},
+    event_broadcaster::EventBroadcaster,
     events::Event,
     traits::{t_configurable::GameType, t_server::State, InstanceInfo},
     types::InstanceUuid,
@@ -33,33 +30,7 @@ pub struct DockerBridge {
     docker: Docker,
     event_broadcaster: EventBroadcaster,
     watch_list: Arc<RwLock<HashSet<InstanceUuid>>>,
-    working_dir: PathBuf,
-}
-
-fn is_lodestone_managed(labels: &HashMap<String, String>) -> bool {
-    labels
-        .get("lodestone_managed")
-        .map(|v| v == "basic" || v == "full")
-        .unwrap_or(false)
-}
-
-fn event_filter(
-    event: &std::result::Result<bollard::secret::EventMessage, bollard::errors::Error>,
-) -> bool {
-    if event.is_err() {
-        return false;
-    }
-    let event = event.as_ref().unwrap();
-    event
-        .actor
-        .as_ref()
-        .and_then(|actor| {
-            actor
-                .attributes
-                .as_ref()
-                .map(|attr| is_lodestone_managed(attr))
-        })
-        .unwrap_or(false)
+    db_file_path: PathBuf,
 }
 
 fn docker_id_to_uuid(name: &str) -> InstanceUuid {
@@ -98,28 +69,33 @@ fn docker_event_to_lodestone_event(event: EventMessage) -> Option<Event> {
 impl DockerBridge {
     pub async fn new(
         event_broadcaster: EventBroadcaster,
-        working_dir: PathBuf,
+        db_file_path: PathBuf,
     ) -> Result<Self, Error> {
         let docker =
             Docker::connect_with_local_defaults().context("Failed to connect to docker")?;
-        create_dir_all(&working_dir)
-            .await
-            .context("Failed to create working directory")?;
-        // read or create watch_list.json
-        let watch_list_file = working_dir.join("watch_list.json");
-        let watch_list = if watch_list_file.exists() {
-            let watch_list = tokio::fs::read_to_string(&watch_list_file)
-                .await
-                .context("Failed to read watch list")?;
-            serde_json::from_str(&watch_list).context("Failed to parse watch list")?
-        } else {
-            tokio::fs::write(&watch_list_file, "[]")
-                .await
-                .context("Failed to create watch list file")?;
-            HashSet::new()
-        };
-
-        dbg!(&watch_list);
+        // make sure the db file exists
+        let file = File::options()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(&db_file_path)
+            .context("Failed to open db file")?;
+        let watch_list: HashSet<InstanceUuid> =
+            if let Ok(watch_list) = serde_json::from_reader(file) {
+                watch_list
+            } else {
+                info!("Creating new docker bridge db file");
+                // if the file is empty, create an empty watch list and write it to the file
+                let watch_list = HashSet::new();
+                let file = File::options()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&db_file_path)
+                    .context("Failed to open db file")?;
+                serde_json::to_writer(file, &watch_list).context("Failed to write db file")?;
+                watch_list
+            };
 
         let watch_list = Arc::new(RwLock::new(watch_list));
         tokio::spawn({
@@ -149,7 +125,7 @@ impl DockerBridge {
         });
         Ok(Self {
             docker,
-            working_dir,
+            db_file_path,
             event_broadcaster,
             watch_list,
         })
@@ -185,7 +161,7 @@ impl DockerBridge {
                 path: "/no_peek/Volume".to_string(),
                 auto_start: false,
                 restart_on_crash: false,
-                state: State::from_docker_state(&container.state.unwrap()),
+                state: State::from_docker_state_string(&container.state.unwrap()),
                 player_count: None,
                 max_player_count: None,
                 player_list: None,
@@ -193,6 +169,18 @@ impl DockerBridge {
             ret.push(instance);
         }
         Ok(ret)
+    }
+
+    pub async fn get_container_state(&self, uuid: &InstanceUuid) -> Result<State, Error> {
+        let name = uuid.to_string().replace("DOCKER-", "");
+        let state = self
+            .docker
+            .inspect_container(&name, None)
+            .await
+            .context("Failed to inspect container")?
+            .state
+            .context("Failed to get container state")?;
+        Ok(State::from_container_state(&state))
     }
 
     pub async fn stop_container(&self, uuid: &InstanceUuid) -> Result<(), Error> {
@@ -221,10 +209,8 @@ impl DockerBridge {
             logs: Some(false),
             detach_keys: None,
         });
-        let AttachContainerResults {
-            mut output,
-            mut input,
-        } = self.docker.attach_container(&name, options).await.unwrap();
+        let AttachContainerResults { mut output, .. } =
+            self.docker.attach_container(&name, options).await.unwrap();
 
         let event_broadcaster = self.event_broadcaster.clone();
         tokio::spawn({
@@ -257,10 +243,45 @@ impl DockerBridge {
         Ok(())
     }
 
-    pub async fn add_to_watch_list(&self, name: String) -> Result<(), Error> {
+    pub async fn kill_container(&self, uuid: &InstanceUuid) -> Result<(), Error> {
+        let name = uuid.to_string().replace("DOCKER-", "");
+        self.docker
+            .kill_container(
+                &name,
+                None::<bollard::container::KillContainerOptions<String>>,
+            )
+            .await
+            .context("Failed to kill container")?;
+        Ok(())
+    }
+
+    async fn sync_watch_list(&self) -> Result<(), Error> {
+        let watch_list = self.watch_list.read().await;
+        let file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.db_file_path)
+            .context("Failed to open db file")?;
+        serde_json::to_writer(file, &*watch_list).context("Failed to write db file")?;
+        Ok(())
+    }
+
+    pub async fn add_to_watch_list(&self, name: String) {
         let mut watch_list = self.watch_list.write().await;
         watch_list.insert(docker_id_to_uuid(&name));
-        Ok(())
+        drop(watch_list);
+        let _ = self.sync_watch_list().await.map_err(|e| {
+            error!("Failed to add to watch list: {:?}", e);
+        });
+    }
+
+    pub async fn remove_from_watch_list(&self, name: String) {
+        let mut watch_list = self.watch_list.write().await;
+        watch_list.remove(&docker_id_to_uuid(&name));
+        drop(watch_list);
+        let _ = self.sync_watch_list().await.map_err(|e| {
+            error!("Failed to remove from watch list: {:?}", e);
+        });
     }
 
     pub async fn list_files(
@@ -304,7 +325,7 @@ impl DockerBridge {
         let ret: Vec<FileEntry> = list_dir(&path, None)
             .await?
             .iter()
-            .filter_map(move |p| -> Option<FileEntry> {
+            .map(move |p| -> FileEntry {
                 // remove the root path from the file path
                 let mut r: FileEntry = p.as_path().into();
                 r.path = to_virtual_path(p, &v_root, &mount_point)
@@ -312,7 +333,7 @@ impl DockerBridge {
                     .to_str()
                     .unwrap()
                     .to_string();
-                Some(r)
+                r
             })
             .collect();
 
@@ -345,7 +366,6 @@ impl DockerBridge {
             .collect();
         let (path, ..) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
 
-
         let content = tokio::fs::read_to_string(&path)
             .await
             .context("Failed to read file")?;
@@ -373,11 +393,11 @@ impl DockerBridge {
             return Ok(());
         }
         let virtual_roots: Vec<PathBuf> = mounts
-        .iter()
-        .filter_map(|m| m.source.as_ref())
-        .map(PathBuf::from)
-        .collect();
-    let (path, ..) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
+            .iter()
+            .filter_map(|m| m.source.as_ref())
+            .map(PathBuf::from)
+            .collect();
+        let (path, ..) = get_virtual_path(&virtual_roots, &relative_path).unwrap();
 
         tokio::fs::write(&path, content)
             .await
