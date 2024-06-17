@@ -285,6 +285,7 @@ impl MacroExecutor {
         args: Vec<String>,
         _caused_by: CausedBy,
         worker_options_generator: Box<dyn WorkerOptionGenerator>,
+        pre_injection_code: Option<String>,
         permissions: Option<Permissions>,
         instance_uuid: Option<InstanceUuid>,
     ) -> Result<SpawnResult, Error> {
@@ -348,6 +349,12 @@ impl MacroExecutor {
                                 ),
                             )
                             .unwrap();
+
+                        if let Some(config_code) = pre_injection_code {
+                            main_worker
+                                .execute_script("config_inject", ModuleCode::from(config_code))
+                                .unwrap();
+                        }
 
                         let isolate_handle =
                             main_worker.js_runtime.v8_isolate().thread_safe_handle();
@@ -585,7 +592,7 @@ impl MacroExecutor {
     }
 
     pub fn shutdown_all(&self) {
-        for element in self.macro_process_table.iter(){
+        for element in self.macro_process_table.iter() {
             element.value().terminate_execution();
         }
     }
@@ -651,14 +658,14 @@ fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
         config_var_tokens.reverse();
 
         let keywords = ["let", "const", "var"];
-        let keyword_found = config_var_tokens.iter().find(
-            |&kw| keywords.contains(kw)
-        );
+        let keyword_found = config_var_tokens.iter().find(|&kw| keywords.contains(kw));
         match keyword_found {
             Some(&kw) => kw,
-            None => return Err(Error::ts_syntax_error(
-                "Class definition detected but cannot find config declaration",
-            ))
+            None => {
+                return Err(Error::ts_syntax_error(
+                    "Class definition detected but cannot find config declaration",
+                ))
+            }
         }
     };
 
@@ -739,22 +746,34 @@ fn get_config_from_code(
             }
 
             // comments within a comment block
-            if let Some(line) = line.strip_prefix('*') {
-                comment_lines.push(line.trim().to_string());
-            } else {
-                comment_lines.push(line.to_string());
+            let comment_str = {
+                if let Some(line) = line.strip_prefix('*') {
+                    line.trim()
+                } else {
+                    line
+                }
+            };
+            // do not push empty comment at the beginning of the comment block
+            if !comment_str.is_empty() || !comment_lines.is_empty() {
+                comment_lines.push(comment_str.to_string());
             }
             continue;
         }
 
         // single line comment & opening of a comment block
         if line.starts_with("//") {
-            comment_lines.push(line.strip_prefix("//").unwrap().trim().to_string());
+            if let Some(comment_str) = cleanup_comment_line(line, "//") {
+                comment_lines.push(comment_str.to_string());
+            }
         } else if line.starts_with("/**") {
-            comment_lines.push(line.strip_prefix("/**").unwrap().trim().to_string());
+            if let Some(comment_str) = cleanup_comment_line(line, "/**") {
+                comment_lines.push(comment_str.to_string());
+            }
             comment_block_count += 1;
         } else if line.starts_with("/*") {
-            comment_lines.push(line.strip_prefix("/*").unwrap().trim().to_string());
+            if let Some(comment_str) = cleanup_comment_line(line, "/*") {
+                comment_lines.push(comment_str.to_string());
+            }
             comment_block_count += 1;
         } else {
             // if non of those are satisfied, it must be a line of actual code instead of a comment
@@ -771,11 +790,20 @@ fn get_config_from_code(
 
     let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
     for (definition, desc) in zip(codes, comments) {
-        let (name, config) = parse_config_single(&definition, &desc, config_var_name)?;
-        configs.insert(name, config);
+        let (var_name, config) = parse_config_single(&definition, &desc, config_var_name)?;
+        configs.insert(var_name, config);
     }
 
     Ok(configs)
+}
+
+fn cleanup_comment_line(comment_line: &str, comment_prefix: &str) -> Option<String> {
+    let result_str = comment_line.strip_prefix(comment_prefix).unwrap().trim();
+    if result_str.is_empty() {
+        None
+    } else {
+        Some(result_str.to_string())
+    }
 }
 
 fn parse_config_single(
@@ -811,6 +839,8 @@ fn parse_config_single(
     let config_type = get_config_value_type(var_type)?;
     let has_default = default_value_index != entry.len();
 
+    // TODO: remove this. We will handle this in validation instead
+    // TODO: we actually can't remove this - a required settings manifest must have a value
     if !is_optional && !has_default {
         return Err(Error {
             kind: ErrorKind::NotFound,
@@ -851,7 +881,9 @@ fn parse_config_single(
                 ConfigurableValue::Float(value)
             }
             ConfigurableValueType::Enum { .. } => {
-                ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string())
+                let value = ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string());
+                config_type.type_check(&value)?;
+                value
             }
             _ => panic!("TS config parsing error: invalid type not caught by the type parser"),
         })
@@ -933,7 +965,9 @@ mod tests {
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
-    use crate::macro_executor::{extract_config_code, get_config_from_code, parse_config_single, SpawnResult};
+    use crate::macro_executor::{
+        extract_config_code, get_config_from_code, parse_config_single, SpawnResult,
+    };
     use crate::traits::t_configurable::manifest::ConfigurableValue;
 
     struct BasicMainWorkerGenerator;
@@ -997,6 +1031,7 @@ mod tests {
                 Box::new(basic_worker_generator),
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -1038,6 +1073,7 @@ mod tests {
                 Box::new(basic_worker_generator),
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -1052,7 +1088,7 @@ mod tests {
             console.log("hello world");
             const message = "hello macro";
             console.debug(message);
-            "#
+            "#,
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), None);
@@ -1063,7 +1099,7 @@ mod tests {
             class LodestoneConfig {
                 id: string = 'defaultId';
             }
-            "#
+            "#,
         );
         assert!(result.is_err());
 
@@ -1072,7 +1108,7 @@ mod tests {
             r#"
             declare let config: LodestoneConfig;
             console.debug(config);
-            "#
+            "#,
         );
         assert!(result.is_err());
 
@@ -1084,7 +1120,7 @@ mod tests {
             }
             declare let config: LodestoneConfig;
             console.debug(config);
-            "#
+            "#,
         );
         assert!(result.is_ok());
         let (name, code) = result.unwrap().unwrap();
@@ -1100,44 +1136,26 @@ mod tests {
     #[test]
     fn test_macro_config_single_parsing() {
         // should return an error if a non-option variable does not have default value
-        let result = parse_config_single(
-            "id:string",
-            "",
-            "",
-        );
+        let result = parse_config_single("id:string", "", "");
         assert!(result.is_err());
 
         // should return an error if the value and type does not match
-        let result = parse_config_single(
-            "id:number='defaultId'",
-            "",
-            "prefix",
-        );
+        let result = parse_config_single("id:number='defaultId'", "", "prefix");
         assert!(result.is_err());
 
         // should properly parse the optional variable
-        let result = parse_config_single(
-            "id?:string",
-            "",
-            "prefix",
-        );
-        let (name, config) = result.unwrap();
-        assert_eq!(&name, "id");
+        let result = parse_config_single("id?:string", "", "prefix");
+        let (_, config) = result.unwrap();
         assert!(config.get_value().is_none());
         assert_eq!(config.get_identifier(), "prefix|id");
 
         // should properly parse the non-optional variable
-        let result = parse_config_single(
-            "id:string='defaultId'",
-            "",
-            "prefix",
-        );
-        let (name, config) = result.unwrap();
-        assert_eq!(&name, "id");
+        let result = parse_config_single("id:string='defaultId'", "", "prefix");
+        let (_, config) = result.unwrap();
         let value = config.get_value().unwrap();
         match value {
             ConfigurableValue::String(val) => assert_eq!(val, "defaultId"),
-            _ => panic!("incorrect value")
+            _ => panic!("incorrect value"),
         }
         assert_eq!(config.get_identifier(), "prefix|id");
     }
@@ -1149,12 +1167,18 @@ mod tests {
             r#"{
                 id: string = 'defaultId';
                 interval?: number;
-            }"#
-        ).unwrap();
+            }"#,
+        )
+        .unwrap();
         let identifiers = ["config|id", "config|interval"];
         let configs: Vec<_> = result.iter().collect();
         for (_, settings) in configs {
-            assert_ne!(identifiers.iter().find(|&val| val == settings.get_identifier()), None);
+            assert_ne!(
+                identifiers
+                    .iter()
+                    .find(|&val| val == settings.get_identifier()),
+                None
+            );
         }
     }
 }

@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { useEffect, useState, Fragment } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
+import { Float } from '@headlessui-float/react';
 
 /**
  * A self controlled dropdown meant to represent a single value of a config
@@ -117,12 +118,20 @@ export default function SelectBox({
           </div>
         )}
       </div>
-      <div className="relative w-5/12 shrink-0">
+      <div className="relative w-5/12 shrink-0" >
         <Listbox
           value={value}
           onChange={onChange}
           disabled={disabled || isLoading}
         >
+          <Float
+          as="div"
+          className="relative w-full"
+          placement="bottom"
+          floatingAs={Fragment}
+          portal
+          adaptiveWidth
+          >
           <Listbox.Button
             className={clsx(
               'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
@@ -150,57 +159,58 @@ export default function SelectBox({
             leaveFrom="opacity-100 translate-y-0"
             leaveTo="opacity-0 -translate-y-1"
           >
-            <Listbox.Options
-              className={clsx(
-                'input-outlines input-text-style absolute z-40 mt-2 max-h-60 w-full overflow-auto rounded p-0 py-1',
-                'bg-gray-850 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
-              )}
-            >
-              {options.map((option) => (
-                <Listbox.Option
-                  key={option}
-                  value={option}
-                  className={clsx(
-                    'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
-                    'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
-                    'ui-selected:font-medium ui-not-selected:font-medium',
-                    'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
-                    'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
-                  )}
-                >
-                  {({ active }) => (
-                    <div className="flex flex-row justify-between">
-                      <span className="block truncate pr-1">{option}</span>
-                      <div
-                        onClick={actionIconClick}
-                        className="absolute right-3"
-                      >
-                        {active && actionIcon && actionIconClick && (
-                          <FontAwesomeIcon
-                            key="icon"
-                            icon={actionIcon}
-                            className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
-                          />
-                        )}
+              <Listbox.Options
+                className={clsx(
+                  'input-outlines input-text-style absolute z-40 mt-2 max-h-60 w-full overflow-auto rounded p-0 py-1',
+                  'bg-gray-850 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
+                )}
+              >
+                {options.map((option) => (
+                  <Listbox.Option
+                    key={option}
+                    value={option}
+                    className={clsx(
+                      'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
+                      'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
+                      'ui-selected:font-medium ui-not-selected:font-medium',
+                      'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
+                      'ui-selected:ui-not-active:bg-gray-700 ui-not-selected:ui-not-active:bg-gray-850'
+                    )}
+                  >
+                    {({ active }) => (
+                      <div className="flex flex-row justify-between">
+                        <span className="block truncate pr-1">{option}</span>
+                        <div
+                          onClick={actionIconClick}
+                          className="absolute right-3"
+                        >
+                          {active && actionIcon && actionIconClick && (
+                            <FontAwesomeIcon
+                              key="icon"
+                              icon={actionIcon}
+                              className="w-4 cursor-pointer text-gray-faded/30 hover:text-gray-500"
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </Listbox.Option>
-              ))}
-              {(initialValue === undefined || initialValue.length === 0) && (
-                <Listbox.Option
-                  key={'Select...'}
-                  value={''}
-                  className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
-                  disabled
-                >
-                  <span className={`block truncate font-medium`}>
-                    Select...
-                  </span>
-                </Listbox.Option>
-              )}
-            </Listbox.Options>
+                    )}
+                  </Listbox.Option>
+                ))}
+                {(initialValue === undefined || initialValue.length === 0) && (
+                  <Listbox.Option
+                    key={'Select...'}
+                    value={''}
+                    className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
+                    disabled
+                  >
+                    <span className={`block truncate font-medium`}>
+                      Select...
+                    </span>
+                  </Listbox.Option>
+                )}
+              </Listbox.Options>
           </Transition>
+          </Float>
         </Listbox>
       </div>
     </div>
