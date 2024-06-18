@@ -1,4 +1,4 @@
-name: Core - Release Docker
+name: Dashboard - Release Docker
 
 on:
   release:
@@ -7,14 +7,14 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}_core
+  IMAGE_NAME: "${{ github.repository }}_dashboard"
 
 jobs:
-  core-release-docker:
+  dashboard-release-docker:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./core
+        working-directory: ./dashboard
 
     steps:
       - name: checkout repository
@@ -34,23 +34,6 @@ jobs:
         with:
           string: ${{ env.REGISTRY}}/${{ env.IMAGE_NAME }}
 
-      - id: release_asset
-        name: Download release assets
-        uses: dsaltares/fetch-gh-release-asset@master
-        with:
-          regex: true
-          file: "lodestone_core_*"
-          target: release/
-          version: "tags/${{ github.event.release.tag_name }}"
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # https://stackoverflow.com/questions/73402042/github-action-expressions-split-string
-      - name: set version string
-        env:
-          VERSION: ${{ steps.release_asset.outputs.version }}
-        id: substring
-        run: echo "version=${VERSION:1}" >> $GITHUB_OUTPUT
-
       - name: set docker version label
         env:
           LABEL: ${{ !github.event.release.prerelease && 'latest-stable' || 'latest-beta' }}
@@ -60,13 +43,11 @@ jobs:
       - name: build and push
         uses: docker/build-push-action@v3
         with:
-          context: ./core
+          context: ./dashboard
           platforms: linux/amd64,linux/arm64
-          file: ./githubactions.Dockerfile
-          build-args: |
-            lodestone_version=${{ steps.release_asset.outputs.version }}
+          file: ./Dockerfile
           push: true
           tags: |
             ${{ steps.string_tag.outputs.lowercase }}:latest
             ${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_type.outputs.label }}
-            ${{ steps.string_tag.outputs.lowercase }}:${{ steps.substring.outputs.version }}
+            ${{ steps.string_tag.outputs.lowercase }}:${{ github.event.release.tag_name }}
