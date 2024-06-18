@@ -34,13 +34,6 @@ jobs:
         with:
           string: ${{ env.REGISTRY}}/${{ env.IMAGE_NAME }}
 
-      # https://stackoverflow.com/questions/73402042/github-action-expressions-split-string
-      - name: set version string
-        env:
-          VERSION: ${{ steps.release_asset.outputs.version }}
-        id: substring
-        run: echo "version=${VERSION:1}" >> $GITHUB_OUTPUT
-
       - name: set docker version label
         env:
           LABEL: ${{ !github.event.release.prerelease && 'latest-stable' || 'latest-beta' }}
@@ -50,13 +43,11 @@ jobs:
       - name: build and push
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: ./dashboard
           platforms: linux/amd64,linux/arm64
           file: ./Dockerfile
-          build-args: |
-            lodestone_version=${{ steps.release_asset.outputs.version }}
           push: true
           tags: |
             ${{ steps.string_tag.outputs.lowercase }}:latest
             ${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_type.outputs.label }}
-            ${{ steps.string_tag.outputs.lowercase }}:${{ steps.substring.outputs.version }}
+            ${{ steps.string_tag.outputs.lowercase }}:${{ github.event.release.tag_name }}
