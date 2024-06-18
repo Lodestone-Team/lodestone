@@ -23,7 +23,10 @@ pub async fn get_instance_configurable_manifest(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessSetting(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -37,7 +40,13 @@ pub async fn get_instance_settings(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessSetting(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
+    if uuid.to_string().starts_with("DOCKER-") {
+        return Ok(Json(ConfigurableManifest::default()));
+    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -52,7 +61,10 @@ pub async fn set_instance_setting(
     Json(value): Json<ConfigurableValue>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessSetting(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let instance = state.instances.get(&uuid).ok_or(Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -72,7 +84,10 @@ pub async fn set_instance_name(
     Json(new_name): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessSetting(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     state
         .instances
         .get(&uuid)
@@ -92,7 +107,10 @@ pub async fn set_instance_description(
     Json(new_description): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessSetting(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     state
         .instances
         .get(&uuid)
@@ -111,7 +129,10 @@ pub async fn change_version(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::AccessSetting(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     state
         .instances
         .get(&uuid)

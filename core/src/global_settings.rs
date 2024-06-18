@@ -13,6 +13,8 @@ pub struct GlobalSettingsData {
     pub core_name: String,
     pub safe_mode: bool,
     pub domain: Option<String>,
+    #[serde(default)]
+    pub playit_enabled: bool,
 }
 
 impl Default for GlobalSettingsData {
@@ -21,6 +23,7 @@ impl Default for GlobalSettingsData {
             core_name: format!("{}'s Lodestone Core", whoami::realname()),
             safe_mode: true,
             domain: None,
+            playit_enabled: true,
         }
     }
 }
@@ -145,6 +148,22 @@ impl GlobalSettings {
 
     pub fn domain(&self) -> Option<String> {
         self.global_settings_data.domain.clone()
+    }
+
+    pub async fn set_playit_enabled(&mut self, playit_enabled: bool) -> Result<(), Error> {
+        let old_playit_enabled = self.global_settings_data.playit_enabled;
+        self.global_settings_data.playit_enabled = playit_enabled;
+        match self.write_to_file().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.global_settings_data.playit_enabled = old_playit_enabled;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn playit_enabled(&self) -> bool {
+        self.global_settings_data.playit_enabled
     }
 }
 

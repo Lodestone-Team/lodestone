@@ -1,6 +1,8 @@
 #![allow(clippy::comparison_chain, clippy::type_complexity)]
 
+use crate::error::ErrorKind;
 use crate::event_broadcaster::EventBroadcaster;
+use crate::handlers::extension::get_extension_routes;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
@@ -19,7 +21,8 @@ use crate::{
         instance_macro::get_instance_macro_routes, instance_players::get_instance_players_routes,
         instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
+        playitgg::get_playitgg_routes, setup::get_setup_route, system::get_system_routes,
+        users::get_user_routes,
     },
     util::rand_alphanumeric,
 };
@@ -38,13 +41,16 @@ use futures::Future;
 use global_settings::GlobalSettings;
 use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
+use playitgg::utils::is_valid_secret_key;
 use port_manager::PortManager;
 use prelude::GameInstance;
 use reqwest::{header, Method};
 use ringbuffer::{AllocRingBuffer, RingBufferWrite};
 
+use fs3::FileExt;
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
+use std::sync::atomic::AtomicBool;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -68,20 +74,23 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter}
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
-use fs3::FileExt;
 
 pub mod auth;
+mod command_console;
 pub mod db;
 mod deno_ops;
+mod docker_bridge;
 pub mod error;
 mod event_broadcaster;
 mod events;
+mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
 pub mod macro_executor;
 mod migration;
 mod output_types;
+pub mod playitgg;
 mod port_manager;
 pub mod prelude;
 pub mod tauri_export;
@@ -104,9 +113,12 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
+    playitgg_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
+    docker_bridge: docker_bridge::DockerBridge,
+    playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
 }
 
 impl AppState {
@@ -157,8 +169,9 @@ async fn restore_instances(
                 continue;
             }
         };
+
         debug!("restoring instance: {}", path.display());
-        match dot_lodestone_config.game_type() {
+        let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
                 let instance = match minecraft::MinecraftInstance::restore(
                     path.to_owned(),
@@ -178,7 +191,7 @@ async fn restore_instances(
                     }
                 };
                 debug!("Restored Minecraft Java instance successfully");
-                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+                (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
             GameType::Generic => {
                 let instance = match generic::GenericInstance::restore(
@@ -199,10 +212,16 @@ async fn restore_instances(
                     }
                 };
                 debug!("Restored Generic instance successfully");
-                ret.insert(dot_lodestone_config.uuid().to_owned(), instance.into());
+                (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
             GameType::MinecraftBedrock => todo!(),
+        };
+        let uuid = uuid_instance.0;
+        let instance = uuid_instance.1;
+        if ret.contains_key(&uuid) {
+            warn!("UUID {} is repeated.", uuid.to_string());
         }
+        ret.insert(uuid, instance);
     }
     Ok(ret)
 }
@@ -342,22 +361,32 @@ async fn check_for_core_update() {
             return;
         }
     };
+    let current_version = VERSION.with(|v| v.clone());
+
+    if current_version >= latest_version {
+        info!("lodestone_core is up to date");
+        return;
+    }
 
     if latest_version.pre.is_empty() {
         // we don't want to update to a pre-release
-        let current_version = VERSION.with(|v| v.clone());
-        if current_version < latest_version {
-            info!(
-                "A new version of lodestone_core is available: {}",
-                latest_version
-            );
-            info!(
-                "Read how to update here: {url}",
-                url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
-            );
-        } else {
-            info!("lodestone_core is up to date");
-        }
+        info!(
+            "A new version of lodestone_core is available: {}",
+            latest_version
+        );
+        info!(
+            "Read how to update here: {url}",
+            url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+        );
+    } else {
+        info!(
+            "A new pre-release version of lodestone_core is available: {}",
+            latest_version
+        );
+        info!(
+            "Read how to update here: {url}",
+            url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+        );
     }
 }
 
@@ -373,12 +402,15 @@ pub struct Args {
 
 pub async fn run(
     args: Args,
-) -> (
-    impl Future<Output = ()>,
-    AppState,
-    tracing_appender::non_blocking::WorkerGuard,
-    tokio::sync::oneshot::Sender<()>,
-) {
+) -> Result<
+    (
+        impl Future<Output = ()>,
+        AppState,
+        tracing_appender::non_blocking::WorkerGuard,
+        tokio::sync::oneshot::Sender<()>,
+    ),
+    Error,
+> {
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -387,19 +419,32 @@ pub async fn run(
     } else {
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
             Ok(v) => v,
-            Err(_) => home::home_dir()
-                .unwrap_or_else(|| {
-                    std::env::current_dir().expect("what kinda os are you running lodestone on???")
-                })
-                .join(".lodestone")
-                .to_str()
-                .unwrap()
-                .to_string(),
+            Err(_) => {
+                match home::home_dir()
+                    .unwrap_or_else(|| {
+                        std::env::current_dir()
+                            .expect("what kinda os are you running lodestone on???")
+                    })
+                    .join(".lodestone")
+                    .to_str()
+                {
+                    Some(p) => p.to_string(),
+                    None => {
+                        return Err(Error {
+                            kind: ErrorKind::Internal,
+                            source: Report::msg("Failed to get home dir"),
+                        })
+                    }
+                }
+            }
         })
     };
     init_paths(lodestone_path.clone());
     info!("Lodestone path: {}", lodestone_path.display());
-    std::env::set_current_dir(&lodestone_path).unwrap();
+    std::env::set_current_dir(&lodestone_path).map_err(|_| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg("Failed to set current dir"),
+    })?;
     let guard = setup_tracing();
     if args.is_desktop {
         info!("Lodestone Core running in Tauri");
@@ -412,25 +457,26 @@ pub async fn run(
     output_sys_info();
 
     let lockfile_path = lodestone_path.join("lodestone.lock");
-    let file = if lockfile_path.as_path().exists() {
-        std::fs::File::open(lockfile_path.as_path()).expect("failed to open lockfile")
-    } else {
-        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile")
-    };
-    if file.try_lock_exclusive().is_err() {
-        panic!("Another instance of lodestone might be running");
+    let lock_file =
+        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile");
+    if lock_file.try_lock_exclusive().is_err() {
+        return Err(Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg("Another instance of lodestone is running"),
+        });
     }
 
     let _ = migrate(&lodestone_path).map_err(|e| {
         error!("Error while migrating lodestone: {}. Lodestone will still start, but one or more instance may be in an erroneous state", e);
     });
+
     let path_to_instances = lodestone_path.join("instances");
 
     let (tx, _rx) = EventBroadcaster::new(512);
 
     let mut users_manager = UsersManager::new(tx.clone(), HashMap::new(), path_to_users().clone());
 
-    users_manager.load_users().await.unwrap();
+    users_manager.load_users().await?;
 
     let mut global_settings = GlobalSettings::new(
         path_to_global_settings().clone(),
@@ -438,7 +484,7 @@ pub async fn run(
         GlobalSettingsData::default(),
     );
 
-    global_settings.load_from_file().await.unwrap();
+    global_settings.load_from_file().await?;
 
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
@@ -456,16 +502,32 @@ pub async fn run(
     } else {
         None
     };
+
+    let playitgg_key = if let Ok(playitgg_file) =
+        tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await
+    {
+        let toml_data: toml::Table = toml::from_str(&playitgg_file).unwrap();
+        if let Some(res) = toml_data["secret_key"].as_str() {
+            if is_valid_secret_key(res.to_string()).await {
+                println!("Validated playitgg key...");
+                Some(res.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
-        .map_err(|e| {
-            error!(
-                "Failed to restore instances: {}, lodestone will now crash...",
-                e
-            );
-        })
-        .unwrap();
+        .map_err(|_| Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg("failed to restore instances"),
+        })?;
 
     let mut allocated_ports = HashSet::new();
     for instance_entry in instances.iter() {
@@ -482,8 +544,10 @@ pub async fn run(
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
+        playitgg_key: Arc::new(Mutex::new(playitgg_key)),
         system: Arc::new(Mutex::new(sysinfo::System::new_all())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
+        playit_keep_running: Arc::new(Mutex::new(None)),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -491,13 +555,26 @@ pub async fn run(
                 "sqlite://{}/data.db",
                 path_to_stores().display()
             ))
-            .unwrap()
+            .map_err(|_| Error {
+                kind: ErrorKind::Internal,
+                source: Report::msg("Failed to create sqlite connection options"),
+            })?
             .create_if_missing(true),
+        )
+        .await
+        .map_err(|_| Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg("Failed to create sqlite pool"),
+        })?,
+        docker_bridge: docker_bridge::DockerBridge::new(
+            tx.clone(),
+            path_to_stores().join("docker_bridge.json"),
         )
         .await
         .unwrap(),
     };
 
+    command_console::init(shared_state.clone());
     init_app_state(shared_state.clone());
 
     for mut entry in shared_state.instances.iter_mut() {
@@ -577,7 +654,7 @@ pub async fn run(
     .await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
-    (
+    Ok((
         {
             let shared_state = shared_state.clone();
             async move {
@@ -613,6 +690,8 @@ pub async fn run(
                     .merge(get_global_fs_routes(shared_state.clone()))
                     .merge(get_global_settings_routes(shared_state.clone()))
                     .merge(get_gateway_routes(shared_state.clone()))
+                    .merge(get_extension_routes(shared_state.clone()))
+                    .merge(get_playitgg_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);
@@ -628,7 +707,7 @@ pub async fn run(
                     debug!("Port {port} is already in use, trying next port");
                     port += 1;
                 }
-                let addr = SocketAddr::from(([0, 0, 0, 0], port));
+                let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
                 let axum_server_handle = axum_server::Handle::new();
                 tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
@@ -657,7 +736,7 @@ pub async fn run(
                     }
                 });
                 // capture file into the move block
-                let _file = file;
+                let _lock_file = lock_file;
                 select! {
                     _ = write_to_db_task => info!("Write to db task exited"),
                     _ = event_buffer_task => info!("Event buffer task exited"),
@@ -718,10 +797,14 @@ pub async fn run(
                 for handle in handles {
                     let _ = handle.await;
                 }
+                shared_state.instances.clear();
+                shared_state.macro_executor.shutdown_all();
+                // exit
+                std::process::exit(0);
             }
         },
         shared_state,
         guard,
         shutdown_tx,
-    )
+    ))
 }

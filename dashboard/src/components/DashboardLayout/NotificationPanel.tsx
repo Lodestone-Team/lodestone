@@ -23,14 +23,14 @@ const NotificationPanel = forwardRef(
     return (
       <div
         ref={ref}
-        className={`flex w-full flex-col border-l border-gray-faded/30 bg-gray-800 ${className}`}
+        className={`border-gray-faded/30 flex w-full flex-col border-l bg-gray-800 ${className}`}
       >
-        <div className="px-4 py-3 font-sans text-h2 font-extrabold tracking-tight">
+        <div className="text-h2 px-4 py-3 font-sans font-extrabold tracking-tight">
           Notifications
         </div>
         {ongoingNotifications.length > 0 && (
           <>
-            <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-medium font-bold">
+            <div className="border-gray-faded/30 text-medium border-y px-4 py-3 font-sans font-bold">
               In progress
             </div>
             <div className="space-y-4 overflow-y-auto p-4">
@@ -54,7 +54,7 @@ const NotificationPanel = forwardRef(
             </div>
           </>
         )}
-        <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-medium font-bold">
+        <div className="border-gray-faded/30 text-medium border-y px-4 py-3 font-sans font-bold">
           All Notifications
         </div>
         <div className="grow basis-1 space-y-2 overflow-y-auto p-4">
@@ -74,7 +74,7 @@ const NotificationPanel = forwardRef(
             <div
               className={`justify-stretch flex flex-col items-start px-4 py-3 text-gray-300`}
             >
-              <p className="w-full text-h3">No notifications at the moment!</p>
+              <p className="text-h3 w-full">No notifications at the moment!</p>
             </div>
           )}
         </div>

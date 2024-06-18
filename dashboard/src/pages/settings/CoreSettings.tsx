@@ -18,7 +18,7 @@ import {
   DISABLE_AUTOFILL,
   errorToString,
 } from 'utils/util';
-import { openPort } from 'utils/apis';
+import { openPort, stopCli } from 'utils/apis';
 import InputField from 'components/Atoms/Form/InputField';
 import { useDocumentTitle } from 'usehooks-ts';
 
@@ -95,6 +95,7 @@ export const CoreSettings = () => {
           domain: domain,
         });
       }}
+      tooltipText={"This is your public IP if you are port-forwarded. If not, leave this as is."}
     />
   );
 
@@ -123,6 +124,30 @@ export const CoreSettings = () => {
       optimistic={false}
     />
   );
+
+  const enablePlayitField = (
+    <ToggleBox
+      label={'Enable Playit Integration'}
+      value={globalSettings?.playit_enabled ?? false}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={
+        'Enable Playit integration allowing users to open their servers for public facing access without port forwarding'
+      }
+      onChange={async (value) => {
+        await axiosPutSingleValue('/global_settings/playit_enabled', value);
+        queryClient.setQueryData(['global_settings'], {
+          ...globalSettings,
+          playit_enabled: value,
+        });
+        await stopCli();
+      }}
+      optimistic={true}
+    />
+  );
+
 
   const openPortModal = (
     <Dialog
@@ -282,6 +307,7 @@ export const CoreSettings = () => {
             <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
               {nameField}
               {domainField}
+              {enablePlayitField}
             </div>
           </div>
           <div className="flex w-full flex-col gap-4 @4xl:flex-row">
@@ -291,7 +317,7 @@ export const CoreSettings = () => {
                 These settings can cause irreversible damage to your server!
               </h3>
             </div>
-            <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0 mb-10">
               {unsafeModeField}
               {openPortField}
             </div>

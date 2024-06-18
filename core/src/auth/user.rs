@@ -172,11 +172,14 @@ impl User {
             UserAction::WriteGlobalFile => self.permissions.can_write_global_file,
             UserAction::ManageUser => self.is_owner,
             UserAction::ManagePermission => self.permissions.can_manage_permission,
+            UserAction::InstallExtension => self.permissions.can_install_extension,
         }
     }
 
-    pub fn try_action(&self, action: &UserAction) -> Result<(), Error> {
-        if self.can_perform_action(action) {
+    pub fn try_action(&self, action: &UserAction, safe_mode: bool) -> Result<(), Error> {
+        if (action.is_safe() || (!action.is_safe() && !safe_mode))
+            && self.can_perform_action(action)
+        {
             Ok(())
         } else {
             Err(Error {
@@ -228,6 +231,9 @@ impl User {
                     UserAction::ManagePermission => {
                         eyre!("You don't have permission to manage permission")
                     }
+                    UserAction::InstallExtension => {
+                        eyre!("You don't have permission to install extension")
+                    }
                 },
             })
         }
@@ -245,6 +251,7 @@ impl User {
             }
             // TODO!,
             EventInner::ProgressionEvent(_progression_event) => true,
+            EventInner::PlayitggRunnerEvent(_playitgg_runner_event) => true,
         }
     }
 
@@ -282,6 +289,31 @@ pub enum UserAction {
     WriteGlobalFile,
     ManageUser,
     ManagePermission,
+    InstallExtension,
+}
+
+impl UserAction {
+    pub fn is_safe(&self) -> bool {
+        match self {
+            UserAction::ViewInstance(_) => true,
+            UserAction::StartInstance(_) => true,
+            UserAction::StopInstance(_) => true,
+            UserAction::AccessConsole(_) => true,
+            UserAction::AccessSetting(_) => true,
+            UserAction::ReadResource(_) => true,
+            UserAction::WriteResource(_) => true,
+            UserAction::AccessMacro(_) => true,
+            UserAction::ReadInstanceFile(_) => true,
+            UserAction::WriteInstanceFile(_) => true,
+            UserAction::CreateInstance => true,
+            UserAction::DeleteInstance => true,
+            UserAction::ReadGlobalFile => false,
+            UserAction::WriteGlobalFile => false,
+            UserAction::ManageUser => false,
+            UserAction::ManagePermission => false,
+            UserAction::InstallExtension => false,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, TS)]

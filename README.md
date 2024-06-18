@@ -7,58 +7,64 @@
 
 # Lodestone
 
-A free, open source server hosting tool for Minecraft and other multiplayers
+A free, open source server hosting tool for Minecraft and other multiplayers games. Lodestone is designed to be easy to use, secure, and feature-rich. It is built with Rust, React, and TypeScript.
 
 🔗 Get Started: [https://www.lodestone.cc/](https://www.lodestone.cc/)
 
-## Features and roadmap
+## Features
 
 - [x] Clean and intuitive UI
 - [x] One-click installation and setup
+- [x] Real-time server status
+- [x] *(New!)* Beautiful and functional file manager (unzip, upload, download, copy, pastes, etc.)
 - [x] Collaborative remote server and resource management
 - [x] Priority on safety and security
-- [ ] User permission management 🚧
-- [ ] Automated macros and tasks (beta, read more [here](https://github.com/Lodestone-Team/lodestone/wiki/Macro-and-Task))
-- [ ] Connecting without port forward 🚧
+- [x] User permission management
+- [x] *(New!)* Extensions via macro (read more [here](https://github.com/Lodestone-Team/lodestone/wiki/Macro-and-Task))
+- [x] *(New!)* Connect without port forward via playit.gg integration (read more [here](https://github.com/Lodestone-Team/lodestone/wiki/Playit.gg-Integration))
+- [ ] *(New!)* **Manage Docker containers** (WIP 🚧, read more [here](https://github.com/Lodestone-Team/lodestone/wiki/Docker-Instance))
+
+## Future Features
+- [ ] Plugin and mod management
+- [ ] Complete Docker integrations
+- [ ] Event viewer
+
+Have a feature request? Let us know by creating an issue!
+
+## Supported Platforms and Architectures
+- Windows (x86_64)
+- Linux (x86_64)
+- MacOS (Apple Silicon)
+
+We have discontinued support for Intel Macs and ARM Linux as of 0.5.0 due to the lack of hardware to test on. Get in contact with us if you would like to see support for these platforms.
+
+## Lodestone CLI vs Lodestone Desktop
+
+Lodestone CLI manages the installation and updates of Lodestone Core - the backend of Lodestone. It does not come with a UI (dashboard), so you must use a web dashboard, either hosted by us or yourself.
+
+Lodestone Desktop integrates Lodestone Core and the dashboard into a single application. It is available for Windows only and is not considered stable yet.
 
 
 ## Installation
 
-### Windows
-You can download Lodestone Desktop for Windows from the [releases page](https://github.com/Lodestone-Team/lodestone/releases)
-
 ### Docker
 See [here](https://github.com/Lodestone-Team/lodestone/wiki/Docker-Support)
 
-### Linux
+### Windows
+You can download Lodestone Desktop for Windows from the [releases page](https://github.com/Lodestone-Team/lodestone/releases). Although we recommend using the CLI, see below.
+
+
+### Linux and MacOS (Apple Silicon) via CLI
 Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
 
-If you would like to use the dashboard:
+If you would like to use the dashboard we hosts:
 1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/](https://www.lodestone.cc/)
 2. Follow this [guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to enable mixed content for the site.
 3. If you have browser extensions such as HTTPS Everywhere, disable them for the site.
 
 To see why step 2 and 3 are necessary and some possible solutions, see [here](https://github.com/Lodestone-Team/lodestone/wiki/FAQ#why-do-i-need-to-enable-mixedinsecure-content-and-disable-https-is-this-safe)
 
-> **Note**
-> Lodestone Desktop for Linux is highly experimental and untested. We won't be able to provide support if you decide to use it.
-
-### MacOS (Intel)
-Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
-
-If you would like to use the dashboard:
-1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/](https://www.lodestone.cc/)
-2. Follow this [guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to enable mixed content for the site.
-3. If you have browser extensions such as HTTPS Everywhere, disable them for the site.
-
-To see why step 2 and 3 are necessary and some possible solutions, see [here](https://github.com/Lodestone-Team/lodestone/wiki/FAQ#why-do-i-need-to-enable-mixedinsecure-content-and-disable-https-is-this-safe)
-
-> **Note**
-> ARM Macs are not supported yet. See [this issue](https://github.com/Lodestone-Team/lodestone_core/issues/160) for more info.
-
-> **Note**
-> Lodestone Desktop for MacOs is highly experimental and untested. We won't be able to provide support if you decide to use it.
-
+Alternatively, you can host the dashboard yourself.
 
 ## Safety & Security
 
@@ -74,7 +80,15 @@ Lodestone is still new and we have *a lot* of features planned for this year. Ei
 
 ## License
 
-This project uses the GNU Affero General Public License v3.0. See our `LICENSE` file for details. For an alternate (proprietary) license, please raise an issue.
+The Lodestone project uses the GNU Affero General Public License v3.0. See our `LICENSE` file for details.
+
+Lodestone and all its components (dashboard, core, macros, etc.) are free for personal use, forever. 
+
+You may use Lodestone for commercial purposes, but you must disclose the source code of any modifications you make to Lodestone. You must also disclose the source code of any software that uses Lodestone's API.
+
+Lodestone team provides absolutely no warranty or guarantee for the software.
+
+For an alternate (non-AGPL) license, contact us by either raising an issue or joining our [Discord](https://discord.gg/PkHXRQXkf6).
 
 
 ## Team
@@ -83,7 +97,7 @@ Lodestone wouldn't be here if it weren't for our contributors. Check out our [te
 
 ## Support Us
 
-We strive to make Lodestone open source and free for everyone to use. If you like what we are making please consider [buying us a coffee](https://ko-fi.com/lodestone_team) to support our development.
+The Lodestone project is being maintained by a passionate team of University students with 0 profits. Consider [buying us a coffee](https://ko-fi.com/lodestone_team) to support our development, we would greatly appreciate it!
 
 ## Have questions?
 

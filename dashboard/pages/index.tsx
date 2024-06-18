@@ -64,6 +64,8 @@ const InstanceTabList = [
   'files',
   'macros',
   'logs',
+  'playitgg',
+  'tunnels',
 ];
 
 export const CoreSettingsTabList = [

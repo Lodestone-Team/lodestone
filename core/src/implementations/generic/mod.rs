@@ -11,7 +11,7 @@ use self::{
 use crate::{
     error::Error,
     event_broadcaster::EventBroadcaster,
-    events::CausedBy,
+    events::{CausedBy, ProgressionEventID},
     macro_executor::{self, MacroExecutor, MacroPID, SpawnResult, WorkerOptionGenerator},
     traits::{
         t_configurable::{
@@ -30,9 +30,9 @@ mod bridge;
 pub mod configurable;
 mod r#macro;
 pub mod player;
-pub mod resource;
 pub mod server;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct GenericInstance {
     dot_lodestone_config: DotLodestoneConfig,
@@ -88,10 +88,11 @@ impl WorkerOptionGenerator for InitWorkerGenerator {
 
 impl GenericInstance {
     pub async fn new(
-        link_to_source: String,
+        path_to_source: PathBuf,
         path: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         setup_value: SetupValue,
+        progression_event_id: &ProgressionEventID,
         event_broadcaster: EventBroadcaster,
         core_macro_executor: MacroExecutor,
     ) -> Result<Self, Error> {
@@ -101,7 +102,7 @@ impl GenericInstance {
         ))?;
         let path_to_config = path.join(".lodestone_config");
         let run_ts_content =
-            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &link_to_source);
+            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &path_to_source.join("main.ts").as_os_str().to_string_lossy());
 
         let path_to_bootstrap = path.join("run.ts");
         tokio::fs::write(&path_to_bootstrap, run_ts_content)
@@ -135,6 +136,7 @@ impl GenericInstance {
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
                 None,
+                None,
                 Some(dot_lodestone_config.uuid().clone()),
             )
             .await?;
@@ -143,6 +145,7 @@ impl GenericInstance {
             .call(ProcedureCallInner::SetupInstance {
                 dot_lodestone_config: dot_lodestone_config.clone(),
                 setup_value,
+                progression_event_id: progression_event_id.inner(),
                 path: path.clone(),
             })
             .await?;
@@ -177,6 +180,7 @@ impl GenericInstance {
                 Vec::new(),
                 CausedBy::System,
                 Box::new(GenericMainWorkerGenerator::new(procedure_bridge.clone())),
+                None,
                 None,
                 Some(dot_lodestone_config.uuid().clone()),
             )
@@ -222,7 +226,6 @@ impl GenericInstance {
             std::fs::File::create(&temp_file_path).context("Failed to create temp file")?;
         let run_ts_content =
             include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", link_to_source);
-        println!("{}", run_ts_content);
         writeln!(temp_file, "{}", run_ts_content).context("Failed to write to temp file")?;
         let procedure_bridge = bridge::procedure_call::ProcedureBridge::new();
         let SpawnResult {
@@ -237,6 +240,7 @@ impl GenericInstance {
                 Box::new(InitWorkerGenerator {
                     bridge: procedure_bridge.clone(),
                 }),
+                None,
                 None,
                 None,
             )

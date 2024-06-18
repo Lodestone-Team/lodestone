@@ -3,12 +3,14 @@ import type { CausedBy } from "../../../../../../../deno_bindings/CausedBy.ts";
 import type { ConfigurableValue } from "../../../../../../../deno_bindings/ConfigurableValue.ts";
 import type { DotLodestoneConfig } from "../../../../../../../deno_bindings/DotLodestoneConfig.ts";
 import type { SetupValue } from "../../../../../../../deno_bindings/SetupValue.ts";
+import { ProgressionEventID } from "./ProgressionEventID.ts";
 
 export type ProcedureCallInner =
   | {
     type: "SetupInstance";
     dot_lodestone_config: DotLodestoneConfig;
     setup_value: SetupValue;
+    progression_event_id: ProgressionEventID;
     path: string;
   }
   | {

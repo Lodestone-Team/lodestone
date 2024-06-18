@@ -329,6 +329,7 @@ impl SettingManifest {
             is_mutable,
         }
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn new_optional_value(
         setting_id: String,
         name: String,
@@ -357,6 +358,7 @@ impl SettingManifest {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_value_with_type(
         setting_id: String,
         name: String,
@@ -575,7 +577,7 @@ impl SetupValue {
 
 // A setting manifest indicates if the instance has implemented functionalities for smart, lodestone controlled feature
 // A setting manifest has an ordered list of Setting Section
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 pub struct ConfigurableManifest {
     auto_start: bool,
@@ -778,5 +780,38 @@ impl SectionManifest {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SettingLocalCache {
+    setting_id: String,
+    value: Option<ConfigurableValue>,
+    value_type: ConfigurableValueType,
+}
+
+impl SettingLocalCache {
+    pub fn from(manifest: &SettingManifest) -> SettingLocalCache {
+        SettingLocalCache {
+            setting_id: manifest.setting_id.clone(),
+            value: manifest.value.clone(),
+            value_type: manifest.value_type.clone(),
+        }
+    }
+
+    pub fn validate_type(&self, target_manifest: Option<&SettingManifest>) -> bool {
+        match target_manifest {
+            None => false,
+            Some(manifest) => manifest.value_type == self.value_type,
+        }
+    }
+
+    pub fn get_identifier(&self) -> &String {
+        &self.setting_id
+    }
+
+    pub fn get_value(&self) -> &Option<ConfigurableValue> {
+        &self.value
     }
 }

@@ -217,12 +217,8 @@ pub enum ProgressionEndValue {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionStartValue {
-    InstanceCreation {
-        instance_uuid: InstanceUuid,
-    },
-    InstanceDelete {
-        instance_uuid: InstanceUuid,
-    },
+    InstanceCreation { instance_uuid: InstanceUuid },
+    InstanceDelete { instance_uuid: InstanceUuid },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
@@ -245,6 +241,16 @@ pub enum ProgressionEventInner {
         inner: Option<ProgressionEndValue>,
     },
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum PlayitggRunnerEventInner {
+    RunnerStarted,
+    RunnerLoading,
+    RunnerStopped,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub enum FSOperation {
@@ -285,11 +291,23 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
 #[ts(export)]
 pub struct ProgressionEventID(Snowflake);
 
+impl ProgressionEventID {
+    pub fn inner(&self) -> Snowflake {
+        self.0
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 pub struct ProgressionEvent {
     event_id: Snowflake,
     progression_event_inner: ProgressionEventInner,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+pub struct PlayitggRunnerEvent {
+    pub playitgg_runner_event_inner: PlayitggRunnerEventInner,
 }
 
 impl ProgressionEvent {
@@ -312,6 +330,7 @@ pub enum EventInner {
     MacroEvent(MacroEvent),
     FSEvent(FSEvent),
     ProgressionEvent(ProgressionEvent),
+    PlayitggRunnerEvent(PlayitggRunnerEvent),
 }
 
 impl AsRef<EventInner> for EventInner {

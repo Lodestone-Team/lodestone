@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
+use indexmap::IndexMap;
 use std::path::PathBuf;
 use ts_rs::TS;
 
@@ -10,6 +11,7 @@ use crate::{
     traits::GameInstance,
 };
 
+use crate::traits::t_configurable::manifest::{SettingLocalCache, SettingManifest};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -74,6 +76,7 @@ pub trait TMacro {
         &self,
         _name: &str,
         _args: Vec<String>,
+        _configs: Option<IndexMap<String, SettingLocalCache>>,
         _caused_by: CausedBy,
     ) -> Result<TaskEntry, Error> {
         Err(Error {
@@ -85,6 +88,35 @@ pub trait TMacro {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This instance does not support killing macro"),
+        })
+    }
+    async fn get_macro_config(
+        &self,
+        _name: &str,
+    ) -> Result<IndexMap<String, SettingManifest>, Error> {
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support running macro"),
+        })
+    }
+    async fn store_macro_config_to_local(
+        &self,
+        _name: &str,
+        _config_to_store: &IndexMap<String, SettingManifest>,
+    ) -> Result<(), Error> {
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support running macro"),
+        })
+    }
+    async fn validate_local_config(
+        &self,
+        _name: &str,
+        _config_to_validate: Option<&IndexMap<String, SettingManifest>>,
+    ) -> Result<IndexMap<String, SettingLocalCache>, Error> {
+        Err(Error {
+            kind: ErrorKind::UnsupportedOperation,
+            source: eyre!("This instance does not support running macro"),
         })
     }
 }

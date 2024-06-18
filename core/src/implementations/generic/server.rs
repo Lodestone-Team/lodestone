@@ -1,3 +1,5 @@
+use tracing::error;
+
 use crate::{
     error::Error,
     events::CausedBy,
@@ -36,7 +38,18 @@ impl TServer for GenericInstance {
         self.procedure_bridge
             .call(ProcedureCallInner::GetState)
             .await
-            .map_or(State::Stopped, |r| r.try_into().unwrap_or(State::Stopped))
+            .map_err(|e| {
+                error!("Failed to get state: {}", e);
+                e
+            })
+            .map_or(State::Stopped, |r| {
+                r.try_into()
+                    .map_err(|e| {
+                        error!("Failed to get state: {}", e);
+                        e
+                    })
+                    .unwrap_or(State::Stopped)
+            })
     }
     async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error> {
         self.procedure_bridge

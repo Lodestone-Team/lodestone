@@ -19,7 +19,7 @@ impl PortManager {
     pub fn new(allocated_ports: HashSet<u32>) -> PortManager {
         PortManager { allocated_ports }
     }
-
+    #[allow(dead_code)]
     pub fn allocate(&mut self, start_port: u32) -> u32 {
         if self.allocated_ports.contains(&start_port) {
             let mut new_port = start_port + 1;
