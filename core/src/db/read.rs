@@ -1,6 +1,5 @@
 use crate::{
-    error::Error, output_types::ClientEvent,
-    prelude::LODESTONE_EPOCH_MIL, events::EventQuery,
+    error::Error, events::EventQuery, output_types::ClientEvent, prelude::LODESTONE_EPOCH_MIL,
 };
 
 use color_eyre::eyre::Context;

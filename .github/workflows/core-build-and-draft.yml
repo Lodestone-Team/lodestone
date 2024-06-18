@@ -58,7 +58,7 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
-          override: true
+          override: false
           target: ${{ matrix.target }}
 
       - name: Install dependencies (ubuntu only)
@@ -109,18 +109,18 @@ jobs:
         with:
           use-cross: ${{ matrix.cross }}
           command: build
-          args: --release --features "vendored-openssl" --target ${{ matrix.target }}
+          args: --profile=github-release --features "vendored-openssl" --target ${{ matrix.target }}
 
       - name: Rename File (Linux, MacOS)
         if: runner.os != 'Windows'
         run: |
-          mv ./target/${{ matrix.target }}/release/main${{ matrix.postfix }} ./${{ env.FILENAME }}
+          mv ./target/${{ matrix.target }}/github-release/lodestone_core${{ matrix.postfix }} ./${{ env.FILENAME }}
 
       - name: Rename File (Windows)
         if: runner.os == 'Windows'
         run: |
           echo "::debug::$(ls)"
-          Move-Item -Path "./target/${{ matrix.target }}/release/main${{ matrix.postfix }}" -Destination "./${{ env.FILENAME }}"
+          Move-Item -Path "./target/${{ matrix.target }}/github-release/lodestone_core${{ matrix.postfix }}" -Destination "./${{ env.FILENAME }}"
           # for debugging
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"

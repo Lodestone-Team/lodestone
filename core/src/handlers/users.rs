@@ -35,7 +35,10 @@ pub async fn new_user(
 ) -> Result<Json<LoginReply>, Error> {
     let mut users_manager = state.users_manager.write().await;
     let requester = users_manager.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::ManageUser)?;
+    requester.try_action(
+        &UserAction::ManageUser,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let user = User::new(
         config.username,
         config.password,
@@ -63,7 +66,10 @@ pub async fn delete_user(
 ) -> Result<Json<Value>, Error> {
     let mut users_manager = state.users_manager.write().await;
     let requester = users_manager.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::ManageUser)?;
+    requester.try_action(
+        &UserAction::ManageUser,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
 
     if uid == requester.uid {
         return Err(Error {
@@ -116,7 +122,10 @@ pub async fn update_permissions(
     let mut users_manager = state.users_manager.write().await;
 
     let requester = users_manager.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::ManagePermission)?;
+    requester.try_action(
+        &UserAction::ManagePermission,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),
@@ -207,7 +216,7 @@ pub async fn change_password(
 
     let requester = users_manager.try_auth_or_err(&token)?;
 
-    if requester.uid != config.uid || !requester.can_perform_action(&UserAction::ManageUser) {
+    if requester.uid != config.uid && !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
             source: eyre!("You are not authorized to change other users password"),
@@ -277,7 +286,10 @@ pub async fn get_all_users(
 
     let requester = users_manager.try_auth_or_err(&token)?;
 
-    requester.try_action(&UserAction::ManageUser)?;
+    requester.try_action(
+        &UserAction::ManageUser,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
 
     Ok(Json(
         users_manager

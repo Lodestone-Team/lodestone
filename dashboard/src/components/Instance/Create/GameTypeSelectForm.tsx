@@ -36,12 +36,11 @@ export default function GameTypeSelectForm({
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
         <SelectGenericGameCard
           key={'Generic'}
-          title={'Lodestone Atom'}
-          description={'Enter the URL to the Lodestone Atom below:'}
+          title={'Learn about Docker Instance (beta)'}
           game_type={{
             type: 'Generic',
             game_name: 'Generic',
-            game_display_name: 'Generic',
+            game_display_name: 'Docker Instance',
           }}
           className={clsx(
             'Generic' === selectedGameType &&

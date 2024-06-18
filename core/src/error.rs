@@ -9,6 +9,8 @@ use serde_json::json;
 use thiserror::Error;
 use ts_rs::TS;
 
+use crate::error;
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[ts(export)]
 pub enum ErrorKind {
@@ -17,6 +19,7 @@ pub enum ErrorKind {
     BadRequest,
     PermissionDenied,
     Unauthorized,
+    External,
     Internal,
 }
 
@@ -25,6 +28,26 @@ pub enum ErrorKind {
 pub struct Error {
     pub kind: ErrorKind,
     pub source: color_eyre::Report,
+}
+
+impl Error {
+    pub fn log(self) -> Self {
+        error!(
+            "An error occurred ({kind}): {source}",
+            kind = self.kind,
+            source = self.source
+        );
+        self
+    }
+}
+
+impl Error {
+    pub fn ts_syntax_error(context: &str) -> Error {
+        Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg(format!("Syntax error parsing ts ({context})")),
+        }
+    }
 }
 
 impl Display for ErrorKind {
@@ -36,6 +59,7 @@ impl Display for ErrorKind {
             ErrorKind::PermissionDenied => write!(f, "Permission Denied"),
             ErrorKind::Unauthorized => write!(f, "Unauthorized"),
             ErrorKind::Internal => write!(f, "Internal Error"),
+            ErrorKind::External => write!(f, "External Error")
         }
     }
 }
@@ -72,6 +96,7 @@ impl IntoResponse for Error {
             ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
             ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorKind::External => StatusCode::BAD_GATEWAY,
         };
         (status, json!(self).to_string()).into_response()
     }

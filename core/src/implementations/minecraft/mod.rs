@@ -6,7 +6,6 @@ pub mod r#macro;
 mod paper;
 pub mod player;
 mod players_manager;
-pub mod resource;
 pub mod server;
 pub mod util;
 mod vanilla;
@@ -169,7 +168,7 @@ pub struct RestoreConfig {
     pub jre_major_version: u64,
     pub has_started: bool,
 }
-
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct MinecraftInstance {
     config: Arc<Mutex<RestoreConfig>>,
@@ -184,7 +183,6 @@ pub struct MinecraftInstance {
 
     // directory paths
     path_to_macros: PathBuf,
-    path_to_resources: PathBuf,
     path_to_runtimes: PathBuf,
 
     // variables which can be changed at runtime
@@ -693,7 +691,6 @@ impl MinecraftInstance {
                 "Failed to deserialize config from string. Was the config file modified manually?",
             )?;
         let path_to_macros = path_to_instance.join("macros");
-        let path_to_resources = path_to_instance.join("resources");
         let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = path_to_binaries().clone();
         // if the properties file doesn't exist, create it
@@ -736,7 +733,6 @@ impl MinecraftInstance {
             path_to_config,
             path_to_properties,
             path_to_macros,
-            path_to_resources,
             macro_executor,
             event_broadcaster,
             path_to_runtimes,

@@ -3,4 +3,4 @@ import type { InstanceUuid } from "./InstanceUuid";
 import type { MacroPID } from "./MacroPID";
 import type { UserId } from "./UserId";
 
-export type CausedBy = { type: "User", user_id: UserId, user_name: string, } | { type: "Instance", instance_uuid: InstanceUuid, } | { type: "Macro", macro_pid: MacroPID, } | { type: "System" } | { type: "Unknown" };
+export type CausedBy = { "type": "User", user_id: UserId, user_name: string, } | { "type": "Instance", instance_uuid: InstanceUuid, } | { "type": "Macro", macro_pid: MacroPID, } | { "type": "System" } | { "type": "Unknown" };

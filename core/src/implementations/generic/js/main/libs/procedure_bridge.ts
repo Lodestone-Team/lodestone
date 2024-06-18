@@ -14,7 +14,7 @@ import { isErrorIR } from "./typeguards/ErrorIRTypeGuard.ts";
 import { ProcedureCallResultInner } from "./bindings/ProcedureCallResultInner.ts";
 
 import { isTConfig, isTMacro, isTPlayer, isTServer } from "./utils.ts";
-import { AtomInstance } from "./atom_instance.ts";
+import { AtomInstance, ProgressionHandler } from "./atom_instance.ts";
 import { emitDetach } from "../../../../../deno_ops/events/events.ts"
 import { getCurrentTaskPid } from "../../../../../deno_ops/prelude/prelude.ts";
 
@@ -175,7 +175,9 @@ async function tServerHandle(procedure: ProcedureCall, instance: AtomInstance) {
         } else if (inner.type === "KillInstance") {
             instance.kill(inner.caused_by);
         } else if (inner.type === "GetState") {
-            await instance.state();
+            ret = {
+                State: await instance.state()
+            };
         } else if (procedure.inner.type === "SendCommand") {
             await instance.sendCommand(procedure.inner.command, procedure.inner.caused_by)
         } else if (procedure.inner.type === "Monitor") {
@@ -246,7 +248,7 @@ export async function procedure_bridge(instance: AtomInstance,) {
                     }
                 }
                 if (inner.type === "SetupInstance") {
-                    await instance.setup(inner.setup_value, inner.dot_lodestone_config, inner.path)
+                    await instance.setup(inner.setup_value, inner.dot_lodestone_config, ProgressionHandler.__private__create(inner.progression_event_id, 100), inner.path)
 
                 } else if (inner.type == "RestoreInstance") {
                     await instance.restore(inner.dot_lodestone_config, inner.path);

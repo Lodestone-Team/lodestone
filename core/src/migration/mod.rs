@@ -129,4 +129,3 @@ pub fn migrate(lodestone_path: &Path) -> Result<(), Error> {
     .context("Failed to write version file")?;
     Ok(())
 }
-

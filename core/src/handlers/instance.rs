@@ -3,9 +3,11 @@ use axum::Router;
 use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
+use bollard::container::ListContainersOptions;
+use bollard::Docker;
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -17,8 +19,8 @@ use crate::traits::t_configurable::GameType;
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::{path_to_instances, GameInstance};
 use crate::traits::t_configurable::manifest::SetupValue;
+use crate::traits::t_configurable::Game::Generic;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
-
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::{implementations::minecraft, traits::t_server::State, AppState};
 
@@ -36,6 +38,10 @@ pub async fn get_instance_list(
             list_of_configs.push(instance.get_instance_info().await);
         }
     }
+    let docker_bridge = state.docker_bridge.clone();
+    let vec = docker_bridge.list_containers().await.unwrap_or_default();
+
+    list_of_configs.extend(vec);
 
     list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
 
@@ -54,7 +60,10 @@ pub async fn get_instance_info(
         source: eyre!("Instance not found"),
     })?;
 
-    requester.try_action(&UserAction::ViewInstance(uuid.clone()))?;
+    requester.try_action(
+        &UserAction::ViewInstance(uuid.clone()),
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     Ok(Json(instance.get_instance_info().await))
 }
 
@@ -65,7 +74,10 @@ pub async fn create_minecraft_instance(
     Json(manifest_value): Json<SetupValue>,
 ) -> Result<Json<InstanceUuid>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::CreateInstance)?;
+    requester.try_action(
+        &UserAction::CreateInstance,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let mut perm = requester.permissions;
 
     let mut instance_uuid = InstanceUuid::default();
@@ -196,7 +208,10 @@ pub async fn create_generic_instance(
     Json(setup_config): Json<GenericSetupConfig>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::CreateInstance)?;
+    requester.try_action(
+        &UserAction::CreateInstance,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let mut instance_uuid = InstanceUuid::default();
     for entry in state.instances.iter() {
         if let Some(uuid) = entry.key().as_ref().get(0..8) {
@@ -219,29 +234,75 @@ pub async fn create_generic_instance(
         .context("Failed to create instance directory")?;
 
     let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), GameType::Generic);
+    let event_broadcaster = state.event_broadcaster.clone();
+    tokio::task::spawn(async move {
+        let (progression_start_event, event_id) = Event::new_progression_event_start(
+            format!("Setting up instance {}", setup_config.setup_value.name),
+            Some(100.0),
+            Some(ProgressionStartValue::InstanceCreation {
+                instance_uuid: instance_uuid.clone(),
+            }),
+            CausedBy::User {
+                user_id: requester.uid,
+                user_name: requester.username,
+            },
+        );
+        event_broadcaster.send(progression_start_event);
+        let instance = match generic::GenericInstance::new(
+            setup_config.url.into(),
+            setup_path.clone(),
+            dot_lodestone_config.clone(),
+            setup_config.setup_value,
+            &event_id,
+            state.event_broadcaster.clone(),
+            state.macro_executor.clone(),
+        )
+        .await
+        {
+            Ok(v) => {
+                info!("Atom created successfully");
+                event_broadcaster.send(Event::new_progression_event_end(
+                    event_id,
+                    true,
+                    Some("Instance created successfully"),
+                    Some(ProgressionEndValue::InstanceCreation(
+                        v.get_instance_info().await,
+                    )),
+                ));
+                v
+            }
+            Err(e) => {
+                error!("Atom creation failed: {:?}", e);
+                event_broadcaster.send(Event::new_progression_event_end(
+                    event_id,
+                    false,
+                    Some(&format!("Instance creation failed: {e}")),
+                    None,
+                ));
+                crate::util::fs::remove_dir_all(setup_path)
+                    .await
+                    .map_err(Error::log)
+                    .context("Failed to remove directory after instance creation failed")
+                    .unwrap();
+                return;
+            }
+        };
 
-    // write dot lodestone config
+        // write dot lodestone config
 
-    tokio::fs::write(
-        setup_path.join(".lodestone_config"),
-        serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
-    )
-    .await
-    .context("Failed to write .lodestone_config file")?;
+        tokio::fs::write(
+            setup_path.join(".lodestone_config"),
+            serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
+        )
+        .await
+        .context("Failed to write .lodestone_config file")
+        .unwrap();
 
-    let instance = generic::GenericInstance::new(
-        setup_config.url,
-        setup_path,
-        dot_lodestone_config,
-        setup_config.setup_value,
-        state.event_broadcaster.clone(),
-        state.macro_executor.clone(),
-    )
-    .await?;
+        state
+            .instances
+            .insert(instance_uuid.clone(), instance.into());
+    });
 
-    state
-        .instances
-        .insert(instance_uuid.clone(), instance.into());
     Ok(Json(()))
 }
 
@@ -251,7 +312,10 @@ pub async fn delete_instance(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(&UserAction::DeleteInstance)?;
+    requester.try_action(
+        &UserAction::DeleteInstance,
+        state.global_settings.lock().await.safe_mode(),
+    )?;
     let caused_by = CausedBy::User {
         user_id: requester.uid.clone(),
         user_name: requester.username.clone(),

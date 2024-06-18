@@ -21,6 +21,10 @@ import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
 import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
+import { GetConfigResponse } from 'bindings/GetConfigResponse';
+import { SettingManifest } from 'bindings/SettingManifest';
+import { PlayitSignupData } from 'bindings/PlayitSignupData';
+import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 
 /***********************
  * Start Files API
@@ -280,8 +284,7 @@ export const zipInstanceFiles = async (
     return;
   } else {
     toast.info(
-      `Zipping ${zipRequest.target_relative_paths.length} item${
-        zipRequest.target_relative_paths.length > 1 ? 's' : ''
+      `Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''
       }...`
     );
   }
@@ -449,6 +452,28 @@ export const getMacros = async (uuid: string) => {
   return macroList;
 };
 
+// get macro config
+export const getMacroConfig = async (uuid: string, macro_name: string) => {
+  const macroConfig = await axiosWrapper<GetConfigResponse>({
+    method: 'get',
+    url: `/instance/${uuid}/macro/config/get/${macro_name}`
+  })
+  return macroConfig
+}
+
+// write macro local config
+export const storeMacroConfig = async (
+  uuid: string, 
+  macro_name: string, 
+  config: Record<string, SettingManifest>) => {
+    const serverResponse = await axiosWrapper<unknown>({
+      method: 'post',
+      url: `/instance/${uuid}/macro/config/store/${macro_name}`,
+      data: config
+    })
+    return serverResponse;
+}
+
 export const getInstanceHistory = async (uuid: string) => {
   const historyList = await axiosWrapper<HistoryEntry[]>({
     method: 'get',
@@ -491,3 +516,56 @@ export const killTask = async (
 /***********************
  * End Tasks/Macro API
  ***********************/
+
+/***********************
+ * Playitgg API
+ ***********************/
+export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
+  const response = await axiosWrapper<PlayitSignupData>({
+    method: 'get',
+    url: `/playitgg/generate_signup_link`,
+  });
+  return response;
+};
+
+export const verifyKey = async (): Promise<boolean> => {
+  const response = await axiosWrapper<boolean>({
+    method: 'post',
+    url: `/playitgg/verify_key`,
+  });
+  return response;
+};
+
+export const startCli = async () => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'post',
+      url: `/playitgg/start_cli`,
+    })
+  );
+};
+
+export const stopCli = async () => {
+  return await catchAsyncToString(
+    axiosWrapper<null>({
+      method: 'post',
+      url: `/playitgg/stop_cli`,
+    })
+  );
+};
+
+export const cliIsRunning = async () => {
+  const response = await axiosWrapper<boolean>({
+    method: 'get',
+    url: `/playitgg/cli_is_running`,
+  });
+  return response;
+};
+
+export const getTunnels = async () => {
+  const response = await axiosWrapper<PlayitTunnelInfo[]>({
+    method: 'get',
+    url: `/playitgg/get_tunnels`,
+  });
+  return response;
+};
