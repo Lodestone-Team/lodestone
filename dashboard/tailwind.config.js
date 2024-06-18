@@ -106,11 +106,40 @@ module.exports = {
         spacing: 'margin, padding',
         dimensions: 'height, width',
       },
+      scrollbarGutter: {
+        'stable': 'stable',
+        'both': 'both-edges',
+        'force': 'force',
+        'force-stable': 'force stable',
+        'force-both': 'force both-edges',
+      }
     },
   },
   plugins: [
     function ({ addVariant }) {
       addVariant('child', '& > *');
+    },
+    function ({ addUtilities }) {
+        addUtilities({
+          '.scrollbar-gutter-auto': {
+            'scrollbar-gutter': 'auto',
+          },
+          '.scrollbar-gutter-stable': {
+            'scrollbar-gutter': 'stable',
+          },
+          '.scrollbar-gutter-both': {
+            'scrollbar-gutter': 'both-edges',
+          },
+          '.scrollbar-gutter-force': {
+            'scrollbar-gutter': 'force',
+          },
+          '.scrollbar-gutter-force-stable': {
+            'scrollbar-gutter': 'force stable',
+          },
+          '.scrollbar-gutter-force-both': {
+            'scrollbar-gutter': 'force both-edges',
+          },
+        });
     },
     require('@tailwindcss/container-queries'),
     require('@headlessui/tailwindcss')({ prefix: 'ui' }),

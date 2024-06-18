@@ -83,6 +83,35 @@ export const iterateSections = (manifest: ConfigurableManifest) => {
     const section = manifest['setting_sections'][sectionKey];
     fieldSections.push(generateSectionDataObject(section));
   });
+  console.log(manifest)
+  const auto_settings: SectionFieldObject = {
+    name: "Auto Settings",
+    section_id: 'auto_settings',
+    description: 'Automatically configure your server.',
+    settings: {
+      auto_start: {
+        name: 'Auto Start',
+        type: 'toggle',
+        value: { 
+          type: "Boolean", 
+          value: manifest['auto_start'] 
+        },
+        description: 'The instance will start automatically when the application starts',
+        is_mutable: true
+      },
+      restart_on_crash: {
+        name: 'Restart on crash',
+        type: 'toggle',
+        value: { 
+          type: "Boolean", 
+          value: manifest['restart_on_crash'] 
+        },
+        description: 'The instance will restart automatically if it crashes',
+        is_mutable: true
+      }
+    }
+  }
+  fieldSections.push(auto_settings);
   return fieldSections;
 };
 
