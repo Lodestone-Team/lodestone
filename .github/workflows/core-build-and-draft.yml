@@ -41,12 +41,6 @@ jobs:
             arch: "aarch64"
             postfix: ""
             cross: false
-          - platform: "macos-latest"
-            target: "x86_64-apple-darwin"
-            os: "macos"
-            arch: "x86_64"
-            postfix: ""
-            cross: false
 
     runs-on: ${{ matrix.platform }}
     steps:
