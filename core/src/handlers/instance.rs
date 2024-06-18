@@ -39,7 +39,7 @@ pub async fn get_instance_list(
         }
     }
     let docker_bridge = state.docker_bridge.clone();
-    let vec = docker_bridge.list_containers().await?;
+    let vec = docker_bridge.list_containers().await.unwrap_or_default();
 
     list_of_configs.extend(vec);
 
