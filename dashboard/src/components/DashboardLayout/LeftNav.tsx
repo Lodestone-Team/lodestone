@@ -11,6 +11,7 @@ import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
 import { PlayitggOverview } from 'components/PlayitggOverview';
+import { GlobalInstanceSetting } from './GlobalInstanceSetting';
 export default function LeftNav({ className }: { className?: string }) {
   const { showCreateInstance, setShowCreateInstance } =
     useContext(InstanceContext);
@@ -18,7 +19,7 @@ export default function LeftNav({ className }: { className?: string }) {
   const userLoggedIn = useUserLoggedIn();
   return (
     <div
-      className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
+      className={`overflow-y-overlay scrollbar-gutter-stable flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
       <div className="mt-10 flex h-full w-full grow flex-col ">
         <UserMenu />
@@ -46,8 +47,8 @@ export default function LeftNav({ className }: { className?: string }) {
             </div>
           </Dialog>
         </Transition>
-
         <div className="h-full">
+          <GlobalInstanceSetting />
           <SelectedInstanceInfo />
 
           <InstanceList className="mt-6">

@@ -120,7 +120,7 @@ const UserMenu = () => {
         icon={faCog}
         onClick={() => {
           localStorage.setItem('lastVisitedRoute', location.pathname);
-          setPathname('/settings/general');
+          setPathname('/settings/users');
         }}
       />
     </div>

@@ -1,79 +1,46 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RadioGroup } from '@headlessui/react';
-import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useEffect } from 'react';
-import useAnalyticsEventTracker from 'utils/hooks';
+import { useContext } from 'react';
 import clsx from 'clsx';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import InstanceCard from 'components/InstanceCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faExpand } from '@fortawesome/free-solid-svg-icons';
-import { tabs } from 'pages/InstanceTabs/InstanceTabs';
-import { useQueryClient } from '@tanstack/react-query';
-import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
+import { faAngleRight, faAngleDown } from '@fortawesome/free-solid-svg-icons';
+import { tabs } from 'pages/settings/GlobalSettings';
 import { useGlobalSettings } from 'data/GlobalSettings';
 
-export const SelectedInstanceInfo = ({
+export const GlobalInstanceSetting = ({
   className = '',
   children,
 }: {
   className?: string;
   children?: React.ReactNode;
 }) => {
-  const {
-    instanceList: instances,
-    selectedInstance,
-    isReady,
-  } = useContext(InstanceContext);
 
-  const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const { setPathname } = useContext(BrowserLocationContext);
   const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
   const { data: globalSettings } = useGlobalSettings();
 
-  useEffect(() => {
-    if (!isReady) return;
-    gaEventTracker(
-      'View',
-      'Instance List',
-      true,
-      Object.keys(instances).length
-    );
-  }, [isReady, instances]);
+  const [ expand, setExpand ] = useState(false);
 
-  const uuid = selectedInstance?.uuid;
-  if (!selectedInstance || !uuid) {
-    return (
-      <div className="mx-1 mt-3 px-1 text-gray-faded/30">
-        <div className="text-small font-bold leading-snug text-gray-faded/30">
-          SELECTED INSTANCE
-        </div>
-        <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30">
-          <div className="mt-20 w-[5.5rem]">
-            <div className="text-h1">
-              <FontAwesomeIcon icon={faExpand} />
-            </div>
-            <div className="mt-2 text-medium font-bold">
-              Any selected instance will appear here
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (location.pathname == '/dashboard/core-settings' || location.pathname == '/dashboard/version') {
+        setExpand(true);
+    }
+  }, [])
 
   return (
     <RadioGroup
-      className={`child:w-full mx-1 mt-3 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
+      className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
       onChange={setPathname}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
-        SELECTED INSTANCE
+      <RadioGroup.Label 
+        className="text-small font-bold leading-snug text-gray-faded/30 flex justify-between items-center hover:cursor-pointer"
+        onClick={() => setExpand(!expand)}>
+        GLOBAL SETTINGS
+        <FontAwesomeIcon icon={expand ? faAngleDown : faAngleRight}/>
       </RadioGroup.Label>
 
-      <InstanceCard {...selectedInstance} key={selectedInstance.uuid} />
-
-      {selectedInstance &&
+      {expand &&
         tabs.map((tab) => (
           (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
           <RadioGroup.Option

@@ -1,7 +1,6 @@
 import { Tab } from '@headlessui/react';
 import { useContext, useState } from 'react';
 import { useUserInfo } from 'data/UserInfo';
-import CoreSettings from 'pages/settings/CoreSettings';
 import UserSettings from 'pages/settings/UserSettings';
 import { SettingsContext } from 'data/SettingsContext';
 import { useDocumentTitle } from 'usehooks-ts';
@@ -11,10 +10,6 @@ const SettingsPage = () => {
   const { tabIndex, setTabIndex, selectUser } = useContext(SettingsContext);
 
   const tabList = [
-    {
-      title: 'General',
-      content: <CoreSettings />,
-    },
     {
       title: 'Users',
       content: <UserSettings />,
