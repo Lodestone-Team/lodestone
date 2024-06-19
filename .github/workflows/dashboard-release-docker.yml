@@ -4,6 +4,15 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to download binaries from, must be an existing release"
+        required: true
+        type: string
+      stable:
+        description: "Is this a stable release?"
+        required: true
+        type: boolean
 
 env:
   REGISTRY: ghcr.io
@@ -36,7 +45,7 @@ jobs:
 
       - name: set docker version label
         env:
-          LABEL: ${{ !github.event.release.prerelease && 'latest-stable' || 'latest-beta' }}
+          LABEL: ${{ (inputs.stable || !github.event.release.prerelease) && 'latest-stable' || 'latest-beta' }}
         id: release_type
         run: echo "label=${LABEL}" >> $GITHUB_OUTPUT
 
@@ -50,4 +59,4 @@ jobs:
           tags: |
             ${{ steps.string_tag.outputs.lowercase }}:latest
             ${{ steps.string_tag.outputs.lowercase }}:${{ steps.release_type.outputs.label }}
-            ${{ steps.string_tag.outputs.lowercase }}:${{ github.event.release.tag_name }}
+            ${{ steps.string_tag.outputs.lowercase }}:${{ inputs.version || github.event.release.tag_name }}
