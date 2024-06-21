@@ -20,6 +20,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}_core
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   core-release-docker:
     runs-on: ubuntu-latest

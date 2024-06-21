@@ -18,6 +18,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: "${{ github.repository }}_dashboard"
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   dashboard-release-docker:
     runs-on: ubuntu-latest
