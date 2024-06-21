@@ -1,10 +1,10 @@
 FROM ubuntu:22.04 as base
 
 FROM base AS production-amd64
-ENV binpath "./core/release/lodestone_core_linux_x86_64_*"
+ENV binpath "./release/lodestone_core_linux_x86_64_*"
 
 FROM base as production-arm64
-ENV binpath "./core/release/lodestone_core_linux_aarch64_*"
+ENV binpath "./release/lodestone_core_linux_aarch64_*"
 
 ARG TARGETARCH
 FROM production-$TARGETARCH AS production

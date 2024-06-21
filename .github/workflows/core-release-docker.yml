@@ -58,6 +58,10 @@ jobs:
           target: core/release/
           version: "tags/${{ inputs.version || github.ref_name }}"
           token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - id: tree
+        name: List files
+        run: tree .
 
       # https://stackoverflow.com/questions/73402042/github-action-expressions-split-string
       - name: set version string
