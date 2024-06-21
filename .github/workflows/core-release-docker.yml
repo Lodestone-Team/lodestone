@@ -71,7 +71,6 @@ jobs:
       - name: build and push
         uses: docker/build-push-action@v3
         with:
-          context: ./core
           platforms: linux/amd64,linux/arm64
           file: ./githubactions.Dockerfile
           build-args: |
