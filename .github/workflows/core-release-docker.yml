@@ -71,8 +71,9 @@ jobs:
       - name: build and push
         uses: docker/build-push-action@v3
         with:
+          context: ./core
           platforms: linux/amd64,linux/arm64
-          file: ./githubactions.Dockerfile
+          file: ./coer/githubactions.Dockerfile
           build-args: |
             lodestone_version=${{ steps.release_asset.outputs.version }}
           push: true
