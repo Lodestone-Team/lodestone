@@ -54,11 +54,11 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@master
         with:
           regex: true
-          repo: Lodestone-Team/lodestone_core
-          file: "lodestone_core_*"
+          file: "lodestone_core_.*"
           target: release/
           version: "tags/${{ inputs.version || github.ref_name }}"
           token: ${{ secrets.GITHUB_TOKEN }}
+      
 
       - name: tree
         run: tree .
