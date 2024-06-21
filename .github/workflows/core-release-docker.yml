@@ -61,7 +61,7 @@ jobs:
       
 
       - name: tree
-        run: tree .
+        run: tree ..
 
       # https://stackoverflow.com/questions/73402042/github-action-expressions-split-string
       - name: set version string
