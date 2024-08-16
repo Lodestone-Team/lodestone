@@ -412,6 +412,10 @@ async fn flush_api_keys_periodically(users_manager: Arc<RwLock<UsersManager>>) {
             error!("Failed to save API key last-used times: {e}");
         }
     }
+
+    pub async fn clear_console_buffer(&self, uuid: &InstanceUuid) {
+        self.console_out_buffer.lock().await.remove(uuid);
+    }
 }
 
 /// How long the monitor task waits for one instance's report.
