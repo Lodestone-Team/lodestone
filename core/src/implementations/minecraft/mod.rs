@@ -170,6 +170,8 @@ pub struct RestoreConfig {
     pub description: String,
     pub cmd_args: Vec<String>,
     pub java_cmd: Option<String>,
+    #[serde(default)]
+    pub custom_cmd: Option<String>,
     pub port: u32,
     pub min_ram: u32,
     pub max_ram: u32,
