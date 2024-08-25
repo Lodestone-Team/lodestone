@@ -402,13 +402,28 @@ impl MinecraftInstance {
             .map(PathBuf::from)
             .unwrap_or_else(|| java_binary(&self.path_to_runtimes, config.jre_major_version));
 
-        let mut command = Command::new(&jre);
-        command
-            .arg(format!("-Xmx{}M", config.max_ram))
-            .arg(format!("-Xms{}M", config.min_ram))
-            .args(config.cmd_args.iter().filter(|s| !s.is_empty()));
-        self.add_jar_args(&mut command, &config).await?;
-        command.arg("nogui").current_dir(&self.path_to_instance);
+        let mut command = if config.custom_cmd.as_deref().unwrap_or_default().is_empty() {
+            let mut command = Command::new(&jre);
+            command
+                .arg(format!("-Xmx{}M", config.max_ram))
+                .arg(format!("-Xms{}M", config.min_ram))
+                .args(config.cmd_args.iter().filter(|s| !s.is_empty()));
+            self.add_jar_args(&mut command, &config).await?;
+            command.arg("nogui");
+            command
+        } else {
+            let mut args: Vec<String> = config
+                .custom_cmd
+                .clone()
+                .unwrap_or_default()
+                .split(' ')
+                .map(String::from)
+                .collect();
+            let mut command = Command::new(args.remove(0));
+            command.args(args.iter().filter(|s| !s.is_empty()));
+            command
+        };
+        command.current_dir(&self.path_to_instance);
         dont_spawn_terminal(&mut command)
             .stdout(Stdio::piped())
             .stdin(Stdio::piped())
