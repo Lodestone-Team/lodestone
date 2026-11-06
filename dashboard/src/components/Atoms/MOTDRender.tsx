@@ -41,7 +41,7 @@ export const MOTDRender = ({
           // only display 2 lines
           if (lineNum > 1) return null;
           return (
-            <React.Fragment key={index}>
+            <React.Fragment key={`${index}-${brindex}`}>
               {brindex > 0 && <br />}
               <span
                 style={{
