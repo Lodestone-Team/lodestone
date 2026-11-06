@@ -26,7 +26,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import { chooseFiles, errorToString, parentPath } from 'utils/util';
+import { chooseFiles, errorToString, joinPath, parentPath } from 'utils/util';
 import {
   deleteInstanceDirectory,
   deleteInstanceFile,
@@ -62,7 +62,7 @@ import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { FileViewerContext, FileViewerContextValue } from './FileViewerContext';
-import { getDirectorySeparator, joinPath } from './paths';
+import { getDirectorySeparator } from './paths';
 
 // The instance whose files were shown last. FileViewer remounts per instance
 // (InstanceTabs keys it by uuid), so this tells a switch to another instance,

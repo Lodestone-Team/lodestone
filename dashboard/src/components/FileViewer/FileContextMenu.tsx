@@ -3,9 +3,8 @@ import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
 import { UnzipOption } from 'bindings/UnzipOption';
-import { supportedZip } from 'utils/util';
+import { joinPath, supportedZip } from 'utils/util';
 import { useFileViewer } from './FileViewerContext';
-import { joinPath } from './paths';
 
 function generateZipText(
   tickedFiles: ClientFile[] | undefined,
