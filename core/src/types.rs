@@ -132,20 +132,29 @@ pub struct DotLodestoneConfig {
     creation_time: i64,
 }
 
-impl From<RestoreConfigV042> for DotLodestoneConfig {
-    fn from(config: RestoreConfigV042) -> Self {
+impl TryFrom<RestoreConfigV042> for DotLodestoneConfig {
+    type Error = crate::error::Error;
+
+    /// v0.4.2 only had Minecraft Java instances; anything else is reported as an error
+    /// so the migration skips that instance instead of crashing the core.
+    fn try_from(config: RestoreConfigV042) -> Result<Self, Self::Error> {
         let game_type = match (config.game_type.as_str(), config.flavour) {
             ("minecraft", Flavour::Vanilla) => GameType::MinecraftJava,
             ("minecraft", Flavour::Forge { .. }) => GameType::MinecraftJava,
             ("minecraft", Flavour::Fabric { .. }) => GameType::MinecraftJava,
             ("minecraft", Flavour::Paper { .. }) => GameType::MinecraftJava,
-            _ => panic!("Unknown game type: {}", config.game_type),
+            (game_type, _) => {
+                return Err(crate::error::Error {
+                    kind: crate::error::ErrorKind::Internal,
+                    source: color_eyre::eyre::eyre!("Unknown game type: {game_type}"),
+                })
+            }
         };
-        Self {
+        Ok(Self {
             game_type,
             uuid: config.uuid,
             creation_time: config.creation_time,
-        }
+        })
     }
 }
 
