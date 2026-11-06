@@ -1,9 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, rc::Rc};
 
-use deno_core::{
-    anyhow::{self, Context},
-    op, OpState,
-};
+use deno_core::{anyhow::Context, op2, Extension, OpState};
+
+use super::{op_try, OpError, Strict};
 
 use crate::{
     event_broadcaster::{EventBroadcaster, PlayerChange, PlayerMessage},
@@ -16,30 +15,36 @@ use crate::{
     types::InstanceUuid,
 };
 
-#[op]
-async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, anyhow::Error> {
+#[op2]
+#[serde]
+async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, OpError> {
     let rx = state.borrow().borrow::<EventBroadcaster>().clone();
-    let event = rx
-        .subscribe()
-        .recv()
-        .await
-        .context("Failed to receive event")?;
-    Ok(event)
+    op_try(async move {
+        let event = rx
+            .subscribe()
+            .recv()
+            .await
+            .context("Failed to receive event")?;
+        Ok(event)
+    })
+    .await
 }
 
-#[op]
+#[op2]
+#[serde]
 async fn next_instance_event(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
+    #[serde] instance_uuid: InstanceUuid,
 ) -> InstanceEvent {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
     event_broadcaster.next_instance_event(&instance_uuid).await
 }
 
-#[op]
+#[op2]
+#[serde]
 async fn next_instance_state_change(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
+    #[serde] instance_uuid: InstanceUuid,
 ) -> State {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
     event_broadcaster
@@ -47,16 +52,21 @@ async fn next_instance_state_change(
         .await
 }
 
-#[op]
-async fn next_instance_output(state: Rc<RefCell<OpState>>, instance_uuid: InstanceUuid) -> String {
+#[op2]
+#[string]
+async fn next_instance_output(
+    state: Rc<RefCell<OpState>>,
+    #[serde] instance_uuid: InstanceUuid,
+) -> String {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
     event_broadcaster.next_instance_output(&instance_uuid).await
 }
 
-#[op]
+#[op2]
+#[serde]
 async fn next_instance_player_message(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
+    #[serde] instance_uuid: InstanceUuid,
 ) -> PlayerMessage {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
     event_broadcaster
@@ -64,10 +74,11 @@ async fn next_instance_player_message(
         .await
 }
 
-#[op]
+#[op2]
+#[string]
 async fn next_instance_system_message(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
+    #[serde] instance_uuid: InstanceUuid,
 ) -> String {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
     event_broadcaster
@@ -75,10 +86,11 @@ async fn next_instance_system_message(
         .await
 }
 
-#[op]
+#[op2]
+#[serde]
 async fn next_instance_player_change(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
+    #[serde] instance_uuid: InstanceUuid,
 ) -> PlayerChange {
     let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
     event_broadcaster
@@ -86,82 +98,86 @@ async fn next_instance_player_change(
         .await
 }
 
-#[op]
-fn emit_detach(state: Rc<RefCell<OpState>>, macro_pid: MacroPID) {
+#[op2]
+fn emit_detach(state: Rc<RefCell<OpState>>, #[serde] macro_pid: MacroPID) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_macro_detach_event(macro_pid));
 }
 
-#[op]
+#[op2]
 fn emit_console_out(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
-    instance_name: String,
-    line: String,
+    #[serde] instance_uuid: InstanceUuid,
+    #[serde] instance_name: Strict<String>,
+    #[serde] line: Strict<String>,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_instance_output(
         instance_uuid,
-        instance_name,
-        line,
+        instance_name.0,
+        line.0,
     ));
 }
 
-#[op]
+#[op2]
 fn emit_state_change(
     state: Rc<RefCell<OpState>>,
-    instance_uuid: InstanceUuid,
-    instance_name: String,
-    new_state: State,
+    #[serde] instance_uuid: InstanceUuid,
+    #[serde] instance_name: Strict<String>,
+    #[serde] new_state: State,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_instance_state_transition(
         instance_uuid,
-        instance_name,
+        instance_name.0,
         new_state,
     ))
 }
 
-#[op]
+#[op2]
+#[serde]
 fn emit_progression_event_start(
     state: Rc<RefCell<OpState>>,
-    progression_name: String,
+    #[serde] progression_name: Strict<String>,
     total: Option<f64>,
-    inner: Option<ProgressionStartValue>,
+    #[serde] inner: Option<ProgressionStartValue>,
 ) -> ProgressionEventID {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     let (event, id) =
-        Event::new_progression_event_start(progression_name, total, inner, CausedBy::System);
+        Event::new_progression_event_start(progression_name.0, total, inner, CausedBy::System);
     tx.send(event);
     id
 }
 
-#[op]
+#[op2]
 fn emit_progression_event_update(
     state: Rc<RefCell<OpState>>,
-    event_id: ProgressionEventID,
-    progress_msg: String,
+    #[serde] event_id: ProgressionEventID,
+    #[serde] progress_msg: Strict<String>,
     progress: f64,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_progression_event_update(
         &event_id,
-        progress_msg,
+        progress_msg.0,
         progress,
     ));
 }
 
-#[op]
+#[op2]
 fn emit_progression_event_end(
     state: Rc<RefCell<OpState>>,
-    event_id: ProgressionEventID,
+    #[serde] event_id: ProgressionEventID,
     success: bool,
-    message: Option<String>,
-    inner: Option<ProgressionEndValue>,
+    #[serde] message: Option<Strict<String>>,
+    #[serde] inner: Option<ProgressionEndValue>,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
     tx.send(Event::new_progression_event_end(
-        event_id, success, message, inner,
+        event_id,
+        success,
+        message.map(|m| m.0),
+        inner,
     ));
 }
 
@@ -169,26 +185,26 @@ pub fn register_all_event_ops(
     worker_options: &mut deno_runtime::worker::WorkerOptions,
     event_broadcaster: EventBroadcaster,
 ) {
-    worker_options.extensions.push(
-        deno_core::Extension::builder("event_ops")
-            .ops(vec![
-                next_event::decl(),
-                emit_console_out::decl(),
-                emit_detach::decl(),
-                emit_state_change::decl(),
-                next_instance_event::decl(),
-                next_instance_state_change::decl(),
-                next_instance_output::decl(),
-                next_instance_player_message::decl(),
-                next_instance_system_message::decl(),
-                next_instance_player_change::decl(),
-                emit_progression_event_start::decl(),
-                emit_progression_event_update::decl(),
-                emit_progression_event_end::decl(),
-            ])
-            .state(|state| {
-                state.put(event_broadcaster);
-            })
-            .build(),
-    );
+    worker_options.extensions.push(Extension {
+        name: "event_ops",
+        ops: Cow::Owned(vec![
+            next_event(),
+            emit_console_out(),
+            emit_detach(),
+            emit_state_change(),
+            next_instance_event(),
+            next_instance_state_change(),
+            next_instance_output(),
+            next_instance_player_message(),
+            next_instance_system_message(),
+            next_instance_player_change(),
+            emit_progression_event_start(),
+            emit_progression_event_update(),
+            emit_progression_event_end(),
+        ]),
+        op_state_fn: Some(Box::new(move |state| {
+            state.put(event_broadcaster);
+        })),
+        ..Default::default()
+    });
 }

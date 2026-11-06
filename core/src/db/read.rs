@@ -29,7 +29,7 @@ WHERE snowflake >= ($1) AND snowflake <= ($2)"#,
             start,
             end
         ) // TODO bit shift
-        .fetch_all(&mut connection)
+        .fetch_all(&mut *connection)
         .await
         .context("Failed to fetch events")?;
         let mut parsed_client_events: Vec<ClientEvent> = Vec::new();
@@ -48,7 +48,7 @@ SELECT
 *
 FROM ClientEvents"#
         )
-        .fetch_all(&mut connection)
+        .fetch_all(&mut *connection)
         .await
         .context("Failed to fetch events")?;
         let mut parsed_client_events: Vec<ClientEvent> = Vec::new();

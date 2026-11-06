@@ -24,10 +24,14 @@ base64 = "0.20.0"
 chrono = "0.4.22"
 color-eyre = "0.6.2"
 dashmap = "5.4.0"
-deno_ast = { version = "0.27.0", features = ["transpiling"] }
-deno_core = "0.190.0"
-deno_graph = "0.49.0"
-deno_runtime = "0.116.0"
+# The deno crates are pinned exactly: they must move together, and the op compat shim
+# (src/deno_ops/compat.js) depends on deno_runtime's bootstrap internals.
+deno_ast = { version = "=0.53.3", features = ["transpiling"] }
+deno_core = "=0.413.0"
+deno_error = "=0.7.1"
+deno_resolver = "=0.91.0"
+deno_runtime = "=0.268.0"
+sys_traits = { version = "=0.1.29", features = ["real"] }
 dotenvy = { version = "0.15" }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.8"
@@ -55,8 +59,13 @@ semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde-aux = "4.1.2"
 serde_json = "1.0.82"
-sqlx = { version = "0.6.2", git = "https://github.com/Lodestone-Team/sqlx", features = [
-    "runtime-tokio-rustls",
+# Pinned to launchbadge/sqlx main: the latest release (0.9.0) caps libsqlite3-sys <0.38,
+# but deno_runtime >=0.261 links libsqlite3-sys 0.38 (only one crate may link sqlite3).
+# Switch back to a crates.io release once one ships with the relaxed bound.
+# No TLS feature: SQLite needs none, and `tls-rustls` enables rustls' `ring` backend next to
+# deno's `aws-lc-rs`, which leaves rustls without a default crypto provider (fetch() panics).
+sqlx = { git = "https://github.com/launchbadge/sqlx", rev = "7908fe79fabc816ce172ac1ac59f6b4bd548ca39", features = [
+    "runtime-tokio",
     "sqlite",
     "json",
 ] }
@@ -89,7 +98,6 @@ tempfile = "3.5.0"
 clap = { version = "4.3.0", features = ["derive"] }
 once_cell = "1.17.1"
 fs3 = "0.5.0"
-import_map = "0.15.0"
 playit-agent-common = {git = "https://github.com/playit-cloud/playit-agent/", branch = "v0.9"}
 playit-agent-core-v09 = {package = "playit-agent-core", git = "https://github.com/playit-cloud/playit-agent/", branch = "v0.9"}
 playit-agent-core = {package = "playit-agent-core", git = "https://github.com/playit-cloud/playit-agent/", branch = "master"}
@@ -106,6 +114,11 @@ features = [
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
+
+[build-dependencies]
+# Used by build.rs to create the deno runtime startup snapshot.
+deno_core = "=0.413.0"
+deno_runtime = { version = "=0.268.0", features = ["snapshot"] }
 
 [features]
 vendored-openssl = ["dep:openssl"]

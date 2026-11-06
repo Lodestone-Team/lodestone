@@ -1,18 +1,14 @@
-use std::rc::Rc;
-
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use indexmap::IndexMap;
 
 use crate::error::{Error, ErrorKind};
 use crate::events::CausedBy;
-use crate::macro_executor::{self, WorkerOptionGenerator};
+use crate::macro_executor::WorkerOptionGenerator;
 use crate::traits::t_configurable::manifest::SettingLocalCache;
 use crate::traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry};
 
-use super::bridge::procedure_call::{
-    emit_result, next_procedure, proc_bridge_ready, ProcedureBridge,
-};
+use super::bridge::procedure_call::{procedure_bridge_extension, ProcedureBridge};
 use super::GenericInstance;
 
 pub struct GenericMainWorkerGenerator {
@@ -27,22 +23,8 @@ impl GenericMainWorkerGenerator {
 
 impl WorkerOptionGenerator for GenericMainWorkerGenerator {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions {
-        let ext = deno_core::Extension::builder("generic_deno_extension_builder")
-            .ops(vec![
-                next_procedure::decl(),
-                emit_result::decl(),
-                proc_bridge_ready::decl(),
-            ])
-            .state({
-                let brige = self.bridge.clone();
-                move |state| {
-                    state.put(brige);
-                }
-            })
-            .build();
         deno_runtime::worker::WorkerOptions {
-            extensions: vec![ext],
-            module_loader: Rc::new(macro_executor::TypescriptModuleLoader::default()),
+            extensions: vec![procedure_bridge_extension(self.bridge.clone())],
             ..Default::default()
         }
     }

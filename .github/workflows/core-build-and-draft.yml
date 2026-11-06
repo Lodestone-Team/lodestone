@@ -55,11 +55,12 @@ jobs:
           override: false
           target: ${{ matrix.target }}
 
-      - name: Install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-latest'
+      # libclang is needed by bindgen (libsqlite3-sys, libnghttp2) in the deno dependency tree
+      - name: Install dependencies (linux only)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang
+          sudo apt-get install -y clang libclang-dev
 
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
