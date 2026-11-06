@@ -24,7 +24,9 @@ use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::{implementations::minecraft, traits::t_server::State as InstanceState, AppState};
 
 use super::instance_setup_configs::HandlerGameType;
-use super::util::{all_instances, get_instance, AuthedUser};
+use super::util::{
+    all_instances, get_instance, require_code_execution, require_owner_if_atom, AuthedUser,
+};
 
 /// The longest instance name, in characters, that is used in the folder name.
 const MAX_DIR_NAME_CHARS: usize = 64;
@@ -136,10 +138,12 @@ pub async fn create_minecraft_instance(
     // Extra command line arguments can make Java run any code, so they need the same
     // permission as changing them later (see `instance_config::set_instance_setting`).
     // Creation does not accept a custom `java_cmd`.
+    // They are also turned off with the rest of code execution.
     if !setup_config.cmd_args.is_empty() {
         requester
             .require(&state, UserAction::WriteGlobalFile)
             .await?;
+        require_code_execution(&state)?;
     }
 
     let setup_path = instance_setup_path(path_to_instances(), &setup_config.name, &instance_uuid);
@@ -248,9 +252,9 @@ pub async fn create_generic_instance(
     requester: AuthedUser,
     Json(setup_config): Json<GenericSetupConfig>,
 ) -> Result<Json<()>, Error> {
-    requester
-        .require(&state, UserAction::CreateInstance)
-        .await?;
+    // an atom is code that runs on the core
+    requester.owner_only("create atom instances")?;
+    require_code_execution(&state)?;
     let caused_by = requester.caused_by();
     let instance_uuid = InstanceUuid::default();
 
@@ -344,6 +348,7 @@ pub async fn delete_instance(
     requester
         .require(&state, UserAction::DeleteInstance)
         .await?;
+    require_owner_if_atom(&state, &requester, &uuid)?;
     let caused_by = requester.caused_by();
     if let Some((_, instance)) = state.instances.remove(&uuid) {
         if !(instance.state().await == InstanceState::Stopped) {

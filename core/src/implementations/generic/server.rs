@@ -11,6 +11,7 @@ use super::{bridge::procedure_call::ProcedureCallInner, GenericInstance};
 #[async_trait::async_trait]
 impl TServer for GenericInstance {
     async fn start(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+        self.require_code_execution()?;
         self.procedure_bridge
             .call(ProcedureCallInner::StartInstance { caused_by, block })
             .await?;
@@ -23,6 +24,7 @@ impl TServer for GenericInstance {
         Ok(())
     }
     async fn restart(&self, caused_by: CausedBy, block: bool) -> Result<(), Error> {
+        self.require_code_execution()?;
         self.procedure_bridge
             .call(ProcedureCallInner::RestartInstance { caused_by, block })
             .await?;

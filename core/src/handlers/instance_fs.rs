@@ -28,7 +28,7 @@ use crate::{
     types::InstanceUuid,
     util::{
         format_byte, format_byte_download, list_dir, resolve_path_conflict, scoped_join_win_safe,
-        unzip_file_async, unzip_file_checked_async, zip_files_async, UnzipEntryCheck, UnzipOption,
+        unzip_file_checked_async, zip_files_async, UnzipEntryCheck, UnzipOption,
     },
     AppState,
 };
@@ -39,8 +39,12 @@ use super::{
         upload_file_name, zip_folder_for_download, DownloadScope, FileEntry, MAX_READ_BYTES,
         MAX_WRITE_BODY_BYTES,
     },
-    util::decode_base64,
+    util::{
+        check_code_write, contains_script, decode_base64, is_code_path, is_script_path,
+        require_code_write,
+    },
 };
+use crate::global_settings::CodeExecutionSwitch;
 
 /// File extensions that only users who can write global files may create, change, move
 /// or delete, because the server, the JVM or Lodestone may run or load them.
@@ -154,6 +158,15 @@ fn protected_error(message: &str) -> Error {
 /// handlers use to guard protected files.
 fn can_write_protected(requester: &User) -> bool {
     requester.can_perform_action(&UserAction::WriteGlobalFile)
+}
+
+/// Whether creating or changing `path` (inside the instance folder `root`) creates or
+/// changes code, see [`is_code_path`]. A path outside `root` counts as code.
+fn is_instance_code_path(root: &FsPath, path: &FsPath, is_dir: bool) -> bool {
+    match path.strip_prefix(root) {
+        Ok(relative_path) => is_code_path(relative_path, is_dir),
+        Err(_) => true,
+    }
 }
 
 fn fs_target(path: PathBuf, is_dir: bool) -> FSTarget {
@@ -275,6 +288,9 @@ async fn write_instance_file(
                 "You don't have permission to write to this file",
             ));
         }
+        if is_code_path(FsPath::new(&relative_path), false) {
+            require_code_write(&state, &requester)?;
+        }
         state
             .docker_bridge
             .write_container_file(&uuid, relative_path.into(), &body)
@@ -287,12 +303,15 @@ async fn write_instance_file(
     })?;
     let root = instance.path().await;
     drop(instance);
-    let path = scoped_join_win_safe(root, relative_path)?;
+    let path = scoped_join_win_safe(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !can_write_protected && is_path_protected(&path).await {
         return Err(protected_error(
             "You don't have permission to write to this file",
         ));
+    }
+    if is_instance_code_path(&root, &path, false) {
+        require_code_write(&state, &requester)?;
     }
     let mut file = tokio::fs::File::create(&path)
         .await
@@ -331,7 +350,10 @@ async fn make_instance_directory(
     })?;
     let root = instance.path().await;
     drop(instance);
-    let path = scoped_join_win_safe(root, relative_path)?;
+    let path = scoped_join_win_safe(&root, relative_path)?;
+    if is_instance_code_path(&root, &path, true) {
+        require_code_write(&state, &requester)?;
+    }
     // create the file if it doesn't exist
     crate::util::fs::create_dir_all(&path).await?;
 
@@ -380,7 +402,24 @@ async fn copy_instance_files(
         .map(|p| scoped_join_win_safe(root.clone(), p))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let path_dest = scoped_join_win_safe(root, &relative_path_dest)?;
+    let path_dest = scoped_join_win_safe(&root, &relative_path_dest)?;
+
+    // copying a script, or anything into a macros folder, creates code
+    for source in &paths_source {
+        let is_dir = tokio::fs::symlink_metadata(source)
+            .await
+            .context(format!("Failed to read {}", source.display()))?
+            .is_dir();
+        let name = source.file_name().ok_or_else(|| Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Cannot copy {}", source.display()),
+        })?;
+        if is_instance_code_path(&root, &path_dest.join(name), is_dir)
+            || (is_dir && contains_script(source.clone()).await?)
+        {
+            require_code_write(&state, &requester)?;
+        }
+    }
 
     if !can_write_protected(&requester) {
         if is_path_protected(&path_dest).await {
@@ -565,6 +604,14 @@ async fn move_instance_file(
         ))?
         .is_dir();
 
+    // moving a script, or anything into a macros folder, creates code at the destination
+    if is_instance_code_path(&root, &path_dest, is_dir)
+        || (!is_dir && is_script_path(&path_source))
+        || (is_dir && contains_script(path_source.clone()).await?)
+    {
+        require_code_write(&state, &requester)?;
+    }
+
     // the destination becomes the same kind of entry as the source
     if !can_write_protected(&requester)
         && (is_protected(&path_source, is_dir)
@@ -720,10 +767,13 @@ async fn new_instance_file(
     })?;
     let root = instance.path().await;
     drop(instance);
-    let path = scoped_join_win_safe(root, relative_path)?;
+    let path = scoped_join_win_safe(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !can_write_protected(&requester) && is_protected(&path, false) {
         return Err(protected_error("File extension is protected"));
+    }
+    if is_instance_code_path(&root, &path, false) {
+        require_code_write(&state, &requester)?;
     }
 
     crate::util::fs::create(&path).await?;
@@ -841,6 +891,9 @@ async fn upload_instance_file(
     let root = instance.path().await;
     drop(instance);
     let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
+    if is_instance_code_path(&root, &path_to_dir, true) {
+        require_code_write(&state, &requester)?;
+    }
     crate::util::fs::create_dir_all(&path_to_dir).await?;
 
     let total = headers
@@ -861,6 +914,9 @@ async fn upload_instance_file(
             // if the file has a protected extension, or no extension, deny
             if !can_write_protected && is_protected(&path, false) {
                 return Err(protected_error("File extension is protected"));
+            }
+            if is_instance_code_path(&root, &path, false) {
+                require_code_write(&state, &requester)?;
             }
 
             let mut file = create_upload_file(&path).await?;
@@ -945,6 +1001,57 @@ fn check_unzipped_entry(
     }
 }
 
+/// The folders an archive may be extracted into (see `unzip_file_in`): for the automatic
+/// options the archive's folder or a new folder named after it, else the chosen folder.
+fn unzip_destinations(path_to_zip_file: &FsPath, unzip_option: &UnzipOption) -> Vec<PathBuf> {
+    match unzip_option {
+        UnzipOption::ToDir(dir) => vec![dir.clone()],
+        UnzipOption::Normal | UnzipOption::Smart | UnzipOption::ToDirectoryWithFileName => {
+            let parent = path_to_zip_file
+                .parent()
+                .map(FsPath::to_path_buf)
+                .unwrap_or_default();
+            let mut destinations = vec![parent.clone()];
+            if let Some(stem) = path_to_zip_file.file_stem() {
+                destinations.push(parent.join(stem));
+            }
+            destinations
+        }
+    }
+}
+
+/// The check for every extracted entry: the protected file rules for users who cannot
+/// write protected files, and the code rules (see [`check_code_write`]) for scripts and
+/// anything that lands in a macros folder, for every user.
+fn code_entry_check(
+    root: PathBuf,
+    destinations: Vec<PathBuf>,
+    can_write_protected: bool,
+    is_owner: bool,
+    code_execution: CodeExecutionSwitch,
+) -> Box<UnzipEntryCheck> {
+    Box::new(move |relative_path, file_type| {
+        if !can_write_protected {
+            check_unzipped_entry(relative_path, file_type)?;
+        }
+        let is_dir = file_type.is_dir();
+        let is_code = (!is_dir && is_script_path(relative_path))
+            || destinations
+                .iter()
+                .any(|dir| is_instance_code_path(&root, &dir.join(relative_path), is_dir));
+        if is_code {
+            check_code_write(is_owner, &code_execution).map_err(|e| Error {
+                kind: e.kind,
+                source: e.source.wrap_err(format!(
+                    "The archive contains a script or macro ({})",
+                    relative_path.display()
+                )),
+            })?;
+        }
+        Ok(())
+    })
+}
+
 pub async fn unzip_instance_file(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
@@ -977,6 +1084,20 @@ pub async fn unzip_instance_file(
         }
         other => other,
     };
+    let destinations = unzip_destinations(&path_to_zip_file, &unzip_option);
+    if destinations
+        .iter()
+        .any(|dir| is_instance_code_path(&root, dir, true))
+    {
+        require_code_write(&state, &requester)?;
+    }
+    let check = code_entry_check(
+        root,
+        destinations,
+        can_write_protected,
+        requester.is_owner,
+        state.code_execution.clone(),
+    );
     let event_broadcaster = state.event_broadcaster.clone();
     tokio::spawn(async move {
         let (progression_event_start, event_id) = Event::new_progression_event_start(
@@ -991,12 +1112,7 @@ pub async fn unzip_instance_file(
 
         event_broadcaster.send(progression_event_start);
 
-        let result = if can_write_protected {
-            unzip_file_async(path_to_zip_file, unzip_option).await
-        } else {
-            let check: Box<UnzipEntryCheck> = Box::new(check_unzipped_entry);
-            unzip_file_checked_async(path_to_zip_file, unzip_option, check).await
-        };
+        let result = unzip_file_checked_async(path_to_zip_file, unzip_option, check).await;
         if let Err(e) = result {
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,
@@ -1062,6 +1178,9 @@ async fn zip_instance_files(
 
     if !can_write_protected(&requester) && is_protected(&destination_relative_path, false) {
         return Err(protected_error("Destination is protected"));
+    }
+    if is_instance_code_path(&root, &destination_relative_path, false) {
+        require_code_write(&state, &requester)?;
     }
 
     let event_broadcaster = state.event_broadcaster.clone();
@@ -1329,5 +1448,118 @@ mod tests {
         let modded = temp.path().join("modded");
         std::fs::create_dir_all(modded.join("mods")).unwrap();
         assert!(contains_protected_entry(modded).await.unwrap());
+    }
+
+    #[test]
+    fn test_instance_code_paths() {
+        let root = FsPath::new("/lodestone/instances/a");
+        assert!(is_instance_code_path(root, &root.join("macros"), true));
+        assert!(is_instance_code_path(
+            root,
+            &root.join("macros/x/config.json"),
+            false
+        ));
+        assert!(is_instance_code_path(
+            root,
+            &root.join("prelaunch.ts"),
+            false
+        ));
+        assert!(is_instance_code_path(root, &root.join("run.ts"), false));
+        assert!(!is_instance_code_path(root, &root.join("world"), true));
+        assert!(!is_instance_code_path(
+            root,
+            &root.join("server.properties"),
+            false
+        ));
+        // "macros" only counts at the top of the instance
+        assert!(!is_instance_code_path(
+            root,
+            &root.join("world/macros/a.txt"),
+            false
+        ));
+        // anything outside the instance counts as code
+        assert!(is_instance_code_path(
+            root,
+            FsPath::new("/elsewhere/a.txt"),
+            false
+        ));
+    }
+
+    #[test]
+    fn test_unzip_destinations() {
+        let zip = FsPath::new("/root/macros.zip");
+        for option in [
+            UnzipOption::Normal,
+            UnzipOption::Smart,
+            UnzipOption::ToDirectoryWithFileName,
+        ] {
+            assert_eq!(
+                unzip_destinations(zip, &option),
+                vec![PathBuf::from("/root"), PathBuf::from("/root/macros")]
+            );
+        }
+        assert_eq!(
+            unzip_destinations(zip, &UnzipOption::ToDir(PathBuf::from("/root/world"))),
+            vec![PathBuf::from("/root/world")]
+        );
+    }
+
+    #[test]
+    fn test_code_entry_check() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        std::fs::create_dir_all(root.join("macros")).unwrap();
+        std::fs::write(root.join("a.ts"), "").unwrap();
+        std::fs::write(root.join("a.txt"), "").unwrap();
+        let file_type = |name: &str| {
+            std::fs::symlink_metadata(root.join(name))
+                .unwrap()
+                .file_type()
+        };
+        let check = |is_owner: bool, enabled: bool, destination: &str| {
+            code_entry_check(
+                root.clone(),
+                vec![root.join(destination)],
+                true,
+                is_owner,
+                CodeExecutionSwitch::new(enabled),
+            )
+        };
+
+        for (is_owner, enabled) in [(false, true), (true, false), (false, false)] {
+            let check = check(is_owner, enabled, "");
+            assert!(check(FsPath::new("a.ts"), &file_type("a.ts")).is_err());
+            assert!(check(FsPath::new("macros"), &file_type("macros")).is_err());
+            assert!(check(FsPath::new("a.txt"), &file_type("a.txt")).is_ok());
+            // a plain file extracted into a macros folder
+            let into_macros = check_into(&root, is_owner, enabled);
+            assert!(into_macros(FsPath::new("a.txt"), &file_type("a.txt")).is_err());
+        }
+        let owner = check(true, true, "");
+        assert!(owner(FsPath::new("a.ts"), &file_type("a.ts")).is_ok());
+        assert!(owner(FsPath::new("macros"), &file_type("macros")).is_ok());
+        let owner_into_macros = check_into(&root, true, true);
+        assert!(owner_into_macros(FsPath::new("a.txt"), &file_type("a.txt")).is_ok());
+
+        // the protected file rules still apply to users who cannot write protected files
+        let restricted = code_entry_check(
+            root.clone(),
+            vec![root.join("world")],
+            false,
+            true,
+            CodeExecutionSwitch::new(true),
+        );
+        std::fs::write(root.join("server.jar"), "").unwrap();
+        assert!(restricted(FsPath::new("server.jar"), &file_type("server.jar")).is_err());
+    }
+
+    fn check_into(root: &FsPath, is_owner: bool, enabled: bool) -> Box<UnzipEntryCheck> {
+        code_entry_check(
+            root.to_path_buf(),
+            vec![root.join("macros")],
+            true,
+            is_owner,
+            CodeExecutionSwitch::new(enabled),
+        )
     }
 }

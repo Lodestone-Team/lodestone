@@ -133,6 +133,8 @@ pub struct AppState {
     playit_signup: Arc<std::sync::Mutex<Option<playitgg::PlayitSignupData>>>,
     /// The current safe mode setting, kept in sync by [`GlobalSettings`].
     safe_mode: Arc<AtomicBool>,
+    /// The code execution kill switch, kept in sync by [`GlobalSettings`].
+    code_execution: global_settings::CodeExecutionSwitch,
     /// Failed logins per username, see [`auth::login_limiter::LoginRateLimiter`].
     login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
 }
@@ -142,6 +144,12 @@ impl AppState {
     /// takes no lock.
     pub fn safe_mode(&self) -> bool {
         self.safe_mode.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Whether code execution (macros, atom instances, extensions, instance scripts and
+    /// custom Java commands) is allowed. Takes no lock.
+    pub fn code_execution_enabled(&self) -> bool {
+        self.code_execution.is_enabled()
     }
 }
 
@@ -245,6 +253,16 @@ async fn restore_instances(
                 (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
             GameType::Generic => {
+                // Restoring an atom runs its code, so with code execution off the instance
+                // is left on disk and comes back once code execution is on and the core
+                // restarts.
+                if !macro_executor.code_execution_enabled() {
+                    warn!(
+                        "Not restoring atom instance {}: code execution is disabled on this core. It will be restored after code execution is turned on and Lodestone Core restarts",
+                        path.display()
+                    );
+                    continue;
+                }
                 let instance = match generic::GenericInstance::restore(
                     path.to_owned(),
                     dot_lodestone_config.clone(),
@@ -458,6 +476,11 @@ pub struct Args {
     pub is_desktop: bool,
     #[arg(short, long)]
     pub lodestone_path: Option<PathBuf>,
+    /// Turn off macros, atom instances, extensions, instance scripts and custom Java
+    /// commands, and stop them from being turned on through the API. Setting the
+    /// LODESTONE_DISABLE_CODE_EXECUTION environment variable to 1, true or yes does the same.
+    #[arg(long, default_value = "false")]
+    pub disable_code_execution: bool,
 }
 
 pub async fn run(
@@ -564,7 +587,16 @@ pub async fn run(
         GlobalSettingsData::default(),
     );
 
+    // Read the lock before anything can run code, in particular before instances are
+    // restored below.
+    if global_settings::code_execution_lock_from_env(args.disable_code_execution) {
+        global_settings.lock_code_execution();
+    }
     global_settings.load_from_file().await?;
+    let code_execution = global_settings.code_execution_switch();
+    if !code_execution.is_enabled() {
+        warn!("Code execution is disabled: atom instances will not be restored, and macros, extensions, instance scripts and custom Java commands will not run");
+    }
 
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
@@ -590,7 +622,11 @@ pub async fn run(
             Err(_) => None,
         };
 
-    let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
+    let macro_executor = MacroExecutor::new(
+        tx.clone(),
+        tokio::runtime::Handle::current(),
+        code_execution.clone(),
+    );
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
         .await
         .map_err(|_| Error {
@@ -619,6 +655,7 @@ pub async fn run(
         playit_keep_running: Arc::new(Mutex::new(None)),
         playit_signup: Arc::new(std::sync::Mutex::new(None)),
         safe_mode: global_settings.safe_mode_flag(),
+        code_execution,
         login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,

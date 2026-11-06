@@ -306,6 +306,12 @@ impl GenericInstance {
         })
     }
 
+    /// Fails with 403 while code execution is turned off. The atom's macro is aborted when
+    /// code execution is turned off, so it cannot run again until the core restarts.
+    pub(super) fn require_code_execution(&self) -> Result<(), Error> {
+        self._drop_guard.macro_executor.require_code_execution()
+    }
+
     /// Will notify the typescript side that the instance is being destructed
     pub async fn destruct(self) {
         let _ = self

@@ -6,6 +6,7 @@ use axum::{
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
 
+use super::util::{get_instance, require_code_execution, require_owner_for_atom};
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
@@ -50,7 +51,8 @@ pub async fn get_instance_settings(
 
 /// Settings that decide which program the instance runs, or with which arguments. Changing
 /// them is as powerful as running any command as the Lodestone user, so it needs the
-/// owner-level `WriteGlobalFile` permission (which is also blocked in safe mode).
+/// owner-level `WriteGlobalFile` permission (which is also blocked in safe mode), and is
+/// turned off with the rest of code execution.
 fn setting_controls_command_line(setting_id: &str) -> bool {
     matches!(setting_id, "java_cmd" | "cmd_args")
 }
@@ -66,11 +68,10 @@ pub async fn set_instance_setting(
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), safe_mode)?;
     if setting_controls_command_line(&setting_id) {
         requester.try_action(&UserAction::WriteGlobalFile, safe_mode)?;
+        require_code_execution(&state)?;
     }
-    let instance = state.instances.get(&uuid).ok_or(Error {
-        kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
-    })?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
 
     instance
         .update_configurable(&section_id, &setting_id, value)
@@ -87,15 +88,9 @@ pub async fn set_instance_name(
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
-    state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
-        .set_name(new_name)
-        .await?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.set_name(new_name).await?;
     Ok(Json(()))
 }
 
@@ -107,15 +102,9 @@ pub async fn set_instance_description(
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
-    state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
-        .set_description(new_description)
-        .await?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.set_description(new_description).await?;
     Ok(Json(()))
 }
 
@@ -126,15 +115,9 @@ pub async fn change_version(
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
-    state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
-        .change_version(new_version)
-        .await?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.change_version(new_version).await?;
     Ok(Json(()))
 }
 
