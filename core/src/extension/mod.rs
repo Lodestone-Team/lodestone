@@ -233,19 +233,13 @@ pub async fn get_manifest(
 }
 
 pub struct ExtensionManager {
-    extension_path: PathBuf,
     atom_path: PathBuf,
-    macro_path: PathBuf,
 }
 
 impl ExtensionManager {
     pub fn new(extension_path: PathBuf) -> Self {
-        let atom_path = extension_path.join("atom");
-        let macro_path = extension_path.join("macro");
         Self {
-            extension_path,
-            atom_path,
-            macro_path,
+            atom_path: extension_path.join("atom"),
         }
     }
 
