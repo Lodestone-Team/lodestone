@@ -1025,10 +1025,18 @@ mod tests {
             resolve_existing_prefix(&root.join("instances/a/macros/new/prelaunch.ts")).await,
             Some(root.join("instances/a/macros/new/prelaunch.ts"))
         );
-        // `..` in the part that does not exist yet cannot be checked
+        // `..` after a folder that does not exist: Unix can't resolve it, so the path can't
+        // be checked. Windows removes `..` by name before it looks at the disk, so the path
+        // resolves to the folder that a write would really use.
+        #[cfg(unix)]
         assert_eq!(
             resolve_existing_prefix(&root.join("missing/../instances")).await,
             None
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            resolve_existing_prefix(&root.join("missing/../instances")).await,
+            Some(root.join("instances"))
         );
         #[cfg(unix)]
         {
