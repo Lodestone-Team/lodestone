@@ -13,7 +13,7 @@ COPY . ./
 ENV NODE_ENV=production
 RUN npm run build
 
-FROM nginx:1.30.6-alpine@sha256:e9b2d7624fd7957f4ed44ae0a272d93fb73aeb8512ba8916f8118ae6143fd115
+FROM nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
 
 WORKDIR /usr/share/nginx/html
 
