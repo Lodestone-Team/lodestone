@@ -1,11 +1,12 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use color_eyre::eyre::Context;
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
 use ts_rs::TS;
 
-use crate::{error::Error, event_broadcaster::EventBroadcaster};
+use crate::{error::Error, event_broadcaster::EventBroadcaster, persist::write_atomic};
 
 #[derive(Serialize, Deserialize, Clone, TS)]
 #[ts(export)]
@@ -37,6 +38,8 @@ pub struct GlobalSettings {
     path_to_global_settings: PathBuf,
     _event_broadcaster: EventBroadcaster,
     global_settings_data: GlobalSettingsData,
+    /// Mirrors `global_settings_data.safe_mode`, see [`GlobalSettings::safe_mode_flag`].
+    safe_mode_flag: Arc<AtomicBool>,
 }
 
 impl GlobalSettings {
@@ -45,16 +48,19 @@ impl GlobalSettings {
         _event_broadcaster: EventBroadcaster,
         global_settings_data: GlobalSettingsData,
     ) -> Self {
+        let safe_mode_flag = Arc::new(AtomicBool::new(global_settings_data.safe_mode));
         Self {
             path_to_global_settings,
             _event_broadcaster,
             global_settings_data,
+            safe_mode_flag,
         }
     }
     pub async fn load_from_file(&mut self) -> Result<(), Error> {
         if tokio::fs::OpenOptions::new()
             .read(true)
             .create(true)
+            .truncate(false)
             .write(true)
             .open(&self.path_to_global_settings)
             .await
@@ -86,25 +92,21 @@ impl GlobalSettings {
                 self.path_to_global_settings.display()
             ))?;
         }
+        self.safe_mode_flag
+            .store(self.global_settings_data.safe_mode, Ordering::SeqCst);
         Ok(())
     }
+    /// Writes the settings to a temporary file and renames it over the old one, so a crash
+    /// during the write cannot leave a truncated file that stops Lodestone from starting.
     async fn write_to_file(&self) -> Result<(), Error> {
-        let mut file = tokio::fs::File::create(&self.path_to_global_settings)
+        let contents = serde_json::to_string_pretty(&self.global_settings_data)
+            .context("Failed to serialize global settings data")?;
+        write_atomic(&self.path_to_global_settings, contents, None)
             .await
             .context(format!(
-                "Failed to create global settings file at {}",
+                "Failed to write to global settings file at {}",
                 self.path_to_global_settings.display()
             ))?;
-        file.write_all(
-            serde_json::to_string_pretty(&self.global_settings_data)
-                .context("Failed to serialize global settings data")?
-                .as_bytes(),
-        )
-        .await
-        .context(format!(
-            "Failed to write to global settings file at {}",
-            self.path_to_global_settings.display()
-        ))?;
         Ok(())
     }
     pub async fn set_core_name(&mut self, name: String) -> Result<(), Error> {
@@ -127,12 +129,21 @@ impl GlobalSettings {
         let old_safe_mode = self.global_settings_data.safe_mode;
         self.global_settings_data.safe_mode = safe_mode;
         match self.write_to_file().await {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.safe_mode_flag.store(safe_mode, Ordering::SeqCst);
+                Ok(())
+            }
             Err(e) => {
                 self.global_settings_data.safe_mode = old_safe_mode;
                 Err(e)
             }
         }
+    }
+
+    /// A shared flag that always holds the current safe mode setting. Reading it needs no
+    /// lock on the global settings.
+    pub fn safe_mode_flag(&self) -> Arc<AtomicBool> {
+        self.safe_mode_flag.clone()
     }
 
     pub fn safe_mode(&self) -> bool {
@@ -205,6 +216,14 @@ mod tests {
         // check that the default values are correct
 
         assert!(global_settings.safe_mode());
+
+        // the lock-free flag follows the setting
+        let flag = global_settings.safe_mode_flag();
+        assert!(flag.load(Ordering::SeqCst));
+        global_settings.set_safe_mode(false).await.unwrap();
+        assert!(!flag.load(Ordering::SeqCst));
+        global_settings.set_safe_mode(true).await.unwrap();
+        assert!(flag.load(Ordering::SeqCst));
 
         // set the core name
 
