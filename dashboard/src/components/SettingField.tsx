@@ -44,13 +44,13 @@ export default function SettingField({
     'can_access_instance_setting',
     instance.uuid
   );
-  const [value, setValue] = useState(
-    initialValue ? initialValue.value.toString() : ''
-  );
+  const initialString = initialValue ? initialValue.value.toString() : '';
+  const [value, setValue] = useState(initialString);
 
+  // keep the field in sync when the setting changes from outside
   useIsomorphicLayoutEffect(() => {
-    setValue(value.toString() ?? '');
-  }, [value]);
+    setValue(initialString);
+  }, [initialString]);
 
   const errorString = errorToString(error);
   const URL = `/instance/${uuid}/settings/${sectionId}/${settingId}`;
@@ -94,7 +94,7 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            submitSettingField(value);
+            await submitSettingField(value);
             setValue(value);
           }}
           description={description}
@@ -111,7 +111,7 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            submitSettingField(value);
+            await submitSettingField(value);
             setValue(value);
           }}
           description={description}
@@ -130,7 +130,7 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            submitSettingField(value);
+            await submitSettingField(value);
             setValue(value);
           }}
           description={description}
