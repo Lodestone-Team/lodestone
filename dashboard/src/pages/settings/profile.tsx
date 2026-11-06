@@ -1,9 +1,10 @@
 import { Dialog, Transition } from '@headlessui/react';
-import { Fragment, useContext, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Fragment, useEffect, useState } from 'react';
 import { useDocumentTitle } from 'usehooks-ts';
-import { UserState } from 'components/UserMenu';
-import { LodestoneContext } from 'data/LodestoneContext';
-import { useUid, useUserInfo } from 'data/UserInfo';
+import { useUserState } from 'components/useUserState';
+import { PublicUser } from 'bindings/PublicUser';
+import { useUid } from 'data/UserInfo';
 import InputBox from 'components/Atoms/Config/InputBox';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { axiosPutSingleValue } from 'utils/util';
@@ -13,45 +14,39 @@ import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
   useDocumentTitle('User Profile - Lodestone');
-  const { token } = useContext(LodestoneContext);
   const uid = useUid();
-  const { isPending: isLoading, isError, data: user } = useUserInfo();
-  const [userState, setUserState] = useState<UserState>('logged-out');
-
-  const [username, setUsername] = useState(
-    userState === 'logged-in' && user ? `${user.username}` : 'Guest'
-  );
+  const queryClient = useQueryClient();
+  const { userState, user } = useUserState();
+  // read from the user info cache, so a rename shows up everywhere
+  const username = userState === 'logged-in' && user ? user.username : 'Guest';
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [stopLoading, setStopLoading] = useState(false);
 
   useEffect(() => {
-    if (!token) {
-      setUserState('logged-out');
-    } else if (isLoading) {
-      setUserState('loading');
-      return;
-    } else if (isError) {
-      setUserState('logged-out');
-      return;
-    } else {
-      setUserState('logged-in');
-      setUsername(user.username);
-    }
-  }, [token, isLoading, isError, user]);
+    if (userState === 'logged-out')
+      toast.warn("You're not logged in! Please log in to access this page.", {
+        toastId: 'profile-not-logged-in',
+      });
+  }, [userState]);
 
-  useEffect(() => {
-    //give time for user to load
-    setTimeout(() => {
-      setStopLoading(true);
-    }, 5000);
-  }, []);
-
-  if (stopLoading && userState !== 'logged-in')
-    toast.warn("You're not logged in! Please log in to access this page.");
-
-  if (isLoading && !stopLoading) {
+  if (userState === 'loading') {
     return <Spinner />;
   }
+
+  const rename = async (value: string) => {
+    await axiosPutSingleValue(`/user/${uid}/rename`, value);
+    queryClient.setQueryData(
+      ['user', 'info'],
+      (oldInfo: PublicUser | undefined) =>
+        oldInfo && { ...oldInfo, username: value }
+    );
+    queryClient.setQueryData(
+      ['user', 'list'],
+      (oldList: { [uid: string]: PublicUser } | undefined) =>
+        oldList && oldList[uid]
+          ? { ...oldList, [uid]: { ...oldList[uid], username: value } }
+          : oldList
+    );
+  };
 
   return (
     // used to possibly center the content
@@ -100,11 +95,7 @@ const ProfilePage = () => {
             label={'Username'}
             value={username}
             type="text"
-            isLoading={isLoading}
-            onSubmit={async (value) => {
-              await axiosPutSingleValue(`/user/${uid}/rename`, value);
-              setUsername(value);
-            }}
+            onSubmit={rename}
             disabled={userState !== 'logged-in' || !user}
           />
         </div>

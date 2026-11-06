@@ -20,7 +20,7 @@ const InstanceOverview = () => {
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
   const { data: globalSettings } = useGlobalSettings();
-  const domain = (globalSettings?.domain ?? address) || 'localhost';
+  const domain = globalSettings?.domain || address || 'localhost';
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
 

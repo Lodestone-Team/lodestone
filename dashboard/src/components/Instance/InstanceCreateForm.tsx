@@ -2,7 +2,7 @@ import Button from 'components/Atoms/Button';
 import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef, useState, useEffect, useMemo } from 'react';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
-import { axiosWrapper, catchAsyncToString } from 'utils/util';
+import { axiosWrapper, catchAsyncToString, errorToString } from 'utils/util';
 import {
   autoSettingPageObject,
   basicSettingsPageObject,
@@ -127,25 +127,22 @@ export default function InstanceCreateForm({
     'Auto Settings',
   ];
   const formReady = activeStep === sections.length - 1;
+  // throws on failure
   const createInstance = async (value: SetupValue) => {
-    try {
-      if (gameType === 'Generic') {
-        await axiosWrapper<void>({
-          method: 'post',
-          url: `/instance/create_generic`,
-          headers: { 'Content-Type': 'application/json' },
-          data: JSON.stringify({ url: url, setup_value: value }),
-        });
-      } else {
-        await axiosWrapper<void>({
-          method: 'post',
-          url: `/instance/create/${gameType}`,
-          headers: { 'Content-Type': 'application/json' },
-          data: JSON.stringify(value),
-        });
-      }
-    } catch (e) {
-      toast.error('Error creating instance: ' + e);
+    if (gameType === 'Generic') {
+      await axiosWrapper<void>({
+        method: 'post',
+        url: `/instance/create_generic`,
+        headers: { 'Content-Type': 'application/json' },
+        data: JSON.stringify({ url: url, setup_value: value }),
+      });
+    } else {
+      await axiosWrapper<void>({
+        method: 'post',
+        url: `/instance/create/${gameType}`,
+        headers: { 'Content-Type': 'application/json' },
+        data: JSON.stringify(value),
+      });
     }
   };
 
@@ -163,7 +160,14 @@ export default function InstanceCreateForm({
       setting_sections: sectionValues,
     };
 
-    await createInstance(parsedValues);
+    try {
+      await createInstance(parsedValues);
+    } catch (e) {
+      // keep the dialog open so the user's input isn't lost
+      toast.error('Error creating instance: ' + errorToString(e));
+      actions.setSubmitting(false);
+      return;
+    }
     actions.setSubmitting(false);
 
     gaEventTracker('Create Instance Complete');
@@ -197,7 +201,7 @@ export default function InstanceCreateForm({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     if (formReady) {
-      submitForm(values, actions);
+      await submitForm(values, actions);
     } else {
       if (setup_manifest) {
         if (activeStep === 0) actions.setValues(initialValues);

@@ -24,17 +24,16 @@ import {
   Dispatch,
   SetStateAction,
 } from 'react';
-import { MacroEntry } from 'bindings/MacroEntry';
 import clsx from 'clsx';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
-import { ReactNode } from 'react';
 import SettingField from 'components/SettingField';
 import { adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import TextCaption from 'components/Atoms/TextCaption';
+import { errorToString } from 'utils/util';
 
 const MacroModalContents = ({
   initialMacroData,
@@ -90,73 +89,112 @@ const MacroModalContents = ({
   );
 };
 
+const unixToFormattedTime = (unix: string | undefined) => {
+  if (!unix) return 'N/A';
+  const date = new Date(parseInt(unix) * 1000);
+  return `${date
+    .toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
+    .replace(/,/, '')} at ${date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })}`;
+};
+
+// Query keys for the macro lists of an instance. The event stream should
+// invalidate these on macro Started/Stopped events.
+const macroListKey = (uuid: string | undefined) => [
+  'instance',
+  uuid,
+  'macroList',
+];
+const taskListKey = (uuid: string | undefined) => [
+  'instance',
+  uuid,
+  'taskList',
+];
+const historyListKey = (uuid: string | undefined) => [
+  'instance',
+  uuid,
+  'historyList',
+];
+
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
   useDocumentTitle('Instance Macros - Lodestone');
   const { selectedInstance } = useContext(InstanceContext);
-  const [macros, setMacros] = useState<TableRow[]>([]);
-  const [tasks, setTasks] = useState<TableRow[]>([]);
-  const [history, setHistory] = useState<TableRow[]>([]);
-  const [showMacroConfigModal, setShowMacroConfigModal] = useState(false);
-  const [macroConfigContents, setMacroConfigContents] =
-    useState<ReactNode>(null);
-
-  // macro settings state
-  const [macroData, setMacroData] = useState<GetConfigResponse>();
-  const [macroRow, setMacroRow] = useState<TableRow>();
-
-  const unixToFormattedTime = (unix: string | undefined) => {
-    if (!unix) return 'N/A';
-    const date = new Date(parseInt(unix) * 1000);
-    return `${date
-      .toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
-      .replace(/,/, '')} at ${date.toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })}`;
-  };
-
+  const uuid = selectedInstance?.uuid;
   const queryClient = useQueryClient();
 
-  const fetchMacros = async (instanceUuid: string) => {
-    const response: MacroEntry[] = await getMacros(instanceUuid);
-    setMacros(
-      response.map(
+  // macro settings state; the modal is open while macroRow is set
+  const [macroData, setMacroData] = useState<GetConfigResponse>();
+  const [initialMacroData, setInitialMacroData] = useState<GetConfigResponse>();
+  const [macroRow, setMacroRow] = useState<TableRow>();
+
+  // Keyed by uuid, so player and state events (which replace the instance
+  // object) don't refetch, and a response for another instance can't land
+  // in this one's list. staleTime 0 refetches whenever the page is opened.
+  const macrosQuery = useQuery({
+    queryKey: macroListKey(uuid),
+    queryFn: () => getMacros(uuid as string),
+    enabled: !!uuid,
+    staleTime: 0,
+  });
+  const tasksQuery = useQuery({
+    queryKey: taskListKey(uuid),
+    queryFn: () => getTasks(uuid as string),
+    enabled: !!uuid,
+    staleTime: 0,
+  });
+  const historyQuery = useQuery({
+    queryKey: historyListKey(uuid),
+    queryFn: () => getInstanceHistory(uuid as string),
+    enabled: !!uuid,
+    staleTime: 0,
+  });
+
+  const fetchError =
+    macrosQuery.error ?? tasksQuery.error ?? historyQuery.error;
+  useEffect(() => {
+    if (fetchError)
+      toast.error(`Failed to load macros: ${errorToString(fetchError)}`);
+  }, [fetchError]);
+
+  const macros = useMemo(
+    () =>
+      (macrosQuery.data ?? []).map(
         (macro, i) =>
           ({
             id: i + 1,
             name: macro.name,
             last_run: unixToFormattedTime(macro.last_run?.toString()),
             path: macro.path,
-          } as TableRow)
-      )
-    );
-  };
+          }) as TableRow
+      ),
+    [macrosQuery.data]
+  );
 
-  const fetchTasks = async (instanceUuid: string) => {
-    const response = await getTasks(instanceUuid);
-    setTasks(
-      response.map(
+  const tasks = useMemo(
+    () =>
+      (tasksQuery.data ?? []).map(
         (task, i) =>
           ({
             id: i + 1,
             name: task.name,
             creation_time: unixToFormattedTime(task.creation_time.toString()),
             pid: task.pid,
-          } as TableRow)
-      )
-    );
-  };
+          }) as TableRow
+      ),
+    [tasksQuery.data]
+  );
 
-  const fetchHistory = async (instanceUuid: string) => {
-    const response = await getInstanceHistory(instanceUuid);
-    setHistory(
-      response.map(
+  const history = useMemo(
+    () =>
+      (historyQuery.data ?? []).map(
         (entry, i) =>
           ({
             id: i + 1,
@@ -166,52 +204,32 @@ const Macros = () => {
             ),
             finished: unixToFormattedTime(entry.exit_status.time.toString()),
             process_id: entry.task.pid,
-          } as TableRow)
-      )
-    );
-  };
+          }) as TableRow
+      ),
+    [historyQuery.data]
+  );
 
   const openMacroModal = async (row: TableRow) => {
-    if (!selectedInstance) {
+    if (!uuid) {
       toast.error('Error opening macro config: No instance selected');
       return;
     }
     try {
-      const initialData = await getMacroConfig(
-        selectedInstance.uuid,
-        row.name as string
-      );
+      const initialData = await getMacroConfig(uuid, row.name as string);
       // store initial settings to potentially rollback
+      setInitialMacroData(initialData);
       setMacroData(initialData);
       setMacroRow(row);
-
-      setMacroConfigContents(
-        <MacroModalContents
-          initialMacroData={initialData}
-          macroDataSetter={setMacroData}
-          selectedInstance={selectedInstance}
-          row={row}
-        />
-      );
-      setShowMacroConfigModal(true);
     } catch (error) {
-      // error potentialy thrown by axioswrapper - should be error type
-      toast.error((error as Error).message);
+      toast.error(`Error opening macro config: ${errorToString(error)}`);
     }
   };
 
-  useEffect(() => {
-    if (!selectedInstance) return;
-
-    const fetchAll = async () => {
-      if (!selectedInstance) return;
-      fetchMacros(selectedInstance.uuid);
-      fetchTasks(selectedInstance.uuid);
-      fetchHistory(selectedInstance.uuid);
-    };
-
-    fetchAll();
-  }, [selectedInstance]);
+  const closeMacroModal = () => {
+    setMacroRow(undefined);
+    setMacroData(undefined);
+    setInitialMacroData(undefined);
+  };
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
@@ -236,13 +254,13 @@ const Macros = () => {
               intention: 'info',
               disabled: false,
               onClick: async (row: TableRow) => {
-                if (!selectedInstance) {
+                if (!uuid) {
                   toast.error('Error running macro: No instance selected');
                   return;
                 }
                 const result = await createTask(
                   queryClient,
-                  selectedInstance.uuid,
+                  uuid,
                   row.name as string,
                   []
                 );
@@ -251,18 +269,9 @@ const Macros = () => {
                   await openMacroModal(row);
                   return;
                 }
-                const newMacros = macros.map((macro) => {
-                  if (macro.name !== row.name) {
-                    return macro;
-                  }
-                  const newMacro = { ...macro };
-                  newMacro.last_run = unixToFormattedTime(
-                    Math.floor(Date.now() / 1000).toString()
-                  );
-                  return newMacro;
-                });
-                setMacros(newMacros);
-                fetchTasks(selectedInstance.uuid);
+                // the run changed the macro's last run time and the task list
+                queryClient.invalidateQueries({ queryKey: macroListKey(uuid) });
+                queryClient.invalidateQueries({ queryKey: taskListKey(uuid) });
               },
             },
             {
@@ -302,26 +311,24 @@ const Macros = () => {
               intention: 'danger',
               disabled: false,
               onClick: async (row: TableRow) => {
-                if (!selectedInstance) {
+                if (!uuid) {
                   toast.error('Error killing task: No instance selected');
                   return;
                 }
-                await killTask(
+                // killTask returns an error string instead of throwing
+                const error = await killTask(
                   queryClient,
-                  selectedInstance.uuid,
+                  uuid,
                   row.pid as string
                 );
-                setTasks(tasks.filter((task) => task.id !== row.id)); //rather than refetching, we just update the display
-                const newHistory = {
-                  id: row.id,
-                  name: row.name,
-                  creation_time: row.creation_time,
-                  finished: unixToFormattedTime(
-                    Math.floor(Date.now() / 1000).toString()
-                  ), //unix time in seconds
-                  process_id: row.pid,
-                };
-                setHistory([newHistory, ...history]);
+                if (error) {
+                  toast.error(`Failed to kill task: ${error}`);
+                  return;
+                }
+                queryClient.invalidateQueries({ queryKey: taskListKey(uuid) });
+                queryClient.invalidateQueries({
+                  queryKey: historyListKey(uuid),
+                });
               },
             },
           ],
@@ -349,7 +356,7 @@ const Macros = () => {
         ],
       },
     };
-  }, [macros, tasks, history, selectedInstance, queryClient]);
+  }, [macros, tasks, history, uuid, queryClient]);
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
 
@@ -364,32 +371,42 @@ const Macros = () => {
           onClick={() => setShowCreateMacro(true)}
         />
       </div> */}
-      {showMacroConfigModal && (
+      {macroRow && selectedInstance && initialMacroData && (
         <ConfirmDialog
           title="Macro Config"
           type="info"
-          isOpen={showMacroConfigModal}
-          onClose={() => {
-            setShowMacroConfigModal(false);
-          }}
+          isOpen={true}
+          onClose={closeMacroModal}
           confirmButtonText="Save"
           closeButtonText="Close"
           onConfirm={async () => {
-            if (!selectedInstance || !macroRow || !macroData) {
+            if (!uuid || !macroData) {
               // theoretically, this should never occur
               toast.error('Error: Invalid state');
-            } else {
+              return;
+            }
+            try {
               await storeMacroConfig(
-                selectedInstance.uuid,
+                uuid,
                 macroRow.name as string,
                 macroData.config
               );
+            } catch (error) {
+              // keep the dialog open so the changes aren't lost
+              toast.error(
+                `Failed to save macro config: ${errorToString(error)}`
+              );
+              return;
             }
-
-            setShowMacroConfigModal(false);
+            closeMacroModal();
           }}
         >
-          {macroConfigContents}
+          <MacroModalContents
+            initialMacroData={initialMacroData}
+            macroDataSetter={setMacroData}
+            selectedInstance={selectedInstance}
+            row={macroRow}
+          />
         </ConfirmDialog>
       )}
       <div className="mt-[0rem] mb-4">All macros for your instance</div>

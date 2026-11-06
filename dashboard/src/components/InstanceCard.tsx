@@ -79,7 +79,7 @@ export default function InstanceCard({
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { data: globalSettings } = useGlobalSettings();
-  const domain = (globalSettings?.domain ?? address) || 'localhost';
+  const domain = globalSettings?.domain || address || 'localhost';
 
   const canViewInstance = useUserAuthorized('can_view_instance', uuid);
   const canStartInstance = useUserAuthorized('can_start_instance', uuid);

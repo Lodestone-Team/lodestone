@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { useEffect, useState } from 'react';
 import { useDocumentTitle } from 'usehooks-ts';
 import { useUserAuthorized, useUserInfo, useUserLoggedIn } from 'data/UserInfo';
 import { useContext } from 'react';
@@ -12,19 +11,11 @@ const Home = () => {
   const { setShowCreateInstance } = useContext(InstanceContext);
   const userLoggedIn = useUserLoggedIn();
   const canCreateInstance = useUserAuthorized('can_create_instance');
-  const { isPending: isLoading } = useUserInfo();
+  // isLoading is only true while the user info is actually being fetched, so
+  // a logged-out user (query disabled) sees the page right away
+  const { isLoading } = useUserInfo();
 
-
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    //give time for user to load
-    setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-  }, []);
-
-  if (loading && isLoading) {
+  if (isLoading) {
     return <Spinner />;
   }
 

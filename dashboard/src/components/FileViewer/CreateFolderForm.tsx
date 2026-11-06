@@ -1,24 +1,20 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ClientFile } from 'bindings/ClientFile';
-import { FileType } from 'bindings/FileType';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { InstanceContext } from 'data/InstanceContext';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { useContext } from 'react';
 import { createInstanceDirectory } from 'utils/apis';
-import { DISABLE_AUTOFILL, fileSorter } from 'utils/util';
+import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
 
 export default function CreateFolderForm({
   onSuccess,
   onCancel,
-  fileList,
   path,
 }: {
   onSuccess: () => void;
   onCancel: () => void;
-  fileList?: ClientFile[];
   path: string;
 }) {
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -46,25 +42,11 @@ export default function CreateFolderForm({
           actions.setErrors({ name: error });
           actions.setSubmitting(false);
         } else {
-          queryClient.setQueryData(
-            ['instance', instance.uuid, 'fileList', path],
-            fileList
-              ? [
-                  ...fileList,
-                  {
-                    name: values.name,
-                    file_stem : values.name.split('.').slice(0, -1).join('.'),
-                    extension : values.name.split('.').pop() ?? '',
-                    path: `${path}/${values.name}`,
-                    size : 0,
-                    creation_time: Date.now() / 1000,
-                    modification_time: Date.now() / 1000,
-                    file_type: 'Directory' as FileType,
-                    
-                  },
-                ].sort(fileSorter)
-              : undefined
-          );
+          // refetch the folder it was created in, rather than guessing the
+          // new entry's metadata
+          queryClient.invalidateQueries({
+            queryKey: ['instance', instance.uuid, 'fileList', path],
+          });
           actions.setSubmitting(false);
           actions.resetForm();
           onSuccess();

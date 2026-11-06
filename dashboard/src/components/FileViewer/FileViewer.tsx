@@ -26,7 +26,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import { chooseFiles, parentPath } from 'utils/util';
+import { chooseFiles, errorToString, parentPath } from 'utils/util';
 import {
   deleteInstanceDirectory,
   deleteInstanceFile,
@@ -61,6 +61,14 @@ import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOption';
+import { FileViewerContext, FileViewerContextValue } from './FileViewerContext';
+import { getDirectorySeparator, joinPath } from './paths';
+
+// The instance whose files were shown last. FileViewer remounts per instance
+// (InstanceTabs keys it by uuid), so this tells a switch to another instance,
+// where the `path` query param belongs to the old instance, apart from a fresh
+// mount or deep link, where `path` should be kept.
+let lastInstanceUuid: string | undefined;
 
 export default function FileViewer() {
   useDocumentTitle('Instance File Viewer - Lodestone');
@@ -75,7 +83,8 @@ export default function FileViewer() {
   const [createFileModalOpen, setCreateFileModalOpen] = useState(false);
   const [renameFileModalOpen, setRenameFileModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
-  const [deleteFileModalOpen, setDeleteFileModalOpen] = useState(false);
+  // files waiting for the user to confirm their deletion
+  const [filesToDelete, setFilesToDelete] = useState<ClientFile[]>([]);
   const [dropping, setDropping] = useState(false);
   const [droppingDialog, setDroppingDialog] = useState(false);
   const [fileListSize, setFileListSize] = useLocalStorage('fileListSize', 200);
@@ -98,15 +107,17 @@ export default function FileViewer() {
   };
 
   const atTopLevel = path === '.';
-  let directorySeparator = '\\';
-  // assume only linux paths contain /
-  if (instance.path.includes('/')) directorySeparator = '/';
+  const directorySeparator = getDirectorySeparator(instance.path);
 
   /* Resets */
+  // Only depends on the uuid: the instance object is replaced on every event
+  // for it (player join, state change), which must not reset the viewer.
   useLayoutEffect(() => {
-    setPath('.');
-    setClipboard([]);
-  }, [instance]);
+    if (lastInstanceUuid !== undefined && lastInstanceUuid !== instance.uuid)
+      setPath('.');
+    lastInstanceUuid = instance.uuid;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.uuid]);
 
   useLayoutEffect(() => {
     setOpenedFile(null);
@@ -164,9 +175,8 @@ export default function FileViewer() {
       }
     }
   };
-  const deleteTickedFiles = async () => {
-    if (!tickedFiles) return;
-    for (const file of tickedFiles) {
+  const deleteFiles = async (files: ClientFile[]) => {
+    for (const file of files) {
       await deleteSingleFile(file);
     }
     setTickedFiles([]);
@@ -190,15 +200,10 @@ export default function FileViewer() {
       );
     } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
-        console.log(
-          'moving',
-          file.path,
-          `${currentPath} | ${directorySeparator} | ${file.name}`
-        );
         await moveInstanceFileOrDirectory(
           instance.uuid,
           file.path,
-          `${currentPath}${directorySeparator}${file.name}`,
+          joinPath(currentPath, file.name, directorySeparator),
           queryClient,
           directorySeparator
         );
@@ -212,17 +217,20 @@ export default function FileViewer() {
   };
 
   const downloadTickedFiles = async () => {
-    if (!tickedFiles) return;
-    
-    for (const file of tickedFiles) {
-      const timeout = file?.file_type == 'Directory' ? 60000 : 5000;
-      if (file.file_type === 'Directory') {
-        toast.info('Zipping directory for download...');
-      }
-      
-      downloadInstanceFile(instance.uuid, file, timeout);
-      tickFile(file, false);
-    }
+    await Promise.all(
+      tickedFiles.map(async (file) => {
+        const timeout = file.file_type == 'Directory' ? 60000 : 5000;
+        if (file.file_type === 'Directory') {
+          toast.info('Zipping directory for download...');
+        }
+        try {
+          await downloadInstanceFile(instance.uuid, file, timeout);
+          tickFile(file, false);
+        } catch (e) {
+          toast.error(`Failed to download ${file.name}: ${errorToString(e)}`);
+        }
+      })
+    );
   };
 
   const zipFiles = async (files: ClientFile[], dest: string) => {
@@ -249,6 +257,8 @@ export default function FileViewer() {
   };
 
   const handleFileDrop = async (event: React.DragEvent) => {
+    setDropping(false);
+    setDroppingDialog(false);
     if (!event.dataTransfer.types.includes('Files')) return;
 
     for (const i in event.dataTransfer.items) {
@@ -260,19 +270,67 @@ export default function FileViewer() {
           : item.webkitGetAsEntry();
       if (entry.isDirectory) {
         toast.error('Only files can be uploaded');
-        setDropping(false);
-        setDroppingDialog(false);
         return;
       }
     }
-    uploadInstanceFiles(
+    await uploadInstanceFiles(
       instance.uuid,
       path,
       Array.from(event.dataTransfer?.files),
       queryClient
     );
-    setDropping(false);
-    setDroppingDialog(false);
+  };
+
+  // drag-and-drop upload handlers, shared by every drop zone
+  const dropZoneHandlers = (setActive: (active: boolean) => void) => ({
+    onDragEnter: (e: React.DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer.types.includes('Files')) setActive(true);
+      e.stopPropagation();
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      e.preventDefault();
+      setActive(false);
+      e.stopPropagation();
+    },
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      handleFileDrop(e);
+      e.stopPropagation();
+    },
+  });
+
+  const fileViewerContext: FileViewerContextValue = {
+    path,
+    directorySeparator,
+    openedFile,
+    tickedFiles,
+    setTickedFiles,
+    tickFile,
+    clipboard,
+    setClipboard,
+    clipboardAction,
+    setClipboardAction,
+    pasteFiles,
+    zipFiles,
+    unzipFile,
+    requestDelete: setFilesToDelete,
+    openCreateFileModal: (directory) => {
+      setModalPath(directory);
+      setCreateFileModalOpen(true);
+    },
+    openCreateFolderModal: (directory) => {
+      setModalPath(directory);
+      setCreateFolderModalOpen(true);
+    },
+    openRenameModal: (filePath) => {
+      setModalPath(filePath);
+      setRenameFileModalOpen(true);
+    },
   };
 
   /* UI */
@@ -298,7 +356,7 @@ export default function FileViewer() {
   );
 
   return (
-    <>
+    <FileViewerContext.Provider value={fileViewerContext}>
       <CreationModal
         setModalOpen={setCreateFolderModalOpen}
         modalOpen={createFolderModalOpen}
@@ -306,7 +364,6 @@ export default function FileViewer() {
         <CreateFolderForm
           onCancel={() => setCreateFolderModalOpen(false)}
           onSuccess={() => setCreateFolderModalOpen(false)}
-          fileList={fileList}
           path={modalPath}
         />
       </CreationModal>
@@ -318,7 +375,6 @@ export default function FileViewer() {
           onCancel={() => setCreateFileModalOpen(false)}
           onSuccess={() => setCreateFileModalOpen(false)}
           path={modalPath}
-          fileList={fileList}
         />
       </CreationModal>
       <CreationModal
@@ -332,18 +388,19 @@ export default function FileViewer() {
         />
       </CreationModal>
       <ConfirmDialog
-        isOpen={deleteFileModalOpen}
-        onClose={() => setDeleteFileModalOpen(false)}
+        isOpen={filesToDelete.length > 0}
+        onClose={() => setFilesToDelete([])}
         onConfirm={async () => {
-          setDeleteFileModalOpen(false);
-          deleteTickedFiles();
+          const files = filesToDelete;
+          setFilesToDelete([]);
+          await deleteFiles(files);
         }}
         title="Delete file(s)"
         type="danger"
       >
         Are you sure you want to delete the following?
         <ul className="list-inside list-disc">
-          {tickedFiles.map((file) => (
+          {filesToDelete.map((file) => (
             <li key={file.path}>
               {file.name} {file.file_type != 'File' && `(${file.file_type})`}
             </li>
@@ -353,25 +410,7 @@ export default function FileViewer() {
       <div
         ref={boundingDivRef}
         className="relative flex h-full w-full grow flex-col gap-3"
-        onDragEnter={(e) => {
-          e.preventDefault();
-          e.dataTransfer.types.includes('Files') && setDropping(true);
-          e.stopPropagation();
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          setDropping(false);
-          e.stopPropagation();
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onDrop={(e: React.DragEvent) => {
-          e.preventDefault();
-          handleFileDrop(e);
-          e.stopPropagation();
-        }}
+        {...dropZoneHandlers(setDropping)}
       >
         <Dialog
           open={dropping || droppingDialog}
@@ -379,27 +418,7 @@ export default function FileViewer() {
             return;
           }}
         >
-          <div
-            onDragEnter={(e) => {
-              e.preventDefault();
-              e.dataTransfer.types.includes('Files') && setDroppingDialog(true);
-              e.stopPropagation();
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              setDroppingDialog(false);
-              e.stopPropagation();
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onDrop={(e: React.DragEvent) => {
-              e.preventDefault();
-              handleFileDrop(e);
-              e.stopPropagation();
-            }}
-          >
+          <div {...dropZoneHandlers(setDroppingDialog)}>
             <div className="fixed inset-0 bg-[#000]/80" />
             <div className="fixed inset-0 overflow-y-auto">
               <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
@@ -512,10 +531,9 @@ export default function FileViewer() {
                       <Button
                         label="New file"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => {
-                          setModalPath(path);
-                          setCreateFileModalOpen(true);
-                        }}
+                        onClick={() =>
+                          fileViewerContext.openCreateFileModal(path)
+                        }
                         iconComponent={fileCheckIcon}
                         variant="text"
                         align="start"
@@ -528,10 +546,9 @@ export default function FileViewer() {
                       <Button
                         label="New folder"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => {
-                          setModalPath(path);
-                          setCreateFolderModalOpen(true);
-                        }}
+                        onClick={() =>
+                          fileViewerContext.openCreateFolderModal(path)
+                        }
                         icon={faFolderPlus}
                         variant="text"
                         align="start"
@@ -546,10 +563,7 @@ export default function FileViewer() {
                       <Button
                         label="Delete selected"
                         className="w-full whitespace-nowrap py-1.5"
-                        onClick={() => {
-                          setModalPath(path);
-                          setDeleteFileModalOpen(true);
-                        }}
+                        onClick={() => setFilesToDelete(tickedFiles)}
                         icon={faTrashCan}
                         variant="text"
                         align="start"
@@ -626,25 +640,7 @@ export default function FileViewer() {
         {canRead ? (
           <div
             className="flex h-full w-full grow flex-row divide-x divide-gray-faded/30 rounded-lg border border-gray-faded/30 bg-gray-800"
-            onDragEnter={(e) => {
-              e.preventDefault();
-              e.dataTransfer.types.includes('Files') && setDropping(true);
-              //setDropping(true);
-              e.stopPropagation();
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              setDropping(false);
-              e.stopPropagation();
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-            }}
-            onDrop={(e: React.DragEvent) => {
-              e.preventDefault();
-              handleFileDrop(e);
-              e.stopPropagation();
-            }}
+            {...dropZoneHandlers(setDropping)}
           >
             <ResizePanel
               direction="e"
@@ -657,18 +653,10 @@ export default function FileViewer() {
               grow={!openedFile}
             >
               <FileList
-                path={path}
                 atTopLevel={atTopLevel}
                 fileList={fileList}
-                clipboard={clipboard}
                 loading={fileListLoading}
                 error={fileListError}
-                tickedFiles={tickedFiles}
-                tickFile={tickFile}
-                zipFiles={zipFiles}
-                unzipFile={unzipFile}
-                pasteFiles={pasteFiles}
-                openedFile={openedFile}
                 onParentClick={() =>
                   setPath(parentPath(path, directorySeparator), false)
                 }
@@ -683,16 +671,6 @@ export default function FileViewer() {
                     setOpenedFile(file);
                   }
                 }}
-                setCreateFileModalOpen={setCreateFileModalOpen}
-                setCreateFolderModalOpen={setCreateFolderModalOpen}
-                setRenameFileModalOpen={setRenameFileModalOpen}
-                setModalPath={setModalPath}
-                setClipboard={setClipboard}
-                clipboardAction={clipboardAction}
-                setClipboardAction={setClipboardAction}
-                setTickedFiles={setTickedFiles}
-                deleteSingleFile={deleteSingleFile}
-                deleteTickedFiles={deleteTickedFiles}
               />
             </ResizePanel>
             {openedFile && (
@@ -701,10 +679,11 @@ export default function FileViewer() {
                   {showingMonaco ? (
                     <FileEditor
                       path={path}
-                      monacoPath={
-                        instance.path + directorySeparator + openedFile?.path ||
-                        ''
-                      }
+                      monacoPath={joinPath(
+                        instance.path,
+                        openedFile.path,
+                        directorySeparator
+                      )}
                       file={openedFile}
                       originalFileContent={originalFileContent}
                       fileContent={fileContent}
@@ -750,6 +729,6 @@ export default function FileViewer() {
           )}
         </div>
       </div>
-    </>
+    </FileViewerContext.Provider>
   );
 }

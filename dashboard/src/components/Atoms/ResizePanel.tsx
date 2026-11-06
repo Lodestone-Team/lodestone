@@ -57,8 +57,10 @@ const ResizePanel = forwardRef(
     const [size, setSizeState] = React.useState(initialSize);
     const [targetSize, setTargetSize] = React.useState(initialSize); //the size the user is dragging to, usually not valid
 
-    const setSize = (size: number) => {
-      if (onResize) onResize(size);
+    // notify is false while dragging, so onResize (often a localStorage
+    // write) runs once when the drag ends instead of on every frame
+    const setSize = (size: number, notify = true) => {
+      if (notify && onResize) onResize(size);
       setSizeState(size);
     };
 
@@ -133,11 +135,12 @@ const ResizePanel = forwardRef(
       const newTargetSize = targetSize - delta * factor;
       const newSize = Math.min(Math.max(minSizeProps, newTargetSize), maxSize);
       setTargetSize(newTargetSize);
-      setSize(newSize);
+      setSize(newSize, false);
     };
 
     const handleDragEnd = (e: DraggableEvent, ui: DraggableData) => {
       setCursor('auto');
+      if (onResize) onResize(size);
       validateSize();
       setTargetSize(size);
     };
