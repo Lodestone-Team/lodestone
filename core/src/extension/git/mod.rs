@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    process::Stdio,
-};
+use std::path::{Path, PathBuf};
 
 use color_eyre::eyre::{eyre, Error};
 
@@ -14,14 +11,16 @@ impl GitClient {
         self.cwd.clone()
     }
 
+    /// Clones `url` into the folder `name` inside `path`.
     pub async fn clone(
         url: impl AsRef<str>,
         path: impl AsRef<Path>,
         name: impl AsRef<str>,
     ) -> Result<Self, Error> {
-        // get output from stderr
         let output = tokio::process::Command::new("git")
             .arg("clone")
+            // everything after `--` is a positional argument, never an option
+            .arg("--")
             .arg(url.as_ref())
             .arg(name.as_ref())
             .current_dir(path.as_ref())
@@ -31,20 +30,11 @@ impl GitClient {
         if !output.status.success() {
             return Err(eyre!(
                 "git clone failed : {}",
-                String::from_utf8(output.stderr)?
+                String::from_utf8_lossy(&output.stderr)
             ));
         }
-        let output = String::from_utf8(output.stderr)?;
-        // dbg!(&output);
-        // extract the path from the output
-        // ex. Cloning into 'PATH'...;
-        let path = output
-            .split('\'')
-            .nth(1)
-            .ok_or_else(|| eyre!("Failed to parse git clone output"))?;
-
         Ok(Self {
-            cwd: PathBuf::from(path),
+            cwd: path.as_ref().join(name.as_ref()),
         })
     }
 

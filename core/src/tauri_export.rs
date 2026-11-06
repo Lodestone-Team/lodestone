@@ -33,20 +33,20 @@ pub async fn setup_owner_account(
     username: String,
     password: String,
 ) -> Result<(), Error> {
-    if is_owner_account_present(app_state).await {
+    let user = User::new(username, password, true, false, UserPermission::default());
+    // Same lock order as the `/setup/{key}` handler (setup key, then users), and the owner
+    // check and the insert happen under one users write lock, so two owners cannot be
+    // created at once.
+    let mut setup_key_lock = app_state.first_time_setup_key.lock().await;
+    let mut users_manager = app_state.users_manager.write().await;
+    if users_manager.as_ref().values().any(|user| user.is_owner) {
         return Err(Error {
             kind: ErrorKind::BadRequest,
             source: eyre!("Owner account already present"),
         });
     }
-    let user = User::new(username, password, true, false, UserPermission::default());
-    app_state
-        .users_manager
-        .write()
-        .await
-        .add_user(user, CausedBy::System)
-        .await?;
-    app_state.first_time_setup_key.lock().await.take();
+    users_manager.add_user(user, CausedBy::System).await?;
+    setup_key_lock.take();
     Ok(())
 }
 

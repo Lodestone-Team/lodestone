@@ -1,23 +1,32 @@
 use crate::traits::t_configurable::TConfigurable;
 use crate::{port_manager::PortStatus, AppState};
-use axum::{extract::Path, routing::get, Json, Router};
+use axum::{
+    extract::{Path, State},
+    routing::get,
+    Json, Router,
+};
+
+use super::util::{all_instances, AuthedUser};
+
 /// Check the status of a port
 /// Note: this function is not cheap
 pub async fn get_port_status(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    Path(port): Path<u32>,
+    State(state): State<AppState>,
+    _requester: AuthedUser,
+    Path(port): Path<u16>,
 ) -> Json<PortStatus> {
-    Json(state.port_manager.lock().await.port_status(port))
+    Json(state.port_manager.lock().await.port_status(u32::from(port)))
 }
 
 /// Check whether a name is in use
 /// Note: this function is not cheap
 pub async fn is_name_in_use(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
+    _requester: AuthedUser,
     Path(name): Path<String>,
 ) -> Json<bool> {
-    for entry in state.instances.iter() {
-        if entry.value().name().await == name {
+    for instance in all_instances(&state) {
+        if instance.name().await == name {
             return Json(true);
         }
     }

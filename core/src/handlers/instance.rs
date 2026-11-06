@@ -1,7 +1,9 @@
+use std::path::{Path as FsPath, PathBuf};
+
+use axum::extract::State;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use axum::{extract::Path, Json};
-use axum_auth::AuthBearer;
 
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
@@ -17,29 +19,84 @@ use crate::traits::t_configurable::GameType;
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::{path_to_instances, GameInstance};
 use crate::traits::t_configurable::manifest::SetupValue;
-use crate::traits::t_configurable::Game::Generic;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 use crate::types::{DotLodestoneConfig, InstanceUuid};
-use crate::{implementations::minecraft, traits::t_server::State, AppState};
+use crate::{implementations::minecraft, traits::t_server::State as InstanceState, AppState};
 
 use super::instance_setup_configs::HandlerGameType;
+use super::util::{all_instances, get_instance, AuthedUser};
+
+/// The longest instance name, in characters, that is used in the folder name.
+const MAX_DIR_NAME_CHARS: usize = 64;
+
+/// Turns an instance name into a safe folder name.
+///
+/// Only letters, digits, spaces, `-` and `_` are kept (anything else becomes `_`), so the
+/// result can never contain a path separator, `..`, a drive letter or a leading dot. It is
+/// also trimmed and shortened, and never empty.
+pub fn sanitize_instance_dir_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(MAX_DIR_NAME_CHARS)
+        .collect();
+    let sanitized = sanitized.trim();
+    if sanitized.is_empty() {
+        "instance".to_string()
+    } else {
+        sanitized.to_string()
+    }
+}
+
+/// The folder for a new instance: `<instances_dir>/<sanitized name>-<first 8 uuid chars>`.
+fn instance_setup_path(instances_dir: &FsPath, name: &str, uuid: &InstanceUuid) -> PathBuf {
+    let uuid = uuid.no_prefix();
+    let short_uuid = uuid.get(0..8).unwrap_or(&uuid);
+    instances_dir.join(format!(
+        "{}-{}",
+        sanitize_instance_dir_name(name),
+        short_uuid
+    ))
+}
+
+/// Removes the folder of an instance whose creation failed, logging any error.
+async fn remove_failed_instance_dir(setup_path: PathBuf) {
+    if let Err(e) = crate::util::fs::remove_dir_all(&setup_path).await {
+        error!(
+            "Failed to remove directory {} after instance creation failed: {}",
+            setup_path.display(),
+            e
+        );
+    }
+}
 
 pub async fn get_instance_list(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    State(state): State<AppState>,
+    requester: AuthedUser,
 ) -> Result<Json<Vec<InstanceInfo>>, Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     let mut list_of_configs: Vec<InstanceInfo> = Vec::new();
 
-    for instance in state.instances.iter() {
+    for instance in all_instances(&state) {
         if requester.can_perform_action(&UserAction::ViewInstance(instance.uuid().await)) {
             list_of_configs.push(instance.get_instance_info().await);
         }
     }
-    let docker_bridge = state.docker_bridge.clone();
-    let vec = docker_bridge.list_containers().await.unwrap_or_default();
-
-    list_of_configs.extend(vec);
+    let containers = state
+        .docker_bridge
+        .list_containers()
+        .await
+        .unwrap_or_default();
+    list_of_configs.extend(
+        containers.into_iter().filter(|info| {
+            requester.can_perform_action(&UserAction::ViewInstance(info.uuid.clone()))
+        }),
+    );
 
     list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
 
@@ -48,57 +105,36 @@ pub async fn get_instance_list(
 
 pub async fn get_instance_info(
     Path(uuid): Path<InstanceUuid>,
-    axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    State(state): State<AppState>,
+    requester: AuthedUser,
 ) -> Result<Json<InstanceInfo>, Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-
-    let instance = state.instances.get(&uuid).ok_or_else(|| Error {
-        kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
-    })?;
-
-    requester.try_action(
-        &UserAction::ViewInstance(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    // check the permission first, so the reply does not show whether the instance exists
+    requester
+        .require(&state, UserAction::ViewInstance(uuid.clone()))
+        .await?;
+    let instance = get_instance(&state, &uuid)?;
     Ok(Json(instance.get_instance_info().await))
 }
 
 pub async fn create_minecraft_instance(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Path(game_type): Path<HandlerGameType>,
     Json(manifest_value): Json<SetupValue>,
 ) -> Result<Json<InstanceUuid>, Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::CreateInstance,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
-    let mut perm = requester.permissions;
+    requester
+        .require(&state, UserAction::CreateInstance)
+        .await?;
+    let caused_by = requester.caused_by();
+    let requester_uid = requester.uid.clone();
 
-    let mut instance_uuid = InstanceUuid::default();
-
-    for entry in state.instances.iter() {
-        if let Some(uuid) = entry.key().as_ref().get(0..8) {
-            if uuid == &instance_uuid.no_prefix()[0..8] {
-                instance_uuid = InstanceUuid::default();
-            }
-        }
-    }
-
-    let instance_uuid = instance_uuid;
+    let instance_uuid = InstanceUuid::default();
 
     let flavour = game_type.try_into()?;
 
     let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
 
-    let setup_path = path_to_instances().join(format!(
-        "{}-{}",
-        setup_config.name,
-        &instance_uuid.no_prefix()[0..8]
-    ));
+    let setup_path = instance_setup_path(path_to_instances(), &setup_config.name, &instance_uuid);
 
     tokio::fs::create_dir_all(&setup_path)
         .await
@@ -110,7 +146,8 @@ pub async fn create_minecraft_instance(
 
     tokio::fs::write(
         setup_path.join(".lodestone_config"),
-        serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
+        serde_json::to_string_pretty(&dot_lodestone_config)
+            .context("Failed to serialize .lodestone_config")?,
     )
     .await
     .context("Failed to write .lodestone_config file")?;
@@ -119,10 +156,6 @@ pub async fn create_minecraft_instance(
         let uuid = instance_uuid.clone();
         let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
-        let caused_by = CausedBy::User {
-            user_id: requester.uid.clone(),
-            user_name: requester.username.clone(),
-        };
         async move {
             let (progression_start_event, event_id) = Event::new_progression_event_start(
                 format!("Setting up Minecraft server {instance_name}"),
@@ -161,31 +194,33 @@ pub async fn create_minecraft_instance(
                         Some(&format!("Instance creation failed: {e}")),
                         None,
                     ));
-                    crate::util::fs::remove_dir_all(setup_path)
-                        .await
-                        .context("Failed to remove directory after instance creation failed")
-                        .unwrap();
+                    remove_failed_instance_dir(setup_path).await;
                     return;
                 }
             };
-            let mut port_manager = state.port_manager.lock().await;
-            port_manager.add_port(setup_config.port);
-            perm.can_start_instance.insert(uuid.clone());
-            perm.can_stop_instance.insert(uuid.clone());
-            perm.can_view_instance.insert(uuid.clone());
-            perm.can_read_instance_file.insert(uuid.clone());
-            perm.can_write_instance_file.insert(uuid.clone());
-            // ignore errors since we don't care if the permissions update fails
-            let _ = state
+            state.port_manager.lock().await.add_port(setup_config.port);
+            // Add the new instance to the creator's current permissions. Re-reading them under
+            // the write lock keeps changes made while the instance was being set up.
+            if let Err(e) = state
                 .users_manager
                 .write()
                 .await
-                .update_permissions(&requester.uid, perm, CausedBy::System)
+                .modify_permissions(
+                    &requester_uid,
+                    |perm| {
+                        perm.can_start_instance.insert(uuid.clone());
+                        perm.can_stop_instance.insert(uuid.clone());
+                        perm.can_view_instance.insert(uuid.clone());
+                        perm.can_read_instance_file.insert(uuid.clone());
+                        perm.can_write_instance_file.insert(uuid.clone());
+                    },
+                    CausedBy::System,
+                )
                 .await
-                .map_err(|e| {
-                    error!("Failed to update permissions: {:?}", e);
-                    e
-                });
+            {
+                // the instance is still usable by the owner and admins
+                error!("Failed to update permissions: {:?}", e);
+            }
             state
                 .instances
                 .insert(uuid.clone(), minecraft_instance.into());
@@ -201,31 +236,21 @@ pub struct GenericSetupConfig {
 }
 
 pub async fn create_generic_instance(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Json(setup_config): Json<GenericSetupConfig>,
 ) -> Result<Json<()>, Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::CreateInstance,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
-    let mut instance_uuid = InstanceUuid::default();
-    for entry in state.instances.iter() {
-        if let Some(uuid) = entry.key().as_ref().get(0..8) {
-            if uuid == &instance_uuid.no_prefix()[0..8] {
-                instance_uuid = InstanceUuid::default();
-            }
-        }
-    }
+    requester
+        .require(&state, UserAction::CreateInstance)
+        .await?;
+    let caused_by = requester.caused_by();
+    let instance_uuid = InstanceUuid::default();
 
-    let instance_uuid = instance_uuid;
-
-    let setup_path = path_to_instances().join(format!(
-        "{}-{}",
-        setup_config.setup_value.name,
-        &instance_uuid.no_prefix()[0..8]
-    ));
+    let setup_path = instance_setup_path(
+        path_to_instances(),
+        &setup_config.setup_value.name,
+        &instance_uuid,
+    );
 
     tokio::fs::create_dir_all(&setup_path)
         .await
@@ -240,10 +265,7 @@ pub async fn create_generic_instance(
             Some(ProgressionStartValue::InstanceCreation {
                 instance_uuid: instance_uuid.clone(),
             }),
-            CausedBy::User {
-                user_id: requester.uid,
-                user_name: requester.username,
-            },
+            caused_by,
         );
         event_broadcaster.send(progression_start_event);
         let instance = match generic::GenericInstance::new(
@@ -277,24 +299,26 @@ pub async fn create_generic_instance(
                     Some(&format!("Instance creation failed: {e}")),
                     None,
                 ));
-                crate::util::fs::remove_dir_all(setup_path)
-                    .await
-                    .map_err(Error::log)
-                    .context("Failed to remove directory after instance creation failed")
-                    .unwrap();
+                remove_failed_instance_dir(setup_path).await;
                 return;
             }
         };
 
         // write dot lodestone config
-
-        tokio::fs::write(
-            setup_path.join(".lodestone_config"),
-            serde_json::to_string_pretty(&dot_lodestone_config).unwrap(),
-        )
-        .await
-        .context("Failed to write .lodestone_config file")
-        .unwrap();
+        let written = match serde_json::to_string_pretty(&dot_lodestone_config) {
+            Ok(config) => tokio::fs::write(setup_path.join(".lodestone_config"), config)
+                .await
+                .context("Failed to write .lodestone_config file"),
+            Err(e) => Err(e).context("Failed to serialize .lodestone_config"),
+        };
+        if let Err(e) = written {
+            // without the config file the instance would be lost on the next start
+            error!(
+                "Failed to save instance {}: {:#}. The instance was not added",
+                instance_uuid, e
+            );
+            return;
+        }
 
         state
             .instances
@@ -305,21 +329,16 @@ pub async fn create_generic_instance(
 }
 
 pub async fn delete_instance(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
-    AuthBearer(token): AuthBearer,
+    requester: AuthedUser,
 ) -> Result<Json<()>, Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::DeleteInstance,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
-    let caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
-    };
+    requester
+        .require(&state, UserAction::DeleteInstance)
+        .await?;
+    let caused_by = requester.caused_by();
     if let Some((_, instance)) = state.instances.remove(&uuid) {
-        if !(instance.state().await == State::Stopped) {
+        if !(instance.state().await == InstanceState::Stopped) {
             state.instances.insert(uuid.clone(), instance);
             Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -329,7 +348,9 @@ pub async fn delete_instance(
             let (progression_event_start, event_id) = Event::new_progression_event_start(
                 format!("Deleting instance {}", instance.name().await),
                 Some(10.0),
-                None,
+                Some(ProgressionStartValue::InstanceDelete {
+                    instance_uuid: uuid.clone(),
+                }),
                 caused_by,
             );
             let event_broadcaster = state.event_broadcaster.clone();
@@ -374,7 +395,7 @@ pub async fn delete_instance(
                         event_id,
                         false,
                         Some(&format!(
-                            "Failed to delete some of all of instance's files : {e}"
+                            "Failed to delete some or all of the instance's files: {e}"
                         )),
                         None,
                     ));
@@ -401,4 +422,68 @@ pub fn get_instance_routes(state: AppState) -> Router {
         .route("/instance/{uuid}", delete(delete_instance))
         .route("/instance/{uuid}/info", get(get_instance_info))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_keeps_normal_names() {
+        assert_eq!(sanitize_instance_dir_name("My Server"), "My Server");
+        assert_eq!(
+            sanitize_instance_dir_name("survival_2-test"),
+            "survival_2-test"
+        );
+        assert_eq!(sanitize_instance_dir_name("服务器"), "服务器");
+    }
+
+    #[test]
+    fn sanitize_removes_path_parts() {
+        for name in [
+            "../../x",
+            "/tmp/x",
+            "..\\..\\x",
+            "C:\\Windows",
+            "a/b",
+            "..",
+            ".hidden",
+            "x\0y",
+        ] {
+            let sanitized = sanitize_instance_dir_name(name);
+            assert!(!sanitized.contains('/'), "{name:?} -> {sanitized:?}");
+            assert!(!sanitized.contains('\\'), "{name:?} -> {sanitized:?}");
+            assert!(!sanitized.contains(':'), "{name:?} -> {sanitized:?}");
+            assert!(!sanitized.contains('.'), "{name:?} -> {sanitized:?}");
+            assert!(!sanitized.contains('\0'), "{name:?} -> {sanitized:?}");
+        }
+        assert_eq!(sanitize_instance_dir_name("../../x"), "______x");
+    }
+
+    #[test]
+    fn sanitize_is_never_empty_and_is_bounded() {
+        assert_eq!(sanitize_instance_dir_name(""), "instance");
+        assert_eq!(sanitize_instance_dir_name("   "), "instance");
+        assert_eq!(
+            sanitize_instance_dir_name(&"a".repeat(1000))
+                .chars()
+                .count(),
+            MAX_DIR_NAME_CHARS
+        );
+    }
+
+    #[test]
+    fn setup_path_stays_in_instances_folder() {
+        let uuid = InstanceUuid::default();
+        let instances_dir = FsPath::new("/lodestone/instances");
+        for name in ["../../x", "/tmp/x", "..", "a/../../b", "C:\\x"] {
+            let path = instance_setup_path(instances_dir, name, &uuid);
+            assert_eq!(
+                path.parent(),
+                Some(instances_dir),
+                "{name:?} -> {}",
+                path.display()
+            );
+        }
+    }
 }

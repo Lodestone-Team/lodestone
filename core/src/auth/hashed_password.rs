@@ -9,9 +9,12 @@ pub struct HashedPassword(String);
 
 impl PartialEq<str> for HashedPassword {
     fn eq(&self, other: &str) -> bool {
-        Argon2::default()
-            .verify_password(other.as_bytes(), &PasswordHash::new(&self.0).unwrap())
-            .is_ok()
+        // a malformed stored hash matches no password
+        PasswordHash::new(&self.0).is_ok_and(|hash| {
+            Argon2::default()
+                .verify_password(other.as_bytes(), &hash)
+                .is_ok()
+        })
     }
 }
 
