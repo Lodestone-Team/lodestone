@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Display},
-    iter::zip,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -27,7 +26,7 @@ use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::{
     deno_fs::RealFs,
     deno_permissions::{
-        PermissionsContainer, PermissionsOptions, RuntimePermissionDescriptorParser,
+        Permissions, PermissionsContainer, PermissionsOptions, RuntimePermissionDescriptorParser,
     },
     deno_web::{BlobStore, InMemoryBroadcastChannel},
     worker::{MainWorker, WorkerServiceOptions},
@@ -38,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sys_traits::impls::RealSys;
 use tokio::{
-    sync::{broadcast, mpsc, Notify},
+    sync::{broadcast, oneshot, Notify},
     task::LocalSet,
 };
 use tracing::{debug, error, log::warn};
@@ -124,11 +123,21 @@ impl Display for MacroPID {
     }
 }
 
+/// Longest a remote module download may take, so a stalled host cannot hang a macro start.
+const MODULE_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+const MODULE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
 impl Default for TypescriptModuleLoader {
     fn default() -> Self {
-        Self {
-            http: reqwest::Client::new(),
-        }
+        let http = reqwest::Client::builder()
+            .connect_timeout(MODULE_CONNECT_TIMEOUT)
+            .timeout(MODULE_FETCH_TIMEOUT)
+            .build()
+            .unwrap_or_else(|e| {
+                warn!("Failed to build the module loader HTTP client, using defaults: {e}");
+                reqwest::Client::new()
+            });
+        Self { http }
     }
 }
 
@@ -312,7 +321,8 @@ impl ModuleLoader for TypescriptModuleLoader {
 /// Handle used to terminate a running macro from another thread.
 #[derive(Clone, Debug)]
 struct MacroHandle {
-    isolate: deno_core::v8::IsolateHandle,
+    /// The macro's isolate, once it exists.
+    isolate: Arc<std::sync::Mutex<Option<deno_core::v8::IsolateHandle>>>,
     /// Set before terminating so the macro thread can tell a user kill apart from an
     /// error that merely looks like one.
     killed: Arc<AtomicBool>,
@@ -321,17 +331,46 @@ struct MacroHandle {
 }
 
 impl MacroHandle {
+    fn new() -> Self {
+        Self {
+            isolate: Arc::new(std::sync::Mutex::new(None)),
+            killed: Arc::new(AtomicBool::new(false)),
+            kill_signal: Arc::new(Notify::new()),
+        }
+    }
+
+    fn lock_isolate(&self) -> std::sync::MutexGuard<'_, Option<deno_core::v8::IsolateHandle>> {
+        self.isolate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn terminate(&self) {
         self.killed.store(true, Ordering::SeqCst);
-        self.isolate.terminate_execution();
+        if let Some(isolate) = self.lock_isolate().as_ref() {
+            isolate.terminate_execution();
+        }
         // stores a permit if the macro is not waiting yet
         self.kill_signal.notify_one();
+    }
+
+    /// Registers the macro's isolate so it can be terminated. Returns false if the macro was
+    /// killed before this point; it must then not run.
+    fn set_isolate(&self, isolate: deno_core::v8::IsolateHandle) -> bool {
+        // `terminate` takes the same lock after setting `killed`, so either it sees the
+        // isolate or this sees `killed`
+        *self.lock_isolate() = Some(isolate);
+        !self.killed.load(Ordering::SeqCst)
+    }
+
+    fn is_killed(&self) -> bool {
+        self.killed.load(Ordering::SeqCst)
     }
 }
 
 /// Whether a macro stopped because its execution was terminated (killed).
-fn is_terminated(e: &CoreError, killed: &AtomicBool) -> bool {
-    killed.load(Ordering::SeqCst)
+fn is_terminated(e: &CoreError, killed: bool) -> bool {
+    killed
         || matches!(
             e.as_kind(),
             CoreErrorKind::ExecutionTerminated | CoreErrorKind::EvaluateDynamicImportedModule
@@ -346,12 +385,31 @@ fn macro_error_message(e: &CoreError) -> String {
     }
 }
 
+/// Builds the permissions a macro runs with.
+///
+/// `None` keeps the historical behaviour of full access, which every existing macro and
+/// atom relies on. Restricted options are enforced as given (never prompting, since there is
+/// no terminal to ask on).
+fn macro_permissions(options: Option<PermissionsOptions>) -> Result<PermissionsContainer, Error> {
+    let parser = Arc::new(RuntimePermissionDescriptorParser::new(RealSys));
+    let Some(mut options) = options else {
+        return Ok(PermissionsContainer::allow_all(parser));
+    };
+    options.prompt = false;
+    let permissions = Permissions::from_options(parser.as_ref(), &options).map_err(|e| Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!("Invalid macro permissions: {e}"),
+    })?;
+    Ok(PermissionsContainer::new(parser, permissions))
+}
+
 fn create_main_worker(
     main_module: &ModuleSpecifier,
     args: Vec<String>,
     worker_options_generator: &dyn WorkerOptionGenerator,
     event_broadcaster: EventBroadcaster,
     main_runtime: tokio::runtime::Handle,
+    permissions: PermissionsContainer,
 ) -> MainWorker {
     let mut worker_options = worker_options_generator.generate();
     register_prelude_ops(&mut worker_options);
@@ -367,7 +425,6 @@ fn create_main_worker(
     worker_options.residual_lazy_js_sources = snapshot::RESIDUAL_LAZY_JS;
     worker_options.residual_lazy_esm_sources = snapshot::RESIDUAL_LAZY_ESM;
 
-    let permission_parser = Arc::new(RuntimePermissionDescriptorParser::new(RealSys));
     let services = WorkerServiceOptions::<DenoInNpmPackageChecker, NpmResolver<RealSys>, RealSys> {
         blob_store: Arc::new(BlobStore::default()),
         broadcast_channel: InMemoryBroadcastChannel::default(),
@@ -377,8 +434,7 @@ fn create_main_worker(
         module_loader: worker_options_generator.module_loader(),
         node_services: None,
         npm_process_state_provider: None,
-        // TODO: limit permissions
-        permissions: PermissionsContainer::allow_all(permission_parser),
+        permissions,
         root_cert_store_provider: None,
         fetch_dns_resolver: Default::default(),
         shared_array_buffer_store: None,
@@ -389,13 +445,18 @@ fn create_main_worker(
     MainWorker::bootstrap_from_options(main_module, services, worker_options)
 }
 
+/// How long `spawn` waits for a macro's runtime to come up (not for the macro to finish).
+const MACRO_START_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Longest error message kept in the exit status table.
+const MAX_STORED_ERROR_LEN: usize = 16 * 1024;
+
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
+    /// Macros that have been spawned and have not exited yet.
     macro_process_table: Arc<DashMap<MacroPID, MacroHandle>>,
+    /// Exit status of every macro that has exited.
     exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
-    #[allow(dead_code)]
-    channel_table:
-        Arc<DashMap<MacroPID, (mpsc::UnboundedSender<Value>, mpsc::UnboundedSender<Value>)>>,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
     rt: tokio::runtime::Handle,
@@ -407,69 +468,85 @@ pub struct SpawnResult {
     pub exit_future: Pin<Box<dyn Future<Output = Result<ExitStatus, Error>> + Send>>,
 }
 
+/// Records a macro's exit exactly once: forgets its handle, stores its exit status and
+/// broadcasts its Stopped event.
+#[derive(Clone)]
+struct ExitRecorder {
+    pid: MacroPID,
+    instance_uuid: Option<InstanceUuid>,
+    process_table: Arc<DashMap<MacroPID, MacroHandle>>,
+    exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
+    event_broadcaster: EventBroadcaster,
+    recorded: Arc<AtomicBool>,
+}
+
+impl ExitRecorder {
+    fn record(&self, mut exit_status: ExitStatus) {
+        if self.recorded.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        if let ExitStatus::Error { error_msg, .. } = &mut exit_status {
+            truncate_on_char_boundary(error_msg, MAX_STORED_ERROR_LEN);
+        }
+        // stored before the event is sent, so whoever sees the event finds the status
+        self.exit_status_table.insert(self.pid, exit_status.clone());
+        self.process_table.remove(&self.pid);
+        self.event_broadcaster.send(
+            MacroEvent {
+                macro_pid: self.pid,
+                macro_event_inner: MacroEventInner::Stopped { exit_status },
+                instance_uuid: self.instance_uuid.clone(),
+            }
+            .into(),
+        );
+    }
+
+    fn error(&self, error_msg: impl Into<String>) {
+        self.record(ExitStatus::Error {
+            time: chrono::Utc::now().timestamp(),
+            error_msg: error_msg.into(),
+        });
+    }
+}
+
+fn truncate_on_char_boundary(s: &mut String, max_len: usize) {
+    if s.len() > max_len {
+        let mut end = max_len;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+        s.push_str("...");
+    }
+}
+
+/// Script defining the globals `prelude.ts` reads.
+fn deps_inject_code(pid: MacroPID, instance_uuid: Option<&InstanceUuid>) -> String {
+    format!(
+        "const __macro_pid = {}; const __instance_uuid = {};",
+        pid.0,
+        // a JSON value is a valid JS literal; `None` becomes `null`, not "null"
+        serde_json::to_value(instance_uuid).unwrap_or(Value::Null)
+    )
+}
+
 impl MacroExecutor {
     pub fn new(event_broadcaster: EventBroadcaster, rt: tokio::runtime::Handle) -> MacroExecutor {
-        let process_table = Arc::new(DashMap::new());
-        let process_id = Arc::new(AtomicUsize::new(0));
-        let exit_status_table = Arc::new(DashMap::new());
-
-        // spawn a task to listen for exit events and update the exit status table
-        tokio::task::spawn({
-            let exit_status_table = exit_status_table.clone();
-            let mut rx = event_broadcaster.subscribe();
-            async move {
-                loop {
-                    if let Ok(event) = rx.recv().await {
-                        if let Some(MacroEvent {
-                            macro_pid,
-                            macro_event_inner: MacroEventInner::Stopped { exit_status },
-                            ..
-                        }) = event.try_macro_event()
-                        {
-                            exit_status_table.insert(*macro_pid, exit_status.clone());
-                        }
-                    }
-                }
-            }
-        });
-
         MacroExecutor {
-            macro_process_table: process_table,
+            macro_process_table: Arc::new(DashMap::new()),
+            exit_status_table: Arc::new(DashMap::new()),
             event_broadcaster,
-            channel_table: Arc::new(DashMap::new()),
-            exit_status_table,
-            next_process_id: process_id,
+            next_process_id: Arc::new(AtomicUsize::new(0)),
             rt,
         }
     }
 
-    #[allow(dead_code)]
-    fn add_default_permissions(
-        perm: Option<PermissionsOptions>,
-        path_to_main: PathBuf,
-    ) -> PermissionsOptions {
-        let parent = path_to_main
-            .parent()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        let mut perm = perm.unwrap_or_default();
-        perm.allow_read
-            .get_or_insert_with(Vec::new)
-            .push(parent.clone());
-        perm.allow_write.get_or_insert_with(Vec::new).push(parent);
-        perm
-    }
-
-    /// For timeout:
+    /// Starts a macro and returns once its runtime is up.
     ///
-    /// If `None`, the handle will never timeout.
+    /// `permissions` restricts what the macro may access; `None` grants full access.
     ///
-    /// If `Some(Duration)`, the handle will timeout after the duration.
-    ///
-    /// Note that this does not terminate the process, it just stops the handle from waiting for it.
-    ///
-    /// It is up to the caller to terminate the process if it is still running.
+    /// The returned futures resolve when the macro detaches or exits. Dropping them does not
+    /// stop the macro; use [`MacroExecutor::abort_macro`] for that.
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         &self,
@@ -481,6 +558,19 @@ impl MacroExecutor {
         permissions: Option<PermissionsOptions>,
         instance_uuid: Option<InstanceUuid>,
     ) -> Result<SpawnResult, Error> {
+        let permissions = macro_permissions(permissions)?;
+        let current_dir = std::env::current_dir().context("Failed to get current directory")?;
+        let worker_module =
+            deno_core::resolve_path(".", &current_dir).context("Failed to resolve path")?;
+        let main_module =
+            deno_core::resolve_path(&path_to_main_module.to_string_lossy(), &current_dir)
+                .with_context(|| {
+                    format!(
+                        "Failed to resolve macro module {}",
+                        path_to_main_module.display()
+                    )
+                })?;
+
         let pid = MacroPID(self.next_process_id.fetch_add(1, Ordering::SeqCst));
         // Subscribe before the macro starts so its Detach/Stopped events cannot be missed,
         // however late the caller first polls these futures.
@@ -490,226 +580,194 @@ impl MacroExecutor {
             pid,
         ));
         let detach_future = Box::pin(wait_for_detach(self.event_broadcaster.subscribe(), pid));
-        let main_module = deno_core::resolve_path(
-            ".",
-            &std::env::current_dir().context("Failed to get current directory")?,
-        )
-        .context("Failed to resolve path")?;
 
-        // subscribe before the macro thread exists so its Started event cannot be missed
-        let started_rx = self.event_broadcaster.subscribe();
+        let handle = MacroHandle::new();
+        // tracked from the start, so it can be killed (and is shut down) while starting
+        self.macro_process_table.insert(pid, handle.clone());
+        let recorder = ExitRecorder {
+            pid,
+            instance_uuid: instance_uuid.clone(),
+            process_table: self.macro_process_table.clone(),
+            exit_status_table: self.exit_status_table.clone(),
+            event_broadcaster: self.event_broadcaster.clone(),
+            recorded: Arc::new(AtomicBool::new(false)),
+        };
+        // Ok once the macro runs, Err(reason) if it stopped before that
+        let (started_tx, started_rx) = oneshot::channel::<Result<(), String>>();
 
-        std::thread::spawn({
-            let process_table = self.macro_process_table.clone();
-            let event_broadcaster = self.event_broadcaster.clone();
-            let main_runtime = self.rt.clone();
-            move || {
-                // deno_core drives ops with `!Send` tasks and requires a current-thread
-                // runtime, so each macro gets its own. Work that must outlive the macro
-                // runs on the main runtime (see `deno_ops::MainRuntime`).
-                // deno's own tuning for embedder threads (bounded blocking pool etc.)
-                let macro_runtime = match std::panic::catch_unwind(
-                    deno_runtime::tokio_util::create_basic_runtime,
-                ) {
-                    Ok(runtime) => runtime,
-                    Err(_) => {
-                        error!("Failed to create macro runtime");
-                        event_broadcaster.send(
-                            MacroEvent {
-                                macro_pid: pid,
-                                macro_event_inner: MacroEventInner::Stopped {
-                                    exit_status: ExitStatus::Error {
-                                        time: chrono::Utc::now().timestamp(),
-                                        error_msg: "Failed to create macro runtime".to_string(),
-                                    },
-                                },
-                                instance_uuid,
-                            }
-                            .into(),
-                        );
-                        return;
-                    }
-                };
-                let local = LocalSet::new();
-                // set once the macro has reported its exit status
-                let exited = Arc::new(AtomicBool::new(false));
-                local.spawn_local({
-                    let event_broadcaster = event_broadcaster.clone();
-                    let instance_uuid = instance_uuid.clone();
-                    let exited = exited.clone();
-                    async move {
-                        let mut main_worker = create_main_worker(
-                            &main_module,
-                            args,
-                            worker_options_generator.as_ref(),
-                            event_broadcaster.clone(),
-                            main_runtime,
-                        );
-                        main_worker
-                            .execute_script(
-                                "deps_inject",
-                                format!(
-                                    "const __macro_pid = {}; const __instance_uuid = \"{}\";",
-                                    pid.0,
-                                    instance_uuid
-                                        .clone()
-                                        .map(|uuid| uuid.to_string())
-                                        .unwrap_or_else(|| "null".to_string())
-                                )
-                                .into(),
-                            )
-                            .unwrap();
-
-                        if let Some(config_code) = pre_injection_code {
-                            main_worker
-                                .execute_script("config_inject", config_code.into())
-                                .unwrap();
+        let thread = std::thread::Builder::new()
+            .name(format!("macro-{}", pid.0))
+            .spawn({
+                let event_broadcaster = self.event_broadcaster.clone();
+                let main_runtime = self.rt.clone();
+                let handle = handle.clone();
+                let recorder = recorder.clone();
+                move || {
+                    // deno_core drives ops with `!Send` tasks and requires a current-thread
+                    // runtime, so each macro gets its own. Work that must outlive the macro
+                    // runs on the main runtime (see `deno_ops::MainRuntime`).
+                    // deno's own tuning for embedder threads (bounded blocking pool etc.)
+                    let macro_runtime = match std::panic::catch_unwind(
+                        deno_runtime::tokio_util::create_basic_runtime,
+                    ) {
+                        Ok(runtime) => runtime,
+                        Err(_) => {
+                            error!("Failed to create macro runtime");
+                            let _ = started_tx.send(Err("Failed to create macro runtime".into()));
+                            recorder.error("Failed to create macro runtime");
+                            return;
                         }
-
-                        let killed = Arc::new(AtomicBool::new(false));
-                        let kill_signal = Arc::new(Notify::new());
-                        process_table.insert(
-                            pid,
-                            MacroHandle {
-                                isolate: main_worker.js_runtime.v8_isolate().thread_safe_handle(),
-                                killed: killed.clone(),
-                                kill_signal: kill_signal.clone(),
-                            },
-                        );
-
-                        let main_module = match deno_core::resolve_path(
-                            &path_to_main_module.to_string_lossy(),
-                            &std::env::current_dir().unwrap(),
-                        ) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                error!("Error resolving main module: {}", e);
+                    };
+                    let local = LocalSet::new();
+                    local.spawn_local({
+                        let recorder = recorder.clone();
+                        async move {
+                            let now = || chrono::Utc::now().timestamp();
+                            let mut main_worker = create_main_worker(
+                                &worker_module,
+                                args,
+                                worker_options_generator.as_ref(),
+                                event_broadcaster.clone(),
+                                main_runtime,
+                                permissions,
+                            );
+                            let start = || -> Result<(), String> {
+                                if !handle.set_isolate(
+                                    main_worker.js_runtime.v8_isolate().thread_safe_handle(),
+                                ) {
+                                    return Err("Macro was killed before it started".into());
+                                }
+                                main_worker
+                                    .execute_script(
+                                        "deps_inject",
+                                        deps_inject_code(pid, instance_uuid.as_ref()).into(),
+                                    )
+                                    .map_err(|e| format!("Failed to inject macro globals: {e}"))?;
+                                if let Some(config_code) = pre_injection_code {
+                                    main_worker
+                                        .execute_script("config_inject", config_code.into())
+                                        .map_err(|e| {
+                                            format!("Failed to inject macro config: {e}")
+                                        })?;
+                                }
+                                if handle.is_killed() {
+                                    return Err("Macro was killed before it started".into());
+                                }
+                                Ok(())
+                            };
+                            if let Err(reason) = start() {
+                                error!("Macro {pid} did not start: {reason}");
+                                let _ = started_tx.send(Err(reason.clone()));
+                                recorder.record(if handle.is_killed() {
+                                    ExitStatus::Killed { time: now() }
+                                } else {
+                                    ExitStatus::Error {
+                                        time: now(),
+                                        error_msg: reason,
+                                    }
+                                });
                                 return;
                             }
-                        };
 
-                        event_broadcaster.send(
-                            MacroEvent {
-                                macro_pid: pid,
-                                macro_event_inner: MacroEventInner::Started,
-                                instance_uuid: instance_uuid.clone(),
-                            }
-                            .into(),
-                        );
+                            event_broadcaster.send(
+                                MacroEvent {
+                                    macro_pid: pid,
+                                    macro_event_inner: MacroEventInner::Started,
+                                    instance_uuid: instance_uuid.clone(),
+                                }
+                                .into(),
+                            );
+                            let _ = started_tx.send(Ok(()));
 
-                        // `terminate_execution` only interrupts running JS, so a macro idle in an
-                        // async op (e.g. waiting for the next event) is also cancelled via
-                        // `kill_signal`, which drops the pending worker future.
-                        let run = async {
-                            main_worker.execute_main_module(&main_module).await?;
-                            main_worker.run_event_loop(false).await
-                        };
-                        let result = tokio::select! {
-                            result = run => Some(result),
-                            _ = kill_signal.notified() => None,
-                        };
-                        let exit_status = match result {
-                            Some(Ok(())) => {
-                                debug!("Macro event loop exited");
-                                ExitStatus::Success {
-                                    time: chrono::Utc::now().timestamp(),
+                            // `terminate_execution` only interrupts running JS, so a macro idle
+                            // in an async op (e.g. waiting for the next event) is also cancelled
+                            // via `kill_signal`, which drops the pending worker future.
+                            let run = async {
+                                main_worker.execute_main_module(&main_module).await?;
+                                main_worker.run_event_loop(false).await
+                            };
+                            let result = tokio::select! {
+                                result = run => Some(result),
+                                _ = handle.kill_signal.notified() => None,
+                            };
+                            let exit_status = match result {
+                                Some(Ok(())) => {
+                                    debug!("Macro event loop exited");
+                                    ExitStatus::Success { time: now() }
                                 }
-                            }
-                            Some(Err(e)) if !is_terminated(&e, &killed) => {
-                                let error_msg = macro_error_message(&e);
-                                error!("Error executing macro {main_module}: {error_msg}");
-                                ExitStatus::Error {
-                                    error_msg,
-                                    time: chrono::Utc::now().timestamp(),
+                                Some(Err(e)) if !is_terminated(&e, handle.is_killed()) => {
+                                    let error_msg = macro_error_message(&e);
+                                    error!("Error executing macro {main_module}: {error_msg}");
+                                    ExitStatus::Error {
+                                        error_msg,
+                                        time: now(),
+                                    }
                                 }
-                            }
-                            Some(Err(_)) | None => {
-                                warn!("User terminated macro execution");
-                                ExitStatus::Killed {
-                                    time: chrono::Utc::now().timestamp(),
+                                Some(Err(_)) | None => {
+                                    warn!("User terminated macro execution");
+                                    ExitStatus::Killed { time: now() }
                                 }
-                            }
-                        };
-                        exited.store(true, Ordering::SeqCst);
-                        event_broadcaster.send(
-                            MacroEvent {
-                                macro_pid: pid,
-                                macro_event_inner: MacroEventInner::Stopped { exit_status },
-                                instance_uuid,
-                            }
-                            .into(),
-                        );
-                    }
-                });
-
-                // This will return once all spawned tasks have returned (or panicked).
-                macro_runtime.block_on(local);
-                // Don't wait for blocking-pool tasks (e.g. a killed macro's stuck file read);
-                // dropping the runtime would block this thread until they finish. Deno does the
-                // same after running a worker (deno_runtime::tokio_util).
-                macro_runtime.shutdown_background();
-                debug!("MacroExecutor thread exited");
-                if !exited.load(Ordering::SeqCst) {
-                    event_broadcaster.send(
-                        MacroEvent {
-                            macro_pid: pid,
-                            macro_event_inner: MacroEventInner::Stopped {
-                                exit_status: ExitStatus::Error {
-                                    time: chrono::Utc::now().timestamp(),
-                                    error_msg: "Macro executor thread unexpectedly panicked"
-                                        .to_string(),
-                                },
-                            },
-                            instance_uuid: instance_uuid.clone(),
+                            };
+                            recorder.record(exit_status);
                         }
-                        .into(),
-                    );
-                }
-            }
-        });
+                    });
 
-        // wait for the macro started event and return the pid
-        let rx = started_rx;
-
-        let fut = async move {
-            let mut rx = rx;
-            loop {
-                if let Ok(event) = rx.recv().await {
-                    if let EventInner::MacroEvent(MacroEvent {
-                        macro_pid,
-                        macro_event_inner: MacroEventInner::Started,
-                        ..
-                    }) = event.event_inner
-                    {
-                        if macro_pid == pid {
-                            return Ok(macro_pid);
-                        }
-                    }
-                } else {
-                    break Err(eyre!("Failed to receive macro started event"));
+                    // This will return once all spawned tasks have returned (or panicked).
+                    macro_runtime.block_on(local);
+                    // Don't wait for blocking-pool tasks (e.g. a killed macro's stuck file
+                    // read); dropping the runtime would block this thread until they finish.
+                    // Deno does the same after running a worker (deno_runtime::tokio_util).
+                    macro_runtime.shutdown_background();
+                    debug!("MacroExecutor thread exited");
+                    // no-op unless the macro task panicked before recording its exit
+                    recorder.error("Macro executor thread unexpectedly panicked");
                 }
-            }
+            });
+        if let Err(e) = thread {
+            recorder.error(format!("Failed to start macro thread: {e}"));
+            return Err(Error {
+                kind: ErrorKind::Internal,
+                source: eyre!("Failed to start macro thread: {e}"),
+            });
+        }
+
+        let failed = |reason: String| Error {
+            kind: ErrorKind::Internal,
+            source: eyre!(
+                "Failed to spawn macro {}: {reason}",
+                path_to_main_module.display()
+            ),
         };
-
-        tokio::time::timeout(Duration::from_secs(1), fut)
-            .await
-            .context("Failed to spawn macro")??;
-        Ok(SpawnResult {
-            macro_pid: pid,
-            detach_future,
-            exit_future,
-        })
+        match tokio::time::timeout(MACRO_START_TIMEOUT, started_rx).await {
+            Ok(Ok(Ok(()))) => Ok(SpawnResult {
+                macro_pid: pid,
+                detach_future,
+                exit_future,
+            }),
+            Ok(Ok(Err(reason))) => Err(failed(reason)),
+            Ok(Err(_)) => Err(failed("the macro thread exited before starting".into())),
+            Err(_) => {
+                // don't leave a macro running that the caller has no pid for
+                handle.terminate();
+                Err(failed(format!(
+                    "the macro did not start within {MACRO_START_TIMEOUT:?}"
+                )))
+            }
+        }
     }
 
     /// abort a macro execution
     pub fn abort_macro(&self, pid: MacroPID) -> Result<(), Error> {
-        self.macro_process_table
+        let handle = self
+            .macro_process_table
             .get(&pid)
+            // clone out so the map entry is not locked while terminating
+            .map(|entry| entry.value().clone())
             .ok_or_else(|| Error {
                 kind: ErrorKind::NotFound,
-                source: eyre!("Macro with pid {} not found", pid),
-            })?
-            .terminate();
+                source: eyre!("No running macro with pid {}", pid),
+            })?;
+        handle.terminate();
         Ok(())
     }
 
@@ -717,6 +775,7 @@ impl MacroExecutor {
         wait_for_detach(self.event_broadcaster.subscribe(), target_macro_pid).await
     }
 
+    /// The exit status of a macro, or `None` while it is still running.
     pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
         self.exit_status_table.get(&pid).map(|v| v.clone())
     }
@@ -724,18 +783,17 @@ impl MacroExecutor {
     pub async fn get_config_manifest(
         path: &PathBuf,
     ) -> Result<IndexMap<String, SettingManifest>, Error> {
-        match extract_config_code(&fs::read_to_string(path).await?) {
-            Ok(optional_code) => match optional_code {
-                Some((var_name, definition)) => get_config_from_code(&var_name, &definition),
-                None => Ok(IndexMap::<String, SettingManifest>::new()),
-            },
-            Err(e) => Err(e),
-        }
+        parse_config_manifest(&fs::read_to_string(path).await?)
     }
 
     pub fn shutdown_all(&self) {
-        for element in self.macro_process_table.iter() {
-            element.value().terminate();
+        let handles: Vec<MacroHandle> = self
+            .macro_process_table
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        for handle in handles {
+            handle.terminate();
         }
     }
 }
@@ -778,7 +836,8 @@ async fn wait_for_exit(
             }) if macro_pid == target_macro_pid => return Ok(exit_status),
             Ok(_) => {}
             Err(broadcast::error::RecvError::Lagged(_)) => {
-                // the Stopped event may have been dropped; fall back to the recorded status
+                // the Stopped event may have been dropped; the status is stored before it
+                // is sent
                 if let Some(exit_status) = exit_status_table.get(&target_macro_pid) {
                     return Ok(exit_status.clone());
                 }
@@ -793,360 +852,320 @@ async fn wait_for_exit(
     }
 }
 
-///
-/// extract the class definition and the name of the declared config instance
-/// from the typescript code
-///
-/// *returns (instance_name, class_definition)*
-///
-fn extract_config_code(code: &str) -> Result<Option<(String, String)>, Error> {
-    let config_indices: Vec<_> = code.match_indices("LodestoneConfig").collect();
-    if config_indices.is_empty() {
-        return Ok(None);
-    }
-    if config_indices.len() < 2 {
-        return Err(Error::ts_syntax_error(
-            "Class definition or config declaration is missing",
-        ));
-    }
-
-    // first occurrence of LodeStoneConfig must be the class declaration
-    let config_code = &code[(config_indices[0].0)..];
-    // end_index is for extracting the class definition
-    let end_index = {
-        let mut open_count = 0;
-        let mut close_count = 0;
-        let mut i = 0;
-        // match for brackets to determine where the class definition ends
-        for &char_item in config_code.to_string().as_bytes().iter() {
-            if char_item == b'{' {
-                open_count += 1;
-            }
-            if char_item == b'}' {
-                close_count += 1;
-            }
-            i += 1;
-
-            if open_count == close_count && open_count > 0 {
-                break;
-            }
-        }
-
-        if i == 0 || open_count != close_count {
-            return Err(Error::ts_syntax_error("config"));
-        }
-
-        i
-    };
-
-    // second occurrence of LodeStoneConfig must be the config variable declaration
-    // idea: slice from the end of class definition to 'let/const/var (name): LodestoneConfig'
-    let config_var_code = {
-        let second_occur_index =
-            config_indices[1].0 - config_indices[0].0 + "LodestoneConfig".len();
-        &config_code[end_index..second_occur_index]
-    };
-
-    // parse whether the keyword 'var', 'let', or 'const' is used
-    let decl_keyword = {
-        let mut config_var_tokens: Vec<_> = config_var_code.split(' ').collect();
-        config_var_tokens.reverse();
-
-        let keywords = ["let", "const", "var"];
-        let keyword_found = config_var_tokens.iter().find(|&kw| keywords.contains(kw));
-        match keyword_found {
-            Some(&kw) => kw,
-            None => {
-                return Err(Error::ts_syntax_error(
-                    "Class definition detected but cannot find config declaration",
-                ))
-            }
-        }
-    };
-
-    let config_var_code = config_var_code.replace(' ', "");
-    let config_var_name = {
-        // now check for the last occurrence of the keyword to find the starting index of
-        // 'let/const/var (name): LodestoneConfig'
-        let decl_keyword_index = match config_var_code
-            .match_indices(decl_keyword)
-            .collect::<Vec<_>>()
-            .last()
-        {
-            Some(val) => val.0,
-            None => {
-                return Err(Error::ts_syntax_error(
-                    "Class definition detected but cannot find config declaration",
-                ));
-            }
-        };
-
-        // slice from the keyword to the end to isolate 'let/const/var (name): LodestoneConfig'
-        let decl_var_statement = &config_var_code[decl_keyword_index..];
-        // since spaces are removed, ':' is the separator between name and 'LodestoneConfig'
-        let var_name_end_index = match decl_var_statement.find(':') {
-            Some(index) => index,
-            None => {
-                return Err(Error::ts_syntax_error(
-                    "Class definition detected but cannot find config declaration",
-                ));
-            }
-        };
-
-        // the name is in between the keyword and ':'
-        &decl_var_statement[decl_keyword.len()..var_name_end_index]
-    };
-
-    // last sanity check: class definition must start with a '{'
-    match config_code.find('{') {
-        Some(start_index) => Ok(Some((
-            config_var_name.to_string(),
-            // we no longer need the declaration, so slice after the '{'
-            config_code[start_index..end_index].to_string(),
-        ))),
-        None => Err(Error::ts_syntax_error("config")),
+/// An error in the `LodestoneConfig` declaration of a macro.
+fn config_error(message: impl Display) -> Error {
+    Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!("Invalid macro config: {message}"),
     }
 }
 
-fn get_config_from_code(
-    config_var_name: &str,
-    config_definition: &str,
-) -> Result<IndexMap<String, SettingManifest>, Error> {
-    // remove the open and close brackets
-    let str_length = config_definition.len();
-    let config_params_str = &config_definition[1..str_length - 1].to_string();
+const CONFIG_CLASS_NAME: &str = "LodestoneConfig";
 
-    let config_params_str: Vec<_> = config_params_str.split('\n').collect();
+/// Reads the settings a macro declares through a `LodestoneConfig` class and a variable of
+/// that type:
+///
+/// ```ts
+/// class LodestoneConfig {
+///     // shown as the setting's description
+///     greeting: string = "hello";
+///     mode: "fast" | "slow" = "fast";
+///     interval?: number;
+/// }
+/// declare let config: LodestoneConfig;
+/// ```
+///
+/// Setting ids are `<variable name>|<field name>`. Returns no settings if the macro
+/// declares neither the class nor the variable.
+fn parse_config_manifest(code: &str) -> Result<IndexMap<String, SettingManifest>, Error> {
+    use deno_ast::swc::ast::{Decl, ModuleDecl, ModuleItem, Stmt};
 
-    // parse config code into a collection of description and definition
-    let mut comment_lines: Vec<String> = vec![];
-    let mut code_lines: Vec<String> = vec![];
-    let mut comments: Vec<String> = vec![];
-    let mut codes: Vec<String> = vec![];
-    let mut comment_block_count = 0;
-    for line in config_params_str {
-        let line = line.replace('\r', "");
-        let line = line.trim();
+    // cheap check first; most macros have no config
+    if !code.contains(CONFIG_CLASS_NAME) {
+        return Ok(IndexMap::new());
+    }
+    let specifier = ModuleSpecifier::parse("file:///macro.ts").expect("valid URL");
+    let parsed = deno_ast::parse_module(ParseParams {
+        specifier,
+        text: code.into(),
+        media_type: MediaType::TypeScript,
+        capture_tokens: false,
+        scope_analysis: false,
+        maybe_syntax: None,
+    })
+    .map_err(|e| config_error(format!("the macro does not parse: {e}")))?;
 
-        if line.is_empty() {
-            continue;
-        }
+    let statements: Vec<&Stmt> = match parsed.program_ref() {
+        deno_ast::ProgramRef::Module(module) => module
+            .body
+            .iter()
+            .filter_map(|item| match item {
+                ModuleItem::Stmt(stmt) => Some(stmt),
+                _ => None,
+            })
+            .collect(),
+        deno_ast::ProgramRef::Script(script) => script.body.iter().collect(),
+    };
+    let exported: Vec<&Decl> = match parsed.program_ref() {
+        deno_ast::ProgramRef::Module(module) => module
+            .body
+            .iter()
+            .filter_map(|item| match item {
+                ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => Some(&export.decl),
+                _ => None,
+            })
+            .collect(),
+        deno_ast::ProgramRef::Script(_) => Vec::new(),
+    };
+    let decls = statements
+        .into_iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::Decl(decl) => Some(decl),
+            _ => None,
+        })
+        .chain(exported);
 
-        // comments within a comment block
-        if comment_block_count > 0 {
-            // closing the comment block
-            if line.starts_with("*/") {
-                comment_block_count -= 1;
-                continue;
-            }
-
-            // comments within a comment block
-            let comment_str = {
-                if let Some(line) = line.strip_prefix('*') {
-                    line.trim()
-                } else {
-                    line
+    let mut class = None;
+    let mut var_name = None;
+    for decl in decls {
+        match decl {
+            Decl::Class(class_decl) if class_decl.ident.sym == CONFIG_CLASS_NAME => {
+                if class.replace(&class_decl.class).is_some() {
+                    return Err(config_error("LodestoneConfig is declared more than once"));
                 }
-            };
-            // do not push empty comment at the beginning of the comment block
-            if !comment_str.is_empty() || !comment_lines.is_empty() {
-                comment_lines.push(comment_str.to_string());
             }
-            continue;
-        }
-
-        // single line comment & opening of a comment block
-        if line.starts_with("//") {
-            if let Some(comment_str) = cleanup_comment_line(line, "//") {
-                comment_lines.push(comment_str.to_string());
+            Decl::Var(var_decl) => {
+                for declarator in &var_decl.decls {
+                    if let Some(name) = config_variable_name(declarator) {
+                        if var_name.replace(name).is_some() {
+                            return Err(config_error(
+                                "more than one variable has the type LodestoneConfig",
+                            ));
+                        }
+                    }
+                }
             }
-        } else if line.starts_with("/**") {
-            if let Some(comment_str) = cleanup_comment_line(line, "/**") {
-                comment_lines.push(comment_str.to_string());
-            }
-            comment_block_count += 1;
-        } else if line.starts_with("/*") {
-            if let Some(comment_str) = cleanup_comment_line(line, "/*") {
-                comment_lines.push(comment_str.to_string());
-            }
-            comment_block_count += 1;
-        } else {
-            // if non of those are satisfied, it must be a line of actual code instead of a comment
-            let code_line = line.replace([' ', '\t'], "").trim().to_string();
-            code_lines.push(code_line.clone());
-            if code_line.ends_with(';') {
-                comments.push(comment_lines.join(" "));
-                comment_lines.clear();
-                codes.push(code_lines.join("").strip_suffix(';').unwrap().to_string());
-                code_lines.clear();
-            }
+            _ => {}
         }
     }
 
-    let mut configs: IndexMap<String, SettingManifest> = IndexMap::new();
-    for (definition, desc) in zip(codes, comments) {
-        let (var_name, config) = parse_config_single(&definition, &desc, config_var_name)?;
-        configs.insert(var_name, config);
-    }
+    let (class, var_name) = match (class, var_name) {
+        (None, None) => return Ok(IndexMap::new()),
+        (Some(class), Some(var_name)) => (class, var_name),
+        (Some(_), None) => {
+            return Err(config_error(
+                "class LodestoneConfig is defined but no variable of that type is declared",
+            ))
+        }
+        (None, Some(_)) => {
+            return Err(config_error(
+                "a LodestoneConfig variable is declared but the class is not defined",
+            ))
+        }
+    };
 
+    let mut configs = IndexMap::new();
+    for member in &class.body {
+        let prop = match member {
+            deno_ast::swc::ast::ClassMember::ClassProp(prop) => prop,
+            // a stray semicolon
+            deno_ast::swc::ast::ClassMember::Empty(_) => continue,
+            _ => {
+                return Err(config_error(
+                    "LodestoneConfig may only contain fields, not methods or other members",
+                ))
+            }
+        };
+        let description = parsed
+            .comments()
+            .leading_map()
+            .get(&prop.span.lo)
+            .map(|comments| comment_text(comments))
+            .unwrap_or_default();
+        let (name, setting) = parse_config_field(prop, &description, &var_name)?;
+        if configs.insert(name.clone(), setting).is_some() {
+            return Err(config_error(format!("field {name} is declared twice")));
+        }
+    }
     Ok(configs)
 }
 
-fn cleanup_comment_line(comment_line: &str, comment_prefix: &str) -> Option<String> {
-    let result_str = comment_line.strip_prefix(comment_prefix).unwrap().trim();
-    if result_str.is_empty() {
-        None
-    } else {
-        Some(result_str.to_string())
+/// The variable name if `declarator` declares `name: LodestoneConfig`.
+fn config_variable_name(declarator: &deno_ast::swc::ast::VarDeclarator) -> Option<String> {
+    use deno_ast::swc::ast::{Pat, TsEntityName, TsType};
+    let Pat::Ident(binding) = &declarator.name else {
+        return None;
+    };
+    let TsType::TsTypeRef(type_ref) = &*binding.type_ann.as_ref()?.type_ann else {
+        return None;
+    };
+    match &type_ref.type_name {
+        TsEntityName::Ident(ident) if ident.sym == CONFIG_CLASS_NAME => {
+            Some(binding.id.sym.to_string())
+        }
+        _ => None,
     }
 }
 
-fn parse_config_single(
-    single_config_definition: &str,
-    config_description: &str,
+/// Joins comments into a one-line description, without comment markers.
+fn comment_text(comments: &[deno_ast::swc::common::comments::Comment]) -> String {
+    comments
+        .iter()
+        .flat_map(|comment| comment.text.lines())
+        .map(|line| line.trim().trim_start_matches('*').trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn wtf8_to_string(value: &deno_ast::swc::atoms::Wtf8Atom) -> Result<String, Error> {
+    value
+        .as_atom()
+        .map(|atom| atom.to_string())
+        .ok_or_else(|| config_error("strings must be valid Unicode"))
+}
+
+/// Parses one `LodestoneConfig` field into its name and setting.
+fn parse_config_field(
+    prop: &deno_ast::swc::ast::ClassProp,
+    description: &str,
     setting_id_prefix: &str,
 ) -> Result<(String, SettingManifest), Error> {
-    let entry = single_config_definition.trim().to_string();
+    use deno_ast::swc::ast::PropName;
 
-    // compute indices to isolate class field names and types
-    let (name_end_index, type_start_index) = match entry.find('?') {
-        Some(index) => (index, index + 2),
-        None => match entry.find(':') {
-            Some(index) => (index, index + 1),
-            None => {
-                return Err(Error::ts_syntax_error("config"));
-            }
-        },
+    let name = match &prop.key {
+        PropName::Ident(ident) => ident.sym.to_string(),
+        PropName::Str(s) => wtf8_to_string(&s.value)?,
+        _ => return Err(config_error("field names must be plain identifiers")),
     };
-    let var_name = &entry[..name_end_index];
-    // if the field name is 2 char from the type, it must be optional ('?:')
-    let is_optional = name_end_index + 2 == type_start_index;
+    if prop.is_static {
+        return Err(config_error(format!("field {name} must not be static")));
+    }
+    let type_ann = prop
+        .type_ann
+        .as_ref()
+        .ok_or_else(|| config_error(format!("field {name} needs a type")))?;
+    let config_type = parse_config_type(&type_ann.type_ann)
+        .map_err(|e| config_error(format!("field {name}: {e}")))?;
 
-    let default_value_index = match entry.find('=') {
-        Some(index) => index,
-        None => entry.len(),
+    let default_value = match &prop.value {
+        Some(value) => Some(
+            parse_default_value(value, &config_type)
+                .map_err(|e| config_error(format!("default value of {name}: {e}")))?,
+        ),
+        None => None,
     };
-    if type_start_index >= default_value_index {
-        return Err(Error::ts_syntax_error("config"));
+    // a required setting must have a value
+    if !prop.is_optional && default_value.is_none() {
+        return Err(config_error(format!(
+            "{name} is not optional and thus must have a default value"
+        )));
     }
 
-    let var_type = &entry[type_start_index..default_value_index];
-    let config_type = get_config_value_type(var_type)?;
-    let has_default = default_value_index != entry.len();
-
-    // TODO: remove this. We will handle this in validation instead
-    // TODO: we actually can't remove this - a required settings manifest must have a value
-    if !is_optional && !has_default {
-        return Err(Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("{var_name} is not optional and thus must have a default value"),
-        });
-    }
-
-    let default_val = if has_default {
-        // default value as string
-        let val_str = entry[default_value_index + 1..].to_string();
-        let val_str_len = val_str.len();
-        Some(match config_type {
-            ConfigurableValueType::String { .. } => {
-                ConfigurableValue::String(val_str[1..val_str_len - 1].to_string())
-            }
-            ConfigurableValueType::Boolean => {
-                let value = match val_str.parse::<bool>() {
-                    Ok(val) => val,
-                    Err(_) => {
-                        return Err(Error {
-                            kind: ErrorKind::Internal,
-                            source: eyre!("Cannot parse \"{val_str}\" to a bool"),
-                        });
-                    }
-                };
-                ConfigurableValue::Boolean(value)
-            }
-            ConfigurableValueType::Float { .. } => {
-                let value = match val_str.parse::<f32>() {
-                    Ok(val) => val,
-                    Err(_) => {
-                        return Err(Error {
-                            kind: ErrorKind::Internal,
-                            source: eyre!("Cannot parse \"{val_str}\" to a number"),
-                        });
-                    }
-                };
-                ConfigurableValue::Float(value)
-            }
-            ConfigurableValueType::Enum { .. } => {
-                let value = ConfigurableValue::Enum(val_str[1..val_str_len - 1].to_string());
-                config_type.type_check(&value)?;
-                value
-            }
-            _ => panic!("TS config parsing error: invalid type not caught by the type parser"),
-        })
-    } else {
-        None
-    };
-
-    let mut settings_id = setting_id_prefix.to_string();
-    settings_id.push('|');
-    settings_id.push_str(var_name);
     Ok((
-        var_name.to_string(),
+        name.clone(),
         SettingManifest::new_value_with_type(
-            settings_id,
-            var_name.to_string(),
-            config_description.to_string(),
-            default_val.clone(),
+            format!("{setting_id_prefix}|{name}"),
+            name,
+            description.to_string(),
+            default_value.clone(),
             config_type,
-            default_val,
+            default_value,
             false,
             true,
         ),
     ))
 }
 
-fn get_config_value_type(type_str: &str) -> Result<ConfigurableValueType, Error> {
-    let result = match type_str {
-        "string" => ConfigurableValueType::String { regex: None },
-        "boolean" => ConfigurableValueType::Boolean,
-        "number" => ConfigurableValueType::Float {
-            max: None,
-            min: None,
+/// Maps a field's type annotation to a setting type: `string`, `boolean`, `number`, or a
+/// union of string literals (an enum).
+fn parse_config_type(
+    ts_type: &deno_ast::swc::ast::TsType,
+) -> Result<ConfigurableValueType, String> {
+    use deno_ast::swc::ast::{TsKeywordTypeKind, TsLit, TsType, TsUnionOrIntersectionType};
+
+    let string_literal = |ts_type: &TsType| match ts_type {
+        TsType::TsLitType(lit) => match &lit.lit {
+            TsLit::Str(s) => s.value.as_atom().map(|a| a.to_string()),
+            _ => None,
         },
-        _ => {
-            // try to parse it into an enum
-            let enum_options: Vec<_> = type_str.split('|').collect();
-            let mut options: Vec<String> = Vec::new();
-
-            for option in enum_options {
-                // verify the enum options are strings
-                let first_quote_index = {
-                    if let Some(i) = option.find('\'') {
-                        i
-                    } else if let Some(i) = option.find('"') {
-                        i
-                    } else {
-                        return Err(Error {
-                            kind: ErrorKind::Internal,
-                            source: eyre!("cannot parse type \"{}\"", type_str),
-                        });
-                    }
-                };
-
-                if first_quote_index == 0 {
-                    let str_len = option.len();
-                    options.push(option[1..str_len - 1].to_string());
-                } else {
-                    return Err(Error {
-                        kind: ErrorKind::Internal,
-                        source: eyre!("cannot parse type \"{}\"", type_str),
-                    });
-                }
-            }
-
-            ConfigurableValueType::Enum { options }
-        }
+        _ => None,
     };
-    Ok(result)
+    match ts_type {
+        TsType::TsKeywordType(keyword) => match keyword.kind {
+            TsKeywordTypeKind::TsStringKeyword => Ok(ConfigurableValueType::String { regex: None }),
+            TsKeywordTypeKind::TsBooleanKeyword => Ok(ConfigurableValueType::Boolean),
+            TsKeywordTypeKind::TsNumberKeyword => Ok(ConfigurableValueType::Float {
+                max: None,
+                min: None,
+            }),
+            _ => Err("unsupported type; use string, boolean, number or a union of strings".into()),
+        },
+        TsType::TsParenthesizedType(inner) => parse_config_type(&inner.type_ann),
+        TsType::TsLitType(_) => Ok(ConfigurableValueType::Enum {
+            options: vec![string_literal(ts_type)
+                .ok_or("only string literals can be used as enum options")?],
+        }),
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(union)) => {
+            let options = union
+                .types
+                .iter()
+                .map(|option| {
+                    string_literal(option).ok_or("only string literals can be used as enum options")
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ConfigurableValueType::Enum { options })
+        }
+        _ => Err("unsupported type; use string, boolean, number or a union of strings".into()),
+    }
+}
+
+/// Reads a field's default value, which must be a literal of the field's type.
+fn parse_default_value(
+    value: &deno_ast::swc::ast::Expr,
+    config_type: &ConfigurableValueType,
+) -> Result<ConfigurableValue, String> {
+    use deno_ast::swc::ast::{Expr, Lit, UnaryOp};
+
+    let string = match value {
+        Expr::Lit(Lit::Str(s)) => Some(s.value.as_atom().map(|a| a.to_string())),
+        // a template literal without substitutions
+        Expr::Tpl(tpl) if tpl.exprs.is_empty() && tpl.quasis.len() == 1 => Some(
+            tpl.quasis[0]
+                .cooked
+                .as_ref()
+                .and_then(|cooked| cooked.as_atom().map(|a| a.to_string())),
+        ),
+        _ => None,
+    };
+    let number = match value {
+        Expr::Lit(Lit::Num(n)) => Some(n.value),
+        Expr::Unary(unary) if unary.op == UnaryOp::Minus => match &*unary.arg {
+            Expr::Lit(Lit::Num(n)) => Some(-n.value),
+            _ => None,
+        },
+        _ => None,
+    };
+    let value = match (config_type, value) {
+        (ConfigurableValueType::String { .. }, _) => {
+            ConfigurableValue::String(string.flatten().ok_or("expected a string literal")?)
+        }
+        (ConfigurableValueType::Enum { .. }, _) => {
+            ConfigurableValue::Enum(string.flatten().ok_or("expected a string literal")?)
+        }
+        (ConfigurableValueType::Boolean, Expr::Lit(Lit::Bool(b))) => {
+            ConfigurableValue::Boolean(b.value)
+        }
+        (ConfigurableValueType::Boolean, _) => return Err("expected true or false".into()),
+        (ConfigurableValueType::Float { .. }, _) => {
+            ConfigurableValue::Float(number.ok_or("expected a number literal")? as f32)
+        }
+        _ => return Err("unsupported type".into()),
+    };
+    config_type
+        .type_check(&value)
+        .map_err(|e| format!("{:#}", e.source))?;
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -1168,9 +1187,7 @@ mod tests {
 
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
-    use crate::macro_executor::{
-        extract_config_code, get_config_from_code, parse_config_single, SpawnResult,
-    };
+    use crate::macro_executor::{parse_config_manifest, SpawnResult};
     use crate::traits::t_configurable::manifest::ConfigurableValue;
     use crate::traits::t_macro::ExitStatus;
 
@@ -1537,7 +1554,7 @@ mod tests {
 
             if (lodestoneVersion() !== "{version}") throw new Error(`bad version: ${{lodestoneVersion()}}`);
             if (typeof getCurrentTaskPid() !== "number") throw new Error("bad pid");
-            if (getCurrentInstanceUUID() !== "null") throw new Error(`bad uuid: ${{getCurrentInstanceUUID()}}`);
+            if (getCurrentInstanceUUID() !== null) throw new Error(`bad uuid: ${{getCurrentInstanceUUID()}}`);
             const id = emitProgressionEventStart("test progression", 10, null);
             if (typeof id !== "string") throw new Error(`bad progression id: ${{JSON.stringify(id)}}`);
             emitProgressionEventEnd(id, true, "done", null);
@@ -1782,21 +1799,177 @@ mod tests {
         assert!(exit_status.is_success(), "{exit_status:?}");
     }
 
+    /// Events that arrive while a macro is busy between two waits are not lost.
+    // multi-threaded like production: deno_core ops need the per-macro runtime
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_event_waits_keep_events_between_calls() {
+        let (_executor, spawn_result, _) = spawn_macro(
+            &[(
+                "main.ts",
+                r#"
+                const core = Deno[Deno.internal].core;
+                const uuid = "INSTANCE_test";
+                const next = () => Promise.race([
+                    core.opAsync("next_instance_output", uuid),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("event lost")), 5000)),
+                ]);
+                setTimeout(() => {
+                    core.ops.emit_console_out(uuid, "test", "first");
+                    core.ops.emit_console_out(uuid, "test", "second");
+                }, 100);
+                const first = await next();
+                // busy while the second event is already queued
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                const second = await next();
+                if (first !== "first" || second !== "second") {
+                    throw new Error(`got ${first}, ${second}`);
+                }
+                "#,
+            )],
+            None,
+        )
+        .await;
+        let exit_status = exit_status_of(spawn_result).await;
+        assert!(exit_status.is_success(), "{exit_status:?}");
+    }
+
+    /// A finished macro is forgotten by the process table, so killing it reports NotFound.
+    // multi-threaded like production: deno_core ops need the per-macro runtime
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_finished_macro_leaves_process_table() {
+        let (executor, spawn_result, _) = spawn_macro(&[("main.ts", "1 + 1;")], None).await;
+        let pid = spawn_result.macro_pid;
+        let exit_status = exit_status_of(spawn_result).await;
+        assert!(exit_status.is_success(), "{exit_status:?}");
+        assert!(executor.macro_process_table.is_empty());
+        assert_eq!(executor.get_macro_status(pid).await, Some(exit_status));
+        let err = executor.abort_macro(pid).unwrap_err();
+        assert!(matches!(err.kind, crate::error::ErrorKind::NotFound));
+    }
+
+    /// A macro that fails before it starts makes `spawn` fail at once with the reason.
+    // multi-threaded like production: deno_core ops need the per-macro runtime
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_failed_config_injection_fails_spawn() {
+        let _ = tracing_subscriber::fmt::try_init();
+        crate::test_util::install_crypto_provider();
+        let (event_broadcaster, rx) = EventBroadcaster::new(64);
+        std::mem::forget(rx);
+        let executor =
+            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
+        let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap();
+        let path = temp_dir.path().join("main.ts");
+        std::fs::write(&path, "1 + 1;").unwrap();
+        let started = std::time::Instant::now();
+        let result = executor
+            .spawn(
+                path,
+                Vec::new(),
+                CausedBy::Unknown,
+                Box::new(BasicMainWorkerGenerator),
+                Some("let config = { name: 'it's broken' };".to_string()),
+                None,
+                None,
+            )
+            .await;
+        let err = match result {
+            Ok(_) => panic!("spawn succeeded"),
+            Err(e) => format!("{:#}", e.source),
+        };
+        assert!(err.contains("config"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(executor.macro_process_table.is_empty());
+        assert!(matches!(
+            executor.get_macro_status(super::MacroPID(0)).await,
+            Some(ExitStatus::Error { .. })
+        ));
+    }
+
+    /// Restricted permissions passed to `spawn` are enforced.
+    // multi-threaded like production: deno_core ops need the per-macro runtime
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_restricted_permissions_are_enforced() {
+        let _ = tracing_subscriber::fmt::try_init();
+        crate::test_util::install_crypto_provider();
+        let (event_broadcaster, rx) = EventBroadcaster::new(64);
+        std::mem::forget(rx);
+        let executor =
+            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
+        let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap();
+        let allowed = temp_dir.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::write(allowed.join("a.txt"), "hello").unwrap();
+        std::fs::write(temp_dir.path().join("secret.txt"), "secret").unwrap();
+        let path = temp_dir.path().join("main.ts");
+        std::fs::write(
+            &path,
+            format!(
+                r#"
+                const dir = {dir};
+                if (Deno.readTextFileSync(`${{dir}}/allowed/a.txt`) !== "hello") throw new Error("bad read");
+                let denied = false;
+                try {{
+                    Deno.readTextFileSync(`${{dir}}/secret.txt`);
+                }} catch (e) {{
+                    denied = e instanceof Deno.errors.NotCapable || e instanceof Deno.errors.PermissionDenied;
+                }}
+                if (!denied) throw new Error("read outside the allowed directory");
+                let netDenied = false;
+                let netError = null;
+                try {{
+                    await fetch("http://127.0.0.1:65530/");
+                }} catch (e) {{
+                    netError = e;
+                    netDenied = e instanceof Deno.errors.NotCapable || e instanceof Deno.errors.PermissionDenied;
+                }}
+                if (!netDenied) throw new Error(`network was not denied: ${{netError}}`);
+                "#,
+                dir = serde_json::to_string(&temp_dir.path().to_string_lossy()).unwrap()
+            ),
+        )
+        .unwrap();
+        let permissions = deno_runtime::deno_permissions::PermissionsOptions {
+            allow_read: Some(vec![allowed.to_string_lossy().to_string()]),
+            ..Default::default()
+        };
+        let spawn_result = executor
+            .spawn(
+                path,
+                Vec::new(),
+                CausedBy::Unknown,
+                Box::new(BasicMainWorkerGenerator),
+                None,
+                Some(permissions),
+                None,
+            )
+            .await
+            .unwrap();
+        let exit_status = exit_status_of(spawn_result).await;
+        assert!(exit_status.is_success(), "{exit_status:?}");
+    }
+
+    /// The description of a setting (it has no getter).
+    fn description(setting: &crate::traits::t_configurable::manifest::SettingManifest) -> String {
+        serde_json::to_value(setting).unwrap()["description"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
     #[test]
-    fn test_macro_config_extraction() {
-        // should return None if no there is no config definition
-        let result = extract_config_code(
+    fn test_macro_config_presence() {
+        // no config at all
+        let result = parse_config_manifest(
             r#"
             console.log("hello world");
             const message = "hello macro";
             console.debug(message);
             "#,
         );
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
+        assert!(result.unwrap().is_empty());
 
-        // should return an error if the instance declaration is missing
-        let result = extract_config_code(
+        // the class without a variable of its type
+        let result = parse_config_manifest(
             r#"
             class LodestoneConfig {
                 id: string = 'defaultId';
@@ -1805,8 +1978,8 @@ mod tests {
         );
         assert!(result.is_err());
 
-        // should return an error if the class definition is missing
-        let result = extract_config_code(
+        // a variable without the class
+        let result = parse_config_manifest(
             r#"
             declare let config: LodestoneConfig;
             console.debug(config);
@@ -1814,73 +1987,118 @@ mod tests {
         );
         assert!(result.is_err());
 
-        // should extract the correct instance name and class definition
-        let result = extract_config_code(
+        // only mentioned in a comment
+        let result = parse_config_manifest("// see LodestoneConfig in the docs\n1;");
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_macro_config_parsing() {
+        let result = parse_config_manifest(
             r#"
-            class LodestoneConfig {
+            import { foo } from "./foo.ts";
+            export class LodestoneConfig {
+                // the id
                 id: string = 'defaultId';
-            }
-            declare let config: LodestoneConfig;
-            console.debug(config);
-            "#,
-        );
-        assert!(result.is_ok());
-        let (name, code) = result.unwrap().unwrap();
-        assert_eq!(
-            &code,
-            r#"{
-                id: string = 'defaultId';
-            }"#
-        );
-        assert_eq!(&name, "config");
-    }
-
-    #[test]
-    fn test_macro_config_single_parsing() {
-        // should return an error if a non-option variable does not have default value
-        let result = parse_config_single("id:string", "", "");
-        assert!(result.is_err());
-
-        // should return an error if the value and type does not match
-        let result = parse_config_single("id:number='defaultId'", "", "prefix");
-        assert!(result.is_err());
-
-        // should properly parse the optional variable
-        let result = parse_config_single("id?:string", "", "prefix");
-        let (_, config) = result.unwrap();
-        assert!(config.get_value().is_none());
-        assert_eq!(config.get_identifier(), "prefix|id");
-
-        // should properly parse the non-optional variable
-        let result = parse_config_single("id:string='defaultId'", "", "prefix");
-        let (_, config) = result.unwrap();
-        let value = config.get_value().unwrap();
-        match value {
-            ConfigurableValue::String(val) => assert_eq!(val, "defaultId"),
-            _ => panic!("incorrect value"),
-        }
-        assert_eq!(config.get_identifier(), "prefix|id");
-    }
-
-    #[test]
-    fn test_macro_config_multi_parsing() {
-        let result = get_config_from_code(
-            "config",
-            r#"{
-                id: string = 'defaultId';
+                /**
+                 * how often, in seconds;
+                 * defaults to never
+                 */
                 interval?: number;
-            }"#,
+                /** a single line doc comment */
+                enabled: boolean = true;
+                mode: "fast" | 'slow' = "slow";
+                offset: number = -1.5;
+                question?: string = "why?";
+            }
+            declare let letter: LodestoneConfig;
+            "#,
         )
         .unwrap();
-        let identifiers = ["config|id", "config|interval"];
-        let configs: Vec<_> = result.iter().collect();
-        for (_, settings) in configs {
-            assert_ne!(
-                identifiers
-                    .iter()
-                    .find(|&val| val == settings.get_identifier()),
-                None
+        let keys: Vec<_> = result.keys().cloned().collect();
+        assert_eq!(
+            keys,
+            ["id", "interval", "enabled", "mode", "offset", "question"]
+        );
+        for (name, setting) in &result {
+            assert_eq!(setting.get_identifier(), &format!("letter|{name}"));
+        }
+        assert_eq!(
+            result["id"].get_value(),
+            Some(&ConfigurableValue::String("defaultId".to_string()))
+        );
+        assert_eq!(description(&result["id"]), "the id");
+        assert!(result["interval"].get_value().is_none());
+        assert_eq!(
+            description(&result["interval"]),
+            "how often, in seconds; defaults to never"
+        );
+        assert_eq!(
+            result["enabled"].get_value(),
+            Some(&ConfigurableValue::Boolean(true))
+        );
+        assert_eq!(description(&result["enabled"]), "a single line doc comment");
+        assert_eq!(
+            result["mode"].get_value(),
+            Some(&ConfigurableValue::Enum("slow".to_string()))
+        );
+        assert_eq!(
+            result["offset"].get_value(),
+            Some(&ConfigurableValue::Float(-1.5))
+        );
+        assert_eq!(
+            result["question"].get_value(),
+            Some(&ConfigurableValue::String("why?".to_string()))
+        );
+    }
+
+    /// Malformed configs are errors, never panics.
+    #[test]
+    fn test_macro_config_errors() {
+        let config = |body: &str| {
+            format!("class LodestoneConfig {{\n{body}\n}}\ndeclare let config: LodestoneConfig;")
+        };
+        for body in [
+            // required field without a default
+            "id: string;",
+            // value and type do not match
+            "id: number = 'defaultId';",
+            "flag: boolean = 'yes';",
+            // empty and unquoted defaults
+            "x: string =;",
+            "x: string = a;",
+            // a lone quote as an enum option
+            "x: ' = 'a';",
+            "x: 'a' | 'b' = 'c';",
+            "x: 'a' | 1 = 'a';",
+            // unsupported types and members
+            "x: string[] = [];",
+            "x: object = {};",
+            "f() { return 1; }",
+            "x: string = 'a';\nx: string = 'b';",
+            "x = 'untyped';",
+        ] {
+            assert!(
+                parse_config_manifest(&config(body)).is_err(),
+                "accepted {body:?}"
             );
         }
+        // LodestoneConfig mentioned again inside the class body
+        let result = parse_config_manifest(
+            r#"
+            class LodestoneConfig {
+                /** see LodestoneConfig */
+                id: string = 'a';
+            }
+            let config: LodestoneConfig;
+            "#,
+        )
+        .unwrap();
+        assert_eq!(description(&result["id"]), "see LodestoneConfig");
+        // two config variables
+        assert!(parse_config_manifest(
+            "class LodestoneConfig { id: string = 'a'; }\nlet a: LodestoneConfig;\nlet b: LodestoneConfig;"
+        )
+        .is_err());
     }
 }
