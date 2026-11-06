@@ -238,7 +238,7 @@ async fn main() {
         // The localhost plugin binds this port later, so another program could take it in
         // between. The plugin only accepts a port number, so this cannot be closed here.
         let Some(port) = portpicker::pick_unused_port() else {
-            show_startup_error("no free local port for the dashboard");
+            show_startup_error(&"no free local port for the dashboard");
             return;
         };
         let url: Url = match format!("http://localhost:{}", port).parse() {
