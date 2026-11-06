@@ -103,23 +103,21 @@ export const tabs = [
 const InstanceTabs = () => {
   const location = useLocation();
   const [path, setPath] = useState(location.pathname.split('/')[2]);
-  const { selectedInstance: instance } = useContext(InstanceContext);
+  const {
+    selectedInstance: instance,
+    instanceList,
+    isReady,
+  } = useContext(InstanceContext);
   const uuid = instance?.uuid;
-  const [loading, setLoading] = useState(true);
   useEffect(() => {
     setPath(location.pathname.split('/')[2]);
   }, [location.pathname]);
 
-  useEffect(() => {
-    //give time for instance to load
-    // TODO: make this less hacky
-    setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-  }, []);
-
   if (!instance || !uuid) {
-    if (loading) {
+    // Wait for the instance list to load. Once it has, the instance named in
+    // the URL is selected an effect later, so keep waiting if it exists.
+    const queryUuid = new URLSearchParams(location.search).get('instance');
+    if (!isReady || (queryUuid && queryUuid in instanceList)) {
       return <Spinner />;
     } else {
       return (
