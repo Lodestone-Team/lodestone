@@ -33,7 +33,6 @@ use axum::{
     Router,
 };
 
-use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use color_eyre::eyre::Context;
 use color_eyre::Report;
@@ -95,6 +94,7 @@ pub mod playitgg;
 mod port_manager;
 pub mod prelude;
 pub mod tauri_export;
+mod tls;
 mod traits;
 pub mod types;
 pub mod util;
@@ -137,6 +137,8 @@ pub struct AppState {
     code_execution: global_settings::CodeExecutionSwitch,
     /// Failed logins per username, see [`auth::login_limiter::LoginRateLimiter`].
     login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
+    /// The web server's certificate, reported by `/info`. Fixed at startup.
+    tls_info: Arc<tls::TlsInfo>,
 }
 
 impl AppState {
@@ -598,6 +600,16 @@ pub async fn run(
         warn!("Code execution is disabled: atom instances will not be restored, and macros, extensions, instance scripts and custom Java commands will not run");
     }
 
+    // Before anything is served: the certificate decides how the web server listens.
+    let tls_setup = tls::setup(&lodestone_path.join("tls")).await;
+    let allow_lan_http = global_settings.allow_lan_http_flag();
+    if global_settings.allow_lan_http() && tls_setup.config.is_some() {
+        warn!(
+            "Plain HTTP from other devices is allowed, so passwords and login tokens can cross your network unencrypted. \
+             Turn off \"Allow LAN access over plain HTTP\" in Core Settings and connect with https:// instead"
+        );
+    }
+
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
         info!("First time setup key: {key}");
@@ -657,6 +669,7 @@ pub async fn run(
         safe_mode: global_settings.safe_mode_flag(),
         code_execution,
         login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
+        tls_info: Arc::new(tls_setup.info.clone()),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -793,8 +806,6 @@ pub async fn run(
     };
 
     let tls_dir = lodestone_path.join("tls");
-    let tls_config_result =
-        RustlsConfig::from_pem_file(tls_dir.join("cert.pem"), tls_dir.join("key.pem")).await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     // Pick the port now, so a port conflict is reported to the caller of `run` instead of
@@ -860,36 +871,42 @@ pub async fn run(
                     .merge(get_playitgg_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
-                let app = Router::new().nest("/api/v1", api_routes);
+                let app = Router::new()
+                    // a page to open in a browser to trust the core's certificate
+                    .route("/", axum::routing::get(tls::root_page))
+                    .nest("/api/v1", api_routes);
                 let axum_server_handle = axum_server::Handle::<SocketAddr>::new();
                 let server_task = tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
                     async move {
-                        match tls_config_result {
-                            Ok(config) => {
-                                info!("TLS enabled");
-                                info!("Lodestone Core live on {addr}");
-                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
-                                axum_server::bind_rustls(addr, config)
-                                    .handle(axum_server_handle)
-                                    .serve(app.into_make_service())
-                                    .await
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "TLS is not set up ({e}). Lodestone Core is serving plain HTTP on all network interfaces, \
-                                     so passwords and login tokens are sent unencrypted to anyone on your network. \
-                                     To enable HTTPS, put cert.pem and key.pem in {}",
-                                    tls_dir.display()
-                                );
-                                info!("Lodestone Core live on {addr}");
-                                info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
-                                axum_server::bind(addr)
-                                    .handle(axum_server_handle)
-                                    .serve(app.into_make_service())
-                                    .await
-                            }
+                        let https = tls_setup.config.is_some();
+                        let acceptor_allows_lan_http = allow_lan_http.clone();
+                        let acceptor =
+                            tls::DualProtocolAcceptor::new(tls_setup.config, allow_lan_http);
+                        if https {
+                            let plain_http = if acceptor_allows_lan_http
+                                .load(std::sync::atomic::Ordering::SeqCst)
+                            {
+                                "from any device"
+                            } else {
+                                "from this machine only"
+                            };
+                            info!("Lodestone Core live on {addr}, over HTTPS, and plain HTTP {plain_http}");
+                        } else {
+                            warn!(
+                                "HTTPS is not available. Lodestone Core is serving plain HTTP on all network interfaces, \
+                                 so passwords and login tokens are sent unencrypted to anyone on your network. \
+                                 To enable HTTPS, put cert.pem and key.pem in {}",
+                                tls_dir.display()
+                            );
+                            info!("Lodestone Core live on {addr}, over plain HTTP");
                         }
+                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
+                        axum_server::bind(addr)
+                            .acceptor(acceptor)
+                            .handle(axum_server_handle)
+                            .serve(app.into_make_service())
+                            .await
                     }
                 });
                 // capture file into the move block
