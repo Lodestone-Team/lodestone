@@ -6,7 +6,7 @@ import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
 import { useUserLoggedIn } from 'data/UserInfo';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
@@ -31,8 +31,11 @@ export default function InstanceList({
     location: { pathname },
   } = useContext(BrowserLocationContext);
 
+  // once per mount, when the list has loaded (not on every instance update)
+  const viewTracked = useRef(false);
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || viewTracked.current) return;
+    viewTracked.current = true;
     gaEventTracker(
       'View',
       'Instance List',

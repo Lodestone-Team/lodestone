@@ -1,7 +1,16 @@
-import { useContext, useEffect } from 'react';
+import { useEffect } from 'react';
 import * as React from 'react';
-import { generatePlayitSignupLink, startCli, stopCli, verifyKey, getTunnels } from 'utils/apis';
+import {
+  cliIsRunning,
+  generatePlayitSignupLink,
+  getTunnels,
+  startCli,
+  stopCli,
+  verifyKey,
+} from 'utils/apis';
 import { useEffectOnce } from 'utils/hooks';
+import { errorToString } from 'utils/util';
+import { toast } from 'react-toastify';
 import clsx from 'clsx';
 import Button from './Atoms/Button';
 import { PlayitSignupData } from 'bindings/PlayitSignupData';
@@ -9,8 +18,7 @@ import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 import IconButton from './Atoms/IconButton';
 import { faCarTunnel, faCircle, faCopy, faPowerOff, faRefresh } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { NotificationContext } from 'data/NotificationContext';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TunnelListCard, TunnelListItem } from './TunnelListCard';
 import Label, { LabelColor } from './Atoms/Label';
 import PlayitggSignupModal from './PlayitggSignupModal';
@@ -21,22 +29,29 @@ enum RunnerStatus {
   Started = "Started"
 }
 
+const RUNNER_STATUS_KEY = ['playitgg', 'status'];
+
 export function PlayitggOverview() {
   const [signupData, setSignupData] = React.useState<null | PlayitSignupData>(null);
   const [verified, setVerified] = React.useState<null | boolean>(null);
+  const [verifyError, setVerifyError] = React.useState<null | string>(null);
   const [showSignupModal, setShowSignupModal] = React.useState<boolean>(false);
-  const [runnerStatus, setRunnerStatus] = React.useState<RunnerStatus>(RunnerStatus.Stopped);
   const [playitTunnels, setPlayitTunnels] = React.useState<PlayitTunnelInfo[]>([]);
   const [loadingTunnels, setLoadingTunnels] = React.useState<boolean>(false);
   const queryClient = useQueryClient();
-  const { notifications } = useContext(NotificationContext);
-
+  // fetched when the page opens, then kept up to date by the event stream
+  const { data: runnerStatus = RunnerStatus.Stopped } = useQuery<RunnerStatus>({
+    queryKey: RUNNER_STATUS_KEY,
+    queryFn: async () =>
+      (await cliIsRunning()) ? RunnerStatus.Started : RunnerStatus.Stopped,
+  });
+  const setRunnerStatus = (status: RunnerStatus) =>
+    queryClient.setQueryData(RUNNER_STATUS_KEY, status);
 
   useEffectOnce(() => {
-    const inner = async () => {
-      setVerified(await verifyKey())
-    }
-    inner();
+    verifyKey()
+      .then(setVerified)
+      .catch((e) => setVerifyError(errorToString(e)));
   });
 
   useEffect(() => {
@@ -55,25 +70,41 @@ export function PlayitggOverview() {
   }
 
   useEffect(() => {
-    const status = queryClient.getQueryData<RunnerStatus>(["playitgg", "status"]);
-    setRunnerStatus(status === undefined ? runnerStatus : status);
-  }, [notifications, queryClient])
-
-  useEffect(() => {
     if (verified === false) {
       setShowSignupModal(true);
     }
   }, [verified]);
 
   const generateLink = async () => {
-    setSignupData(await generatePlayitSignupLink());
-  }
+    try {
+      setSignupData(await generatePlayitSignupLink());
+    } catch (e) {
+      toast.error(`Failed to generate a signup link: ${errorToString(e)}`);
+    }
+  };
 
   const handleVerifySignup = async () => {
-    const x =await verifyKey();
-    console.log(x)
-    setVerified(x)
-  }
+    try {
+      setVerified(await verifyKey());
+      setVerifyError(null);
+    } catch (e) {
+      toast.error(
+        `Failed to verify the playit.gg account: ${errorToString(e)}`
+      );
+    }
+  };
+
+  const toggleRunner = async () => {
+    if (runnerStatus === RunnerStatus.Stopped) {
+      const error = await startCli();
+      if (error) toast.error(`Failed to start the playit.gg runner: ${error}`);
+      else setRunnerStatus(RunnerStatus.Loading);
+    } else {
+      const error = await stopCli();
+      if (error) toast.error(`Failed to stop the playit.gg runner: ${error}`);
+      else setRunnerStatus(RunnerStatus.Stopped);
+    }
+  };
 
   let statusColor = "text-gray-faded/30";
   let labelColor = "gray";
@@ -115,7 +146,9 @@ export function PlayitggOverview() {
       </PlayitggSignupModal>
       {verified === null ?
         <h2 className="text-h2 font-extrabold tracking-medium">
-          Loading...
+          {verifyError === null
+            ? 'Loading...'
+            : `Failed to load playit.gg status: ${verifyError}`}
         </h2>
         :
         <div>
@@ -128,10 +161,8 @@ export function PlayitggOverview() {
               onClick={() => {
                 if (verified == false) {
                   setShowSignupModal(true)
-                } else if (runnerStatus === RunnerStatus.Stopped || runnerStatus === undefined) {
-                  startCli(); setRunnerStatus(RunnerStatus.Loading)
                 } else {
-                  stopCli(); setRunnerStatus(RunnerStatus.Stopped);
+                  toggleRunner();
                 }
               }}
               className='ml-2'
