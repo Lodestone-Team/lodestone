@@ -4,11 +4,12 @@ import { useAllUsers } from 'data/AllUsers';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { SettingsContext } from 'data/SettingsContext';
 import { useUserInfo } from 'data/UserInfo';
-import { useContext, useEffect, useState } from 'react';
+import { Suspense, useContext, useEffect, useState } from 'react';
 import { Outlet } from 'react-router';
 import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import SettingsLeftNav from './SettingsLeftNav';
+import Spinner from './Spinner';
 
 export const SettingsLayout = () => {
   const { data: userInfo } = useUserInfo();
@@ -62,7 +63,9 @@ export const SettingsLayout = () => {
         <SettingsLeftNav className="border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
       <div className="h-full min-w-0 grow child:h-full">
-        <Outlet />
+        <Suspense fallback={<Spinner />}>
+          <Outlet />
+        </Suspense>
       </div>
     </SettingsContext.Provider>
   );

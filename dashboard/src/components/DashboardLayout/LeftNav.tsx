@@ -1,17 +1,22 @@
 import InstanceList from './InstanceList';
-import { Fragment, useContext, useState } from 'react';
+import { Fragment, lazy, Suspense, useContext } from 'react';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
-import CreateInstanceFlow from 'components/Instance/InstanceCreateForm';
+import Spinner from './Spinner';
 import { useUserAuthorized, useUserLoggedIn } from 'data/UserInfo';
 import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
-import { PlayitggOverview } from 'components/PlayitggOverview';
 import CoreConnectionStatus from './CoreConnectionStatus';
+
+// the create form (formik, yup, setup manifests) loads when it is first opened
+const CreateInstanceFlow = lazy(
+  () => import('components/Instance/InstanceCreateForm')
+);
+
 export default function LeftNav({ className }: { className?: string }) {
   const { showCreateInstance, setShowCreateInstance } =
     useContext(InstanceContext);
@@ -41,9 +46,11 @@ export default function LeftNav({ className }: { className?: string }) {
             <div className="fixed inset-0">
               <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
                 <Dialog.Panel>
-                  <CreateInstanceFlow
-                    onComplete={() => setShowCreateInstance(false)}
-                  />
+                  <Suspense fallback={<Spinner />}>
+                    <CreateInstanceFlow
+                      onComplete={() => setShowCreateInstance(false)}
+                    />
+                  </Suspense>
                 </Dialog.Panel>
               </div>
             </div>
