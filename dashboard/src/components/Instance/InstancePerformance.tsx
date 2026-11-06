@@ -18,6 +18,8 @@ export default function InstancePerformance() {
   } = usePerformanceStream(instance.uuid);
   const { data } = useCoreInfo();
   const total_ram = data?.total_ram ?? 32;
+  // the buffer is oldest-first, so the newest sample is the last one
+  const latestSample = performanceBuffer.at(-1);
 
   return (
     <div>
@@ -30,7 +32,7 @@ export default function InstancePerformance() {
       <div className="mt-4 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
           <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
-            CPU LOAD: {performanceBuffer[0]?.cpu_usage?.toFixed(1) ?? 0}%
+            CPU LOAD: {latestSample?.cpu_usage?.toFixed(1) ?? 0}%
           </h3>
 
           <DashboardCard className="border-0 bg-gray-900">
@@ -51,7 +53,7 @@ export default function InstancePerformance() {
           <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
             MEMORY USED:{' '}
             {(
-              Number(performanceBuffer[0]?.memory_usage ?? 0) / bytesInGigabyte
+              Number(latestSample?.memory_usage ?? 0) / bytesInGigabyte
             ).toFixed(1)}{' '}
             GiB
           </h3>
