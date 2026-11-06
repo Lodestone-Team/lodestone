@@ -20,6 +20,10 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::UpdaterExt;
 
 use notify_rust::Notification;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::watch;
 #[derive(Clone, serde::Serialize)]
 struct Payload {
     args: Vec<String>,
@@ -137,8 +141,44 @@ async fn check_update_with_dialog(app: AppHandle) -> tauri_plugin_updater::Resul
     Ok(())
 }
 
+/// How long Quit waits for the core to stop the game servers before exiting anyway.
+const CORE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Asks the core to shut down (stop servers, clean up), waits for that to finish or for
+/// [`CORE_SHUTDOWN_TIMEOUT`], then exits the app.
+async fn quit_app(
+    app: AppHandle,
+    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    mut core_done: watch::Receiver<bool>,
+) {
+    if let Some(tx) = shutdown_tx {
+        // Err means the core has already stopped, which is fine.
+        let _ = tx.send(());
+    }
+    if tokio::time::timeout(CORE_SHUTDOWN_TIMEOUT, core_done.wait_for(|done| *done))
+        .await
+        .is_err()
+    {
+        eprintln!(
+            "Lodestone Core did not shut down within {}s, exiting anyway",
+            CORE_SHUTDOWN_TIMEOUT.as_secs()
+        );
+    }
+    app.exit(0);
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    // Run Tauri's async tasks on this runtime instead of a second one it would create.
+    tauri::async_runtime::set(tokio::runtime::Handle::current());
+
     // Several crates in the dependency graph enable different rustls crypto providers, so
     // rustls cannot pick a process-wide default on its own. Install aws-lc-rs before anything
     // touches TLS (lodestone_core, the updater). Errors only if one is already set.
@@ -160,25 +200,26 @@ async fn main() {
             shutdown_tx = tx;
         }
         Err(e) => {
-            Notification::new()
-                .summary("Lodestone failed to start")
-                .body(&format!(
-                    "Oh no! Looks like Lodestone was unable to start. Error: {}",
-                    e
-                ))
-                .auto_icon()
-                .show()
-                .expect("Failed to show notification");
-
+            show_startup_error(&e);
             return;
         }
     }
 
     let shutdown_tx = std::sync::Mutex::new(Some(shutdown_tx));
-    tokio::spawn(async {
-        core_fut.await;
-        println!("Core has exited");
-        std::process::exit(128);
+    // Set when the core has finished its shutdown sequence.
+    let (core_done_tx, core_done_rx) = watch::channel(false);
+    let quit_requested = Arc::new(AtomicBool::new(false));
+    tokio::spawn({
+        let quit_requested = quit_requested.clone();
+        async move {
+            core_fut.await;
+            println!("Core has exited");
+            let _ = core_done_tx.send(true);
+            if !quit_requested.load(Ordering::SeqCst) {
+                // The core stopped on its own (Ctrl+C, web server failure, ...).
+                std::process::exit(128);
+            }
+        }
     });
     #[cfg_attr(dev, allow(unused_mut))]
     let mut context = tauri::generate_context!();
@@ -187,14 +228,26 @@ async fn main() {
     #[cfg_attr(dev, allow(unused_mut))]
     let mut builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            app.emit("single-instance", Payload { args: argv, cwd })
-                .unwrap();
+            if let Err(e) = app.emit("single-instance", Payload { args: argv, cwd }) {
+                eprintln!("Failed to forward the second instance's arguments: {e}");
+            }
         }));
 
     #[cfg(not(dev))]
     {
-        let port = portpicker::pick_unused_port().expect("Failed to pick unused port");
-        let url: Url = format!("http://localhost:{}", port).parse().unwrap();
+        // The localhost plugin binds this port later, so another program could take it in
+        // between. The plugin only accepts a port number, so this cannot be closed here.
+        let Some(port) = portpicker::pick_unused_port() else {
+            show_startup_error("no free local port for the dashboard");
+            return;
+        };
+        let url: Url = match format!("http://localhost:{}", port).parse() {
+            Ok(url) => url,
+            Err(e) => {
+                show_startup_error(&e);
+                return;
+            }
+        };
         // rewrite the config so the IPC is enabled on this URL
         context.config_mut().build.frontend_dist = Some(FrontendDist::Url(url.clone()));
         context.config_mut().build.dev_url = Some(url);
@@ -217,7 +270,9 @@ async fn main() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().unwrap();
+                if let Err(e) = window.hide() {
+                    eprintln!("Failed to hide the window: {e}");
+                }
                 api.prevent_close();
             }
         })
@@ -233,10 +288,16 @@ async fn main() {
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_menu_event(move |app, event| {
                     if event.id().as_ref() == "quit" {
-                        if let Some(tx) = shutdown_tx.lock().unwrap().take() {
-                            tx.send(()).unwrap();
-                        }
-                        app.exit(0);
+                        quit_requested.store(true, Ordering::SeqCst);
+                        let tx = match shutdown_tx.lock() {
+                            Ok(mut tx) => tx.take(),
+                            Err(poisoned) => poisoned.into_inner().take(),
+                        };
+                        tauri::async_runtime::spawn(quit_app(
+                            app.clone(),
+                            tx,
+                            core_done_rx.clone(),
+                        ));
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -246,9 +307,7 @@ async fn main() {
                         ..
                     } = event
                     {
-                        let window = tray.app_handle().get_webview_window("main").unwrap();
-                        window.show().unwrap();
-                        window.set_focus().unwrap();
+                        show_main_window(tray.app_handle());
                     }
                 })
                 .build(app)?;
@@ -285,16 +344,23 @@ async fn main() {
                 set_dev_dock_icon();
             }
         }),
-        Err(e) => {
-            Notification::new()
-                .summary("Lodestone failed to start")
-                .body(&format!(
-                    "Oh no! Looks like Lodestone was unable to start. Error: {}",
-                    e
-                ))
-                .auto_icon()
-                .show()
-                .expect("Failed to show notification");
-        }
+        Err(e) => show_startup_error(&e),
+    }
+}
+
+/// Tells the user that Lodestone could not start. Also printed, in case notifications are
+/// unavailable.
+fn show_startup_error(error: &dyn std::fmt::Display) {
+    eprintln!("Lodestone failed to start: {error}");
+    if let Err(e) = Notification::new()
+        .summary("Lodestone failed to start")
+        .body(&format!(
+            "Oh no! Looks like Lodestone was unable to start. Error: {}",
+            error
+        ))
+        .auto_icon()
+        .show()
+    {
+        eprintln!("Failed to show notification: {e}");
     }
 }
