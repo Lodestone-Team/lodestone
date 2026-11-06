@@ -3,6 +3,7 @@ use indexmap::IndexMap;
 use serde_json::{self, Value};
 use std::{collections::BTreeMap, path::Path, str::FromStr};
 use tokio::io::AsyncBufReadExt;
+use tracing::error;
 
 use super::{
     FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, PaperBuildVersion,
@@ -261,56 +262,15 @@ pub async fn get_paper_jar_url(
     version: &str,
     paper_build_version: &Option<PaperBuildVersion>,
 ) -> Option<(String, Flavour)> {
-    let client = reqwest::Client::new();
-
-    let builds_text = client
-        .get(format!(
-            "https://api.papermc.io/v2/projects/paper/versions/{}/builds/",
-            version
-        ))
-        .send()
+    let build = paper_build_version.as_ref().map(|PaperBuildVersion(b)| *b);
+    let download = super::paper::get_paper_download(version, build)
         .await
-        .ok()?
-        .text()
-        .await
-        .ok()?;
-    let builds: serde_json::Value = serde_json::from_str(&builds_text).ok()?;
-    let mut builds = builds.get("builds")?.as_array()?.iter();
-
-    let build = if let Some(PaperBuildVersion(b)) = paper_build_version {
-        builds.find(|build| build.get("build").unwrap().as_i64().unwrap().eq(b))?
-    } else {
-        builds
-            .filter(|build| {
-                build
-                    .get("channel")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-                    .eq("default")
-            })
-            .max_by(|a, b| {
-                let a = a.get("build").unwrap().as_i64().unwrap();
-                let b = b.get("build").unwrap().as_i64().unwrap();
-                a.cmp(&b)
-            })?
-    };
-    let build_version = build.get("build")?.as_i64()?;
-
+        .map_err(|e| error!("Failed to get paper jar url: {e}"))
+        .ok()??;
     Some((
-        format!(
-            "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
-            version,
-            build_version,
-            build
-                .get("downloads")?
-                .get("application")?
-                .get("name")?
-                .as_str()?,
-        ),
+        download.url,
         Flavour::Paper {
-            build_version: Some(PaperBuildVersion(build_version)),
+            build_version: Some(PaperBuildVersion(download.build)),
         },
     ))
 }
@@ -497,20 +457,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_paper_jar_url() {
-        assert_eq!(super::get_paper_jar_url("1.19.3", &Some(PaperBuildVersion(308))).await, Some((
-            "https://api.papermc.io/v2/projects/paper/versions/1.19.3/builds/308/downloads/paper-1.19.3-308.jar".to_string(),
-            Flavour::Paper { build_version: Some(PaperBuildVersion(308)) }
-        )));
-        assert_eq!(super::get_paper_jar_url("1.13-pre7", &Some(PaperBuildVersion(1))).await, Some((
-            "https://api.papermc.io/v2/projects/paper/versions/1.13-pre7/builds/1/downloads/paper-1.13-pre7-1.jar".to_string(),
-            Flavour::Paper { build_version: Some(PaperBuildVersion(1)) }
-        )));
-        assert_eq!(super::get_paper_jar_url("1.19", &None).await, Some((
-            "https://api.papermc.io/v2/projects/paper/versions/1.19/builds/81/downloads/paper-1.19-81.jar".to_string(),
-            Flavour::Paper { build_version: Some(PaperBuildVersion(81)) }
-        )));
+        // Fill v3 serves jars from content-addressed URLs: check the host, file name and build.
+        async fn check(version: &str, build: Option<i64>, expected_build: i64) {
+            let (url, flavour) = super::get_paper_jar_url(version, &build.map(PaperBuildVersion))
+                .await
+                .unwrap_or_else(|| panic!("no jar for paper {version}"));
+            assert!(url.starts_with("https://fill-data.papermc.io/"), "{url}");
+            assert!(
+                url.ends_with(&format!("/paper-{version}-{expected_build}.jar")),
+                "{url}"
+            );
+            assert_eq!(
+                flavour,
+                Flavour::Paper {
+                    build_version: Some(PaperBuildVersion(expected_build))
+                }
+            );
+        }
+        check("1.19.3", Some(308), 308).await;
+        check("1.13-pre7", Some(1), 1).await;
+        // newest stable build of a version that no longer gets builds
+        check("1.19", None, 81).await;
 
         assert_eq!(super::get_paper_jar_url("1.19.3bruh", &None).await, None);
+        assert_eq!(
+            super::get_paper_jar_url("1.19.3", &Some(PaperBuildVersion(999_999))).await,
+            None
+        );
     }
 
     #[tokio::test]

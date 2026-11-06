@@ -127,33 +127,8 @@ pub async fn get_fabric_versions() -> Result<MinecraftVersions, Error> {
 }
 
 pub async fn get_paper_versions() -> Result<MinecraftVersions, Error> {
-    let http = reqwest::Client::new();
-
-    let response: Value = serde_json::from_str(
-        http.get("https://api.papermc.io/v2/projects/paper")
-            .send()
-            .await
-            .context("Failed to get paper versions")?
-            .text()
-            .await
-            .context("Failed to get paper versions")?
-            .as_str(),
-    )
-    .context("Failed to get paper versions")?;
-
-    let mut versions = response["versions"]
-        .as_array()
-        .ok_or_else(|| eyre!("Failed to get paper versions. Versions array is not an array"))?
-        .iter()
-        .map(|item| {
-            item.as_str().ok_or_else(|| {
-                eyre!("Failed to get paper versions. Versions element is not a string").into()
-            })
-        })
-        .collect::<Result<Vec<&str>, Error>>()?;
-
-    versions.reverse();
-
+    let versions = super::paper::get_paper_minecraft_versions().await?;
+    let versions: Vec<&str> = versions.iter().map(String::as_str).collect();
     group_minecraft_versions(&versions).await
 }
 
