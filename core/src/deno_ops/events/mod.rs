@@ -1,11 +1,16 @@
-use std::{borrow::Cow, cell::RefCell, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc};
 
-use deno_core::{anyhow::Context, op2, Extension, OpState};
+use deno_core::{anyhow::anyhow, op2, Extension, OpState};
+use tokio::sync::{broadcast::Receiver, Mutex};
 
-use super::{op_try, OpError, Strict};
+use super::{OpError, Strict};
 
 use crate::{
-    event_broadcaster::{EventBroadcaster, PlayerChange, PlayerMessage},
+    event_broadcaster::{
+        instance_event, instance_output, instance_player_change, instance_player_message,
+        instance_state_change, instance_system_message, EventBroadcaster, PlayerChange,
+        PlayerMessage,
+    },
     events::{
         CausedBy, Event, InstanceEvent, ProgressionEndValue, ProgressionEventID,
         ProgressionStartValue,
@@ -15,19 +20,50 @@ use crate::{
     types::InstanceUuid,
 };
 
+/// Which events a waiting op is looking for. Each kind (and instance) gets its own receiver,
+/// so concurrent waits of different kinds do not take each other's events.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum StreamKey {
+    All,
+    Instance(InstanceUuid),
+    StateChange(InstanceUuid),
+    Output(InstanceUuid),
+    PlayerMessage(InstanceUuid),
+    SystemMessage(InstanceUuid),
+    PlayerChange(InstanceUuid),
+}
+
+/// Event receivers of one macro, kept for its whole run so events that arrive while the
+/// macro is busy between two waits are buffered instead of lost.
+#[derive(Default)]
+struct EventStreams(HashMap<StreamKey, Rc<Mutex<Receiver<Event>>>>);
+
+/// Waits for the next event on the macro's receiver for `key` that `select` maps to a value.
+async fn next_from_stream<T>(
+    state: &Rc<RefCell<OpState>>,
+    key: StreamKey,
+    select: impl FnMut(Event) -> Option<T>,
+) -> Result<T, OpError> {
+    let rx = {
+        let mut state = state.borrow_mut();
+        let broadcaster = state.borrow::<EventBroadcaster>().clone();
+        state
+            .borrow_mut::<EventStreams>()
+            .0
+            .entry(key)
+            .or_insert_with(|| Rc::new(Mutex::new(broadcaster.subscribe())))
+            .clone()
+    };
+    let mut rx = rx.lock().await;
+    EventBroadcaster::next_matching(&mut rx, select)
+        .await
+        .ok_or_else(|| anyhow!("Event channel closed").into())
+}
+
 #[op2]
 #[serde]
 async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, OpError> {
-    let rx = state.borrow().borrow::<EventBroadcaster>().clone();
-    op_try(async move {
-        let event = rx
-            .subscribe()
-            .recv()
-            .await
-            .context("Failed to receive event")?;
-        Ok(event)
-    })
-    .await
+    next_from_stream(&state, StreamKey::All, Some).await
 }
 
 #[op2]
@@ -35,9 +71,9 @@ async fn next_event(state: Rc<RefCell<OpState>>) -> Result<Event, OpError> {
 async fn next_instance_event(
     state: Rc<RefCell<OpState>>,
     #[serde] instance_uuid: InstanceUuid,
-) -> InstanceEvent {
-    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster.next_instance_event(&instance_uuid).await
+) -> Result<InstanceEvent, OpError> {
+    let key = StreamKey::Instance(instance_uuid.clone());
+    next_from_stream(&state, key, |e| instance_event(e, &instance_uuid)).await
 }
 
 #[op2]
@@ -45,11 +81,9 @@ async fn next_instance_event(
 async fn next_instance_state_change(
     state: Rc<RefCell<OpState>>,
     #[serde] instance_uuid: InstanceUuid,
-) -> State {
-    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster
-        .next_instance_state_change(&instance_uuid)
-        .await
+) -> Result<State, OpError> {
+    let key = StreamKey::StateChange(instance_uuid.clone());
+    next_from_stream(&state, key, |e| instance_state_change(e, &instance_uuid)).await
 }
 
 #[op2]
@@ -57,9 +91,9 @@ async fn next_instance_state_change(
 async fn next_instance_output(
     state: Rc<RefCell<OpState>>,
     #[serde] instance_uuid: InstanceUuid,
-) -> String {
-    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster.next_instance_output(&instance_uuid).await
+) -> Result<String, OpError> {
+    let key = StreamKey::Output(instance_uuid.clone());
+    next_from_stream(&state, key, |e| instance_output(e, &instance_uuid)).await
 }
 
 #[op2]
@@ -67,11 +101,9 @@ async fn next_instance_output(
 async fn next_instance_player_message(
     state: Rc<RefCell<OpState>>,
     #[serde] instance_uuid: InstanceUuid,
-) -> PlayerMessage {
-    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster
-        .next_instance_player_message(&instance_uuid)
-        .await
+) -> Result<PlayerMessage, OpError> {
+    let key = StreamKey::PlayerMessage(instance_uuid.clone());
+    next_from_stream(&state, key, |e| instance_player_message(e, &instance_uuid)).await
 }
 
 #[op2]
@@ -79,11 +111,9 @@ async fn next_instance_player_message(
 async fn next_instance_system_message(
     state: Rc<RefCell<OpState>>,
     #[serde] instance_uuid: InstanceUuid,
-) -> String {
-    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster
-        .next_instance_system_message(&instance_uuid)
-        .await
+) -> Result<String, OpError> {
+    let key = StreamKey::SystemMessage(instance_uuid.clone());
+    next_from_stream(&state, key, |e| instance_system_message(e, &instance_uuid)).await
 }
 
 #[op2]
@@ -91,11 +121,9 @@ async fn next_instance_system_message(
 async fn next_instance_player_change(
     state: Rc<RefCell<OpState>>,
     #[serde] instance_uuid: InstanceUuid,
-) -> PlayerChange {
-    let event_broadcaster = state.borrow().borrow::<EventBroadcaster>().clone();
-    event_broadcaster
-        .next_instance_player_change(&instance_uuid)
-        .await
+) -> Result<PlayerChange, OpError> {
+    let key = StreamKey::PlayerChange(instance_uuid.clone());
+    next_from_stream(&state, key, |e| instance_player_change(e, &instance_uuid)).await
 }
 
 #[op2]
@@ -204,6 +232,7 @@ pub fn register_all_event_ops(
         ]),
         op_state_fn: Some(Box::new(move |state| {
             state.put(event_broadcaster);
+            state.put(EventStreams::default());
         })),
         ..Default::default()
     });

@@ -48,16 +48,17 @@ export const CreateUserForm = ({
       username: values.username,
       password: values.password,
     })
-      .then((loginReply) => {
+      .then((newUser) => {
         queryClient.setQueryData(
           ['user', 'list'],
           (oldData: { [uid: string]: PublicUser } | undefined) => {
             return {
               ...oldData,
-              [loginReply.user.uid]: loginReply.user,
+              [newUser.uid]: newUser,
             };
           }
         );
+        gaEventTracker('Create User', 'Success');
         onSuccess(values);
         actions.resetForm();
       })
@@ -67,7 +68,6 @@ export const CreateUserForm = ({
       })
       .finally(() => {
         actions.setSubmitting(false);
-        gaEventTracker('Create User', 'Success');
       });
   };
   return (

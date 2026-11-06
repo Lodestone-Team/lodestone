@@ -7,16 +7,13 @@ import * as yup from 'yup';
 import { useCoreInfo } from 'data/SystemInfo';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { DISABLE_AUTOFILL, isLocalCore } from 'utils/util';
-import { loginToCore } from 'utils/apis';
+import { DISABLE_AUTOFILL, errorToString, isLocalCore } from 'utils/util';
+import { LoginValues, loginToCore } from 'utils/apis';
 import { tauri } from 'utils/tauriUtil';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import useAnalyticsEventTracker from 'utils/hooks';
-export type LoginValues = {
-  username: string;
-  password: string;
-};
+export type { LoginValues };
 
 const validationSchema = yup.object({
   username: yup.string().required('Username is required'),
@@ -45,19 +42,13 @@ const UserLogin = () => {
     // login using basic auth
     loginToCore(values)
       .then((response) => {
-        if (!response) {
-          // this should never end
-          actions.setStatus({ error: 'Wrong username or password' });
-          actions.setSubmitting(false);
-          return;
-        }
         setToken(response.token, socket);
         setPathname('/');
         gaEventTracker('Logged in', 'User');
         actions.setSubmitting(false);
       })
-      .catch((error: string) => {
-        actions.setStatus({ error: error });
+      .catch((error: unknown) => {
+        actions.setStatus({ error: errorToString(error) });
         actions.setSubmitting(false);
       });
   };

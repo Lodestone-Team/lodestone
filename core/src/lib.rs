@@ -5,8 +5,8 @@ use crate::event_broadcaster::EventBroadcaster;
 use crate::handlers::extension::get_extension_routes;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_app_state, init_paths, lodestone_path, path_to_global_settings, path_to_stores,
-    path_to_tmp, path_to_users, VERSION,
+    init_app_state, lodestone_path, path_to_global_settings, path_to_stores, path_to_tmp,
+    path_to_users, try_init_paths, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -44,7 +44,7 @@ use futures::Future;
 use global_settings::GlobalSettings;
 use implementations::{generic, minecraft};
 use macro_executor::MacroExecutor;
-use playitgg::utils::is_valid_secret_key;
+use playitgg::utils::{is_valid_secret_key, parse_secret_key};
 use port_manager::PortManager;
 use prelude::GameInstance;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
@@ -90,6 +90,7 @@ pub mod implementations;
 pub mod macro_executor;
 mod migration;
 mod output_types;
+mod persist;
 pub mod playitgg;
 mod port_manager;
 pub mod prelude;
@@ -128,20 +129,61 @@ pub struct AppState {
     sqlite_pool: sqlx::SqlitePool,
     docker_bridge: docker_bridge::DockerBridge,
     playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    /// The playit.gg signup in progress, if any. Only one runs at a time.
+    playit_signup: Arc<std::sync::Mutex<Option<playitgg::PlayitSignupData>>>,
+    /// The current safe mode setting, kept in sync by [`GlobalSettings`].
+    safe_mode: Arc<AtomicBool>,
+    /// Failed logins per username, see [`auth::login_limiter::LoginRateLimiter`].
+    login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
 }
 
 impl AppState {
-    /// Kill all instances
-    pub async fn cleanup(&mut self) {
-        for instance in self.instances.iter() {
-            let instance = instance.value().clone();
-            tokio::task::spawn(async move {
-                if let Err(e) = instance.kill(CausedBy::System).await {
-                    error!("Failed to kill instance: {}", e);
-                };
-            });
+    /// Whether safe mode is on. Unlike `global_settings.lock().await.safe_mode()`, this
+    /// takes no lock.
+    pub fn safe_mode(&self) -> bool {
+        self.safe_mode.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// How long the monitor task waits for one instance's report.
+const MONITOR_TIMEOUT: Duration = Duration::from_secs(5);
+/// The console buffers are checked for deleted instances every this many monitor ticks.
+const BUFFER_PRUNE_INTERVAL_TICKS: u64 = 60;
+
+/// Removes console buffers that belong to no instance: deleted instances, or UUIDs a macro
+/// made up. Docker containers are not in `instances`, so watched containers are kept.
+async fn prune_console_buffers(
+    console_out_buffer: &Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>,
+    instances: &DashMap<InstanceUuid, GameInstance>,
+    docker_bridge: &docker_bridge::DockerBridge,
+) {
+    let keys: Vec<InstanceUuid> = console_out_buffer.lock().await.keys().cloned().collect();
+    let mut stale = Vec::new();
+    for uuid in keys {
+        if !instances.contains_key(&uuid) && !docker_bridge.is_watched(&uuid).await {
+            stale.push(uuid);
         }
     }
+    if !stale.is_empty() {
+        let mut console_out_buffer = console_out_buffer.lock().await;
+        for uuid in stale {
+            console_out_buffer.remove(&uuid);
+        }
+    }
+}
+
+/// Clones every instance out of the map.
+///
+/// DashMap iterators hold a shard lock for as long as an entry is alive. Awaiting while
+/// holding one blocks every `insert`/`remove` on that shard (on a runtime worker thread),
+/// so callers that await on instances must work on this snapshot instead.
+fn snapshot_instances(
+    instances: &DashMap<InstanceUuid, GameInstance>,
+) -> Vec<(InstanceUuid, GameInstance)> {
+    instances
+        .iter()
+        .map(|entry| (entry.key().clone(), entry.value().clone()))
+        .collect()
 }
 
 async fn restore_instances(
@@ -223,7 +265,13 @@ async fn restore_instances(
                 debug!("Restored Generic instance successfully");
                 (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
-            GameType::MinecraftBedrock => todo!(),
+            GameType::MinecraftBedrock => {
+                error!(
+                    "Skipping instance {}: Minecraft Bedrock instances are not supported",
+                    path.display()
+                );
+                continue;
+            }
         };
         let uuid = uuid_instance.0;
         let instance = uuid_instance.1;
@@ -347,7 +395,10 @@ async fn check_for_core_update() {
     pub async fn get_latest_release() -> Result<Version, Report> {
         let release_url =
             "https://api.github.com/repos/Lodestone-Team/lodestone_core/releases/latest";
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()?;
 
         let response = client
             .get(release_url)
@@ -435,14 +486,16 @@ pub async fn run(
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
             Ok(v) => v,
             Err(_) => {
-                match std::env::home_dir()
-                    .unwrap_or_else(|| {
-                        std::env::current_dir()
-                            .expect("what kinda os are you running lodestone on???")
-                    })
-                    .join(".lodestone")
-                    .to_str()
-                {
+                let base = match std::env::home_dir() {
+                    Some(home) => home,
+                    None => std::env::current_dir().map_err(|e| Error {
+                        kind: ErrorKind::Internal,
+                        source: Report::msg(format!(
+                            "Failed to find a home or current directory: {e}"
+                        )),
+                    })?,
+                };
+                match base.join(".lodestone").to_str() {
                     Some(p) => p.to_string(),
                     None => {
                         return Err(Error {
@@ -454,7 +507,13 @@ pub async fn run(
             }
         })
     };
-    init_paths(lodestone_path.clone());
+    try_init_paths(lodestone_path.clone()).map_err(|e| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg(format!(
+            "Failed to create the Lodestone directories in {}: {e}",
+            lodestone_path.display()
+        )),
+    })?;
     info!("Lodestone path: {}", lodestone_path.display());
     std::env::set_current_dir(&lodestone_path).map_err(|_| Error {
         kind: ErrorKind::Internal,
@@ -468,12 +527,18 @@ pub async fn run(
         warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
         warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
     }
-    check_for_core_update().await;
+    // only logs, so it must not hold up startup when GitHub is slow or unreachable
+    tokio::spawn(check_for_core_update());
     output_sys_info();
 
     let lockfile_path = lodestone_path.join("lodestone.lock");
-    let lock_file =
-        std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile");
+    let lock_file = std::fs::File::create(lockfile_path.as_path()).map_err(|e| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg(format!(
+            "Failed to create lockfile {}: {e}",
+            lockfile_path.display()
+        )),
+    })?;
     if lock_file.try_lock().is_err() {
         return Err(Error {
             kind: ErrorKind::Internal,
@@ -511,23 +576,19 @@ pub async fn run(
         None
     };
 
-    let playitgg_key = if let Ok(playitgg_file) =
-        tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await
-    {
-        let toml_data: toml::Table = toml::from_str(&playitgg_file).unwrap();
-        if let Some(res) = toml_data["secret_key"].as_str() {
-            if is_valid_secret_key(res.to_string()).await {
-                println!("Validated playitgg key...");
-                Some(res.to_string())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    // The key is validated against playit.gg in the background (see below) so startup
+    // does not wait on the network.
+    let stored_playitgg_key =
+        match tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await {
+            Ok(playitgg_file) => match parse_secret_key(&playitgg_file) {
+                Ok(key) => key,
+                Err(e) => {
+                    warn!("Ignoring playit.toml: {}", e.source);
+                    None
+                }
+            },
+            Err(_) => None,
+        };
 
     let macro_executor = MacroExecutor::new(tx.clone(), tokio::runtime::Handle::current());
     let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
@@ -538,8 +599,8 @@ pub async fn run(
         })?;
 
     let mut allocated_ports = HashSet::new();
-    for instance_entry in instances.iter() {
-        allocated_ports.insert(instance_entry.value().port().await);
+    for (_, instance) in snapshot_instances(&instances) {
+        allocated_ports.insert(instance.port().await);
     }
     let shared_state = AppState {
         instances: Arc::new(instances),
@@ -552,10 +613,13 @@ pub async fn run(
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
-        playitgg_key: Arc::new(Mutex::new(playitgg_key)),
+        playitgg_key: Arc::new(Mutex::new(None)),
         system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         playit_keep_running: Arc::new(Mutex::new(None)),
+        playit_signup: Arc::new(std::sync::Mutex::new(None)),
+        safe_mode: global_settings.safe_mode_flag(),
+        login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -578,23 +642,30 @@ pub async fn run(
             tx.clone(),
             path_to_stores().join("docker_bridge.json"),
         )
-        .await
-        .unwrap(),
+        .await?,
     };
+
+    if let Some(key) = stored_playitgg_key {
+        let playitgg_key = shared_state.playitgg_key.clone();
+        tokio::spawn(async move {
+            if is_valid_secret_key(key.clone()).await {
+                info!("Validated playitgg key");
+                playitgg_key.lock().await.get_or_insert(key);
+            } else {
+                warn!("Could not validate the playit.gg key in playit.toml (invalid key or playit.gg unreachable); playit.gg is disabled until the next start or a new signup");
+            }
+        });
+    }
 
     command_console::init(shared_state.clone());
     init_app_state(shared_state.clone());
 
-    for mut entry in shared_state.instances.iter_mut() {
-        let instance = entry.value_mut();
+    for (_, instance) in snapshot_instances(&shared_state.instances) {
         if instance.auto_start().await {
-            info!("Auto starting instance {}", instance.name().await);
+            let name = instance.name().await;
+            info!("Auto starting instance {}", name);
             if let Err(e) = instance.start(CausedBy::System, false).await {
-                error!(
-                    "Failed to start instance {}: {:?}",
-                    entry.value().name().await,
-                    e
-                );
+                error!("Failed to start instance {}: {:?}", name, e);
             }
         }
     }
@@ -605,62 +676,109 @@ pub async fn run(
         let mut event_receiver = tx.subscribe();
         async move {
             loop {
-                let result = event_receiver.recv().await;
-                if let Err(error) = result.as_ref() {
-                    match error {
-                        RecvError::Lagged(_) => {
-                            warn!("Event buffer lagged");
-                            continue;
-                        }
-                        RecvError::Closed => {
-                            warn!("Event buffer closed");
-                            break;
-                        }
+                let event = match event_receiver.recv().await {
+                    Ok(event) => event,
+                    Err(RecvError::Lagged(_)) => {
+                        warn!("Event buffer lagged");
+                        continue;
                     }
-                }
-                let event = result.unwrap();
-                if event.is_event_console_message() {
-                    console_out_buffer
-                        .lock()
-                        .await
-                        .entry(event.get_instance_uuid().unwrap())
-                        .or_insert_with(|| AllocRingBuffer::new(1024))
-                        .enqueue(event.clone());
-                } else {
-                    event_buffer.lock().await.enqueue(event.clone());
+                    Err(RecvError::Closed) => {
+                        warn!("Event buffer closed");
+                        break;
+                    }
+                };
+                match event.get_instance_uuid() {
+                    Some(instance_uuid) if event.is_event_console_message() => {
+                        console_out_buffer
+                            .lock()
+                            .await
+                            .entry(instance_uuid)
+                            .or_insert_with(|| AllocRingBuffer::new(1024))
+                            .enqueue(event);
+                    }
+                    _ => {
+                        event_buffer.lock().await.enqueue(event);
+                    }
                 }
             }
         }
     };
 
-    let write_to_db_task = write_event_to_db_task(tx.subscribe(), shared_state.sqlite_pool.clone());
+    // Not part of the shutdown `select!` below: a database problem must never stop the
+    // core. The task logs and retries errors itself.
+    tokio::spawn(write_event_to_db_task(
+        tx.subscribe(),
+        shared_state.sqlite_pool.clone(),
+    ));
 
     let monitor_report_task = {
         let monitor_buffer = shared_state.monitor_buffer.clone();
+        let console_out_buffer = shared_state.console_out_buffer.clone();
         let instances = shared_state.instances.clone();
+        let docker_bridge = shared_state.docker_bridge.clone();
         async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let mut ticks: u64 = 0;
             loop {
-                for entry in instances.iter() {
-                    let report = entry.value().monitor().await;
-                    monitor_buffer
-                        .lock()
-                        .await
-                        .entry(entry.key().to_owned())
-                        .or_insert_with(|| AllocRingBuffer::new(64))
-                        .enqueue(report);
-                }
                 interval.tick().await;
+                let snapshot = snapshot_instances(&instances);
+                // Query all instances at once, each with a timeout, so one instance that
+                // does not answer (for example a dead atom macro) cannot stall the others.
+                let reports =
+                    futures::future::join_all(snapshot.iter().map(|(uuid, instance)| async move {
+                        match tokio::time::timeout(MONITOR_TIMEOUT, instance.monitor()).await {
+                            Ok(report) => Some((uuid.clone(), report)),
+                            Err(_) => {
+                                debug!("Monitor report for {uuid} timed out");
+                                None
+                            }
+                        }
+                    }))
+                    .await;
+                {
+                    let mut monitor_buffer = monitor_buffer.lock().await;
+                    for (uuid, report) in reports.into_iter().flatten() {
+                        monitor_buffer
+                            .entry(uuid)
+                            .or_insert_with(|| AllocRingBuffer::new(64))
+                            .enqueue(report);
+                    }
+                    // drop the buffers of deleted instances
+                    monitor_buffer.retain(|uuid, _| instances.contains_key(uuid));
+                }
+                if ticks.is_multiple_of(BUFFER_PRUNE_INTERVAL_TICKS) {
+                    prune_console_buffers(&console_out_buffer, &instances, &docker_bridge).await;
+                }
+                ticks = ticks.wrapping_add(1);
             }
         }
     };
 
-    let tls_config_result = RustlsConfig::from_pem_file(
-        lodestone_path.join("tls").join("cert.pem"),
-        lodestone_path.join("tls").join("key.pem"),
-    )
-    .await;
+    let tls_dir = lodestone_path.join("tls");
+    let tls_config_result =
+        RustlsConfig::from_pem_file(tls_dir.join("cert.pem"), tls_dir.join("key.pem")).await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    // Pick the port now, so a port conflict is reported to the caller of `run` instead of
+    // exiting the process from inside the library.
+    #[allow(unused_mut)]
+    let mut port = 16_662_u16;
+    #[cfg(not(debug_assertions))]
+    if port_in_use(port) {
+        return Err(Error {
+            kind: ErrorKind::Internal,
+            source: Report::msg(format!(
+                "Port {port} is already in use. Is another Lodestone Core running?"
+            )),
+        });
+    }
+    #[cfg(debug_assertions)]
+    while port_in_use(port) {
+        debug!("Port {port} is already in use, trying next port");
+        port += 1;
+    }
+    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
 
     Ok((
         {
@@ -676,6 +794,9 @@ pub async fn run(
                         Method::OPTIONS,
                     ])
                     .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+                    // sent with a 429 from the login route; a dashboard on another origin
+                    // can only read it if it is exposed
+                    .expose_headers([header::RETRY_AFTER])
                     .allow_origin(Any);
 
                 let trace = TraceLayer::new_for_http();
@@ -703,21 +824,8 @@ pub async fn run(
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new().nest("/api/v1", api_routes);
-                #[allow(unused_variables, unused_mut)]
-                let mut port = 16_662_u16;
-                #[cfg(not(debug_assertions))]
-                if port_in_use(port) {
-                    error!("Port {port} is already in use, exiting");
-                    std::process::exit(1);
-                }
-                #[cfg(debug_assertions)]
-                while port_in_use(port) {
-                    debug!("Port {port} is already in use, trying next port");
-                    port += 1;
-                }
-                let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
                 let axum_server_handle = axum_server::Handle::<SocketAddr>::new();
-                tokio::spawn({
+                let server_task = tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
                     async move {
                         match tls_config_result {
@@ -731,7 +839,12 @@ pub async fn run(
                                     .await
                             }
                             Err(e) => {
-                                warn!("Invalid TLS config : {e}, using HTTP");
+                                warn!(
+                                    "TLS is not set up ({e}). Lodestone Core is serving plain HTTP on all network interfaces, \
+                                     so passwords and login tokens are sent unencrypted to anyone on your network. \
+                                     To enable HTTPS, put cert.pem and key.pem in {}",
+                                    tls_dir.display()
+                                );
                                 info!("Lodestone Core live on {addr}");
                                 info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
                                 axum_server::bind(addr)
@@ -740,13 +853,16 @@ pub async fn run(
                                     .await
                             }
                         }
-                        .unwrap();
                     }
                 });
                 // capture file into the move block
                 let _lock_file = lock_file;
                 select! {
-                    _ = write_to_db_task => info!("Write to db task exited"),
+                    result = server_task => match result {
+                        Ok(Ok(())) => info!("Web server stopped"),
+                        Ok(Err(e)) => error!("Web server failed: {e}"),
+                        Err(e) => error!("Web server task failed: {e}"),
+                    },
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = shutdown_rx => info!("Shutdown signal received"),
@@ -762,8 +878,7 @@ pub async fn run(
                     error!("Failed to remove tmp dir : {}", e);
                     e
                 });
-                for entry in shared_state.instances.iter() {
-                    let instance = entry.value().clone();
+                for (_, instance) in snapshot_instances(&shared_state.instances) {
                     match instance.state().await {
                         State::Starting => {
                             let handle = tokio::spawn({
@@ -807,8 +922,8 @@ pub async fn run(
                 }
                 shared_state.instances.clear();
                 shared_state.macro_executor.shutdown_all();
-                // exit
-                std::process::exit(0);
+                info!("Shutdown complete");
+                // The caller decides how to exit the process once this future completes.
             }
         },
         shared_state,

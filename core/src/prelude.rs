@@ -57,7 +57,16 @@ pub fn app_state() -> &'static AppState {
 /// This function should only be called once.
 ///
 /// Also creates the directories if they don't exist.
+///
+/// # Panics
+/// If a directory cannot be created. [`try_init_paths`] returns the error instead.
 pub fn init_paths(lodestone_path: PathBuf) {
+    try_init_paths(lodestone_path).expect("Failed to create the Lodestone directories");
+}
+
+/// Same as [`init_paths`], but returns an error instead of panicking when a directory
+/// cannot be created.
+pub fn try_init_paths(lodestone_path: PathBuf) -> std::io::Result<()> {
     let path_to_instances = lodestone_path.join("instances");
     let path_to_binaries = lodestone_path.join("bin");
     let path_to_stores = lodestone_path.join("stores");
@@ -65,13 +74,10 @@ pub fn init_paths(lodestone_path: PathBuf) {
     let path_to_users = lodestone_path.join("stores").join("users.json");
     let path_to_tmp = lodestone_path.join("tmp");
 
-    std::fs::create_dir_all(&path_to_instances).unwrap();
-    std::fs::create_dir_all(&path_to_binaries).unwrap();
-    std::fs::create_dir_all(&path_to_stores).unwrap();
-    std::fs::create_dir_all(&path_to_tmp).unwrap();
-    // std::fs::File::create(&path_to_global_settings).unwrap();
-    // std::fs::File::create(&path_to_users).unwrap();
-    // std::fs::File::create(&path_to_tmp).unwrap();
+    std::fs::create_dir_all(&path_to_instances)?;
+    std::fs::create_dir_all(&path_to_binaries)?;
+    std::fs::create_dir_all(&path_to_stores)?;
+    std::fs::create_dir_all(&path_to_tmp)?;
 
     let _ = LODESTONE_PATH.set(lodestone_path);
     let _ = PATH_TO_INSTANCES.set(path_to_instances);
@@ -80,22 +86,42 @@ pub fn init_paths(lodestone_path: PathBuf) {
     let _ = PATH_TO_GLOBAL_SETTINGS.set(path_to_global_settings);
     let _ = PATH_TO_USERS.set(path_to_users);
     let _ = PATH_TO_TMP.set(path_to_tmp);
+    Ok(())
 }
 
-thread_local! {
-    // parse from Cargo.toml
-    pub static VERSION: semver::Version = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+/// A process-wide constant that is computed on first use.
+///
+/// `with` mirrors the API of the `thread_local!` statics these constants used to be, so
+/// `VERSION.with(|v| ...)` keeps working. New code can dereference it instead.
+pub struct LazyConst<T>(LazyLock<T>);
 
-    pub static LODESTONE_EPOCH_SEC: i64 = 1667530800;
-    pub static LODESTONE_EPOCH_MIL: i64 = 1667530800000;
+impl<T> LazyConst<T> {
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        f(&self.0)
+    }
 }
+
+impl<T> std::ops::Deref for LazyConst<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// The version of this build, parsed from Cargo.toml.
+pub static VERSION: LazyConst<semver::Version> = LazyConst(LazyLock::new(|| {
+    semver::Version::parse(env!("CARGO_PKG_VERSION")).expect("CARGO_PKG_VERSION is valid semver")
+}));
+
+pub const LODESTONE_EPOCH_SEC: i64 = 1667530800;
+pub const LODESTONE_EPOCH_MIL: i64 = LODESTONE_EPOCH_SEC * 1000;
 
 pub static SNOWFLAKE_GENERATOR: LazyLock<std::sync::Mutex<snowflake::SnowflakeIdGenerator>> =
     LazyLock::new(|| {
         std::sync::Mutex::new(snowflake::SnowflakeIdGenerator::with_epoch(
             1,
             1,
-            std::time::UNIX_EPOCH + std::time::Duration::from_millis(1667530800000),
+            std::time::UNIX_EPOCH + std::time::Duration::from_millis(LODESTONE_EPOCH_MIL as u64),
         ))
     });
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -15,7 +15,7 @@ import {
   ScriptableTooltipContext,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { useIntervalClockSeconds } from 'utils/hooks';
+import { useIntervalClock } from 'utils/hooks';
 import { asyncCallWithTimeout } from 'utils/util';
 
 ChartJS.register(
@@ -86,6 +86,18 @@ export default function PerformanceGraph({
   const counterRef = React.useRef(counterState);
   counterRef.current = counterState;
   const counter = counterProp ?? counterState;
+  const pollDelay_ms = pollrate_s * 1000;
+  // align polls to the wall clock; stable so the interval isn't recreated every render
+  const initialDelayGen = useCallback(
+    () => pollDelay_ms - (Date.now() % pollDelay_ms),
+    [pollDelay_ms]
+  );
+  // the pending history update, cleared on unmount
+  const pendingUpdate = useRef<{ timeout?: ReturnType<typeof setTimeout> }>({});
+  useEffect(() => {
+    const pending = pendingUpdate.current;
+    return () => clearTimeout(pending.timeout);
+  }, []);
 
   const update = async () => {
     if (!getter) return;
@@ -102,16 +114,20 @@ export default function PerformanceGraph({
       console.log(e);
     }
 
-    setTimeout(() => {
-      const newHistory = [...dataRef.current];
-      newHistory.shift();
-      newHistory.push(val);
-      setDataHistory(newHistory);
-      setCounterState(counterRef.current + 1);
-    }, Math.max(0, pollrate_s * 1000 - (Date.now() - now)));
+    pendingUpdate.current.timeout = setTimeout(
+      () => {
+        const newHistory = [...dataRef.current];
+        newHistory.shift();
+        newHistory.push(val);
+        setDataHistory(newHistory);
+        setCounterState(counterRef.current + 1);
+      },
+      Math.max(0, pollrate_s * 1000 - (Date.now() - now))
+    );
   };
 
-  useIntervalClockSeconds(update, pollrate_s);
+  // only poll when there is a getter; otherwise the data comes from props
+  useIntervalClock(update, getter ? pollDelay_ms : null, initialDelayGen);
 
   const displayData = data ?? dataHistory;
   const displayMax = maxProp ?? max;

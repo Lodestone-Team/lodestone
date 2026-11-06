@@ -5,16 +5,10 @@ import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
-import { QueryClient } from '@tanstack/react-query';
-import { Base64 } from 'js-base64';
 import React from 'react';
-import { LoginReply } from 'bindings/LoginReply';
-import { LoginValues } from 'pages/login/UserLogin';
-import { toast } from 'react-toastify';
-import { UserPermission } from 'bindings/UserPermission';
 import clsx, { ClassValue } from 'clsx';
 // eslint-disable-next-line no-restricted-imports
-import { extendTailwindMerge, twMerge } from 'tailwind-merge';
+import { extendTailwindMerge } from 'tailwind-merge';
 
 export const DISABLE_AUTOFILL = isEdge
   ? 'off-random-string-edge-stop-ignoring-autofill-off'
@@ -111,42 +105,56 @@ export function isAxiosError<ResponseType>(
   return axios.isAxiosError(error);
 }
 
-export function errorToString(error: unknown): string {
-  console.log(error)
-  if (isAxiosError<unknown>(error)) {
-    if (error.response && error.response.data) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let data: any = error.response.data;
+/**
+ * The error that every API helper in utils/apis.ts throws (through
+ * axiosWrapper). The message is already formatted for the user. status is the
+ * HTTP status, or undefined for network errors and timeouts.
+ */
+export class ApiError extends Error {
+  status: number | undefined;
+  kind: ClientError['kind'];
 
-      /* if response.data is a string parse it as a JSON object */
-      if (typeof data === 'string') {
-        // spaghetti code
-        if (data.startsWith('`Authorization`')) {
-          return 'Invalid token: try to log out and log in again';
-        }
-        data = JSON.parse(data);
-      }
-
-      /* if response.data is a blob parse it as a JSON object */
-      if (data instanceof Blob) {
-        const reader = new FileReader();
-        reader.readAsText(data);
-        // reader.onload = () => {
-        //   data = JSON.parse(reader.result as string);
-        // };
-      }
-
-      if (data && data.kind) {
-        // TODO: more runtime type checking
-        const clientError: ClientError = new ClientError(data);
-        return clientError.toString();
-      } else return `${error.code}: ${error.response.statusText}`;
-    } else {
-      if (error.code === 'ERR_NETWORK') return 'Network error';
-      else return `Network error: ${error.message}`;
-    }
+  constructor(message: string, status?: number, kind?: ClientError['kind']) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.kind = kind;
   }
-  if (error === null) return '';
+}
+
+// a response body can be a ClientError object, a JSON string of one, plain
+// text (e.g. a proxy's HTML error page) or a Blob (download requests)
+function parseErrorBody(data: unknown): unknown {
+  if (typeof data !== 'string') return data;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return data;
+  }
+}
+
+function isClientErrorBody(data: unknown): data is Partial<ClientError> {
+  return typeof data === 'object' && data !== null && 'kind' in data;
+}
+
+/**
+ * Formats any thrown value as a message for the user. Never throws.
+ */
+export function errorToString(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  if (isAxiosError<unknown>(error)) {
+    if (error.response) {
+      const data = parseErrorBody(error.response.data);
+      if (typeof data === 'string' && data.startsWith('`Authorization`')) {
+        return 'Invalid token: try to log out and log in again';
+      }
+      if (isClientErrorBody(data)) return new ClientError(data).toString();
+      return `${error.code}: ${error.response.statusText}`;
+    }
+    if (error.code === 'ERR_NETWORK') return 'Network error';
+    return `Network error: ${error.message}`;
+  }
+  if (error === null || error === undefined) return '';
   if (error instanceof Error) return error.message;
   // if it's string
   if (typeof error === 'string') return error;
@@ -154,8 +162,26 @@ export function errorToString(error: unknown): string {
 }
 
 /**
- * @throws Error with neatly formatted error message
- * @returns ResponseType
+ * Converts any thrown value to an ApiError, keeping the HTTP status and the
+ * error kind of axios errors.
+ */
+export function toApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  if (isAxiosError<unknown>(error)) {
+    const data = parseErrorBody(error.response?.data);
+    return new ApiError(
+      errorToString(error),
+      error.response?.status,
+      isClientErrorBody(data) ? data.kind : undefined
+    );
+  }
+  return new ApiError(errorToString(error));
+}
+
+/**
+ * The error convention for API helpers: resolves with the response data, or
+ * throws an ApiError whose message is formatted for the user.
+ * @throws ApiError
  */
 export async function axiosWrapper<ResponseType>(
   config: AxiosRequestConfig
@@ -164,7 +190,7 @@ export async function axiosWrapper<ResponseType>(
     const response = await axios.request<ResponseType>(config);
     return response.data;
   } catch (error) {
-    throw new Error(errorToString(error));
+    throw toApiError(error);
   }
 }
 
@@ -182,11 +208,10 @@ export async function axiosPutSingleValue<ResponseType>(
   });
 }
 
-// meant to be used with an async function
-// that throws an error if the condition is not met
-// and returns void otherwise
-// returns a string if the condition is not met
-// returns empty string otherwise
+/**
+ * Awaits a promise and returns '' if it resolved, or the formatted error
+ * message if it rejected. Never throws.
+ */
 export async function catchAsyncToString(
   promise: Promise<unknown>
 ): Promise<string> {
@@ -194,8 +219,7 @@ export async function catchAsyncToString(
     await promise;
     return '';
   } catch (e) {
-    if (e instanceof Error) return e.message;
-    return 'Unknown error';
+    return errorToString(e) || 'Unknown error';
   }
 }
 
@@ -407,14 +431,42 @@ export const getFileName = (path: string, direcotrySeparator: string) => {
 };
 
 // check if a core is localhost
+// IPv6 addresses are stored with brackets (see CoreConnect), e.g. [::1]
 export function isLocalCore(core: CoreConnectionInfo) {
+  const address = core.address.replace(/^\[(.*)\]$/, '$1');
   return (
-    core.address === 'localhost' ||
-    core.address === '127.0.0.1' ||
-    core.address === '::1' ||
-    /^0+:0+:0+:0+:0+:0+:0+:1+$/.test(core.address)
+    address === 'localhost' ||
+    address === '127.0.0.1' ||
+    address === '::1' ||
+    /^0+:0+:0+:0+:0+:0+:0+:1$/.test(address)
   );
 }
+
+// the REST base URL of a core, e.g. http://localhost:16662/api/v1
+export function coreApiBaseUrl(core: CoreConnectionInfo) {
+  return `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`;
+}
+
+// the WebSocket URL of a core endpoint, e.g. ws://localhost:16662/api/v1/events/all/stream
+// path starts with a slash and may include a query string
+export function coreWebSocketUrl(core: CoreConnectionInfo, path: string) {
+  const protocol = core.protocol === 'https' ? 'wss' : 'ws';
+  return `${protocol}://${core.address}:${core.port}/api/${core.apiVersion}${path}`;
+}
+
+/**
+ * Joins a directory and a name with the core's directory separator,
+ * e.g. joinPath('.', 'a', '\\') is '.\a'.
+ */
+export const joinPath = (
+  directory: string,
+  name: string,
+  direcotrySeparator: string
+) => {
+  if (directory === '') return name;
+  if (directory.endsWith(direcotrySeparator)) return `${directory}${name}`;
+  return `${directory}${direcotrySeparator}${name}`;
+};
 
 export function cn(...inputs: ClassValue[]) {
   return myTwMerge(clsx(...inputs));

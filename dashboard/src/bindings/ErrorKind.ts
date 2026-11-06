@@ -7,4 +7,5 @@ export type ErrorKind =
   | 'PermissionDenied'
   | 'Unauthorized'
   | 'External'
-  | 'Internal';
+  | 'Internal'
+  | 'TooManyRequests';

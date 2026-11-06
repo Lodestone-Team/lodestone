@@ -5,12 +5,29 @@ import Dropdown from './Atoms/Config/SelectBox';
 import InputBox from './Atoms/Config/InputBox';
 import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
-import { useUserAuthorized } from 'data/UserInfo';
+import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
+import { useGlobalSettings } from 'data/GlobalSettings';
 import ToggleBox from './Atoms/Config/ToggleBox';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
 import { AxiosError } from 'axios';
 import { toast } from 'react-toastify';
 import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';
+
+// Settings that choose the program an instance runs and its arguments. The
+// core answers 403 to anyone but the owner, or, with safe mode off, a user
+// allowed to write global files (handlers/instance_config.rs).
+const COMMAND_LINE_SETTINGS = ['java_cmd', 'cmd_args'];
+
+const useCanChangeCommandLine = () => {
+  const { data: user } = useUserInfo();
+  const { data: globalSettings } = useGlobalSettings();
+  if (!user) return false;
+  if (user.is_owner) return true;
+  return (
+    user.permissions.can_write_global_file &&
+    globalSettings?.safe_mode === false
+  );
+};
 
 export default function SettingField({
   instance,
@@ -29,28 +46,33 @@ export default function SettingField({
   descriptionFunc?: (arg: string | boolean) => React.ReactNode,
   onSubmit?: (updated: ConfigurableValue | null) => void
 }) {
-  const {
-    name: label,
-    type,
-    options,
-    description,
-    value: initialValue,
-    min,
-    max,
-    is_mutable,
-  } = setting;
+  const { name: label, type, options, value: initialValue, min, max } = setting;
+  const canChangeCommandLine = useCanChangeCommandLine();
+  const ownerOnly =
+    COMMAND_LINE_SETTINGS.includes(settingId) && !canChangeCommandLine;
+  const is_mutable = setting.is_mutable && !ownerOnly;
+  const description = ownerOnly ? (
+    <>
+      {setting.description}
+      <span className="block italic">
+        Only the owner can change this setting.
+      </span>
+    </>
+  ) : (
+    setting.description
+  );
   const uuid = instance.uuid;
   const can_access_instance_setting = useUserAuthorized(
     'can_access_instance_setting',
     instance.uuid
   );
-  const [value, setValue] = useState(
-    initialValue ? initialValue.value.toString() : ''
-  );
+  const initialString = initialValue ? initialValue.value.toString() : '';
+  const [value, setValue] = useState(initialString);
 
+  // keep the field in sync when the setting changes from outside
   useIsomorphicLayoutEffect(() => {
-    setValue(value.toString() ?? '');
-  }, [value]);
+    setValue(initialString);
+  }, [initialString]);
 
   const errorString = errorToString(error);
   const URL = `/instance/${uuid}/settings/${sectionId}/${settingId}`;
@@ -94,7 +116,7 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            submitSettingField(value);
+            await submitSettingField(value);
             setValue(value);
           }}
           description={description}
@@ -111,7 +133,7 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            submitSettingField(value);
+            await submitSettingField(value);
             setValue(value);
           }}
           description={description}
@@ -130,7 +152,7 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onSubmit={async (value) => {
-            submitSettingField(value);
+            await submitSettingField(value);
             setValue(value);
           }}
           description={description}

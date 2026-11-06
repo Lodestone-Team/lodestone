@@ -7,6 +7,7 @@ import { useContext } from 'react';
 import { moveInstanceFileOrDirectory } from 'utils/apis';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
+import { useFileViewer } from './FileViewerContext';
 
 export default function CreateFileForm({
   onSuccess,
@@ -20,11 +21,11 @@ export default function CreateFileForm({
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
 
-  if (!instance) throw new Error('No instance selected');
+  // the same separator as the rest of the file viewer, taken from the
+  // instance path (a top-level file's own path has no separator in it)
+  const { directorySeparator } = useFileViewer();
 
-  let directorySeparator = '\\';
-  // assume only linux paths contain /
-  if (path.includes('/')) directorySeparator = '/';
+  if (!instance) throw new Error('No instance selected');
 
   return (
     <Formik

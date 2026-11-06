@@ -21,10 +21,12 @@ pub async fn setup_owner(
     Path(key): Path<String>,
     Json(owner_setup): Json<OwnerSetup>,
 ) -> Result<Json<LoginReply>, Error> {
+    // Hold the setup key lock until the owner is saved: a second request waits here and then
+    // sees the key gone. The key is only used up once the owner is saved, so a failed write
+    // can be retried.
     let mut setup_key_lock = state.first_time_setup_key.lock().await;
-    match setup_key_lock.clone() {
+    match setup_key_lock.as_deref() {
         Some(k) if k == key => {
-            setup_key_lock.take();
             let owner = User::new(
                 owner_setup.username,
                 &owner_setup.password,
@@ -38,6 +40,7 @@ pub async fn setup_owner(
                 .await
                 .add_user(owner.clone(), CausedBy::System)
                 .await?;
+            setup_key_lock.take();
             Ok(Json(LoginReply {
                 token: owner.create_jwt()?,
                 user: owner.into(),

@@ -15,6 +15,10 @@ type Monaco = typeof monaco;
 // package by scripts/copy-monaco.mjs (run by `npm run dev` / `npm run build`).
 loader.config({ paths: { vs: '/monaco/vs' } });
 
+// monaco is a page-wide singleton, so the theme and the toml language only
+// need to be registered once, not on every editor mount
+let monacoConfigured = false;
+
 // A wrapper of monaco editor for file editing, with toml support and ctrl+s
 export function FileEditor({
   file,
@@ -34,6 +38,10 @@ export function FileEditor({
   const queryClient = useQueryClient();
   const fileContentRef = useRef<string | undefined>(undefined);
   fileContentRef.current = fileContent;
+  const originalFileContentRef = useRef(originalFileContent);
+  useIsomorphicLayoutEffect(() => {
+    originalFileContentRef.current = originalFileContent;
+  }, [originalFileContent]);
 
   const monaco = useMonaco();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -44,6 +52,14 @@ export function FileEditor({
     monaco: Monaco
   ) {
     editorRef.current = editor;
+    // Monaco may have reused a model left over for this path, which holds
+    // whatever text it had last time. Reset it to the content just loaded from
+    // the server, so stale text can't be saved over a newer file.
+    const freshContent = originalFileContentRef.current ?? '';
+    const model = editor.getModel();
+    if (model && model.getValue() !== freshContent)
+      model.setValue(freshContent);
+    setFileContent(freshContent);
     // add ctrl+s save
     if (!instance) return;
     if (!file) return;
@@ -56,7 +72,6 @@ export function FileEditor({
         queryClient
       )
     );
-    setFileContent(editor.getValue());
   }
 
   // for overwriting the file type for certain files
@@ -69,7 +84,8 @@ export function FileEditor({
   useIsomorphicLayoutEffect(() => {
     // set monaco theme, just a different background color
     // also set some ts settings
-    if (monaco) {
+    if (monaco && !monacoConfigured) {
+      monacoConfigured = true;
       monaco.editor.defineTheme('lodestone-dark', {
         base: 'vs-dark',
         inherit: true,
@@ -124,7 +140,8 @@ export function FileEditor({
       language={monacoLanguage}
       saveViewState={true}
       onMount={handleEditorDidMount}
-      keepCurrentModel={true}
+      // dispose the model when the file is closed instead of keeping it
+      keepCurrentModel={false}
     />
   );
 }

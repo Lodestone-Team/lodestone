@@ -2,14 +2,13 @@ use std::fmt::{Display, Formatter};
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::Json;
 use color_eyre::Report;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use thiserror::Error;
+use tracing::{error, warn};
 use ts_rs::TS;
-
-use crate::error;
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[ts(export)]
@@ -19,6 +18,8 @@ pub enum ErrorKind {
     BadRequest,
     PermissionDenied,
     Unauthorized,
+    // too many attempts in a short time, such as failed logins (HTTP 429)
+    TooManyRequests,
     External,
     Internal,
 }
@@ -58,12 +59,17 @@ impl Display for ErrorKind {
             ErrorKind::BadRequest => write!(f, "Bad Request"),
             ErrorKind::PermissionDenied => write!(f, "Permission Denied"),
             ErrorKind::Unauthorized => write!(f, "Unauthorized"),
+            ErrorKind::TooManyRequests => write!(f, "Too Many Requests"),
             ErrorKind::Internal => write!(f, "Internal Error"),
             ErrorKind::External => write!(f, "External Error"),
         }
     }
 }
 
+/// The body sent to clients: `{"kind": ..., "causes": [<top-level message>]}`.
+///
+/// Only the top-level message is included. The causes below it can hold absolute paths and
+/// I/O or database details, so they are only logged (see `IntoResponse`).
 impl Serialize for Error {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -71,8 +77,7 @@ impl Serialize for Error {
     {
         let mut state = serializer.serialize_struct("Error", 2)?;
         state.serialize_field("kind", &self.kind)?;
-        let vec: Vec<String> = self.source.chain().map(|cause| cause.to_string()).collect();
-        state.serialize_field("causes", &vec)?;
+        state.serialize_field("causes", &[self.source.to_string()])?;
         state.end()
     }
 }
@@ -87,6 +92,23 @@ fn test_error_serialization() {
     assert_eq!(json, r#"{"kind":"NotFound","causes":["Test"]}"#);
 }
 
+#[test]
+fn test_error_serialization_hides_inner_causes() {
+    use color_eyre::eyre::WrapErr;
+    let source = Err::<(), _>(std::io::Error::other("/home/someone/secret/path"))
+        .wrap_err("Failed to read file")
+        .unwrap_err();
+    let error = Error {
+        kind: ErrorKind::Internal,
+        source,
+    };
+    let json = serde_json::to_string(&error).unwrap();
+    assert_eq!(
+        json,
+        r#"{"kind":"Internal","causes":["Failed to read file"]}"#
+    );
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let status = match self.kind {
@@ -95,10 +117,17 @@ impl IntoResponse for Error {
             ErrorKind::BadRequest => StatusCode::BAD_REQUEST,
             ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
+            ErrorKind::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             ErrorKind::External => StatusCode::BAD_GATEWAY,
         };
-        (status, json!(self).to_string()).into_response()
+        // the client only gets the top-level message, so log the whole chain here
+        if status.is_server_error() {
+            error!("Request failed ({}): {:#}", self.kind, self.source);
+        } else {
+            warn!("Request failed ({}): {:#}", self.kind, self.source);
+        }
+        (status, Json(self)).into_response()
     }
 }
 

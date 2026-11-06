@@ -12,9 +12,10 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useInstanceList } from 'data/InstanceList';
 import { SettingsContext } from 'data/SettingsContext';
 import { useUid, useUserInfo } from 'data/UserInfo';
-import { Fragment, useContext, useState } from 'react';
+import { Fragment, useContext, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { changeUserPermissions } from 'utils/apis';
+import { errorToString } from 'utils/util';
 import CreateUserForm from '../../components/Settings/CreateUserForm';
 import { useDocumentTitle } from 'usehooks-ts';
 
@@ -124,12 +125,11 @@ export const UserSettings = () => {
   const uid = useUid();
   const { data: globalSettings } = useGlobalSettings();
 
-  const updateCachedPermissions = async (
+  const updateCachedPermissions = (
     permissions: UserPermission,
     selectedUid: string
   ) => {
-    if (!selectedUser) return;
-    if (selectedUser.uid === uid) {
+    if (selectedUid === uid) {
       queryClient.setQueryData(
         ['user', 'info'],
         (oldInfo: PublicUser | undefined) => {
@@ -144,16 +144,40 @@ export const UserSettings = () => {
     queryClient.setQueryData(
       ['user', 'list'],
       (oldList: { [uid: string]: PublicUser } | undefined) => {
-        if (!oldList) return oldList;
+        if (!oldList || !oldList[selectedUid]) return oldList;
         return {
           ...oldList,
-          [selectedUser.uid]: {
-            ...selectedUser,
+          [selectedUid]: {
+            ...oldList[selectedUid],
             permissions,
           },
         };
       }
     );
+  };
+
+  // Permission changes are sent one at a time, and each is built from the
+  // newest cached permissions when it is sent. Building every request from
+  // the render's snapshot let a second quick toggle undo the first.
+  const permissionQueue = useRef<Promise<void>>(Promise.resolve());
+  const changePermission = (
+    user: PublicUser,
+    update: (latest: UserPermission) => UserPermission
+  ) => {
+    permissionQueue.current = permissionQueue.current.then(async () => {
+      const latest =
+        queryClient.getQueryData<{ [uid: string]: PublicUser }>([
+          'user',
+          'list',
+        ])?.[user.uid]?.permissions ?? user.permissions;
+      const newPermissions = update(latest);
+      try {
+        await changeUserPermissions(user.uid, newPermissions);
+        updateCachedPermissions(newPermissions, user.uid);
+      } catch (e) {
+        toast.error(errorToString(e));
+      }
+    });
   };
 
   const UserBoxes = !selectedUser && (
@@ -244,22 +268,25 @@ export const UserSettings = () => {
                   optionLabel={(uuid) => instanceList?.[uuid]?.name || uuid}
                   optionKey={(uuid) => uuid}
                   onChange={(newSettings) => {
-                    // I hate typescript
-                    // |- me too
-                    const newPermissions = {
-                      ...selectedUser.permissions,
-                      [permission.permission]: newSettings,
-                    };
-                    changeUserPermissions(selectedUser.uid, newPermissions)
-                      .then(() => {
-                        updateCachedPermissions(
-                          newPermissions,
-                          selectedUser.uid
-                        );
-                      })
-                      .catch((e) => {
-                        toast.error(e.message);
-                      });
+                    // apply only what this click changed, so it combines
+                    // with changes still being sent
+                    const before = new Set(currentSettings);
+                    const after = new Set(newSettings);
+                    changePermission(selectedUser, (latest) => {
+                      const latestList = latest[
+                        permission.permission
+                      ] as string[];
+                      const kept = latestList.filter(
+                        (id) => !before.has(id) || after.has(id)
+                      );
+                      const added = newSettings.filter(
+                        (id) => !before.has(id) && !kept.includes(id)
+                      );
+                      return {
+                        ...latest,
+                        [permission.permission]: [...kept, ...added],
+                      };
+                    });
                   }}
                   disabled={!canManageUsers || disabled}
                 />
@@ -268,20 +295,10 @@ export const UserSettings = () => {
                 <Toggle
                   value={currentSettings}
                   onChange={(value: boolean) => {
-                    const newPermissions = {
-                      ...selectedUser.permissions,
+                    changePermission(selectedUser, (latest) => ({
+                      ...latest,
                       [permission.permission]: value,
-                    };
-                    changeUserPermissions(selectedUser.uid, newPermissions)
-                      .then(() => {
-                        updateCachedPermissions(
-                          newPermissions,
-                          selectedUser.uid
-                        );
-                      })
-                      .catch((e) => {
-                        toast.error(e.message);
-                      });
+                    }));
                   }}
                   disabled={!canManageUsers || disabled}
                 />

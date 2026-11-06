@@ -56,6 +56,7 @@ mod tests {
         let relative_path = Path::new("other/file.txt");
         let (virtual_path, _, mount_point) = get_virtual_path(&roots, relative_path).unwrap();
         assert_eq!(virtual_path, Path::new("/user/other/file.txt"));
+        assert_eq!(mount_point, "other");
     }
 
     #[test]

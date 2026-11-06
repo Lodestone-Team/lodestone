@@ -1,35 +1,15 @@
 use axum::{extract::Path, routing::put, Json, Router};
-use axum_auth::AuthBearer;
 
-use color_eyre::eyre::eyre;
+use crate::{error::Error, port_manager::PortManager, AppState};
 
-use crate::{
-    error::{Error, ErrorKind},
-    AppState,
-};
+use super::util::AuthedUser;
 
-pub async fn open_port(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
-    Path(port): Path<u16>,
-) -> Result<Json<()>, Error> {
-    let requester = state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::Unauthorized,
-            source: eyre!("Token error"),
-        })?;
-    if !requester.is_owner {
-        return Err(Error {
-            kind: ErrorKind::Unauthorized,
-            source: eyre!("Only owners can open ports"),
-        });
-    }
-
-    Ok(Json(state.port_manager.lock().await.open_port(port).await?))
+pub async fn open_port(requester: AuthedUser, Path(port): Path<u16>) -> Result<Json<()>, Error> {
+    requester.require_owner()?;
+    // The UPnP gateway search can take seconds; it does not need the port manager, so its
+    // lock is not held while it runs.
+    PortManager::open_upnp_port(port).await?;
+    Ok(Json(()))
 }
 
 pub fn get_gateway_routes(state: AppState) -> Router {

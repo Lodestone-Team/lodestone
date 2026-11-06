@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 
-use axum::Json;
 use color_eyre::eyre::{self, Context};
 use serde_json::Value;
 use tracing::error;
 use ts_rs::TS;
 
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 
 pub mod atom;
 pub mod git;
@@ -71,9 +70,11 @@ pub struct ManifestWithMetadata {
     pub domain: String,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug)]
 pub enum FetchExtensionManifestError {
     NotFound,
+    /// The URL the caller sent is not a GitHub repository URL.
+    InvalidUrl(String),
     Http(String),
     BadResponse(String),
     BadManifest(String),
@@ -86,6 +87,10 @@ impl From<FetchExtensionManifestError> for Error {
             FetchExtensionManifestError::NotFound => Error {
                 kind: crate::error::ErrorKind::NotFound,
                 source: eyre::eyre!("GitHub API returned 404. Does the user and repo exist?"),
+            },
+            FetchExtensionManifestError::InvalidUrl(e) => Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre::eyre!(e),
             },
             FetchExtensionManifestError::Other(status_code, e) => Error {
                 kind: crate::error::ErrorKind::External,
@@ -107,46 +112,74 @@ impl From<FetchExtensionManifestError> for Error {
     }
 }
 
+/// Whether `name` is non-empty, at most 100 characters, and only has ASCII letters, digits,
+/// and the characters in `extra`.
+fn is_plain_name(name: &str, extra: &[char]) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || extra.contains(&c))
+}
+
+/// GitHub user and organization names: letters, digits and `-`, not starting with `-`.
+fn is_valid_github_user(name: &str) -> bool {
+    is_plain_name(name, &['-']) && !name.starts_with('-')
+}
+
+/// GitHub repository names: letters, digits, `-`, `_` and `.`, but not `.` or `..`, and not
+/// starting with `-` (so it can never look like a command-line option).
+fn is_valid_github_repo(name: &str) -> bool {
+    is_plain_name(name, &['-', '_', '.']) && name != "." && name != ".." && !name.starts_with('-')
+}
+
+/// Extension names from a manifest become folder names: letters, digits, `-` and `_`.
+pub fn is_valid_extension_name(name: &str) -> bool {
+    is_plain_name(name, &['-', '_']) && !name.starts_with('-')
+}
+
+/// Parses `https://github.com/<user>/<repo>` into the user and repo.
+fn parse_github_url(url: &str) -> Result<(String, String, String), FetchExtensionManifestError> {
+    let invalid = |msg: &str| {
+        error!("Invalid extension url {}: {}", url, msg);
+        FetchExtensionManifestError::InvalidUrl(format!("Invalid extension URL: {msg}"))
+    };
+    let parsed = url::Url::parse(url).map_err(|e| invalid(&e.to_string()))?;
+    if parsed.scheme() != "https" && parsed.scheme() != "http" {
+        return Err(invalid("the URL must start with https://"));
+    }
+    let domain = parsed
+        .domain()
+        .ok_or_else(|| invalid("the URL has no domain"))?
+        .to_string();
+    if domain != "github.com" && domain != "www.github.com" {
+        return Err(invalid("only GitHub repositories are supported"));
+    }
+    let mut segments = parsed
+        .path_segments()
+        .ok_or_else(|| invalid("the URL has no path"))?;
+    let username = segments
+        .next()
+        .ok_or_else(|| invalid("the URL has no GitHub user"))?
+        .to_string();
+    let repo = segments
+        .next()
+        .ok_or_else(|| invalid("the URL has no repository"))?;
+    let repo = repo.strip_suffix(".git").unwrap_or(repo).to_string();
+    if !is_valid_github_user(&username) {
+        return Err(invalid("the GitHub user name is not valid"));
+    }
+    if !is_valid_github_repo(&repo) {
+        return Err(invalid("the repository name is not valid"));
+    }
+    Ok((domain, username, repo))
+}
+
 pub async fn get_manifest(
     url: impl AsRef<str>,
 ) -> Result<ManifestWithMetadata, FetchExtensionManifestError> {
     // https://github.com/Lodestone-Team/lodestone
-
-    let _url = url::Url::parse(url.as_ref()).map_err(|e| {
-        error!("Failed to parse url: {}", e);
-        FetchExtensionManifestError::Other(500, e.to_string())
-    })?;
-    let domain = _url
-        .domain()
-        .ok_or_else(|| {
-            error!("Failed to get domain");
-            FetchExtensionManifestError::Other(500, "Failed to get domain".to_string())
-        })?
-        .to_string();
-    let username = _url
-        .path_segments()
-        .ok_or_else(|| {
-            error!("Failed to get path segments");
-            FetchExtensionManifestError::Other(500, "Failed to get path segments".to_string())
-        })?
-        .nth(0)
-        .ok_or_else(|| {
-            error!("Failed to get username");
-            FetchExtensionManifestError::Other(500, "Failed to get username".to_string())
-        })?
-        .to_string();
-    let repo = _url
-        .path_segments()
-        .ok_or_else(|| {
-            error!("Failed to get path segments");
-            FetchExtensionManifestError::Other(500, "Failed to get path segments".to_string())
-        })?
-        .nth(1)
-        .ok_or_else(|| {
-            error!("Failed to get repo");
-            FetchExtensionManifestError::Other(500, "Failed to get repo".to_string())
-        })?
-        .to_string();
+    let (domain, username, repo) = parse_github_url(url.as_ref())?;
 
     let url = format!("https://api.github.com/repos/{username}/{repo}/contents/lodestone.json",);
 
@@ -172,11 +205,14 @@ pub async fn get_manifest(
                 error!("Failed to parse extension manifest: {}", e);
                 FetchExtensionManifestError::BadManifest(e.to_string())
             })?;
+            // clone from the same repository the manifest was read from, not from the URL
+            // the caller sent
+            let url = format!("https://github.com/{username}/{repo}.git");
             Ok(ManifestWithMetadata {
                 manifest,
                 username,
                 repo,
-                url: _url.to_string(),
+                url,
                 domain,
             })
         }
@@ -197,19 +233,13 @@ pub async fn get_manifest(
 }
 
 pub struct ExtensionManager {
-    extension_path: PathBuf,
     atom_path: PathBuf,
-    macro_path: PathBuf,
 }
 
 impl ExtensionManager {
     pub fn new(extension_path: PathBuf) -> Self {
-        let atom_path = extension_path.join("atom");
-        let macro_path = extension_path.join("macro");
         Self {
-            extension_path,
-            atom_path,
-            macro_path,
+            atom_path: extension_path.join("atom"),
         }
     }
 
@@ -221,7 +251,12 @@ impl ExtensionManager {
                 self.install_atom(&manifest.username, &manifest.url, &manifest.manifest.name)
                     .await?
             }
-            ExtensionType::Macro => todo!(),
+            ExtensionType::Macro => {
+                return Err(Error {
+                    kind: ErrorKind::UnsupportedOperation,
+                    source: eyre::eyre!("Installing macro extensions is not supported yet"),
+                })
+            }
         };
         Ok(extension_path)
     }
@@ -232,16 +267,88 @@ impl ExtensionManager {
         url: &str,
         atom_name: &str,
     ) -> Result<PathBuf, Error> {
+        let dir_name = atom_dir_name(username, atom_name)?;
         tokio::fs::create_dir_all(&self.atom_path)
             .await
             .context("Failed to create atom directory")?;
         // check if the extension already exists
-        let path = self.atom_path.join(atom_name);
-        if path.exists() {
+        let path = self.atom_path.join(&dir_name);
+        if tokio::fs::try_exists(&path).await.unwrap_or(false) {
             return Ok(path);
         }
-        let git =
-            git::GitClient::clone(url, &self.atom_path, format!("{atom_name}.{username}")).await?;
+        let git = git::GitClient::clone(url, &self.atom_path, &dir_name).await?;
         Ok(git.cwd())
+    }
+}
+
+/// The folder an atom is cloned into: `<atom name>.<GitHub user>`.
+fn atom_dir_name(username: &str, atom_name: &str) -> Result<String, Error> {
+    if !is_valid_extension_name(atom_name) {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre::eyre!(
+                "Extension name must only contain letters, digits, '-' and '_' and not start with '-'"
+            ),
+        });
+    }
+    if !is_valid_github_user(username) {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre::eyre!("Invalid GitHub user name"),
+        });
+    }
+    Ok(format!("{atom_name}.{username}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_github_urls() {
+        let (domain, user, repo) =
+            parse_github_url("https://github.com/Lodestone-Team/lodestone").unwrap();
+        assert_eq!(domain, "github.com");
+        assert_eq!(user, "Lodestone-Team");
+        assert_eq!(repo, "lodestone");
+        let (_, _, repo) = parse_github_url("https://github.com/a/b.c.git").unwrap();
+        assert_eq!(repo, "b.c");
+    }
+
+    #[test]
+    fn rejects_bad_urls() {
+        for url in [
+            "not a url",
+            "https://example.com/a/b",
+            "file:///etc/passwd",
+            "https://github.com/a",
+            "https://github.com/-a/b",
+            "https://github.com/a/..",
+            "https://github.com/a/-b",
+            "https://github.com/a/b%20c",
+        ] {
+            assert!(
+                matches!(
+                    parse_github_url(url),
+                    Err(FetchExtensionManifestError::InvalidUrl(_))
+                ),
+                "{url} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn atom_dir_names_are_plain() {
+        assert_eq!(
+            atom_dir_name("user", "my_atom-1").unwrap(),
+            "my_atom-1.user"
+        );
+        for name in ["", "../x", "a/b", "--config=core.sshCommand=x", "a b", ".."] {
+            assert!(
+                atom_dir_name("user", name).is_err(),
+                "{name} should be rejected"
+            );
+        }
+        assert!(atom_dir_name("bad/user", "atom").is_err());
     }
 }

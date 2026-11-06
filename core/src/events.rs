@@ -13,10 +13,6 @@ use crate::{
     types::{InstanceUuid, Snowflake, TimeRange},
 };
 
-pub trait EventFilter {
-    fn filter(&mut self, event: impl AsRef<ClientEvent>) -> bool;
-}
-
 #[derive(Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct EventQuery {
@@ -365,10 +361,6 @@ pub struct Event {
     pub caused_by: CausedBy,
 }
 
-pub trait IntoEvent {
-    fn into_event(self, caused_by: CausedBy, details: String) -> Event;
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq, Eq)]
 #[ts(export)]
 #[derive(sqlx::Type)]
@@ -377,17 +369,6 @@ pub enum EventLevel {
     Warning,
     Error,
 }
-
-// impl From<&EventInner> for EventType {
-//     fn from(event_inner: &EventInner) -> Self {
-//         match event_inner {
-//             EventInner::InstanceEvent(_) => EventType::InstanceEvent,
-//             EventInner::UserEvent(_) => EventType::UserEvent,
-//             EventInner::MacroEvent(_) => EventType::MacroEvent,
-//             EventInner::ProgressionEvent(_) => EventType::ProgressionEvent,
-//         }
-//     }
-// }
 
 impl From<&ClientEvent> for Event {
     fn from(client_event: &ClientEvent) -> Event {

@@ -6,16 +6,17 @@ import { InstanceContext } from 'data/InstanceContext';
 import { CommandHistoryContext } from 'data/CommandHistoryContext';
 import { useUserAuthorized } from 'data/UserInfo';
 import Tooltip from 'rc-tooltip';
-import { useContext, useEffect } from 'react';
+import { useContext, useLayoutEffect, useMemo } from 'react';
 import { useRef, useState } from 'react';
-import { useLocalStorageQueryParam, usePrevious } from 'utils/hooks';
-import { DISABLE_AUTOFILL } from 'utils/util';
+import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
 import { useDocumentTitle } from 'usehooks-ts';
-import Button from './Atoms/Button';
 import Checkbox from './Atoms/Checkbox';
+import { toast } from 'react-toastify';
 
 const autoScrollThreshold = 10;
+// rendering is the slow part, so only the newest lines are put in the DOM
+const maxRenderedLines = 2000;
 
 export default function GameConsole() {
   useDocumentTitle('Instance Console - Lodestone');
@@ -26,12 +27,7 @@ export default function GameConsole() {
     'can_access_instance_console',
     uuid
   );
-  const defaultFilters = {
-    "PlayerMessage": true, 
-    "SystemMessage": true, 
-    "InstanceOutput": true
-  }
-  const { consoleLog, consoleStatus, clearConsoleLog } = useConsoleStream(uuid);
+  const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
   const [filter, setFilter] = useState('');
   const [regex, setRegex] = useState(true);
@@ -40,37 +36,71 @@ export default function GameConsole() {
   );
   const [commandNav, setCommandNav] = useState(commandHistory.length);
   const listRef = useRef<HTMLOListElement>(null);
-  const isAtBottom = listRef.current
-    ? listRef.current.scrollHeight -
-        listRef.current.scrollTop -
-        listRef.current.clientHeight <
-      autoScrollThreshold
-    : false;
-  const oldIsAtBottom = usePrevious(isAtBottom);
+  // whether the user was at the bottom of the list the last time they
+  // scrolled; starts true so the console opens at the newest line
+  const stickToBottomRef = useRef(true);
+
+  const onListScroll = () => {
+    const list = listRef.current;
+    if (!list) return;
+    stickToBottomRef.current =
+      list.scrollHeight - list.scrollTop - list.clientHeight <
+      autoScrollThreshold;
+  };
 
   const scrollToBottom = () => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
+    stickToBottomRef.current = true;
   };
 
-  // if the user is already at the bottom of the list, scroll to the bottom when new items are added
-  // otherwise, don't scroll
-  useEffect(() => {
-    if (oldIsAtBottom) scrollToBottom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consoleLog]);
+  // one compiled filter for the whole list, rebuilt only when it changes
+  const visibleLines = useMemo(() => {
+    let matches: (line: ConsoleEvent) => boolean = () => true;
+    if (filter !== '') {
+      if (regex) {
+        let filterRegex: RegExp | null = null;
+        try {
+          filterRegex = new RegExp(filter, 'i');
+        } catch {
+          // an invalid regex matches nothing, as before
+        }
+        matches = (line) => filterRegex?.test(line.message) ?? false;
+      } else {
+        const needle = filter.toLowerCase();
+        matches = (line) => line.message.toLowerCase().includes(needle);
+      }
+    }
+    const filtered = filter === '' ? consoleLog : consoleLog.filter(matches);
+    return {
+      lines: filtered.slice(-maxRenderedLines),
+      hiddenCount: Math.max(0, filtered.length - maxRenderedLines),
+    };
+  }, [consoleLog, filter, regex]);
 
-  const sendCommand = (command: string) => {
-    axios({
-      method: 'post',
-      url: `/instance/${uuid}/console`,
-      data: JSON.stringify(command),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+  // if the user was at the bottom of the list, keep them there when new
+  // lines are added; if they scrolled up, leave them where they are
+  useLayoutEffect(() => {
+    if (stickToBottomRef.current && listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [visibleLines]);
+
+  const sendCommand = async (command: string) => {
     scrollToBottom();
+    try {
+      await axios({
+        method: 'post',
+        url: `/instance/${uuid}/console`,
+        data: JSON.stringify(command),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+    } catch (e) {
+      toast.error(`Failed to send command: ${errorToString(e)}`);
+    }
   };
 
   let consoleStatusMessage = '';
@@ -137,36 +167,12 @@ export default function GameConsole() {
     }
   };
 
-  const filterMessage = (line: ConsoleEvent) => {
-    if (filter == '') return true;
-    if (regex) {
-      try {
-        const filterRegex = new RegExp(filter, "i");
-        if (line.message.match(filterRegex)) return true;
-      } catch (e) {
-        console.log("regex invalid!!!");
-      }
-    } else {
-      if (line.message.toLowerCase().indexOf(filter.toLowerCase()) != -1) return true;
-    }
-    return false;
-  }
-
   const checkRegex = (checked: boolean) => {
   setRegex(checked)
   }
 
   return (
     <div className="relative flex h-full w-full grow flex-col pt-0">
-      {/* <div className="flex flex-row mb-3 justify-between">
-        <Button
-            align="start"
-            labelGrow={true}
-            label="clear console"
-            onClick={() => clearConsoleLog()}
-            disabled={false}
-        />
-      </div> */}
       <div className="font-mono text-small mb-3 flex flex-row w-full justify-between">
             <input
               className="w-full rounded-lg bg-gray-850 py-1 px-4 text-gray-300 placeholder:text-gray-500 focus:outline-hidden disabled:placeholder:text-gray-500"
@@ -211,16 +217,22 @@ export default function GameConsole() {
           <ol
             className="font-light flex h-0 grow rounded-t-lg flex-col overflow-y-auto whitespace-pre-wrap break-words border-b border-gray-faded/30 bg-gray-900 py-3 font-mono text-small tracking-tight text-gray-300"
             ref={listRef}
+            onScroll={onListScroll}
           >
-            {consoleLog.map((line) => {
-              return filterMessage(line) ?
+            {visibleLines.hiddenCount > 0 && (
+              <li className="px-4 py-0.5 text-gray-500 italic">
+                {visibleLines.hiddenCount.toLocaleString()} older lines hidden
+                (showing the newest {maxRenderedLines.toLocaleString()})
+              </li>
+            )}
+            {visibleLines.lines.map((line) => (
               <li
                 key={line.snowflake}
-                className="py-[0.125rem] px-4 hover:bg-gray-800"
+                className="px-4 py-[0.125rem] hover:bg-gray-800"
               >
                 {line.message}
-              </li> : <li></li>
-            })}
+              </li>
+            ))}
           </ol>
         )}
         <div className="font-mono text-small">

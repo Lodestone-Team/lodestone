@@ -1,28 +1,26 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ClientFile } from 'bindings/ClientFile';
-import { FileType } from 'bindings/FileType';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
 import { InstanceContext } from 'data/InstanceContext';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { useContext } from 'react';
 import { createInstanceFile } from 'utils/apis';
-import { DISABLE_AUTOFILL, fileSorter } from 'utils/util';
+import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
+import { useFileViewer } from './FileViewerContext';
 
 export default function CreateFileForm({
   onSuccess,
   onCancel,
-  fileList,
   path,
 }: {
   onSuccess: () => void;
   onCancel: () => void;
-  fileList?: ClientFile[];
   path: string;
 }) {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
+  const { directorySeparator } = useFileViewer();
 
   if (!instance) throw new Error('No instance selected');
 
@@ -40,31 +38,18 @@ export default function CreateFileForm({
         const error = await createInstanceFile(
           instance.uuid,
           path,
-          values.name
+          values.name,
+          directorySeparator
         );
         if (error) {
           actions.setErrors({ name: error });
           actions.setSubmitting(false);
         } else {
-          queryClient.setQueryData(
-            ['instance', instance.uuid, 'fileList', path],
-            fileList
-              ? [
-                  ...fileList,
-                  {
-                    name: values.name,
-                    file_stem : values.name.split('.').slice(0, -1).join('.'),
-                    extension : values.name.split('.').pop() ?? '',
-                    path: `${path}/${values.name}`,
-                    size : 0,
-                    creation_time: Date.now() / 1000,
-                    modification_time: Date.now() / 1000,
-                    file_type: 'File' as FileType,
-                    
-                  },
-                ].sort(fileSorter)
-              : undefined
-          );
+          // refetch the folder it was created in, rather than guessing the
+          // new entry's metadata
+          queryClient.invalidateQueries({
+            queryKey: ['instance', instance.uuid, 'fileList', path],
+          });
           actions.setSubmitting(false);
           actions.resetForm();
           onSuccess();

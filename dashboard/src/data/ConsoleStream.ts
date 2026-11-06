@@ -1,11 +1,15 @@
-import { getSnowflakeTimestamp, LODESTONE_PORT } from './../utils/util';
+import { coreWebSocketUrl, getSnowflakeTimestamp } from './../utils/util';
 import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { ClientEvent } from 'bindings/ClientEvent';
+import { openReconnectingWebSocket } from 'utils/websocket';
+
+/** Only the newest lines are kept, older ones are dropped. */
+export const MAX_CONSOLE_LINES = 5000;
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -62,24 +66,67 @@ const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
   };
 };
 
+const isConsoleOutput = (event: ClientEvent) =>
+  event.event_inner.type === 'InstanceEvent' &&
+  event.event_inner.instance_event_inner.type === 'InstanceOutput';
+
+// snowflakes are 64-bit, so compare them as BigInt
+const compareSnowflakes = (a: string, b: string) => {
+  const x = BigInt(a);
+  const y = BigInt(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+
+/**
+ * Merges new lines into the log, ordered by snowflake (time), without
+ * duplicates, keeping at most MAX_CONSOLE_LINES.
+ * Live lines are almost always newer than the last line, which is checked in
+ * O(1). Only an overlapping batch (e.g. the buffer arriving after live lines)
+ * needs the full merge.
+ */
+export const mergeConsoleEvents = (
+  oldLog: ConsoleEvent[],
+  newEvents: ConsoleEvent[]
+): ConsoleEvent[] => {
+  if (newEvents.length === 0) return oldLog;
+  let merged: ConsoleEvent[];
+  let last = oldLog.length > 0 ? oldLog[oldLog.length - 1].snowflake : null;
+  const appendable = newEvents.every((event) => {
+    if (last !== null && compareSnowflakes(event.snowflake, last) <= 0)
+      return false;
+    last = event.snowflake;
+    return true;
+  });
+  if (appendable) {
+    merged = [...oldLog, ...newEvents];
+  } else {
+    const seen = new Set<string>();
+    merged = [...oldLog, ...newEvents]
+      .filter((event) => {
+        if (seen.has(event.snowflake)) return false;
+        seen.add(event.snowflake);
+        return true;
+      })
+      .sort((a, b) => compareSnowflakes(a.snowflake, b.snowflake));
+  }
+  return merged.length > MAX_CONSOLE_LINES
+    ? merged.slice(merged.length - MAX_CONSOLE_LINES)
+    : merged;
+};
+
 /**
  * Does two things:
- * 1. calls useEffect to fetch the console stream
- * 2. calls useEffect to open a websocket connection to the server and subscribe to the console stream
- *   the websocket will update the query cache with new console output
- *
- * Note that we don't use the useQuery hook here and we are managing the query cache manually
+ * 1. fetches the console buffer (history)
+ * 2. opens a websocket connection to the server and subscribes to the console stream,
+ *    reconnecting with backoff (and refetching the buffer to fill the gap) if it drops
  *
  * @param uuid the uuid of the instance to subscribe to
- * @return whatever useQuery returns
  */
 export const useConsoleStream = (uuid: string) => {
   const { core, token } = useContext(LodestoneContext);
-  const { address, port, apiVersion, protocol } = core;
   const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
-  statusRef.current = status;
   const setStatus = (newStatus: ConsoleStreamStatus) => {
     statusRef.current = newStatus;
     setStatusInner(newStatus);
@@ -90,83 +137,96 @@ export const useConsoleStream = (uuid: string) => {
   );
 
   const clearConsoleLog = () => {
-    const econsoleLog: ConsoleEvent[] = []
-    setConsoleLog(econsoleLog)
-  }
+    setConsoleLog([]);
+  };
 
   const mergeConsoleLog = (newLog: ClientEvent[]) => {
-    setConsoleLog((oldLog) => {
-      const consoleEvents = newLog
-        .filter((event) => {
-          return (
-            event.event_inner.type === 'InstanceEvent' &&
-            event.event_inner.instance_event_inner.type === 'InstanceOutput'
-          );
-        })
-        .map(toConsoleEvent);
-      const mergedLog = [...oldLog, ...consoleEvents];
-      // this is slow ik
-      return mergedLog.filter(
-        (event, index) =>
-          mergedLog.findIndex((e) => e.snowflake === event.snowflake) === index
-      );
-    });
+    const consoleEvents = newLog.filter(isConsoleOutput).map(toConsoleEvent);
+    setConsoleLog((oldLog) => mergeConsoleEvents(oldLog, consoleEvents));
   };
+
+  // resolves to true if the buffer was fetched
+  const fetchBuffer = useCallback(
+    () =>
+      axios
+        .get<ClientEvent[]>(`/instance/${uuid}/console/buffer`)
+        .then((response) => {
+          mergeConsoleLog(response.data);
+          return true;
+        })
+        .catch((e) => {
+          console.error(e);
+          return false;
+        }),
+    [uuid]
+  );
 
   useEffect(() => {
     if (!canAccessConsole) {
       setStatus('no-permission');
       return;
     }
+    if (!token) return;
     setStatus('loading');
+    let cancelled = false;
 
-    try {
-      const websocket = new WebSocket(
-        `${protocol === 'https' ? 'wss' : 'ws'}://${address}:${
-          port ?? LODESTONE_PORT
-        }/api/${apiVersion}/instance/${uuid}/console/stream?token=Bearer ${token}`
-      );
+    fetchBuffer().then((ok) => {
+      if (cancelled || !ok) return;
+      if (statusRef.current === 'loading') setStatus('buffered');
+      if (statusRef.current === 'live-no-buffer') setStatus('live');
+    });
 
-      websocket.onopen = () => {
+    const websocket = openReconnectingWebSocket({
+      url: () =>
+        coreWebSocketUrl(
+          core,
+          `/instance/${uuid}/console/stream?token=${encodeURIComponent(
+            `Bearer ${token}`
+          )}`
+        ),
+      onOpen: (_, isReconnect) => {
+        if (isReconnect) {
+          // fill in the lines sent while we were disconnected
+          setStatus('live-no-buffer');
+          fetchBuffer().then((ok) => {
+            if (!cancelled && ok && statusRef.current === 'live-no-buffer')
+              setStatus('live');
+          });
+          return;
+        }
         if (statusRef.current === 'loading') setStatus('live-no-buffer');
         if (statusRef.current === 'buffered') setStatus('live');
-      };
-
-      websocket.onmessage = (messageEvent) => {
-        const event: ClientEvent = JSON.parse(messageEvent.data);
+      },
+      onMessage: (messageEvent) => {
+        let event: ClientEvent;
+        try {
+          event = JSON.parse(messageEvent.data);
+        } catch (e) {
+          console.error('Invalid event from the console stream', e);
+          return;
+        }
         mergeConsoleLog([event]);
-      };
+      },
+      onClose: (event) => {
+        if (event.code === 1000) {
+          // closed by the server on purpose
+          setStatus('closed');
+          return false;
+        }
+        setStatus('error');
+        return true;
+      },
+    });
 
-      websocket.onclose = (event) => {
-        setStatus(event.code === 1000 ? 'closed' : 'error');
-        console.log("event: ", event)
-      };
+    return () => {
+      cancelled = true;
+      websocket.close();
+    };
+  }, [core, token, uuid, canAccessConsole, fetchBuffer]);
 
-      return () => {
-        websocket.close();
-      };
-    } catch (e) {
-      console.error(e);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, port, apiVersion, uuid, canAccessConsole]);
-
-  useEffect(() => {
-    if (!canAccessConsole) return;
-    axios
-      .get(`/instance/${uuid}/console/buffer`)
-      .then((response) => {
-        mergeConsoleLog(response.data);
-        if (statusRef.current === 'loading') setStatus('buffered');
-        if (statusRef.current === 'live-no-buffer') setStatus('live');
-      })
-      .catch((e) => {
-        console.error(e);
-      });
-  }, [canAccessConsole, uuid]);
   return {
     consoleLog,
     consoleStatus: status,
-    clearConsoleLog
+    clearConsoleLog,
   };
 };

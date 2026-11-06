@@ -1,7 +1,7 @@
 import axios from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
-import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import { coreApiBaseUrl, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
@@ -49,7 +49,7 @@ const CoreSelectExisting = () => {
     // check if core can be reached
     axios
       .get<CoreInfo>(`/info`, {
-        baseURL: `${core.protocol}://${core.address}:${core.port}/api/${core.apiVersion}`,
+        baseURL: coreApiBaseUrl(core),
       })
       .then((res) => {
         if (res.status !== 200)

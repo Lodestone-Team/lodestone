@@ -1,14 +1,13 @@
 import { useMemo } from 'react';
 import { RadioGroup } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
-import { useContext, useEffect } from 'react';
-import useAnalyticsEventTracker from 'utils/hooks';
+import { useContext } from 'react';
 import clsx from 'clsx';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import InstanceCard from 'components/InstanceCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpand } from '@fortawesome/free-solid-svg-icons';
-import { tabs } from 'pages/InstanceTabs/InstanceTabs';
+import { tabs } from 'pages/InstanceTabs/tabList';
 import { useQueryClient } from '@tanstack/react-query';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { useGlobalSettings } from 'data/GlobalSettings';
@@ -20,26 +19,12 @@ export const SelectedInstanceInfo = ({
   className?: string;
   children?: React.ReactNode;
 }) => {
-  const {
-    instanceList: instances,
-    selectedInstance,
-    isReady,
-  } = useContext(InstanceContext);
+  // the "Instance List" view event is sent by InstanceList, once per mount
+  const { selectedInstance } = useContext(InstanceContext);
 
-  const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const { setPathname } = useContext(BrowserLocationContext);
   const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
   const { data: globalSettings } = useGlobalSettings();
-
-  useEffect(() => {
-    if (!isReady) return;
-    gaEventTracker(
-      'View',
-      'Instance List',
-      true,
-      Object.keys(instances).length
-    );
-  }, [isReady, instances]);
 
   const uuid = selectedInstance?.uuid;
   if (!selectedInstance || !uuid) {

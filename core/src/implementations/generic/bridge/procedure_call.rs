@@ -1,19 +1,22 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use color_eyre::eyre::eyre;
 use deno_core::anyhow::anyhow;
 use deno_core::{op2, OpState};
 
 use crate::deno_ops::{op_try, op_try_sync, OpError};
+use crate::traits::t_macro::ExitStatus;
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
-use tracing::error;
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
+use tracing::{error, warn};
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
@@ -350,23 +353,30 @@ pub(crate) async fn next_procedure(state: Rc<RefCell<OpState>>) -> Result<Proced
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
     op_try(async move {
         let mut rx = bridge.procedure_rx.lock().await;
-        Ok(rx.recv().await?)
+        // the bridge holds a sender itself, so the channel never closes while it is alive
+        rx.recv()
+            .await
+            .ok_or_else(|| anyhow!("ProcedureBridge::next_procedure: channel closed"))
     })
     .await
 }
 
+/// Called once by the atom's procedure bridge loop, right before it starts taking calls.
 #[op2]
 #[string]
 pub(crate) fn proc_bridge_ready(state: Rc<RefCell<OpState>>) -> Result<String, OpError> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
     op_try_sync(|| {
-        // if already ready, return error
-        if bridge.ready.load(std::sync::atomic::Ordering::SeqCst) {
+        let became_ready = bridge.state.send_if_modified(|state| {
+            let starting = *state == BridgeState::Starting;
+            if starting {
+                *state = BridgeState::Ready;
+            }
+            starting
+        });
+        if !became_ready {
             return Err(anyhow!("ProcedureBridge::proc_bridge_ready: already ready"));
         }
-        bridge
-            .ready
-            .store(true, std::sync::atomic::Ordering::SeqCst);
         Ok("".to_string())
     })
 }
@@ -377,14 +387,10 @@ pub(crate) fn emit_result(
     #[serde] result: ProcedureCallResultIR,
 ) -> Result<(), OpError> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
-    let _rx = bridge.procedure_result_tx.subscribe();
-    op_try_sync(|| {
-        bridge
-            .procedure_result_tx
-            .send(result)
-            .map_err(|_| anyhow!("ProcedureBridge::emit_result: procedure_result_tx closed"))?;
-        Ok(())
-    })
+    // Never throw here: the atom's bridge loop does not catch errors from `emit_result`,
+    // so a late reply (after the caller timed out) would otherwise stop the atom.
+    bridge.complete(result);
+    Ok(())
 }
 
 /// Builds the deno extension exposing the procedure bridge ops to the generic instance runtime.
@@ -399,66 +405,345 @@ pub(crate) fn procedure_bridge_extension(bridge: ProcedureBridge) -> deno_core::
     }
 }
 
+/// How long a normal procedure call may take before the caller gives up.
+const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Restoring an atom runs on every core start and may read or check its files.
+const RESTORE_CALL_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Timeout for a procedure call; `None` waits until the atom answers or exits.
+fn call_timeout(inner: &ProcedureCallInner) -> Option<Duration> {
+    match inner {
+        // Setup may download and unpack a whole game server, which can take far longer than
+        // any fixed limit. It reports progress through its progression event, and the call
+        // still fails at once if the atom macro exits.
+        ProcedureCallInner::SetupInstance { .. } => None,
+        ProcedureCallInner::RestoreInstance { .. } => Some(RESTORE_CALL_TIMEOUT),
+        _ => Some(DEFAULT_CALL_TIMEOUT),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BridgeState {
+    /// The atom macro has not started its procedure bridge loop yet.
+    Starting,
+    /// The atom macro is taking procedure calls.
+    Ready,
+    /// The atom macro has exited; no call can be answered any more.
+    Closed(String),
+}
+
+type PendingCalls = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<ProcedureCallResultIR>>>>;
+
+fn lock_pending(
+    pending: &PendingCalls,
+) -> std::sync::MutexGuard<'_, HashMap<u64, oneshot::Sender<ProcedureCallResultIR>>> {
+    // the map stays consistent even if a holder panicked
+    pending
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Removes a call from the pending table when its caller stops waiting.
+struct PendingGuard<'a> {
+    pending: &'a PendingCalls,
+    id: u64,
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        lock_pending(self.pending).remove(&self.id);
+    }
+}
+
+/// Request/response channel between Rust and an atom's TypeScript implementation.
 #[derive(Debug, Clone)]
 pub struct ProcedureBridge {
-    ready: Arc<AtomicBool>,
+    state: watch::Sender<BridgeState>,
     procedure_call_id: Arc<AtomicU64>,
-    procedure_tx: tokio::sync::broadcast::Sender<ProcedureCall>,
-    // necessary so we don't lose messages
-    procedure_rx: Arc<Mutex<tokio::sync::broadcast::Receiver<ProcedureCall>>>,
-    procedure_result_tx: tokio::sync::broadcast::Sender<ProcedureCallResultIR>,
+    procedure_tx: mpsc::UnboundedSender<ProcedureCall>,
+    // shared so a call queued before the atom polls is not lost
+    procedure_rx: Arc<Mutex<mpsc::UnboundedReceiver<ProcedureCall>>>,
+    /// Callers waiting for a result, by call id.
+    pending: PendingCalls,
 }
 
 impl ProcedureBridge {
     pub fn new() -> Self {
-        let (procedure_tx, procedure_rx) = tokio::sync::broadcast::channel(256);
-        let (procedure_result_tx, _) = tokio::sync::broadcast::channel(256);
-
+        let (procedure_tx, procedure_rx) = mpsc::unbounded_channel();
         Self {
-            ready: Arc::new(AtomicBool::new(false)),
+            state: watch::Sender::new(BridgeState::Starting),
             procedure_call_id: Arc::new(AtomicU64::new(0)),
             procedure_tx,
             procedure_rx: Arc::new(Mutex::new(procedure_rx)),
-            procedure_result_tx,
+            pending: Arc::new(std::sync::Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Marks the bridge as dead once the atom macro exits, so pending and later calls fail
+    /// at once instead of waiting for an answer that can never come.
+    pub fn close_on_exit(
+        &self,
+        exit_future: impl Future<Output = Result<ExitStatus, Error>> + Send + 'static,
+    ) {
+        let bridge = self.clone();
+        tokio::spawn(async move {
+            let reason = match exit_future.await {
+                Ok(ExitStatus::Error { error_msg, .. }) => {
+                    format!("the atom macro exited with an error: {error_msg}")
+                }
+                Ok(ExitStatus::Killed { .. }) => "the atom macro was killed".to_string(),
+                Ok(ExitStatus::Success { .. }) => "the atom macro exited".to_string(),
+                Err(e) => format!("the atom macro's exit status is unknown: {e}"),
+            };
+            bridge.close(reason);
+        });
+    }
+
+    fn close(&self, reason: String) {
+        self.state.send_replace(BridgeState::Closed(reason));
+        // waiting callers see the state change; drop their senders as well
+        lock_pending(&self.pending).clear();
+    }
+
+    /// Waits until the atom starts taking calls. Fails if it exits first.
+    pub async fn wait_ready(&self) -> Result<(), Error> {
+        let mut state_rx = self.state.subscribe();
+        let state = match state_rx
+            .wait_for(|state| *state != BridgeState::Starting)
+            .await
+        {
+            Ok(state) => state.clone(),
+            // unreachable: `self` holds the sender
+            Err(_) => BridgeState::Closed("the bridge was dropped".to_string()),
+        };
+        match state {
+            BridgeState::Closed(reason) => Err(Error {
+                kind: ErrorKind::Internal,
+                source: eyre!("The atom did not start: {reason}"),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// Resolves with the reason once the bridge is closed.
+    async fn closed(&self) -> String {
+        let mut state_rx = self.state.subscribe();
+        let state = state_rx
+            .wait_for(|state| matches!(state, BridgeState::Closed(_)))
+            .await
+            .map(|state| state.clone());
+        match state {
+            Ok(BridgeState::Closed(reason)) => reason,
+            Ok(_) => "the bridge was closed".to_string(),
+            // unreachable: `self` holds the sender
+            Err(_) => std::future::pending().await,
+        }
+    }
+
+    /// Delivers a result sent by the atom to the caller waiting for it.
+    fn complete(&self, result: ProcedureCallResultIR) {
+        let waiting = lock_pending(&self.pending).remove(&result.id);
+        match waiting {
+            Some(tx) => {
+                // the caller may have stopped waiting in the meantime
+                let _ = tx.send(result);
+            }
+            None => warn!(
+                "Atom sent a result for procedure call {} that nobody is waiting for (it may have timed out)",
+                result.id
+            ),
         }
     }
 
     pub async fn call(&self, inner: ProcedureCallInner) -> Result<ProcedureCallResultInner, Error> {
-        let id = self
-            .procedure_call_id
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let mut procedure_result_rx = self.procedure_result_tx.subscribe();
-        self.procedure_tx.send(ProcedureCall { id, inner }).unwrap();
-        loop {
-            match procedure_result_rx.recv().await {
-                Ok(result) => {
-                    if result.id == id {
-                        return match result.success {
-                            true => Ok(result.inner.unwrap()),
-                            false => Err(result.error.unwrap().into()),
-                        };
-                    }
-                }
-                Err(e) => {
-                    // check if lagged
-                    match e {
-                        tokio::sync::broadcast::error::RecvError::Closed => {
-                            error!("ProcedureBridge::call: procedure_result_tx closed");
-                            return Err(Error {
-                                kind: ErrorKind::Internal,
-                                source: eyre!("ProcedureBridge::call: procedure_result_tx closed"),
-                            });
-                        }
-                        tokio::sync::broadcast::error::RecvError::Lagged(_) => {
-                            error!("ProcedureBridge::call: procedure_result_tx lagged");
-                            return Err(Error {
-                                kind: ErrorKind::Internal,
-                                source: eyre!("ProcedureBridge::call: procedure_result_tx lagged"),
-                            });
-                        }
-                    }
+        let timeout = call_timeout(&inner);
+        self.call_with_timeout(inner, timeout).await
+    }
+
+    async fn call_with_timeout(
+        &self,
+        inner: ProcedureCallInner,
+        timeout: Option<Duration>,
+    ) -> Result<ProcedureCallResultInner, Error> {
+        let kind = ProcedureCallKind::from(&inner);
+        let failed = |reason: String| Error {
+            kind: ErrorKind::Internal,
+            source: eyre!("Atom procedure call {kind:?} failed: {reason}"),
+        };
+        if let BridgeState::Closed(reason) = &*self.state.borrow() {
+            return Err(failed(reason.clone()));
+        }
+
+        let id = self.procedure_call_id.fetch_add(1, Ordering::SeqCst);
+        let (result_tx, result_rx) = oneshot::channel();
+        lock_pending(&self.pending).insert(id, result_tx);
+        let _guard = PendingGuard {
+            pending: &self.pending,
+            id,
+        };
+        self.procedure_tx
+            .send(ProcedureCall { id, inner })
+            .map_err(|_| failed("the procedure channel is closed".to_string()))?;
+
+        let timed_out = async {
+            match timeout {
+                Some(timeout) => tokio::time::sleep(timeout).await,
+                None => std::future::pending().await,
+            }
+        };
+        let result = tokio::select! {
+            result = result_rx => match result {
+                Ok(result) => result,
+                // the sender is only dropped when the bridge closes
+                Err(_) => return Err(failed(self.closed().await)),
+            },
+            reason = self.closed() => return Err(failed(reason)),
+            _ = timed_out => {
+                let timeout = timeout.unwrap_or_default();
+                error!("Atom procedure call {kind:?} got no answer within {timeout:?}");
+                return Err(failed(format!("no answer within {timeout:?}")));
+            }
+        };
+
+        // the TypeScript side is not trusted to keep the success/inner/error contract
+        match result {
+            ProcedureCallResultIR {
+                success: true,
+                inner: Some(inner),
+                ..
+            } => Ok(inner),
+            ProcedureCallResultIR {
+                success: false,
+                error: Some(error),
+                ..
+            } => Err(error.into()),
+            ProcedureCallResultIR { success: true, .. } => Err(failed(
+                "the atom reported success without a result".to_string(),
+            )),
+            ProcedureCallResultIR { success: false, .. } => Err(failed(
+                "the atom reported a failure without an error".to_string(),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Plays the TypeScript side: answers each call with `reply(id)`.
+    fn serve(bridge: &ProcedureBridge, reply: fn(u64) -> Option<ProcedureCallResultIR>) {
+        let bridge = bridge.clone();
+        tokio::spawn(async move {
+            loop {
+                let call = bridge.procedure_rx.lock().await.recv().await.unwrap();
+                if let Some(result) = reply(call.id) {
+                    bridge.complete(result);
                 }
             }
-        }
+        });
+    }
+
+    fn ok(id: u64, inner: Option<ProcedureCallResultInner>) -> Option<ProcedureCallResultIR> {
+        Some(ProcedureCallResultIR {
+            id,
+            success: true,
+            inner,
+            error: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn call_returns_the_matching_result() {
+        let bridge = ProcedureBridge::new();
+        serve(&bridge, |id| {
+            ok(
+                id,
+                Some(ProcedureCallResultInner::String(format!("name {id}"))),
+            )
+        });
+        let (a, b) = tokio::join!(
+            bridge.call(ProcedureCallInner::GetName),
+            bridge.call(ProcedureCallInner::GetName)
+        );
+        let a: String = a.unwrap().try_into().unwrap();
+        let b: String = b.unwrap().try_into().unwrap();
+        assert_ne!(a, b);
+        assert!(lock_pending(&bridge.pending).is_empty());
+    }
+
+    #[tokio::test]
+    async fn broken_reply_contract_is_an_error() {
+        let bridge = ProcedureBridge::new();
+        serve(&bridge, |id| {
+            if id == 0 {
+                ok(id, None)
+            } else {
+                Some(ProcedureCallResultIR {
+                    id,
+                    success: false,
+                    inner: None,
+                    error: None,
+                })
+            }
+        });
+        assert!(bridge.call(ProcedureCallInner::GetName).await.is_err());
+        assert!(bridge.call(ProcedureCallInner::GetName).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn call_fails_when_the_atom_exits() {
+        let bridge = ProcedureBridge::new();
+        // never answers
+        serve(&bridge, |_| None);
+        let (exit_tx, exit_rx) = oneshot::channel::<()>();
+        bridge.close_on_exit(async move {
+            let _ = exit_rx.await;
+            Ok(ExitStatus::Killed { time: 0 })
+        });
+        let call = tokio::spawn({
+            let bridge = bridge.clone();
+            async move { bridge.call(ProcedureCallInner::GetState).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        exit_tx.send(()).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), call)
+            .await
+            .expect("call did not fail after the atom exited")
+            .unwrap();
+        assert!(format!("{:#}", result.unwrap_err().source).contains("killed"));
+        // later calls fail at once, and so does waiting for readiness
+        assert!(bridge.call(ProcedureCallInner::GetState).await.is_err());
+        assert!(bridge.wait_ready().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn call_times_out_and_a_late_result_is_ignored() {
+        let bridge = ProcedureBridge::new();
+        serve(&bridge, |_| None);
+        let result = bridge
+            .call_with_timeout(ProcedureCallInner::GetName, Some(Duration::from_millis(50)))
+            .await;
+        assert!(result.is_err());
+        assert!(lock_pending(&bridge.pending).is_empty());
+        // the atom answering after the timeout must not panic
+        bridge.complete(ProcedureCallResultIR {
+            id: 0,
+            success: true,
+            inner: Some(ProcedureCallResultInner::Void),
+            error: None,
+        });
+    }
+
+    #[tokio::test]
+    async fn wait_ready_resolves_once_the_atom_is_ready() {
+        let bridge = ProcedureBridge::new();
+        let waiter = tokio::spawn({
+            let bridge = bridge.clone();
+            async move { bridge.wait_ready().await }
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        bridge.state.send_replace(BridgeState::Ready);
+        waiter.await.unwrap().unwrap();
     }
 }

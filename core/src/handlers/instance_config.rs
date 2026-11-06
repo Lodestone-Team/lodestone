@@ -23,10 +23,7 @@ pub async fn get_instance_configurable_manifest(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::AccessSetting(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -40,10 +37,7 @@ pub async fn get_instance_settings(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::AccessSetting(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     if uuid.to_string().starts_with("DOCKER-") {
         return Ok(Json(ConfigurableManifest::default()));
     }
@@ -54,6 +48,13 @@ pub async fn get_instance_settings(
     Ok(Json(instance.configurable_manifest().await))
 }
 
+/// Settings that decide which program the instance runs, or with which arguments. Changing
+/// them is as powerful as running any command as the Lodestone user, so it needs the
+/// owner-level `WriteGlobalFile` permission (which is also blocked in safe mode).
+fn setting_controls_command_line(setting_id: &str) -> bool {
+    matches!(setting_id, "java_cmd" | "cmd_args")
+}
+
 pub async fn set_instance_setting(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, section_id, setting_id)): Path<(InstanceUuid, String, String)>,
@@ -61,10 +62,11 @@ pub async fn set_instance_setting(
     Json(value): Json<ConfigurableValue>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::AccessSetting(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    let safe_mode = state.safe_mode();
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), safe_mode)?;
+    if setting_controls_command_line(&setting_id) {
+        requester.try_action(&UserAction::WriteGlobalFile, safe_mode)?;
+    }
     let instance = state.instances.get(&uuid).ok_or(Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -84,10 +86,7 @@ pub async fn set_instance_name(
     Json(new_name): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::AccessSetting(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     state
         .instances
         .get(&uuid)
@@ -107,10 +106,7 @@ pub async fn set_instance_description(
     Json(new_description): Json<String>,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::AccessSetting(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     state
         .instances
         .get(&uuid)
@@ -129,10 +125,7 @@ pub async fn change_version(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<()>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    requester.try_action(
-        &UserAction::AccessSetting(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     state
         .instances
         .get(&uuid)
@@ -166,4 +159,18 @@ pub fn get_instance_config_routes(state: AppState) -> Router {
             put(set_instance_description),
         )
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::setting_controls_command_line;
+
+    #[test]
+    fn command_line_settings_need_owner_permission() {
+        assert!(setting_controls_command_line("java_cmd"));
+        assert!(setting_controls_command_line("cmd_args"));
+        assert!(!setting_controls_command_line("min_ram"));
+        assert!(!setting_controls_command_line("max_ram"));
+        assert!(!setting_controls_command_line("motd"));
+    }
 }

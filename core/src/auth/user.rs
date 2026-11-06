@@ -1,17 +1,19 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 
 use argon2::{Argon2, PasswordVerifier};
 use color_eyre::eyre::{eyre, Context};
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
 use tracing::warn;
 use ts_rs::TS;
 
 use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
-    events::{CausedBy, Event, EventInner, UserEvent, UserEventInner},
+    events::{
+        CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
+        ProgressionStartValue, UserEvent, UserEventInner,
+    },
     types::{InstanceUuid, Snowflake},
 };
 
@@ -71,6 +73,12 @@ impl User {
         other: &mut User,
         permissions: UserPermission,
     ) -> Result<(), Error> {
+        if self.uid == other.uid {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("You cannot change your own permissions"),
+            });
+        }
         if self.get_permission_level() <= other.get_permission_level() {
             return Err(Error {
                 kind: ErrorKind::PermissionDenied,
@@ -79,31 +87,26 @@ impl User {
         }
         if self.is_owner {
             other.permissions = permissions;
-            Ok(())
-        } else {
-            // reject granting any unsafe permission
-            if !permissions.can_write_instance_resource.is_empty()
-                || !permissions.can_access_instance_macro.is_empty()
-                || permissions.can_write_global_file
-                || permissions.can_manage_permission
-                || !permissions.can_write_instance_file.is_empty()
-            {
-                Err(Error {
-                    kind: ErrorKind::PermissionDenied,
-                    source: eyre!(
-                        "Unsafe and owner exclusive permissions can only be granted by the owner"
-                    ),
-                })
-            } else if self.is_admin || self.permissions.can_manage_permission {
-                other.permissions = permissions;
-                Ok(())
-            } else {
-                Err(Error {
-                    kind: ErrorKind::PermissionDenied,
-                    source: eyre!("You don't have permission to manage other users' permission"),
-                })
-            }
+            return Ok(());
         }
+        if !(self.is_admin || self.permissions.can_manage_permission) {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("You don't have permission to manage other users' permission"),
+            });
+        }
+        // Only the owner can grant unsafe and owner exclusive permissions.
+        // Keeping or removing the ones the owner already granted is allowed.
+        if grants_owner_exclusive_permission(&other.permissions, &permissions) {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!(
+                    "Unsafe and owner exclusive permissions can only be granted by the owner"
+                ),
+            });
+        }
+        other.permissions = permissions;
+        Ok(())
     }
 
     pub fn can_perform_action(&self, action: &UserAction) -> bool {
@@ -176,10 +179,23 @@ impl User {
         }
     }
 
+    /// Checks that the user may perform `action`.
+    ///
+    /// Safe mode only restricts users other than the owner: while it is on, nobody but the
+    /// owner can use an unsafe action, even if the permission was granted earlier.
     pub fn try_action(&self, action: &UserAction, safe_mode: bool) -> Result<(), Error> {
-        if (action.is_safe() || (!action.is_safe() && !safe_mode))
-            && self.can_perform_action(action)
-        {
+        if self.is_owner {
+            return Ok(());
+        }
+        if safe_mode && !action.is_safe() {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!(
+                    "This action is not allowed while safe mode is on. Only the owner can perform it"
+                ),
+            });
+        }
+        if self.can_perform_action(action) {
             Ok(())
         } else {
             Err(Error {
@@ -240,7 +256,14 @@ impl User {
     }
 
     pub fn can_view_event(&self, event: impl AsRef<Event>) -> bool {
-        match &event.as_ref().event_inner {
+        let event = event.as_ref();
+        self.can_view_event_parts(&event.event_inner, &event.caused_by)
+    }
+
+    /// Same rules as [`User::can_view_event`], for events that are not an [`Event`], such as
+    /// the `ClientEvent`s read back from the event database.
+    pub fn can_view_event_parts(&self, event_inner: &EventInner, caused_by: &CausedBy) -> bool {
+        match event_inner {
             EventInner::InstanceEvent(event) => {
                 self.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
             }
@@ -249,10 +272,53 @@ impl User {
             EventInner::MacroEvent(macro_event) => {
                 self.can_perform_action(&UserAction::AccessMacro(macro_event.instance_uuid.clone()))
             }
-            // TODO!,
-            EventInner::ProgressionEvent(_progression_event) => true,
+            EventInner::ProgressionEvent(progression_event) => {
+                self.can_view_progression_event(progression_event, caused_by)
+            }
             EventInner::PlayitggRunnerEvent(_playitgg_runner_event) => true,
         }
+    }
+
+    /// Progression events can name files and carry full instance info, so only show them to
+    /// the user who started the operation, to users who can view the instance it is about,
+    /// and to owners and admins.
+    fn can_view_progression_event(
+        &self,
+        progression_event: &ProgressionEvent,
+        caused_by: &CausedBy,
+    ) -> bool {
+        if self.is_owner || self.is_admin {
+            return true;
+        }
+        if let CausedBy::User { user_id, .. } = caused_by {
+            if *user_id == self.uid {
+                return true;
+            }
+        }
+        let instance_uuid = match progression_event.progression_event_inner() {
+            ProgressionEventInner::ProgressionStart {
+                inner:
+                    Some(
+                        ProgressionStartValue::InstanceCreation { instance_uuid }
+                        | ProgressionStartValue::InstanceDelete { instance_uuid },
+                    ),
+                ..
+            } => Some(instance_uuid),
+            ProgressionEventInner::ProgressionEnd {
+                inner: Some(end_value),
+                ..
+            } => match end_value {
+                ProgressionEndValue::InstanceCreation(info) => Some(&info.uuid),
+                ProgressionEndValue::InstanceDelete { instance_uuid }
+                | ProgressionEndValue::FSOperationCompleted { instance_uuid, .. } => {
+                    Some(instance_uuid)
+                }
+            },
+            _ => None,
+        };
+        instance_uuid.is_some_and(|instance_uuid| {
+            self.can_perform_action(&UserAction::ViewInstance(instance_uuid.clone()))
+        })
     }
 
     pub fn create_jwt(&self) -> Result<JwtToken, Error> {
@@ -293,6 +359,9 @@ pub enum UserAction {
 }
 
 impl UserAction {
+    /// Whether a non-owner may perform this action while safe mode is on.
+    ///
+    /// Must match the "unsafe permission" comments in `auth/permission.rs`.
     pub fn is_safe(&self) -> bool {
         match self {
             UserAction::ViewInstance(_) => true,
@@ -301,10 +370,10 @@ impl UserAction {
             UserAction::AccessConsole(_) => true,
             UserAction::AccessSetting(_) => true,
             UserAction::ReadResource(_) => true,
-            UserAction::WriteResource(_) => true,
-            UserAction::AccessMacro(_) => true,
+            UserAction::WriteResource(_) => false,
+            UserAction::AccessMacro(_) => false,
             UserAction::ReadInstanceFile(_) => true,
-            UserAction::WriteInstanceFile(_) => true,
+            UserAction::WriteInstanceFile(_) => false,
             UserAction::CreateInstance => true,
             UserAction::DeleteInstance => true,
             UserAction::ReadGlobalFile => false,
@@ -314,6 +383,26 @@ impl UserAction {
             UserAction::InstallExtension => false,
         }
     }
+}
+
+/// Whether going from `old` to `new` adds any permission that only the owner may grant.
+///
+/// These are the unsafe permissions marked in `auth/permission.rs`, plus reading global
+/// files (which can read every user's secret in `users.json`) and installing extensions.
+fn grants_owner_exclusive_permission(old: &UserPermission, new: &UserPermission) -> bool {
+    let adds_flag = |old: bool, new: bool| new && !old;
+    !new.can_write_instance_resource
+        .is_subset(&old.can_write_instance_resource)
+        || !new
+            .can_access_instance_macro
+            .is_subset(&old.can_access_instance_macro)
+        || !new
+            .can_write_instance_file
+            .is_subset(&old.can_write_instance_file)
+        || adds_flag(old.can_write_global_file, new.can_write_global_file)
+        || adds_flag(old.can_read_global_file, new.can_read_global_file)
+        || adds_flag(old.can_manage_permission, new.can_manage_permission)
+        || adds_flag(old.can_install_extension, new.can_install_extension)
 }
 
 #[derive(Serialize, Deserialize, Clone, TS)]
@@ -370,10 +459,11 @@ impl UsersManager {
         }
     }
     pub async fn load_users(&mut self) -> Result<(), Error> {
-        if tokio::fs::OpenOptions::new()
-            .read(true)
-            .create(true)
-            .write(true)
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true).create(true).write(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        if options
             .open(&self.path_to_users)
             .await
             .context(format!(
@@ -408,21 +498,19 @@ impl UsersManager {
         Ok(())
     }
 
+    /// Saves the users to disk.
+    ///
+    /// The file holds every user's secret, so it is written atomically, readable only by the
+    /// current OS user. A crash while writing leaves the old file in place instead of a
+    /// truncated one.
     async fn write_to_file(&self) -> Result<(), Error> {
-        let mut file = tokio::fs::File::create(&self.path_to_users)
+        let data = serde_json::to_vec(&self.users).context("Failed to serialize user json")?;
+        crate::persist::write_atomic(&self.path_to_users, data, Some(0o600))
             .await
             .context(format!(
-                "Failed to open/create json file {}",
-                &self.path_to_users.display()
+                "Failed to write user file {}",
+                self.path_to_users.display()
             ))?;
-
-        file.write_all(
-            serde_json::to_string(&self.users)
-                .context("Failed to deserialize user json")?
-                .as_bytes(),
-        )
-        .await
-        .context("Failed to write to user json".to_string())?;
         Ok(())
     }
     pub fn get_user(&self, uid: impl AsRef<UserId>) -> Option<User> {
@@ -477,8 +565,9 @@ impl UsersManager {
                 }
             }
             Err(e) => {
-                self.users
-                    .insert(uid.as_ref().to_owned(), user.clone().unwrap());
+                if let Some(user) = user {
+                    self.users.insert(uid.as_ref().to_owned(), user);
+                }
                 return Err(e);
             }
         }
@@ -541,6 +630,16 @@ impl UsersManager {
             })?
             .username
             .clone();
+        if self
+            .users
+            .values()
+            .any(|user| user.username == new_username && user.uid != *uid.as_ref())
+        {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Username already exist"),
+            });
+        }
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
             user.username = new_username.clone();
             match self.write_to_file().await {
@@ -580,28 +679,27 @@ impl UsersManager {
         password: String,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
-        let old_data = self
-            .users
-            .get_mut(uid.as_ref())
-            .ok_or_else(|| Error {
-                kind: ErrorKind::NotFound,
-                source: eyre!("User id not found"),
-            })?
-            .hashed_psw
-            .clone();
+        let user = self.users.get(uid.as_ref()).ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("User id not found"),
+        })?;
+        let old_hash = user.hashed_psw.clone();
+        let old_secret = user.secret.clone();
         if let Some(old_password) = old_password {
-            Argon2::default()
-                .verify_password(
-                    old_password.as_ref().as_bytes(),
-                    &argon2::PasswordHash::new(old_data.as_ref()).unwrap(),
-                )
-                .map_err(|_| Error {
-                    kind: ErrorKind::Unauthorized,
-                    source: eyre!("Credential mismatch"),
-                })?;
+            // The requester is logged in, so a wrong old password is a refused action (403),
+            // not a missing or expired login (401).
+            verify_password(&old_hash, old_password.as_ref()).map_err(|e| match e.kind {
+                ErrorKind::Unauthorized => Error {
+                    kind: ErrorKind::PermissionDenied,
+                    source: e.source,
+                },
+                _ => e,
+            })?;
         }
+        // changing the password also logs the user out everywhere
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
             user.hashed_psw = hash_password(password);
+            user.secret = UserSecret::default();
         }
         match self.write_to_file().await {
             Ok(_) => {
@@ -612,13 +710,14 @@ impl UsersManager {
                     }),
                     details: "".to_string(),
                     snowflake: Snowflake::default(),
-                    caused_by: caused_by.clone(),
+                    caused_by,
                 });
-                self.logout_user(uid, caused_by).await
+                Ok(())
             }
             Err(e) => {
                 if let Some(user) = self.users.get_mut(uid.as_ref()) {
-                    user.hashed_psw = old_data;
+                    user.hashed_psw = old_hash;
+                    user.secret = old_secret;
                 }
                 Err(e)
             }
@@ -632,24 +731,38 @@ impl UsersManager {
             .cloned()
     }
 
+    /// Replaces a user's permissions and saves them.
+    ///
+    /// This does not check whether the change is allowed; callers acting for a user must
+    /// check with [`User::update_permission`] first.
     pub async fn update_permissions(
         &mut self,
         uid: impl AsRef<UserId>,
         new_permissions: UserPermission,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
-        let old_permission = self
-            .users
-            .get_mut(uid.as_ref())
-            .ok_or_else(|| Error {
-                kind: ErrorKind::NotFound,
-                source: eyre!("User id not found"),
-            })?
-            .permissions
-            .clone();
-        if let Some(user) = self.users.get_mut(uid.as_ref()) {
-            user.permissions = new_permissions.clone();
-        }
+        self.modify_permissions(uid, |permissions| *permissions = new_permissions, caused_by)
+            .await
+    }
+
+    /// Changes a user's current permissions with `modify` and saves them.
+    ///
+    /// Unlike reading the permissions, changing them and calling
+    /// [`UsersManager::update_permissions`], this cannot overwrite a change made in between,
+    /// because it runs under the same `&mut self` borrow (the users write lock).
+    pub async fn modify_permissions(
+        &mut self,
+        uid: impl AsRef<UserId>,
+        modify: impl FnOnce(&mut UserPermission),
+        caused_by: CausedBy,
+    ) -> Result<(), Error> {
+        let user = self.users.get_mut(uid.as_ref()).ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("User id not found"),
+        })?;
+        let old_permission = user.permissions.clone();
+        modify(&mut user.permissions);
+        let new_permissions = user.permissions.clone();
         match self.write_to_file().await {
             Ok(_) => {
                 self.event_broadcaster.send(Event {
@@ -696,20 +809,46 @@ impl UsersManager {
         username: impl AsRef<str>,
         password: impl AsRef<str>,
     ) -> Result<JwtToken, Error> {
-        let user = self.get_user_by_username(username).ok_or_else(|| Error {
-            kind: ErrorKind::Unauthorized,
-            source: eyre!("Credential mismatch"),
-        })?;
-        Argon2::default()
-            .verify_password(
-                password.as_ref().as_bytes(),
-                &argon2::PasswordHash::new(user.hashed_psw.as_ref()).unwrap(),
-            )
-            .map_err(|_| Error {
-                kind: ErrorKind::Unauthorized,
-                source: eyre!("Credential mismatch"),
-            })?;
-        user.create_jwt()
+        check_credentials(self.get_user_by_username(username), password.as_ref())?.create_jwt()
+    }
+}
+
+/// A hash to check passwords against when the username does not exist, so that a login for a
+/// missing user takes as long as one with a wrong password.
+static DUMMY_PASSWORD_HASH: LazyLock<HashedPassword> =
+    LazyLock::new(|| hash_password("lodestone dummy password"));
+
+fn credential_mismatch() -> Error {
+    Error {
+        kind: ErrorKind::Unauthorized,
+        source: eyre!("Credential mismatch"),
+    }
+}
+
+fn verify_password(hash: &HashedPassword, password: &str) -> Result<(), Error> {
+    let hash = argon2::PasswordHash::new(hash.as_ref()).map_err(|e| Error {
+        kind: ErrorKind::Internal,
+        source: eyre!("Stored password hash is invalid: {e}"),
+    })?;
+    Argon2::default()
+        .verify_password(password.as_bytes(), &hash)
+        .map_err(|_| credential_mismatch())
+}
+
+/// Checks `password` against `user` (as looked up by username) and returns the user.
+///
+/// This runs Argon2, which is slow on purpose: call it outside the users lock, on a blocking
+/// thread. It does the same work whether or not the user exists.
+pub fn check_credentials(user: Option<User>, password: &str) -> Result<User, Error> {
+    match user {
+        Some(user) => {
+            verify_password(&user.hashed_psw, password)?;
+            Ok(user)
+        }
+        None => {
+            let _ = verify_password(&DUMMY_PASSWORD_HASH, password);
+            Err(credential_mismatch())
+        }
     }
 }
 
@@ -912,5 +1051,338 @@ mod tests {
         users_manager.load_users().await.unwrap();
 
         assert!(users_manager.get_user_by_username("test_user1").is_some());
+    }
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+    use crate::events::Event;
+
+    fn user(is_owner: bool, is_admin: bool, permissions: UserPermission) -> User {
+        User::new("user".to_string(), "pw", is_owner, is_admin, permissions)
+    }
+
+    fn uuid(s: &str) -> InstanceUuid {
+        InstanceUuid::from(format!("INSTANCE_{s}"))
+    }
+
+    #[test]
+    fn unsafe_actions_match_permission_comments() {
+        let i = uuid("a");
+        // the "unsafe permission" fields in auth/permission.rs
+        assert!(!UserAction::WriteResource(i.clone()).is_safe());
+        assert!(!UserAction::AccessMacro(Some(i.clone())).is_safe());
+        assert!(!UserAction::AccessMacro(None).is_safe());
+        assert!(!UserAction::WriteInstanceFile(i.clone()).is_safe());
+        assert!(!UserAction::WriteGlobalFile.is_safe());
+        assert!(!UserAction::ManagePermission.is_safe());
+        assert!(!UserAction::ManageUser.is_safe());
+        assert!(!UserAction::InstallExtension.is_safe());
+        assert!(!UserAction::ReadGlobalFile.is_safe());
+
+        assert!(UserAction::ViewInstance(i.clone()).is_safe());
+        assert!(UserAction::StartInstance(i.clone()).is_safe());
+        assert!(UserAction::StopInstance(i.clone()).is_safe());
+        assert!(UserAction::AccessConsole(i.clone()).is_safe());
+        assert!(UserAction::AccessSetting(i.clone()).is_safe());
+        assert!(UserAction::ReadResource(i.clone()).is_safe());
+        assert!(UserAction::ReadInstanceFile(i).is_safe());
+        assert!(UserAction::CreateInstance.is_safe());
+        assert!(UserAction::DeleteInstance.is_safe());
+    }
+
+    #[test]
+    fn safe_mode_blocks_unsafe_actions_for_non_owners_only() {
+        let i = uuid("a");
+        let mut perms = UserPermission::default();
+        perms.can_write_instance_file.insert(i.clone());
+        perms.can_access_instance_macro.insert(i.clone());
+        perms.can_view_instance.insert(i.clone());
+        let granted = user(false, false, perms);
+        let owner = user(true, false, UserPermission::default());
+
+        for action in [
+            UserAction::WriteInstanceFile(i.clone()),
+            UserAction::AccessMacro(Some(i.clone())),
+        ] {
+            assert!(granted.try_action(&action, true).is_err());
+            assert!(granted.try_action(&action, false).is_ok());
+            assert!(owner.try_action(&action, true).is_ok());
+        }
+        assert!(granted
+            .try_action(&UserAction::ViewInstance(i.clone()), true)
+            .is_ok());
+        // safe mode never restricts the owner
+        assert!(owner.try_action(&UserAction::ManageUser, true).is_ok());
+        assert!(owner.try_action(&UserAction::WriteGlobalFile, true).is_ok());
+        // and permissions are still needed with safe mode off
+        assert!(granted
+            .try_action(&UserAction::WriteInstanceFile(uuid("b")), false)
+            .is_err());
+    }
+
+    #[test]
+    fn manager_cannot_escalate_or_edit_self() {
+        let mut manager_perms = UserPermission::default();
+        manager_perms.can_manage_permission = true;
+        let admin = user(false, true, manager_perms.clone());
+        let owner = user(true, false, UserPermission::default());
+        let mut target = user(false, false, UserPermission::default());
+
+        // nobody can change their own permissions, not even the owner
+        let mut escalated = manager_perms.clone();
+        escalated.can_write_global_file = true;
+        let mut admin_copy = admin.clone();
+        assert!(admin
+            .update_permission(&mut admin_copy, escalated.clone())
+            .is_err());
+        assert_eq!(admin_copy.permissions, manager_perms);
+        let mut owner_copy = owner.clone();
+        assert!(owner
+            .update_permission(&mut owner_copy, escalated.clone())
+            .is_err());
+
+        // a non-owner cannot grant any owner exclusive permission
+        let i = uuid("a");
+        let grants: Vec<fn(&mut UserPermission)> = vec![
+            |p| p.can_write_global_file = true,
+            |p| p.can_read_global_file = true,
+            |p| p.can_manage_permission = true,
+            |p| p.can_install_extension = true,
+            |p| {
+                p.can_write_instance_file.insert(uuid("a"));
+            },
+            |p| {
+                p.can_access_instance_macro.insert(uuid("a"));
+            },
+            |p| {
+                p.can_write_instance_resource.insert(uuid("a"));
+            },
+        ];
+        for grant in grants {
+            let mut perms = UserPermission::default();
+            grant(&mut perms);
+            assert!(admin.update_permission(&mut target, perms).is_err());
+            assert_eq!(target.permissions, UserPermission::default());
+        }
+
+        // safe permissions are fine
+        let mut perms = UserPermission::default();
+        perms.can_view_instance.insert(i.clone());
+        perms.can_start_instance.insert(i.clone());
+        admin.update_permission(&mut target, perms.clone()).unwrap();
+        assert_eq!(target.permissions, perms);
+
+        // unsafe permissions the owner granted can be kept or removed by the admin
+        let mut owner_granted = perms.clone();
+        owner_granted.can_write_instance_file.insert(i.clone());
+        owner
+            .update_permission(&mut target, owner_granted.clone())
+            .unwrap();
+        let mut kept = owner_granted.clone();
+        kept.can_stop_instance.insert(i.clone());
+        admin.update_permission(&mut target, kept.clone()).unwrap();
+        assert_eq!(target.permissions, kept);
+        admin.update_permission(&mut target, perms.clone()).unwrap();
+        assert_eq!(target.permissions, perms);
+
+        // the owner can grant anything to others
+        owner
+            .update_permission(&mut target, escalated.clone())
+            .unwrap();
+        assert_eq!(target.permissions, escalated);
+    }
+
+    #[test]
+    fn cannot_manage_equal_or_higher_level() {
+        let mut manager_perms = UserPermission::default();
+        manager_perms.can_manage_permission = true;
+        let manager = user(false, false, manager_perms.clone());
+        let admin_manager = user(false, true, manager_perms);
+        let mut peer = user(false, false, UserPermission::default());
+        let mut admin = user(false, true, UserPermission::default());
+        let mut owner = user(true, false, UserPermission::default());
+        assert!(manager
+            .update_permission(&mut peer, UserPermission::default())
+            .is_err());
+        assert!(manager
+            .update_permission(&mut admin, UserPermission::default())
+            .is_err());
+        assert!(admin_manager
+            .update_permission(&mut admin, UserPermission::default())
+            .is_err());
+        assert!(admin_manager
+            .update_permission(&mut owner, UserPermission::default())
+            .is_err());
+        // a plain admin without the manage permission cannot either
+        let plain_admin = user(false, true, UserPermission::default());
+        assert!(plain_admin
+            .try_action(&UserAction::ManagePermission, false)
+            .is_err());
+    }
+
+    #[test]
+    fn progression_events_are_filtered() {
+        let i = uuid("a");
+        let mut viewer_perms = UserPermission::default();
+        viewer_perms.can_view_instance.insert(i.clone());
+        let viewer = user(false, false, viewer_perms);
+        let stranger = user(false, false, UserPermission::default());
+        let admin = user(false, true, UserPermission::default());
+
+        let (about_instance, _) = Event::new_progression_event_start(
+            "x",
+            None,
+            Some(ProgressionStartValue::InstanceDelete {
+                instance_uuid: i.clone(),
+            }),
+            CausedBy::System,
+        );
+        assert!(viewer.can_view_event(&about_instance));
+        assert!(admin.can_view_event(&about_instance));
+        assert!(!stranger.can_view_event(&about_instance));
+
+        let (no_instance, _) = Event::new_progression_event_start(
+            "x",
+            None,
+            None,
+            CausedBy::User {
+                user_id: stranger.uid.clone(),
+                user_name: stranger.username.clone(),
+            },
+        );
+        assert!(stranger.can_view_event(&no_instance));
+        assert!(!viewer.can_view_event(&no_instance));
+    }
+
+    #[tokio::test]
+    async fn rename_rejects_taken_usernames() {
+        let temp_dir = tempfile::TempDir::with_prefix("test_rename").unwrap();
+        let (tx, _rx) = EventBroadcaster::new(10);
+        let mut users_manager =
+            UsersManager::new(tx, HashMap::new(), temp_dir.path().join("users.json"));
+        let a = User::new(
+            "a".to_string(),
+            "pw",
+            true,
+            false,
+            UserPermission::default(),
+        );
+        let b = User::new(
+            "b".to_string(),
+            "pw",
+            false,
+            false,
+            UserPermission::default(),
+        );
+        users_manager
+            .add_user(a.clone(), CausedBy::System)
+            .await
+            .unwrap();
+        users_manager
+            .add_user(b.clone(), CausedBy::System)
+            .await
+            .unwrap();
+        assert!(users_manager
+            .rename_user(&b.uid, "a".to_string(), CausedBy::System)
+            .await
+            .is_err());
+        assert_eq!(users_manager.get_user(&b.uid).unwrap().username, "b");
+        // keeping your own name is fine
+        users_manager
+            .rename_user(&b.uid, "b".to_string(), CausedBy::System)
+            .await
+            .unwrap();
+        users_manager
+            .rename_user(&b.uid, "c".to_string(), CausedBy::System)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn change_password_logs_out_once() {
+        let temp_dir = tempfile::TempDir::with_prefix("test_change_pw").unwrap();
+        let (tx, mut rx) = EventBroadcaster::new(10);
+        let mut users_manager =
+            UsersManager::new(tx, HashMap::new(), temp_dir.path().join("users.json"));
+        let a = User::new(
+            "a".to_string(),
+            "old",
+            true,
+            false,
+            UserPermission::default(),
+        );
+        users_manager
+            .add_user(a.clone(), CausedBy::System)
+            .await
+            .unwrap();
+        let _ = rx.recv().await; // UserCreated
+        let token = a.create_jwt().unwrap();
+        users_manager
+            .change_password(&a.uid, Some("old"), "new".to_string(), CausedBy::System)
+            .await
+            .unwrap();
+        // old tokens stop working
+        assert!(users_manager.try_auth(token.as_ref()).is_none());
+        let event = rx.recv().await.unwrap();
+        assert!(matches!(
+            event.event_inner,
+            EventInner::UserEvent(UserEvent {
+                user_event_inner: UserEventInner::UserLoggedOut,
+                ..
+            })
+        ));
+        assert!(rx.try_recv().is_err(), "only one logout event");
+        // wrong old password: 403, because 401 means the login itself is not valid
+        let err = users_manager
+            .change_password(&a.uid, Some("old"), "x".to_string(), CausedBy::System)
+            .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+        users_manager.login("a", "new").unwrap();
+    }
+
+    #[test]
+    fn login_errors_are_the_same_for_missing_users() {
+        let a = User::new(
+            "a".to_string(),
+            "pw",
+            true,
+            false,
+            UserPermission::default(),
+        );
+        assert!(check_credentials(Some(a.clone()), "pw").is_ok());
+        let wrong = check_credentials(Some(a), "nope").unwrap_err();
+        let missing = check_credentials(None, "pw").unwrap_err();
+        assert_eq!(wrong.source.to_string(), missing.source.to_string());
+        assert!(matches!(wrong.kind, ErrorKind::Unauthorized));
+        assert!(matches!(missing.kind, ErrorKind::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn users_file_is_replaced_atomically_and_private() {
+        let temp_dir = tempfile::TempDir::with_prefix("test_users_file").unwrap();
+        let path = temp_dir.path().join("users.json");
+        let (tx, _rx) = EventBroadcaster::new(10);
+        let mut users_manager = UsersManager::new(tx, HashMap::new(), path.clone());
+        let a = User::new(
+            "a".to_string(),
+            "pw",
+            true,
+            false,
+            UserPermission::default(),
+        );
+        users_manager.add_user(a, CausedBy::System).await.unwrap();
+        assert!(!temp_dir.path().join("users.json.tmp").exists());
+        let saved: HashMap<UserId, User> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.len(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 }

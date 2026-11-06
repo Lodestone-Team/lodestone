@@ -2,28 +2,14 @@ import { ClientError } from 'bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { PublicUser } from 'bindings/PublicUser';
-import { useContext, useMemo } from 'react';
+import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { UserPermission } from 'bindings/UserPermission';
-import { errorToString } from 'utils/util';
-import { useQueryFetchCallbacks } from 'utils/hooks';
 
 // this won't ever change. if it does it will be invalidated manually
+// an invalid or expired token is logged out by the 401 interceptor in pages/index.tsx
 export const useUserInfo = (enabled = true) => {
-  const { token, setToken, core } = useContext(LodestoneContext);
-  const { port, address } = core;
-  const socket = `${address}:${port}`;
-
-  useQueryFetchCallbacks<PublicUser, AxiosError<ClientError>>(
-    ['user', 'info'],
-    {
-      onError: (error) => {
-        if (error.response?.data?.kind === 'Unauthorized')
-          // then token is invalid, delete it
-          setToken('', socket);
-      },
-    }
-  );
+  const { token } = useContext(LodestoneContext);
 
   return useQuery<PublicUser, AxiosError<ClientError>>({
     queryKey: ['user', 'info'],
