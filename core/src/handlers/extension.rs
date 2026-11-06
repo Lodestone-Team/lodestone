@@ -1,25 +1,22 @@
-use std::num::NonZeroU16;
-
 use axum::{
-    extract::Path,
+    extract::State,
     routing::{get, put},
     Json, Router,
 };
-use axum_auth::AuthBearer;
 
-use color_eyre::eyre::{eyre, Context};
-use serde_json::Value;
-use tracing::error;
+use color_eyre::eyre::Context;
 
 use crate::{
     auth::user::UserAction,
-    error::{Error, ErrorKind},
+    error::Error,
     extension::{self, FetchExtensionManifestError},
     prelude::lodestone_path,
     AppState,
 };
 
-async fn is_git_installed() -> Json<bool> {
+use super::util::AuthedUser;
+
+async fn is_git_installed(_requester: AuthedUser) -> Json<bool> {
     Json(which::which("git").is_ok())
 }
 
@@ -36,9 +33,15 @@ impl axum::response::IntoResponse for FetchExtensionManifestError {
                 "GitHub API returned 404. Does the user and repo exist?".to_string(),
             )
                 .into_response(),
-            FetchExtensionManifestError::Other(status_code, e) => {
-                (axum::http::StatusCode::from_u16(status_code).unwrap(), e).into_response()
+            FetchExtensionManifestError::InvalidUrl(e) => {
+                (axum::http::StatusCode::BAD_REQUEST, e).into_response()
             }
+            FetchExtensionManifestError::Other(status_code, e) => (
+                axum::http::StatusCode::from_u16(status_code)
+                    .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
+                e,
+            )
+                .into_response(),
             FetchExtensionManifestError::Http(e) => {
                 (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e).into_response()
             }
@@ -61,6 +64,7 @@ struct FetchManifestRet {
 }
 
 async fn fetch_extension_manifest(
+    _requester: AuthedUser,
     Json(body): Json<ExtensionRequestBody>,
 ) -> Result<Json<FetchManifestRet>, FetchExtensionManifestError> {
     let manifest = extension::get_manifest(&body.url).await?;
@@ -72,20 +76,13 @@ async fn fetch_extension_manifest(
 }
 
 async fn install_extension(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Json(body): Json<ExtensionRequestBody>,
-    // AuthBearer(token): AuthBearer,
 ) -> Result<(), Error> {
-    // let requester = state
-    //     .users_manager
-    //     .read()
-    //     .await
-    //     .try_auth(&token)
-    //     .ok_or_else(|| Error {
-    //         kind: ErrorKind::Unauthorized,
-    //         source: eyre!("Token error"),
-    //     })?;
-    // requester.try_action(&UserAction::InstallExtension)?;
+    requester
+        .require(&state, UserAction::InstallExtension)
+        .await?;
     let path = lodestone_path().join("extensions");
     tokio::fs::create_dir_all(&path)
         .await
