@@ -1,5 +1,5 @@
 # Node must match the version CI uses (setup-node 24.x) and package.json "engines".
-FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS build
+FROM node:26.12.0-trixie-slim@sha256:e556a144463cc8dc53afe8de6d2fa0db5c132fd39ffa232c17641bd40df2bf11 AS build
 
 WORKDIR /app
 
