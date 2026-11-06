@@ -1,7 +1,8 @@
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useUserInfo } from 'data/UserInfo';
 import { useContext } from 'react';
-import type { UserState } from './UserMenu';
+
+export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
 /**
  * Whether the current user is logged in, derived from the token and the

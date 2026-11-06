@@ -1,5 +1,5 @@
-import React, { Fragment, useContext, useState, useEffect } from 'react';
-import { useUid, useUserInfo } from 'data/UserInfo';
+import React, { Fragment, useContext } from 'react';
+import { useUid } from 'data/UserInfo';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Menu, Transition } from '@headlessui/react';
@@ -15,32 +15,16 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import IconButton from './Atoms/IconButton';
 import { useLocation } from 'react-router';
-
-export type UserState = 'loading' | 'logged-in' | 'logged-out';
+import { useUserState } from './useUserState';
 
 const UserMenu = () => {
-  const { token, setToken, core } = useContext(LodestoneContext);
+  const { setToken, core } = useContext(LodestoneContext);
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const location = useLocation();
   const uid = useUid();
-  const { isPending: isLoading, isError, data: user } = useUserInfo();
-  const [userState, setUserState] = useState<UserState>('logged-out');
+  const { userState, user } = useUserState();
   const { address, port } = core;
   const socket = `${address}:${port}`;
-
-  useEffect(() => {
-    if (!token) {
-      setUserState('logged-out');
-    } else if (isLoading) {
-      setUserState('loading');
-      return;
-    } else if (isError) {
-      setUserState('logged-out');
-      return;
-    } else {
-      setUserState('logged-in');
-    }
-  }, [token, isLoading, isError, user]);
 
   return (
     <div className="mb-6 flex w-full gap-2 px-2">
