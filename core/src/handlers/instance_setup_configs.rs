@@ -1,6 +1,7 @@
+use super::util::AuthedUser;
+use crate::auth::user::UserAction;
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::implementations::generic;
 use crate::implementations::minecraft;
 use crate::minecraft::FlavourKind;
 use crate::traits::t_configurable::manifest::SetupManifest;
@@ -51,7 +52,7 @@ impl TryFrom<HandlerGameType> for FlavourKind {
             HandlerGameType::MinecraftBedrock => {
                 return Err(Error {
                     kind: ErrorKind::BadRequest,
-                    source: eyre!("Programmer error: tried to convert HandlerGameType::MinecraftBedrock to FlavourKind"),
+                    source: eyre!("Minecraft Bedrock instances are not supported"),
                 })
             }
         })
@@ -80,23 +81,29 @@ pub struct GenericSetupManifestBody {
     pub url: String,
 }
 
-pub async fn get_generic_setup_manifest(
+/// Adds a Docker container to the watch list (saved to disk) and returns an empty setup
+/// manifest. The path keeps its old name for the dashboard.
+pub async fn add_generic_instance_to_watch_list(
     axum::extract::State(state): axum::extract::State<AppState>,
+    requester: AuthedUser,
     Json(body): Json<GenericSetupManifestBody>,
 ) -> Result<Json<SetupManifest>, Error> {
-    state
-        .docker_bridge
-        .add_to_watch_list(body.url.clone())
-        .await;
-    return Ok(Json(SetupManifest {
+    requester
+        .require(&state, UserAction::CreateInstance)
+        .await?;
+    state.docker_bridge.add_to_watch_list(body.url).await;
+    Ok(Json(SetupManifest {
         setting_sections: Default::default(),
-    }));
+    }))
 }
 
 pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
     Router::new()
         .route("/games", get(get_available_games))
         .route("/setup_manifest/{game_type}", get(get_setup_manifest))
-        .route("/generic_setup_manifest", put(get_generic_setup_manifest))
+        .route(
+            "/generic_setup_manifest",
+            put(add_generic_instance_to_watch_list),
+        )
         .with_state(appstate)
 }

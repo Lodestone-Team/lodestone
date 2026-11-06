@@ -1,36 +1,24 @@
+use super::util::AuthedUser;
 use axum::{
     routing::{get, put},
     Json, Router,
 };
-use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
 
 use crate::{error::ErrorKind, AppState, Error, GlobalSettingsData};
 
 pub async fn get_core_settings(
     axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    _requester: AuthedUser,
 ) -> Result<Json<GlobalSettingsData>, Error> {
-    state
-        .users_manager
-        .read()
-        .await
-        .try_auth(&token)
-        .ok_or(Error {
-            kind: ErrorKind::Unauthorized,
-            source: eyre!("Token error"),
-        })?;
-
     Ok(Json(state.global_settings.lock().await.as_ref().clone()))
 }
 
 pub async fn change_core_name(
     axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    requester: AuthedUser,
     Json(new_name): Json<String>,
 ) -> Result<(), Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-
     if !requester.is_owner {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
@@ -60,11 +48,9 @@ pub async fn change_core_name(
 
 pub async fn change_core_safe_mode(
     axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    requester: AuthedUser,
     Json(safe_mode): Json<bool>,
 ) -> Result<(), Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-
     if !requester.is_owner {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
@@ -82,10 +68,9 @@ pub async fn change_core_safe_mode(
 
 pub async fn change_domain(
     axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    requester: AuthedUser,
     Json(new_domain): Json<String>,
 ) -> Result<(), Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     if !requester.is_owner {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
@@ -113,11 +98,9 @@ pub async fn change_domain(
 
 pub async fn change_core_playit_enabled(
     axum::extract::State(state): axum::extract::State<AppState>,
-    AuthBearer(token): AuthBearer,
+    requester: AuthedUser,
     Json(playit_enabled): Json<bool>,
 ) -> Result<(), Error> {
-    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-
     if !requester.is_owner {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,

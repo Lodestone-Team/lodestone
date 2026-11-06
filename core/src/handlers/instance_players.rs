@@ -1,75 +1,73 @@
 use std::collections::HashSet;
 
-use axum::{extract::Path, routing::get, Json, Router};
-use color_eyre::eyre::eyre;
+use axum::{
+    extract::{Path, State},
+    routing::get,
+    Json, Router,
+};
 
 use crate::{
-    error::{Error, ErrorKind},
+    auth::user::UserAction,
+    error::Error,
     traits::t_player::{Player, TPlayerManagement},
     types::InstanceUuid,
     AppState,
 };
 
+use super::util::{get_instance, AuthedUser};
+
 pub async fn get_player_count(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
-    state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
+    requester
+        .require(&state, UserAction::ViewInstance(uuid.clone()))
+        .await?;
+    get_instance(&state, &uuid)?
         .get_player_count()
         .await
         .map(Json)
 }
 
 pub async fn get_max_player_count(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<u32>, Error> {
-    state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
+    requester
+        .require(&state, UserAction::ViewInstance(uuid.clone()))
+        .await?;
+    get_instance(&state, &uuid)?
         .get_max_player_count()
         .await
         .map(Json)
 }
 
 pub async fn set_max_player_count(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Path(uuid): Path<InstanceUuid>,
     Json(count): Json<u32>,
 ) -> Result<Json<()>, Error> {
-    state
-        .instances
-        .get_mut(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
+    requester
+        .require(&state, UserAction::AccessSetting(uuid.clone()))
+        .await?;
+    get_instance(&state, &uuid)?
         .set_max_player_count(count)
         .await
         .map(Json)
 }
 
 pub async fn get_player_list(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
+    requester: AuthedUser,
     Path(uuid): Path<InstanceUuid>,
 ) -> Result<Json<HashSet<Player>>, Error> {
-    state
-        .instances
-        .get_mut(&uuid)
-        .ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
+    requester
+        .require(&state, UserAction::ViewInstance(uuid.clone()))
+        .await?;
+    get_instance(&state, &uuid)?
         .get_player_list()
         .await
         .map(Json)

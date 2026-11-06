@@ -1,80 +1,90 @@
-use std::{collections::HashMap, sync::Arc};
-
 use axum::{
-    extract::{ws::WebSocket, Path, WebSocketUpgrade},
+    extract::{ws::Message, ws::WebSocket, Path, Query, State, WebSocketUpgrade},
     response::Response,
     routing::get,
     Router,
 };
-use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt};
-use ringbuffer::{AllocRingBuffer, RingBuffer};
-use tokio::sync::Mutex;
-use tracing::error;
+use ringbuffer::RingBuffer;
+use serde::Deserialize;
+use tracing::{debug, error};
 
 use crate::{
+    auth::user::UserAction,
     error::Error,
     prelude::GameInstance,
     traits::{t_server::MonitorReport, t_server::TServer},
-    types::InstanceUuid,
     AppState,
 };
 
-pub async fn monitor(
-    ws: WebSocketUpgrade,
-    axum::extract::State(state): axum::extract::State<AppState>,
-    Path(uuid): Path<InstanceUuid>,
-) -> Result<Response, Error> {
-    let instance = state
-        .instances
-        .get(&uuid)
-        .ok_or_else(|| Error {
-            kind: crate::error::ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
-        })?
-        .to_owned();
-    Ok(ws
-        .on_upgrade(move |stream| monitor_ws(stream, state.monitor_buffer.clone(), instance, uuid)))
+use super::util::{authenticate_query_token, get_instance, require};
+
+use crate::types::InstanceUuid;
+
+#[derive(Deserialize)]
+pub struct MonitorQuery {
+    /// `Bearer <jwt>`, like the console WebSocket: browsers cannot set headers on WebSockets.
+    token: String,
 }
 
-async fn monitor_ws(
-    stream: WebSocket,
-    monitor_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<MonitorReport>>>>,
-    instance: GameInstance,
-    uuid: InstanceUuid,
-) {
+pub async fn monitor(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    query: Query<MonitorQuery>,
+) -> Result<Response, Error> {
+    let requester = authenticate_query_token(&state, &query.token).await?;
+    require(&state, &requester, UserAction::ViewInstance(uuid.clone())).await?;
+    let instance = get_instance(&state, &uuid)?;
+    // copy the buffered reports now, so the lock is not held while sending them
+    let history: Vec<MonitorReport> = state
+        .monitor_buffer
+        .lock()
+        .await
+        .get(&uuid)
+        .map(|buffer| buffer.iter().cloned().collect())
+        .unwrap_or_default();
+    Ok(ws.on_upgrade(move |stream| monitor_ws(stream, history, instance)))
+}
+
+async fn send_report(
+    tx: &mut futures::stream::SplitSink<WebSocket, Message>,
+    report: &MonitorReport,
+) -> bool {
+    let text = match serde_json::to_string(report) {
+        Ok(text) => text,
+        Err(e) => {
+            error!("Failed to serialize monitor report: {}", e);
+            return true;
+        }
+    };
+    if let Err(e) = tx.send(Message::Text(text.into())).await {
+        debug!("Error sending monitor report: {}", e);
+        return false;
+    }
+    true
+}
+
+async fn monitor_ws(stream: WebSocket, history: Vec<MonitorReport>, instance: GameInstance) {
     let (mut tx, mut rx) = stream.split();
-    if let Some(buffer) = monitor_buffer.lock().await.get(&uuid) {
-        for report in buffer.iter() {
-            if let Err(e) = tx
-                .send(axum::extract::ws::Message::Text(
-                    serde_json::to_string(&report).unwrap().into(),
-                ))
-                .await
-            {
-                error!("1 Error sending monitor report: {}", e);
-                break;
-            }
+    for report in &history {
+        if !send_report(&mut tx, report).await {
+            return;
         }
     }
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                let monitor = instance.monitor().await;
-                if let Err(e) = tx
-                    .send(axum::extract::ws::Message::Text(
-                        serde_json::to_string(&monitor).unwrap().into(),
-                    ))
-                    .await
-                {
-                    error!("2 Error sending monitor report: {}", e);
+                let report = instance.monitor().await;
+                if !send_report(&mut tx, &report).await {
                     break;
                 }
             }
             msg = rx.next() => {
-                if msg.is_none() {
-                    break;
+                match msg {
+                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                    Some(Ok(_)) => {}
                 }
             }
         }
