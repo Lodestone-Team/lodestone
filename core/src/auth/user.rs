@@ -4,7 +4,6 @@ use argon2::{Argon2, PasswordVerifier};
 use color_eyre::eyre::{eyre, Context};
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
 use tracing::warn;
 use ts_rs::TS;
 
@@ -501,46 +500,15 @@ impl UsersManager {
 
     /// Saves the users to disk.
     ///
-    /// The file holds every user's secret, so it is written to a temporary file that only the
-    /// current OS user can read, then renamed over the old file. A crash while writing leaves
-    /// the old file in place instead of a truncated one.
+    /// The file holds every user's secret, so it is written atomically, readable only by the
+    /// current OS user. A crash while writing leaves the old file in place instead of a
+    /// truncated one.
     async fn write_to_file(&self) -> Result<(), Error> {
         let data = serde_json::to_vec(&self.users).context("Failed to serialize user json")?;
-        let mut tmp_name = self
-            .path_to_users
-            .file_name()
-            .ok_or_else(|| eyre!("Invalid user file path"))?
-            .to_os_string();
-        tmp_name.push(".tmp");
-        let tmp_path = self.path_to_users.with_file_name(tmp_name);
-
-        let mut options = tokio::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        let mut file = options.open(&tmp_path).await.context(format!(
-            "Failed to create temporary user file {}",
-            tmp_path.display()
-        ))?;
-        // the file may already exist from an earlier failed write, with other permissions
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(0o600))
-                .await
-                .context("Failed to set user file permissions")?;
-        }
-        file.write_all(&data)
-            .await
-            .context("Failed to write to user json")?;
-        file.sync_all()
-            .await
-            .context("Failed to flush user json to disk")?;
-        drop(file);
-        tokio::fs::rename(&tmp_path, &self.path_to_users)
+        crate::persist::write_atomic(&self.path_to_users, data, Some(0o600))
             .await
             .context(format!(
-                "Failed to replace user file {}",
+                "Failed to write user file {}",
                 self.path_to_users.display()
             ))?;
         Ok(())
