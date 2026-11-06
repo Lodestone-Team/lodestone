@@ -25,7 +25,10 @@
         "title": "Lodestone",
         "width": 1100,
         "minWidth": 1000,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 16, "y": 21 }
       }
     ]
   },

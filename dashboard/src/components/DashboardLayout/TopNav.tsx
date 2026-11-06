@@ -16,6 +16,8 @@ import { AxiosError } from 'axios';
 import Label, { LabelColor } from 'components/Atoms/Label';
 
 import TopBanner from 'components/Atoms/TopBanner';
+import clsx from 'clsx';
+import { isTauriMacOS } from 'utils/tauriUtil';
 import { NotificationPopover } from './NotificationPopover';
 
 export default function TopNav() {
@@ -66,8 +68,19 @@ export default function TopNav() {
           </p>
         </TopBanner>
       )}
-      <div className="flex w-full shrink-0 select-none flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 px-4 py-2">
-        <div className="grow">
+      <div
+        // In the macOS app this bar replaces the native title bar: it moves the window
+        // and leaves room on the left for the traffic-light buttons.
+        data-tauri-drag-region={isTauriMacOS || undefined}
+        className={clsx(
+          'flex w-full shrink-0 flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 py-2 pr-4 select-none',
+          isTauriMacOS ? 'pl-20' : 'pl-4'
+        )}
+      >
+        <div
+          className="grow"
+          data-tauri-drag-region={isTauriMacOS || undefined}
+        >
           <img
             src="/logo.svg"
             alt="logo"

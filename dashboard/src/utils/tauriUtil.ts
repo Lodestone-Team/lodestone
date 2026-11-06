@@ -16,3 +16,9 @@ const globalTauriExists: boolean =
 export const tauri = globalTauriExists ? window.__TAURI__ : undefined; // Export the `__TAURI__` object from the `window` object if it exists, or `undefined` if it doesn't
 
 export const useTauri = (): tauri | undefined => tauri; // Export a hook that returns the `tauri` object
+
+// True in the macOS desktop app. Its window uses an overlay title bar (see tauri.conf.json:
+// titleBarStyle "Overlay"), so the page draws under the traffic-light buttons and has to
+// provide its own drag regions and leave room for the buttons.
+export const isTauriMacOS: boolean =
+  globalTauriExists && /Mac/i.test(window.navigator.userAgent);
