@@ -8,7 +8,7 @@ export interface DialogProps {
   type: 'info' | 'danger';
   confirmButtonText?: string;
   closeButtonText?: string;
-  onConfirm?: () => void;
+  onConfirm?: () => void | Promise<void>;
   onClose: () => void;
   isOpen: boolean;
   zIndex?: number;
@@ -78,9 +78,15 @@ export default function ConfirmDialog({
                     label={confirmButtonText || 'Confirm'}
                     intention={type === 'danger' ? 'danger' : 'info'}
                     loading={isLoading}
-                    onClick={() => {
+                    onClick={async () => {
                       setIsLoading(true);
-                      onConfirm();
+                      try {
+                        await onConfirm();
+                      } finally {
+                        // a failed confirm leaves the dialog open, so it must
+                        // not stay stuck in the loading state
+                        setIsLoading(false);
+                      }
                     }}
                   />
                 )}
