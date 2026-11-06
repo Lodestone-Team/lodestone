@@ -1,44 +1,20 @@
 import { LodestoneContext } from 'data/LodestoneContext';
-import { Fragment, useContext, useEffect, useState } from 'react';
-import {
-  faCaretDown,
-  faArrowRightArrowLeft,
-  faBell,
-  faCog,
-  faRightFromBracket,
-  faUser,
-} from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { InstanceContext } from 'data/InstanceContext';
+import { useContext } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { CoreInfo, useCoreInfo } from 'data/SystemInfo';
-import { AxiosError } from 'axios';
-import Label, { LabelColor } from 'components/Atoms/Label';
 
 import TopBanner from 'components/Atoms/TopBanner';
+import clsx from 'clsx';
+import { isTauriMacOS, useIsDevBuild } from 'utils/tauriUtil';
 import { NotificationPopover } from './NotificationPopover';
 
 export default function TopNav() {
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
+  const { coreConnectionStatus } = useContext(LodestoneContext);
 
-  const { token, setToken, core, coreConnectionStatus } =
-    useContext(LodestoneContext);
-
-  const { data: coreData } = useCoreInfo();
-
-  const statusMap = {
-    loading: 'Connecting',
-    error: 'Error',
-    success: 'Connected',
-    degraded: 'Degraded',
-  };
-
-  const colorMap: Record<string, LabelColor> = {
-    loading: 'gray',
-    error: 'red',
-    success: 'green',
-    degraded: 'yellow',
-  };
+  // In the macOS app this bar replaces the native title bar: its empty areas move the
+  // window, and the traffic-light buttons sit in the left column.
+  const dragRegion = isTauriMacOS || undefined;
+  const isDevBuild = useIsDevBuild();
 
   return (
     <>
@@ -66,32 +42,43 @@ export default function TopNav() {
           </p>
         </TopBanner>
       )}
-      <div className="flex w-full shrink-0 select-none flex-row items-center justify-end gap-4 border-b border-gray-faded/30 bg-gray-800 px-4 py-2">
-        <div className="grow">
+      <div
+        data-tauri-drag-region={dragRegion}
+        // Equal side columns keep the logo centred in the window.
+        className={clsx(
+          'grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b bg-gray-800 px-4 py-2 select-none',
+          // An amber edge marks local development builds, matching the DEV badge and app icon.
+          isDevBuild ? 'border-yellow-300/70' : 'border-gray-faded/30'
+        )}
+      >
+        <div className="h-full" data-tauri-drag-region={dragRegion} />
+        <div className="relative">
           <img
             src="/logo.svg"
-            alt="logo"
-            className="w-32 hover:cursor-pointer"
+            alt="Lodestone"
+            className="w-28 hover:cursor-pointer"
             onClick={() => {
               setSearchParam('instance', undefined);
               setSearchParam('user', undefined);
               setPathname('/');
             }}
           />
+          {isDevBuild && (
+            // Positioned outside the flow so the logo stays centred.
+            <span
+              title="Local development build"
+              className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-gray-900"
+            >
+              DEV
+            </span>
+          )}
         </div>
-        <div className="flex flex-row items-baseline gap-1">
-          <p className="text-center text-medium font-medium text-white/50">
-            {coreData?.core_name ?? '...'}:
-          </p>
-          <Label
-            size="small"
-            color={colorMap[coreConnectionStatus]}
-            className="w-20 text-center"
-          >
-            {statusMap[coreConnectionStatus]}
-          </Label>
+        <div
+          className="flex h-full flex-row items-center justify-end"
+          data-tauri-drag-region={dragRegion}
+        >
+          <NotificationPopover />
         </div>
-        <NotificationPopover />
       </div>
     </>
   );

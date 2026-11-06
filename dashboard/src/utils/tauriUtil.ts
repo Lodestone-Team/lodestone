@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 // This is the only place where Tauri API import is allowed
 // eslint-disable-next-line no-restricted-imports
 import type * as tauriApi from '@tauri-apps/api'; // Import the Tauri API types (the module has no default export)
@@ -16,3 +18,21 @@ const globalTauriExists: boolean =
 export const tauri = globalTauriExists ? window.__TAURI__ : undefined; // Export the `__TAURI__` object from the `window` object if it exists, or `undefined` if it doesn't
 
 export const useTauri = (): tauri | undefined => tauri; // Export a hook that returns the `tauri` object
+
+// True in the macOS desktop app. Its window uses an overlay title bar (see tauri.conf.json:
+// titleBarStyle "Overlay"), so the page draws under the traffic-light buttons and has to
+// provide its own drag regions and leave room for the buttons.
+export const isTauriMacOS: boolean =
+  globalTauriExists && /Mac/i.test(window.navigator.userAgent);
+
+// True for local development: the Next dev server, or a debug build of the desktop app.
+export const useIsDevBuild = (): boolean => {
+  const [tauriDebugBuild, setTauriDebugBuild] = useState(false);
+  useEffect(() => {
+    tauri?.core
+      .invoke<boolean>('is_debug_build')
+      .then(setTauriDebugBuild)
+      .catch(() => setTauriDebugBuild(false));
+  }, []);
+  return process.env.NODE_ENV === 'development' || tauriDebugBuild;
+};

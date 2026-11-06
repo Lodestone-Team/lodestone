@@ -30,3 +30,10 @@ lodestone_core = { path = "../../core" }
 rustls = { version = "0.23.40", default-features = false, features = ["std", "aws_lc_rs"] }
 tokio = { version = "1.54.1", features = ["macros", "rt", "rt-multi-thread"] }
 notify-rust = "4.18.2"
+
+# Sets the DEV Dock icon in debug builds (the calls Tauri itself makes for `tauri dev`).
+# Same versions and a subset of the features tauri already enables, so no new crates.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData"] }

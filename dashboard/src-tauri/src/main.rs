@@ -54,6 +54,32 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
         .ok_or(())
 }
 
+/// Whether this is a debug (local development) build. The dashboard shows a DEV badge for it.
+#[tauri::command]
+fn is_debug_build() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// Debug builds use an icon with a "DEV" ribbon so they are easy to tell apart from an
+/// installed release. On macOS the Dock icon comes from the app bundle, so it is replaced at
+/// runtime, the same way Tauri sets the icon for `tauri dev`.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+fn set_dev_dock_icon() {
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    // Only called from the Ready event, which runs on the main thread.
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(include_bytes!("../icons/dev/icon-macos.png"));
+    if let Some(icon) = NSImage::initWithData(NSImage::alloc(), &data) {
+        let app = NSApplication::sharedApplication(mtm);
+        unsafe { app.setApplicationIconImage(Some(&icon)) };
+    }
+}
+
 /// Shows a native Yes/No dialog over the main window and returns whether the user chose Yes.
 async fn ask(app: &AppHandle, title: String, message: String) -> bool {
     let app = app.clone();
@@ -176,7 +202,7 @@ async fn main() {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
     }
 
-    if let Err(e) = builder
+    let app = builder
         // opens <a target="_blank"> http(s) links in the system browser, like v1's shell-open
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -186,7 +212,8 @@ async fn main() {
             is_setup,
             setup_owner_account,
             get_owner_jwt,
-            get_first_time_setup_key
+            get_first_time_setup_key,
+            is_debug_build
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -226,6 +253,12 @@ async fn main() {
                 })
                 .build(app)?;
 
+            // macOS has no window icons; its Dock icon is set on the Ready event instead.
+            #[cfg(all(debug_assertions, not(target_os = "macos")))]
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(tauri::include_image!("icons/dev/icon.png"))?;
+            }
+
             // Like v1, on Linux only an AppImage (or a dev build) can update itself.
             #[cfg(target_os = "linux")]
             let updater_enabled = cfg!(dev) || app.env().appimage.is_some();
@@ -242,16 +275,26 @@ async fn main() {
 
             Ok(())
         })
-        .run(context)
-    {
-        Notification::new()
-            .summary("Lodestone failed to start")
-            .body(&format!(
-                "Oh no! Looks like Lodestone was unable to start. Error: {}",
-                e
-            ))
-            .auto_icon()
-            .show()
-            .expect("Failed to show notification");
+        .build(context);
+
+    match app {
+        Ok(app) => app.run(|_app, _event| {
+            // After Tauri's own Ready handling, which sets the bundle icon in `tauri dev`.
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            if let tauri::RunEvent::Ready = _event {
+                set_dev_dock_icon();
+            }
+        }),
+        Err(e) => {
+            Notification::new()
+                .summary("Lodestone failed to start")
+                .body(&format!(
+                    "Oh no! Looks like Lodestone was unable to start. Error: {}",
+                    e
+                ))
+                .auto_icon()
+                .show()
+                .expect("Failed to show notification");
+        }
     }
 }

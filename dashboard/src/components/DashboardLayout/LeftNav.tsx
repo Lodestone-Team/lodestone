@@ -11,6 +11,7 @@ import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
 import { PlayitggOverview } from 'components/PlayitggOverview';
+import CoreConnectionStatus from './CoreConnectionStatus';
 export default function LeftNav({ className }: { className?: string }) {
   const { showCreateInstance, setShowCreateInstance } =
     useContext(InstanceContext);
@@ -22,7 +23,7 @@ export default function LeftNav({ className }: { className?: string }) {
       // eslint-disable-next-line tailwindcss/no-contradicting-classname
       className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
-      <div className="mt-10 flex h-full w-full grow flex-col ">
+      <div className="mt-10 flex w-full grow flex-col">
         <UserMenu />
         <Transition
           appear
@@ -77,6 +78,9 @@ export default function LeftNav({ className }: { className?: string }) {
             )}
           </InstanceList>
         </div>
+      </div>
+      <div className="sticky bottom-0 w-full border-t border-fade-700 bg-gray-850 py-2">
+        <CoreConnectionStatus />
       </div>
     </div>
   );
