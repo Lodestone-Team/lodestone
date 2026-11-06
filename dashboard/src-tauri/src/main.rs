@@ -188,6 +188,7 @@ async fn main() {
         is_cli: false,
         is_desktop: true,
         lodestone_path: None,
+        disable_code_execution: false,
     })
     .await;
 

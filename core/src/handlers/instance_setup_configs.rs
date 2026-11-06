@@ -1,5 +1,4 @@
-use super::util::AuthedUser;
-use crate::auth::user::UserAction;
+use super::util::{require_code_execution, AuthedUser};
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::implementations::minecraft;
@@ -88,9 +87,8 @@ pub async fn add_generic_instance_to_watch_list(
     requester: AuthedUser,
     Json(body): Json<GenericSetupManifestBody>,
 ) -> Result<Json<SetupManifest>, Error> {
-    requester
-        .require(&state, UserAction::CreateInstance)
-        .await?;
+    requester.owner_only("add generic instances")?;
+    require_code_execution(&state)?;
     state.docker_bridge.add_to_watch_list(body.url).await;
     Ok(Json(SetupManifest {
         setting_sections: Default::default(),

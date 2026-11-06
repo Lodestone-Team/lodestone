@@ -254,6 +254,20 @@ impl MinecraftInstance {
             info!("[{}] No prelaunch script found, skipping", name);
             return;
         };
+        if !self.macro_executor.code_execution_enabled() {
+            // the server still starts, only the script is skipped
+            warn!(
+                "[{}] Skipping the prelaunch script {}: code execution is disabled on this core",
+                name,
+                prelaunch.display()
+            );
+            self.event_broadcaster.send(Event::new_system_message(
+                self.uuid.clone(),
+                name.to_string(),
+                "Skipped the prelaunch script: code execution is disabled on this core".to_string(),
+            ));
+            return;
+        }
         let res: Result<SpawnResult, Error> = self
             .macro_executor
             .spawn(

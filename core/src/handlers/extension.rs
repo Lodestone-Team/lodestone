@@ -1,5 +1,7 @@
 use axum::{
-    extract::State,
+    extract::{Request, State},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, put},
     Json, Router,
 };
@@ -14,7 +16,17 @@ use crate::{
     AppState,
 };
 
-use super::util::AuthedUser;
+use super::util::{require_code_execution, AuthedUser};
+
+/// Extensions are code that runs on the core, so every extension route is owner only.
+async fn require_owner(
+    requester: AuthedUser,
+    request: Request,
+    next: Next,
+) -> Result<Response, Error> {
+    requester.owner_only("manage extensions")?;
+    Ok(next.run(request).await)
+}
 
 async fn is_git_installed(_requester: AuthedUser) -> Json<bool> {
     Json(which::which("git").is_ok())
@@ -64,15 +76,22 @@ struct FetchManifestRet {
 }
 
 async fn fetch_extension_manifest(
+    State(state): State<AppState>,
     _requester: AuthedUser,
     Json(body): Json<ExtensionRequestBody>,
-) -> Result<Json<FetchManifestRet>, FetchExtensionManifestError> {
-    let manifest = extension::get_manifest(&body.url).await?;
-    Ok(Json(FetchManifestRet {
-        manifest: manifest.manifest,
-        username: manifest.username,
-        is_domain_true: manifest.domain == body.url,
-    }))
+) -> Response {
+    if let Err(e) = require_code_execution(&state) {
+        return e.into_response();
+    }
+    match extension::get_manifest(&body.url).await {
+        Ok(manifest) => Json(FetchManifestRet {
+            manifest: manifest.manifest,
+            username: manifest.username,
+            is_domain_true: manifest.domain == body.url,
+        })
+        .into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 async fn install_extension(
@@ -83,6 +102,7 @@ async fn install_extension(
     requester
         .require(&state, UserAction::InstallExtension)
         .await?;
+    require_code_execution(&state)?;
     let path = lodestone_path().join("extensions");
     tokio::fs::create_dir_all(&path)
         .await
@@ -97,5 +117,6 @@ pub fn get_extension_routes(state: AppState) -> Router {
         .route("/extension/gitstatus", get(is_git_installed))
         .route("/extension/fetchmanifest", get(fetch_extension_manifest))
         .route("/extension/install", put(install_extension))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_owner))
         .with_state(state)
 }

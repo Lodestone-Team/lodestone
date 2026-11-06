@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::path::{Component, Path as FsPath, PathBuf};
 
 use axum::{
     extract::FromRequestParts,
@@ -13,6 +14,7 @@ use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::CausedBy,
+    global_settings::CodeExecutionSwitch,
     prelude::GameInstance,
     types::InstanceUuid,
     AppState,
@@ -57,6 +59,131 @@ pub async fn authenticate_query_token(state: &AppState, token: &str) -> Result<U
 /// Checks that `user` may perform `action`, taking safe mode into account.
 pub async fn require(state: &AppState, user: &User, action: UserAction) -> Result<(), Error> {
     user.try_action(&action, state.safe_mode())
+}
+
+/// Fails with 403 while the code execution kill switch is off.
+pub fn require_code_execution(state: &AppState) -> Result<(), Error> {
+    state.code_execution.check()
+}
+
+/// Extensions of files that Deno (macros, instance scripts, atoms) or a plugin runtime may
+/// run. Only the owner may create them, and only while code execution is on.
+pub const SCRIPT_EXTENSIONS: [&str; 7] = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "lua"];
+
+/// The folder of an instance that holds its macros and scripts (such as `prelaunch.ts`).
+pub const MACROS_DIR_NAME: &str = "macros";
+
+/// A file or folder name the way Windows and macOS resolve it: ignoring case and trailing
+/// dots and spaces. `None` if the name is not valid UTF-8.
+fn normalized_name(name: &std::ffi::OsStr) -> Option<String> {
+    name.to_str()
+        .map(|name| name.trim_end_matches(['.', ' ']).to_lowercase())
+}
+
+/// Whether the file at `path` is a script, judging by its name: a [`SCRIPT_EXTENSIONS`]
+/// extension in any case, ignoring trailing dots and spaces. Names that cannot be checked,
+/// and names with `:` (Windows alternate data streams such as `run.ts::$DATA` write to the
+/// file itself), count as scripts.
+pub fn is_script_path(path: &FsPath) -> bool {
+    let Some(name) = path.file_name() else {
+        return false;
+    };
+    let Some(name) = normalized_name(name) else {
+        return true;
+    };
+    if name.contains(':') {
+        return true;
+    }
+    FsPath::new(&name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| SCRIPT_EXTENSIONS.contains(&ext))
+}
+
+/// Whether `relative_path`, relative to an instance's root, is the instance's `macros`
+/// folder or anything in it. The first component is compared like [`is_script_path`]
+/// compares names; one that cannot be checked counts as the macros folder.
+pub fn is_in_macros_dir(relative_path: &FsPath) -> bool {
+    let first = relative_path
+        .components()
+        .find_map(|component| match component {
+            Component::Normal(name) => Some(name),
+            _ => None,
+        });
+    let Some(first) = first else {
+        return false;
+    };
+    match normalized_name(first) {
+        Some(name) => name == MACROS_DIR_NAME || name.contains(':'),
+        None => true,
+    }
+}
+
+/// Whether creating or changing `relative_path` (relative to an instance's root) creates or
+/// changes code that Lodestone may run: a script file, or anything in the macros folder.
+pub fn is_code_path(relative_path: &FsPath, is_dir: bool) -> bool {
+    is_in_macros_dir(relative_path) || (!is_dir && is_script_path(relative_path))
+}
+
+/// Whether `dir` contains a script file at any depth. Runs on a blocking thread and does
+/// not follow symbolic links.
+pub async fn contains_script(dir: PathBuf) -> Result<bool, Error> {
+    tokio::task::spawn_blocking(move || {
+        for entry in walkdir::WalkDir::new(&dir).min_depth(1) {
+            let entry = entry.context("Failed to walk directory while scanning for scripts")?;
+            if !entry.file_type().is_dir() && is_script_path(entry.path()) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .await
+    .context("Failed to scan directory for scripts")?
+}
+
+/// The rule for creating or changing code files (see [`is_code_path`]): only the owner, and
+/// only while code execution is on, whatever permissions or safe mode setting apply.
+pub fn check_code_write(is_owner: bool, code_execution: &CodeExecutionSwitch) -> Result<(), Error> {
+    if !is_owner {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!(
+                "Only the owner can create or change script files or anything in a macros folder"
+            ),
+        });
+    }
+    code_execution.check()
+}
+
+/// [`check_code_write`] for `user`.
+pub fn require_code_write(state: &AppState, user: &User) -> Result<(), Error> {
+    check_code_write(user.is_owner, &state.code_execution)
+}
+
+/// Whether `instance` is an atom (generic) instance, which runs as a macro.
+pub fn is_atom(instance: &GameInstance) -> bool {
+    matches!(instance, GameInstance::GenericInstance(_))
+}
+
+/// Atom (generic) instances run code, so changing or running one is owner only.
+pub fn require_owner_for_atom(user: &User, instance: &GameInstance) -> Result<(), Error> {
+    if is_atom(instance) {
+        user.owner_only("manage atom instances")?;
+    }
+    Ok(())
+}
+
+/// [`require_owner_for_atom`] for the instance `uuid`, if it exists. Docker containers and
+/// unknown instances are left to the caller.
+pub fn require_owner_if_atom(
+    state: &AppState,
+    user: &User,
+    uuid: &InstanceUuid,
+) -> Result<(), Error> {
+    match state.instances.get(uuid) {
+        Some(instance) => require_owner_for_atom(user, instance.value()),
+        None => Ok(()),
+    }
 }
 
 /// A logged-in user, taken from the `Authorization: Bearer <jwt>` header.
@@ -135,4 +262,112 @@ pub fn all_instances(state: &AppState) -> Vec<GameInstance> {
         .iter()
         .map(|instance| instance.value().clone())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn script_paths() {
+        for name in [
+            "a.ts",
+            "a.tsx",
+            "a.js",
+            "a.jsx",
+            "a.mjs",
+            "a.cjs",
+            "a.lua",
+            "dir/prelaunch.ts",
+            "RUN.TS",
+            "run.ts.",
+            "run.ts .",
+            "run.ts::$DATA",
+            "notes.txt:hidden",
+        ] {
+            assert!(is_script_path(FsPath::new(name)), "{name}");
+        }
+        for name in [
+            "a.txt",
+            "a.json",
+            "ts",
+            "a.tsv",
+            "a.jar",
+            "server.properties",
+            "macros",
+            "",
+        ] {
+            assert!(!is_script_path(FsPath::new(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn macros_dir_paths() {
+        for path in [
+            "macros",
+            "macros/prelaunch.ts",
+            "macros/x/config.json",
+            "./macros/a",
+            "MACROS/a",
+            "Macros./a",
+            "macros /a",
+            "macros::$INDEX_ALLOCATION/a",
+        ] {
+            assert!(is_in_macros_dir(FsPath::new(path)), "{path}");
+        }
+        for path in [
+            "",
+            "world/macros",
+            "macros2/a",
+            "my_macros",
+            "plugins/a.jar",
+        ] {
+            assert!(!is_in_macros_dir(FsPath::new(path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn code_paths() {
+        assert!(is_code_path(FsPath::new("prelaunch.ts"), false));
+        assert!(is_code_path(FsPath::new("plugins/x/a.js"), false));
+        assert!(is_code_path(FsPath::new("macros/readme.txt"), false));
+        assert!(is_code_path(FsPath::new("macros"), true));
+        assert!(is_code_path(FsPath::new("macros/sub"), true));
+        // a folder named like a script is just a folder
+        assert!(!is_code_path(FsPath::new("thing.ts"), true));
+        assert!(!is_code_path(FsPath::new("world/level.dat"), false));
+        assert!(!is_code_path(FsPath::new("world"), true));
+    }
+
+    #[test]
+    fn code_write_needs_owner_and_switch() {
+        let on = CodeExecutionSwitch::new(true);
+        let off = CodeExecutionSwitch::new(false);
+        assert!(check_code_write(true, &on).is_ok());
+
+        let err = check_code_write(false, &on).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+        assert!(err.source.to_string().starts_with("Only the owner can"));
+
+        // the switch applies to the owner too
+        let err = check_code_write(true, &off).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+        assert_eq!(
+            err.source.to_string(),
+            crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
+        );
+        assert!(check_code_write(false, &off).is_err());
+    }
+
+    #[tokio::test]
+    async fn finds_scripts_in_folders() {
+        let dir = tempfile::TempDir::with_prefix("contains_script").unwrap();
+        let root = dir.path().to_path_buf();
+        std::fs::create_dir_all(root.join("a/b.ts")).unwrap();
+        std::fs::write(root.join("a/data.json"), "{}").unwrap();
+        // a folder named like a script is not a script
+        assert!(!contains_script(root.clone()).await.unwrap());
+        std::fs::write(root.join("a/b.ts/main.JS"), "").unwrap();
+        assert!(contains_script(root.clone()).await.unwrap());
+    }
 }

@@ -51,6 +51,7 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, Event, EventInner, MacroEvent, MacroEventInner},
+    global_settings::CodeExecutionSwitch,
     traits::t_macro::ExitStatus,
     types::InstanceUuid,
 };
@@ -491,6 +492,9 @@ pub struct MacroExecutor {
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
     rt: tokio::runtime::Handle,
+    /// Every macro, atom and instance script starts here, so this is where the code
+    /// execution kill switch is enforced for all of them.
+    code_execution: CodeExecutionSwitch,
 }
 
 pub struct SpawnResult {
@@ -562,14 +566,29 @@ fn deps_inject_code(pid: MacroPID, instance_uuid: Option<&InstanceUuid>) -> Stri
 }
 
 impl MacroExecutor {
-    pub fn new(event_broadcaster: EventBroadcaster, rt: tokio::runtime::Handle) -> MacroExecutor {
+    pub fn new(
+        event_broadcaster: EventBroadcaster,
+        rt: tokio::runtime::Handle,
+        code_execution: CodeExecutionSwitch,
+    ) -> MacroExecutor {
         MacroExecutor {
             macro_process_table: Arc::new(DashMap::new()),
             exit_status_table: ExitStatusTable::default(),
             event_broadcaster,
             next_process_id: Arc::new(AtomicUsize::new(0)),
             rt,
+            code_execution,
         }
+    }
+
+    /// Whether macros may be spawned, see [`CodeExecutionSwitch`].
+    pub fn code_execution_enabled(&self) -> bool {
+        self.code_execution.is_enabled()
+    }
+
+    /// Fails with 403 while code execution is turned off.
+    pub fn require_code_execution(&self) -> Result<(), Error> {
+        self.code_execution.check()
     }
 
     /// Starts a macro and returns once its runtime is up.
@@ -578,6 +597,8 @@ impl MacroExecutor {
     ///
     /// The returned futures resolve when the macro detaches or exits. Dropping them does not
     /// stop the macro; use [`MacroExecutor::abort_macro`] for that.
+    ///
+    /// Fails with 403 while code execution is turned off.
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         &self,
@@ -589,6 +610,7 @@ impl MacroExecutor {
         permissions: Option<PermissionsOptions>,
         instance_uuid: Option<InstanceUuid>,
     ) -> Result<SpawnResult, Error> {
+        self.code_execution.check()?;
         let permissions = macro_permissions(permissions)?;
         let current_dir = std::env::current_dir().context("Failed to get current directory")?;
         let worker_module =
@@ -616,6 +638,13 @@ impl MacroExecutor {
         let handle = MacroHandle::new();
         // tracked from the start, so it can be killed (and is shut down) while starting
         self.macro_process_table.insert(pid, handle.clone());
+        // Code execution may have been turned off since the check above. Turning it off
+        // clears the switch before it kills every macro in the table, so either that kill
+        // sees this macro or this check sees the switch off.
+        if let Err(e) = self.code_execution.check() {
+            self.macro_process_table.remove(&pid);
+            return Err(e);
+        }
         let recorder = ExitRecorder {
             pid,
             instance_uuid: instance_uuid.clone(),
@@ -663,6 +692,8 @@ impl MacroExecutor {
                                 main_runtime,
                                 permissions,
                             );
+                            // lets ops tell which macro called them, see `deno_ops::events`
+                            main_worker.js_runtime.op_state().borrow_mut().put(pid);
                             let start = || -> Result<(), String> {
                                 if !handle.set_isolate(
                                     main_worker.js_runtime.v8_isolate().thread_safe_handle(),
@@ -1333,8 +1364,11 @@ mod tests {
         crate::test_util::install_crypto_provider();
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
-        let executor =
-            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
+        let executor = super::MacroExecutor::new(
+            event_broadcaster,
+            tokio::runtime::Handle::current(),
+            enabled_switch(),
+        );
 
         // create a temp directory
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap().keep();
@@ -1420,8 +1454,11 @@ mod tests {
 
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
-        let executor =
-            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
+        let executor = super::MacroExecutor::new(
+            event_broadcaster,
+            tokio::runtime::Handle::current(),
+            enabled_switch(),
+        );
 
         // create a temp directory
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap().keep();
@@ -1471,8 +1508,11 @@ mod tests {
         let (event_broadcaster, rx) = EventBroadcaster::new(64);
         // keep a receiver alive for the whole test so sends never fail
         std::mem::forget(rx);
-        let executor =
-            super::MacroExecutor::new(event_broadcaster.clone(), tokio::runtime::Handle::current());
+        let executor = super::MacroExecutor::new(
+            event_broadcaster.clone(),
+            tokio::runtime::Handle::current(),
+            enabled_switch(),
+        );
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap().keep();
         for (name, content) in files {
             std::fs::write(temp_dir.join(name), content).unwrap();
@@ -1904,8 +1944,11 @@ mod tests {
         crate::test_util::install_crypto_provider();
         let (event_broadcaster, rx) = EventBroadcaster::new(64);
         std::mem::forget(rx);
-        let executor =
-            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
+        let executor = super::MacroExecutor::new(
+            event_broadcaster,
+            tokio::runtime::Handle::current(),
+            enabled_switch(),
+        );
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap();
         let path = temp_dir.path().join("main.ts");
         std::fs::write(&path, "1 + 1;").unwrap();
@@ -1942,8 +1985,11 @@ mod tests {
         crate::test_util::install_crypto_provider();
         let (event_broadcaster, rx) = EventBroadcaster::new(64);
         std::mem::forget(rx);
-        let executor =
-            super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
+        let executor = super::MacroExecutor::new(
+            event_broadcaster,
+            tokio::runtime::Handle::current(),
+            enabled_switch(),
+        );
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap();
         let allowed = temp_dir.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();
@@ -2166,5 +2212,68 @@ mod tests {
         assert!(table.get(&MacroPID(11)).is_none());
         assert!(table.get(&MacroPID(12)).is_some());
         assert!(table.get(&MacroPID(MAX_EXIT_STATUSES + 10)).is_some());
+    }
+
+    // multi-threaded like production: deno_core ops need the per-macro runtime
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_kill_switch_refuses_spawn() {
+        crate::test_util::install_crypto_provider();
+        let (event_broadcaster, _rx) = EventBroadcaster::new(64);
+        let switch = enabled_switch();
+        let executor = super::MacroExecutor::new(
+            event_broadcaster,
+            tokio::runtime::Handle::current(),
+            switch.clone(),
+        );
+        let temp_dir = tempfile::TempDir::with_prefix("macro_switch_test").unwrap();
+        let main = temp_dir.path().join("main.ts");
+        std::fs::write(&main, "console.log('ran');").unwrap();
+        switch.set(false);
+        assert!(!executor.code_execution_enabled());
+        assert!(executor.require_code_execution().is_err());
+        let err = match executor
+            .spawn(
+                main,
+                Vec::new(),
+                CausedBy::Unknown,
+                Box::new(BasicMainWorkerGenerator),
+                None,
+                None,
+                None,
+            )
+            .await
+        {
+            Ok(_) => panic!("spawned a macro with code execution off"),
+            Err(e) => e,
+        };
+        assert!(matches!(
+            err.kind,
+            crate::error::ErrorKind::PermissionDenied
+        ));
+        assert_eq!(
+            err.source.to_string(),
+            crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
+        );
+        assert!(executor.macro_process_table.is_empty());
+    }
+
+    // multi-threaded like production: deno_core ops need the per-macro runtime
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_kill_switch_then_shutdown_kills_running_macros() {
+        let (executor, spawn_result, _) =
+            spawn_macro(&[("main.ts", "while (true) {}")], None).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        executor.code_execution.set(false);
+        executor.shutdown_all();
+        let exit_status = exit_status_of(spawn_result).await;
+        assert!(
+            matches!(exit_status, ExitStatus::Killed { .. }),
+            "{exit_status:?}"
+        );
+        assert!(executor.require_code_execution().is_err());
+    }
+
+    fn enabled_switch() -> crate::global_settings::CodeExecutionSwitch {
+        crate::global_settings::CodeExecutionSwitch::new(true)
     }
 }

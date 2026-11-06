@@ -68,11 +68,25 @@ impl User {
             1
         }
     }
+    /// Fails with 403 unless this user is the owner. `action` completes the message
+    /// "Only the owner can ...".
+    pub fn owner_only(&self, action: &str) -> Result<(), Error> {
+        if self.is_owner {
+            Ok(())
+        } else {
+            Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("Only the owner can {action}"),
+            })
+        }
+    }
+
     pub fn update_permission(
         &self,
         other: &mut User,
-        permissions: UserPermission,
+        mut permissions: UserPermission,
     ) -> Result<(), Error> {
+        permissions.clear_owner_only_legacy_fields();
         if self.uid == other.uid {
             return Err(Error {
                 kind: ErrorKind::PermissionDenied,
@@ -163,19 +177,16 @@ impl User {
                         .can_write_instance_file
                         .contains(instance_id)
             }
-            UserAction::AccessMacro(Some(instance_id)) => self
-                .permissions
-                .can_access_instance_macro
-                .contains(instance_id),
-            // TODO(CheatCod3): check if the macro is global
-            UserAction::AccessMacro(None) => false,
+            // Macros and extensions run code, so they are owner only whatever the user was
+            // granted; the owner returned above.
+            UserAction::AccessMacro(_) => false,
             UserAction::CreateInstance => self.is_admin || self.permissions.can_create_instance,
             UserAction::DeleteInstance => self.is_admin || self.permissions.can_delete_instance,
             UserAction::ReadGlobalFile => self.permissions.can_read_global_file,
             UserAction::WriteGlobalFile => self.permissions.can_write_global_file,
             UserAction::ManageUser => self.is_owner,
             UserAction::ManagePermission => self.permissions.can_manage_permission,
-            UserAction::InstallExtension => self.permissions.can_install_extension,
+            UserAction::InstallExtension => false,
         }
     }
 
@@ -186,6 +197,11 @@ impl User {
     pub fn try_action(&self, action: &UserAction, safe_mode: bool) -> Result<(), Error> {
         if self.is_owner {
             return Ok(());
+        }
+        match action {
+            UserAction::AccessMacro(_) => return self.owner_only("use macros"),
+            UserAction::InstallExtension => return self.owner_only("install extensions"),
+            _ => {}
         }
         if safe_mode && !action.is_safe() {
             return Err(Error {
@@ -222,9 +238,7 @@ impl User {
                     UserAction::WriteResource(_) => {
                         eyre!("You don't have permission to write this instance's resource")
                     }
-                    UserAction::AccessMacro(_) => {
-                        eyre!("You don't have permission to access this instance's macro")
-                    }
+                    UserAction::AccessMacro(_) => eyre!("Only the owner can use macros"),
                     UserAction::ReadInstanceFile(_) => {
                         eyre!("You don't have permission to read this instance's file")
                     }
@@ -248,7 +262,7 @@ impl User {
                         eyre!("You don't have permission to manage permission")
                     }
                     UserAction::InstallExtension => {
-                        eyre!("You don't have permission to install extension")
+                        eyre!("Only the owner can install extensions")
                     }
                 },
             })
@@ -276,6 +290,7 @@ impl User {
                 self.can_view_progression_event(progression_event, caused_by)
             }
             EventInner::PlayitggRunnerEvent(_playitgg_runner_event) => true,
+            EventInner::GlobalSettingsChanged => true,
         }
     }
 
@@ -287,6 +302,10 @@ impl User {
         progression_event: &ProgressionEvent,
         caused_by: &CausedBy,
     ) -> bool {
+        // macros are owner only, and so is what they report
+        if matches!(caused_by, CausedBy::Macro { .. }) {
+            return self.is_owner;
+        }
         if self.is_owner || self.is_admin {
             return true;
         }
@@ -388,21 +407,18 @@ impl UserAction {
 /// Whether going from `old` to `new` adds any permission that only the owner may grant.
 ///
 /// These are the unsafe permissions marked in `auth/permission.rs`, plus reading global
-/// files (which can read every user's secret in `users.json`) and installing extensions.
+/// files (which can read every user's secret in `users.json`). The macro and extension
+/// fields grant nothing and are cleared before this check.
 fn grants_owner_exclusive_permission(old: &UserPermission, new: &UserPermission) -> bool {
     let adds_flag = |old: bool, new: bool| new && !old;
     !new.can_write_instance_resource
         .is_subset(&old.can_write_instance_resource)
-        || !new
-            .can_access_instance_macro
-            .is_subset(&old.can_access_instance_macro)
         || !new
             .can_write_instance_file
             .is_subset(&old.can_write_instance_file)
         || adds_flag(old.can_write_global_file, new.can_write_global_file)
         || adds_flag(old.can_read_global_file, new.can_read_global_file)
         || adds_flag(old.can_manage_permission, new.can_manage_permission)
-        || adds_flag(old.can_install_extension, new.can_install_extension)
 }
 
 #[derive(Serialize, Deserialize, Clone, TS)]
@@ -1097,19 +1113,14 @@ mod permission_tests {
         let i = uuid("a");
         let mut perms = UserPermission::default();
         perms.can_write_instance_file.insert(i.clone());
-        perms.can_access_instance_macro.insert(i.clone());
         perms.can_view_instance.insert(i.clone());
         let granted = user(false, false, perms);
         let owner = user(true, false, UserPermission::default());
 
-        for action in [
-            UserAction::WriteInstanceFile(i.clone()),
-            UserAction::AccessMacro(Some(i.clone())),
-        ] {
-            assert!(granted.try_action(&action, true).is_err());
-            assert!(granted.try_action(&action, false).is_ok());
-            assert!(owner.try_action(&action, true).is_ok());
-        }
+        let action = UserAction::WriteInstanceFile(i.clone());
+        assert!(granted.try_action(&action, true).is_err());
+        assert!(granted.try_action(&action, false).is_ok());
+        assert!(owner.try_action(&action, true).is_ok());
         assert!(granted
             .try_action(&UserAction::ViewInstance(i.clone()), true)
             .is_ok());
@@ -1149,12 +1160,8 @@ mod permission_tests {
             |p| p.can_write_global_file = true,
             |p| p.can_read_global_file = true,
             |p| p.can_manage_permission = true,
-            |p| p.can_install_extension = true,
             |p| {
                 p.can_write_instance_file.insert(uuid("a"));
-            },
-            |p| {
-                p.can_access_instance_macro.insert(uuid("a"));
             },
             |p| {
                 p.can_write_instance_resource.insert(uuid("a"));
@@ -1384,5 +1391,167 @@ mod permission_tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
+    }
+
+    /// Every permission a non-owner can hold, for every instance in `instances`.
+    fn all_permissions(instances: &[InstanceUuid]) -> UserPermission {
+        let set: std::collections::HashSet<InstanceUuid> = instances.iter().cloned().collect();
+        UserPermission {
+            can_view_instance: set.clone(),
+            can_start_instance: set.clone(),
+            can_stop_instance: set.clone(),
+            can_access_instance_console: set.clone(),
+            can_access_instance_setting: set.clone(),
+            can_read_instance_resource: set.clone(),
+            can_write_instance_resource: set.clone(),
+            can_access_instance_macro: set.clone(),
+            can_read_instance_file: set.clone(),
+            can_write_instance_file: set,
+            can_create_instance: true,
+            can_delete_instance: true,
+            can_read_global_file: true,
+            can_write_global_file: true,
+            can_manage_permission: true,
+            can_install_extension: true,
+        }
+    }
+
+    #[test]
+    fn macros_and_extensions_are_owner_only() {
+        let i = uuid("a");
+        let owner = user(true, false, UserPermission::default());
+        let granted_admin = user(false, true, all_permissions(std::slice::from_ref(&i)));
+        let granted_user = user(false, false, all_permissions(std::slice::from_ref(&i)));
+        let actions = [
+            UserAction::AccessMacro(Some(i.clone())),
+            UserAction::AccessMacro(None),
+            UserAction::InstallExtension,
+        ];
+        for action in &actions {
+            for safe_mode in [true, false] {
+                assert!(owner.try_action(action, safe_mode).is_ok());
+                for non_owner in [&granted_admin, &granted_user] {
+                    assert!(!non_owner.can_perform_action(action));
+                    let err = non_owner.try_action(action, safe_mode).unwrap_err();
+                    assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+                    assert!(
+                        err.source.to_string().starts_with("Only the owner can"),
+                        "{}",
+                        err.source
+                    );
+                }
+            }
+        }
+        // other granted permissions still work with safe mode off
+        assert!(granted_user
+            .try_action(&UserAction::WriteGlobalFile, false)
+            .is_ok());
+    }
+
+    #[test]
+    fn owner_only_helper() {
+        let owner = user(true, false, UserPermission::default());
+        let admin = user(false, true, all_permissions(&[uuid("a")]));
+        assert!(owner.owner_only("do it").is_ok());
+        let err = admin.owner_only("manage atom instances").unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+        assert_eq!(
+            err.source.to_string(),
+            "Only the owner can manage atom instances"
+        );
+    }
+
+    #[test]
+    fn permission_updates_store_legacy_fields_as_false() {
+        let i = uuid("a");
+        let owner = user(true, false, UserPermission::default());
+        let manager_perms = UserPermission {
+            can_manage_permission: true,
+            ..Default::default()
+        };
+        let admin = user(false, true, manager_perms);
+
+        // the owner sending them does not fail, and they are not stored
+        let mut target = user(false, false, UserPermission::default());
+        let mut perms = UserPermission::default();
+        perms.can_view_instance.insert(i.clone());
+        perms.can_access_instance_macro.insert(i.clone());
+        perms.can_install_extension = true;
+        owner.update_permission(&mut target, perms).unwrap();
+        assert!(target.permissions.can_access_instance_macro.is_empty());
+        assert!(!target.permissions.can_install_extension);
+        assert!(target.permissions.can_view_instance.contains(&i));
+
+        // nor does an admin sending them
+        let mut perms = target.permissions.clone();
+        perms.can_access_instance_macro.insert(i.clone());
+        perms.can_install_extension = true;
+        perms.can_start_instance.insert(i.clone());
+        admin.update_permission(&mut target, perms).unwrap();
+        assert!(target.permissions.can_access_instance_macro.is_empty());
+        assert!(!target.permissions.can_install_extension);
+        assert!(target.permissions.can_start_instance.contains(&i));
+
+        let mut perms = all_permissions(&[i]);
+        assert!(perms.clear_owner_only_legacy_fields());
+        assert!(!perms.clear_owner_only_legacy_fields());
+    }
+
+    #[test]
+    fn legacy_users_file_still_loads_and_grants_nothing() {
+        let i = uuid("a");
+        let mut json = serde_json::to_value(user(
+            false,
+            false,
+            all_permissions(std::slice::from_ref(&i)),
+        ))
+        .unwrap();
+        // files written before `can_install_extension` existed
+        json["permissions"]
+            .as_object_mut()
+            .unwrap()
+            .remove("can_install_extension");
+        let loaded: User = serde_json::from_value(json).unwrap();
+        assert!(loaded.permissions.can_access_instance_macro.contains(&i));
+        assert!(!loaded.can_perform_action(&UserAction::AccessMacro(Some(i))));
+        assert!(!loaded.can_perform_action(&UserAction::InstallExtension));
+    }
+
+    #[test]
+    fn macro_events_are_owner_only() {
+        use crate::events::{MacroEvent, MacroEventInner};
+        use crate::macro_executor::MacroPID;
+        let i = uuid("a");
+        let owner = user(true, false, UserPermission::default());
+        let admin = user(false, true, all_permissions(std::slice::from_ref(&i)));
+        let macro_event = EventInner::MacroEvent(MacroEvent {
+            instance_uuid: Some(i.clone()),
+            macro_pid: MacroPID(1),
+            macro_event_inner: MacroEventInner::Started,
+        });
+        let by_macro = CausedBy::Macro {
+            macro_pid: MacroPID(1),
+        };
+        assert!(owner.can_view_event_parts(&macro_event, &by_macro));
+        assert!(!admin.can_view_event_parts(&macro_event, &by_macro));
+
+        let (progression, _) = Event::new_progression_event_start(
+            "macro progress",
+            None,
+            Some(ProgressionStartValue::InstanceCreation {
+                instance_uuid: i.clone(),
+            }),
+            by_macro.clone(),
+        );
+        assert!(owner.can_view_event(&progression));
+        assert!(!admin.can_view_event(&progression));
+        // the same event from the system is visible to admins
+        let mut from_system = progression.clone();
+        from_system.caused_by = CausedBy::System;
+        assert!(admin.can_view_event(&from_system));
+
+        // everyone is told to fetch the settings again
+        let viewer = user(false, false, UserPermission::default());
+        assert!(viewer.can_view_event_parts(&EventInner::GlobalSettingsChanged, &CausedBy::System));
     }
 }

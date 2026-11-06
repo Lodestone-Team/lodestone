@@ -171,10 +171,22 @@ fn emit_progression_event_start(
     #[serde] inner: Option<ProgressionStartValue>,
 ) -> ProgressionEventID {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
+    let caused_by = macro_caused_by(&state.borrow());
     let (event, id) =
-        Event::new_progression_event_start(progression_name.0, total, inner, CausedBy::System);
+        Event::new_progression_event_start(progression_name.0, total, inner, caused_by);
     tx.send(event);
     id
+}
+
+/// Progression events a macro emits are marked as caused by it, so that only owners see
+/// them (see `User::can_view_event`).
+fn macro_caused_by(state: &OpState) -> CausedBy {
+    state
+        .try_borrow::<MacroPID>()
+        .map(|macro_pid| CausedBy::Macro {
+            macro_pid: *macro_pid,
+        })
+        .unwrap_or(CausedBy::System)
 }
 
 #[op2]
@@ -185,11 +197,9 @@ fn emit_progression_event_update(
     progress: f64,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
-    tx.send(Event::new_progression_event_update(
-        &event_id,
-        progress_msg.0,
-        progress,
-    ));
+    let mut event = Event::new_progression_event_update(&event_id, progress_msg.0, progress);
+    event.caused_by = macro_caused_by(&state.borrow());
+    tx.send(event);
 }
 
 #[op2]
@@ -201,12 +211,10 @@ fn emit_progression_event_end(
     #[serde] inner: Option<ProgressionEndValue>,
 ) {
     let tx = state.borrow().borrow::<EventBroadcaster>().clone();
-    tx.send(Event::new_progression_event_end(
-        event_id,
-        success,
-        message.map(|m| m.0),
-        inner,
-    ));
+    let mut event =
+        Event::new_progression_event_end(event_id, success, message.map(|m| m.0), inner);
+    event.caused_by = macro_caused_by(&state.borrow());
+    tx.send(event);
 }
 
 pub fn register_all_event_ops(
