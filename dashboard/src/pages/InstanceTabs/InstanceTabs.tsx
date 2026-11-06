@@ -1,104 +1,45 @@
-import { useContext, useEffect, useState } from 'react';
+import { ReactNode, useContext, useEffect, useState } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useLocation } from 'react-router';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
 import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InstanceOverview from 'components/Instance/InstanceOverview';
-import {
-  faCarTunnel,
-  faChartLine,
-  faCodeCompare,
-  faCog,
-  faFolder,
-  faInbox,
-  faServer,
-} from '@fortawesome/free-solid-svg-icons';
 import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
 import Macros from 'pages/macros';
 import { PlayitggOverview } from 'components/PlayitggOverview';
+import { InstanceTabPath, tabs } from './tabList';
 
-export const tabs = [
-  {
-    title: 'Overview',
-    displayTitle: null,
-    path: 'overview',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faChartLine} />,
-    content: <InstanceOverview />,
-  },
-  {
-    title: 'Settings',
-    displayTitle: 'Settings',
-    path: 'settings',
-    width: 'max-w-2xl',
-    icon: <FontAwesomeIcon icon={faCog} />,
-    content: (
-      <div className="flex flex-col gap-8">
-        <InstanceSettingCard />
-      </div>
-    ),
-  },
-  {
-    title: 'Console',
-    displayTitle: 'Console',
-    path: 'console',
-    width: 'max-w-6xl',
-    icon: <FontAwesomeIcon icon={faServer} />,
-    content: <GameConsole />,
-  },
-  {
-    title: 'Files',
-    displayTitle: 'Files',
-    path: 'files',
-    width: 'max-w-6xl',
-    icon: <FontAwesomeIcon icon={faFolder} />,
-    content: <FileViewer />,
-  },
-  {
-    title: 'Macros',
-    displayTitle: 'Macros',
-    path: 'macros',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faCodeCompare} />,
-    content: <Macros />,
-  },
-  {
-    title: 'Event Logs',
-    displayTitle: 'Event Logs',
-    path: 'logs',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faInbox} />,
-    content: (
-      <DashboardCard className="grow justify-center gap-4">
-        <img
-          src="/assets/placeholder-cube.png"
-          alt="placeholder"
-          className="mx-auto w-20"
-          style={{ imageRendering: 'pixelated' }}
-        />
-        <p className="text-center font-medium text-white/50">
-          Coming soon to a dashboard near you!
-        </p>
-      </DashboardCard>
-    ),
-  },
-  {
-    title: 'Playitgg',
-    displayTitle: 'Playitgg',
-    path: 'playitgg',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faCarTunnel} />,
-    content: (
-      <PlayitggOverview />
-    ),
-  },
-];
+// The content of each tab; their names, paths and icons are in tabList.
+const tabContent: Record<InstanceTabPath, ReactNode> = {
+  overview: <InstanceOverview />,
+  settings: (
+    <div className="flex flex-col gap-8">
+      <InstanceSettingCard />
+    </div>
+  ),
+  console: <GameConsole />,
+  files: <FileViewer />,
+  macros: <Macros />,
+  logs: (
+    <DashboardCard className="grow justify-center gap-4">
+      <img
+        src="/assets/placeholder-cube.png"
+        alt="placeholder"
+        className="mx-auto w-20"
+        style={{ imageRendering: 'pixelated' }}
+      />
+      <p className="text-center font-medium text-white/50">
+        Coming soon to a dashboard near you!
+      </p>
+    </DashboardCard>
+  ),
+  playitgg: <PlayitggOverview />,
+};
 
 const InstanceTabs = () => {
   const location = useLocation();
@@ -185,7 +126,7 @@ const InstanceTabs = () => {
                 )}
               </div>
             )}
-            {tab.content}
+            {tabContent[tab.path]}
           </div>
         </div>
       </div>
