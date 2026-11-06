@@ -177,7 +177,9 @@ export const CoreSettings = () => {
                 const error = await openPort(values.port);
                 actions.setSubmitting(false);
                 if (error) {
+                  // keep the dialog open with the error instead of reporting success
                   actions.setErrors({ port: errorToString(error) });
+                  return;
                 }
                 actions.resetForm();
                 setShowOpenPortDialog(false);
