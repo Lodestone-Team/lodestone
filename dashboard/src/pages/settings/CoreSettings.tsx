@@ -24,6 +24,14 @@ import { openPort, stopCli } from 'utils/apis';
 import { DASHBOARD_VERSION } from 'utils/version';
 import InputField from 'components/Atoms/Form/InputField';
 import { useDocumentTitle } from 'usehooks-ts';
+import WarningAlert from 'components/Atoms/WarningAlert';
+import { TlsMode } from 'bindings/TlsMode';
+
+const tlsModeLabels: Record<TlsMode, string> = {
+  self_signed: 'Built-in self-signed certificate',
+  user_provided: 'Your own certificate (tls/cert.pem)',
+  none: 'Unavailable, plain HTTP only',
+};
 
 // a read-only row in the Information section
 const InfoRow = ({ children }: { children: React.ReactNode }) => (
@@ -47,6 +55,11 @@ export const CoreSettings = () => {
   const [showSafemodeDialog, setShowSafemodeDialog] = useState(false);
   const [showOpenPortDialog, setShowOpenPortDialog] = useState(false);
   const [showCodeExecutionDialog, setShowCodeExecutionDialog] = useState(false);
+  const [showAllowLanHttpDialog, setShowAllowLanHttpDialog] = useState(false);
+  // older cores have no such setting
+  const allowLanHttpSupported =
+    typeof globalSettings?.allow_lan_http === 'boolean';
+  const allowLanHttp = globalSettings?.allow_lan_http === true;
   const { enabled: codeExecutionEnabled, locked: codeExecutionLocked } =
     useCodeExecution();
   // use a promise to track if safemode is successfully disabled
@@ -180,6 +193,37 @@ export const CoreSettings = () => {
           await setCodeExecution(true);
         } else {
           setShowCodeExecutionDialog(true);
+        }
+      }}
+      optimistic={false}
+    />
+  );
+
+  const setAllowLanHttp = async (value: boolean) => {
+    await axiosPutSingleValue('/global_settings/allow_lan_http', value);
+    queryClient.setQueryData(
+      ['global_settings'],
+      (old: GlobalSettingsData | undefined) =>
+        old && { ...old, allow_lan_http: value }
+    );
+  };
+
+  const allowLanHttpField = (
+    <ToggleBox
+      label={'Allow LAN access over plain HTTP'}
+      value={allowLanHttp}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={
+        'Let other devices connect with http:// instead of https://. Passwords and session tokens then cross your network unencrypted. This machine can always use http://.'
+      }
+      onChange={async (value) => {
+        if (value) {
+          setShowAllowLanHttpDialog(true);
+        } else {
+          await setAllowLanHttp(false);
         }
       }}
       optimistic={false}
@@ -331,6 +375,30 @@ export const CoreSettings = () => {
     </ConfirmDialog>
   );
 
+  const allowLanHttpDialog = (
+    <ConfirmDialog
+      title="Allow plain HTTP from other devices?"
+      isOpen={showAllowLanHttpDialog}
+      onConfirm={async () => {
+        const error = await catchAsyncToString(setAllowLanHttp(true));
+        if (error) {
+          toast.error(error);
+          return;
+        }
+        setShowAllowLanHttpDialog(false);
+      }}
+      confirmButtonText="Allow"
+      onClose={() => setShowAllowLanHttpDialog(false)}
+      closeButtonText="Cancel"
+      type={'danger'}
+    >
+      Devices on your network will be able to connect over plain HTTP. Passwords
+      and session tokens sent that way cross the network unencrypted, so anyone
+      else on the network can read them and take over accounts on this core.
+      Only allow this if a device cannot use https://.
+    </ConfirmDialog>
+  );
+
   const openPortField = (
     <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
       <div className="flex min-w-0 grow flex-col">
@@ -381,10 +449,22 @@ export const CoreSettings = () => {
     <>
       {safeModeDialog}
       {codeExecutionDialog}
+      {allowLanHttpDialog}
       {openPortModal}
       <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container ">
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
           <h1 className="dashboard-instance-heading">Core Settings</h1>
+          {allowLanHttp && (
+            <WarningAlert>
+              <p>
+                Other devices can connect to this core over plain HTTP, so
+                passwords and session tokens can cross your network unencrypted.{' '}
+                {can_change_core_settings
+                  ? 'Turn off "Allow LAN access over plain HTTP" below and connect with https:// instead.'
+                  : 'Connect with https:// and ask the owner to turn off plain HTTP access.'}
+              </p>
+            </WarningAlert>
+          )}
           <div className="flex w-full flex-col gap-4 @4xl:flex-row">
             <div className="w-[28rem]">
               <h2 className="text-h2 font-bold tracking-medium">
@@ -410,6 +490,9 @@ export const CoreSettings = () => {
             <div className="mb-10 w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
               {unsafeModeField}
               {can_change_core_settings && codeExecutionField}
+              {can_change_core_settings &&
+                allowLanHttpSupported &&
+                allowLanHttpField}
               {openPortField}
             </div>
           </div>
@@ -430,6 +513,20 @@ export const CoreSettings = () => {
               <InfoRow>CPU: {coreInfo?.cpu}</InfoRow>
               <InfoRow>CPU Cores: {coreInfo?.cpu_count}</InfoRow>
               <InfoRow>Total RAM: {formatRamSize(coreInfo?.total_ram)}</InfoRow>
+              {coreInfo?.tls && (
+                <InfoRow>
+                  HTTPS certificate:{' '}
+                  {tlsModeLabels[coreInfo.tls.mode] ?? coreInfo.tls.mode}
+                </InfoRow>
+              )}
+              {coreInfo?.tls?.fingerprint_sha256 && (
+                <InfoRow>
+                  Certificate fingerprint (SHA-256):{' '}
+                  <span className="font-mono text-small break-all">
+                    {coreInfo.tls.fingerprint_sha256}
+                  </span>
+                </InfoRow>
+              )}
             </div>
           </div>
         </div>

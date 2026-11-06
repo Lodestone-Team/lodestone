@@ -10,7 +10,7 @@ import {
 } from 'utils/util';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import InputField from 'components/Atoms/Form/InputField';
-import { Form, Formik, FormikHelpers } from 'formik';
+import { Form, Formik, FormikHelpers, useFormikContext } from 'formik';
 import * as yup from 'yup';
 import SelectField from 'components/Atoms/Form/SelectField';
 import {
@@ -22,9 +22,13 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { isIPv6 } from 'is-ip';
+import CoreConnectionHelp, {
+  defaultProtocolFor,
+  isRemoteNetworkError,
+} from 'components/CoreConnectionHelp';
 
 const validationSchema = yup.object({
   address: yup.string().required('Required'),
@@ -45,6 +49,31 @@ export const CORE_QUERY_PARAMS = [
 const pageIsHttps = () =>
   typeof window !== 'undefined' && window.location.protocol === 'https:';
 
+/**
+ * Keeps the protocol at http for a core on this machine and https for any
+ * other while the address is typed, until the user picks a protocol.
+ */
+const ProtocolFollowsAddress = ({ enabled }: { enabled: boolean }) => {
+  const { values, setFieldValue } = useFormikContext<CoreConnectionInfo>();
+  // the protocol this component last chose, null once the user chose one
+  const chosenProtocol = useRef<string | null>(
+    enabled ? values.protocol : null
+  );
+  useEffect(() => {
+    if (chosenProtocol.current === null) return;
+    if (values.protocol !== chosenProtocol.current) {
+      chosenProtocol.current = null;
+      return;
+    }
+    const protocol = defaultProtocolFor(values.address.trim());
+    if (protocol !== values.protocol) {
+      chosenProtocol.current = protocol;
+      setFieldValue('protocol', protocol, false);
+    }
+  }, [values.address, values.protocol, setFieldValue]);
+  return null;
+};
+
 const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
   const { navigateBack, setPathname, searchParams, setSearchParam } =
@@ -54,15 +83,19 @@ const CoreConnect = () => {
 
   // A link may suggest a core (?address=&port=&protocol=&apiVersion=). It only
   // fills in the form; the user still has to press "Add and Continue".
-  const [initialValues] = useState<CoreConnectionInfo>(() => {
+  const [linkProtocol] = useState(() => {
     const protocol = searchParams.get('protocol');
+    return protocol === 'https' || protocol === 'http' ? protocol : null;
+  });
+  const [initialValues] = useState<CoreConnectionInfo>(() => {
     const apiVersion = searchParams.get('apiVersion');
     const port = searchParams.get('port');
+    const address = searchParams.get('address') ?? '';
     return {
-      address: searchParams.get('address') ?? '',
+      address,
       port: port && /^\d+$/.test(port) ? port : LODESTONE_PORT.toString(),
       apiVersion: apiVersion === 'v1' ? apiVersion : 'v1',
-      protocol: protocol === 'https' ? 'https' : 'http',
+      protocol: linkProtocol ?? defaultProtocolFor(address),
     };
   });
 
@@ -103,7 +136,11 @@ const CoreConnect = () => {
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setStatus({ error: errorMessages });
+        actions.setStatus({
+          error: errorMessages,
+          // a copy: the form values change as the user edits them
+          helpCore: isRemoteNetworkError(err, values) ? { ...values } : null,
+        });
         actions.setSubmitting(false);
         // the request to the core being added was blocked as mixed content
         if (
@@ -172,13 +209,19 @@ const CoreConnect = () => {
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
+            <ProtocolFollowsAddress enabled={linkProtocol === null} />
             {status && (
-              <WarningAlert>
-                <p>
-                  <b>{status.error}</b>: Please ensure your fields are filled
-                  out correctly.
-                </p>
-              </WarningAlert>
+              <div className="flex flex-col gap-4">
+                <WarningAlert>
+                  <p>
+                    <b>{status.error}</b>: Please ensure your fields are filled
+                    out correctly.
+                  </p>
+                </WarningAlert>
+                {status.helpCore && (
+                  <CoreConnectionHelp core={status.helpCore} />
+                )}
+              </div>
             )}
             <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
               <SelectField

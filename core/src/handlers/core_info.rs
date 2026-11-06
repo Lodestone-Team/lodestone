@@ -1,6 +1,6 @@
 use std::{env, sync::OnceLock};
 
-use crate::{prelude::VERSION, AppState};
+use crate::{prelude::VERSION, tls::TlsInfo, AppState};
 use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, System};
@@ -19,6 +19,7 @@ pub struct CoreInfo {
     uuid: String,
     core_name: String,
     up_since: i64,
+    tls: TlsInfo,
 }
 
 /// Hardware details that do not change while the core runs.
@@ -72,6 +73,7 @@ pub async fn get_core_info(
         core_name: state.global_settings.lock().await.core_name(),
         uuid: state.uuid.clone(),
         up_since: state.up_since,
+        tls: (*state.tls_info).clone(),
     })
 }
 

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
+import { TlsInfo } from 'bindings/TlsInfo';
 
 // The /system routes require login; axios sends the token by default
 // (set in pages/index.tsx).
@@ -61,6 +62,8 @@ export interface CoreInfo {
   uuid: string;
   core_name: string;
   up_since: number;
+  /** The core's HTTPS certificate. Missing on cores without HTTPS support. */
+  tls?: TlsInfo;
 }
 
 /**
@@ -99,7 +102,7 @@ export const canReachLocalCore = () =>
 // this should only be used to check if the core is setup or not
 // it polls until a local core answers, to detect a newly installed core
 export const useLocalCoreInfo = (enabled = true) => {
-  //change to https when we default to it in core
+  // plain http: cores always accept it from this machine
   return useQuery<CoreInfo, AxiosError>({
     queryKey: ['systeminfo', 'LocalCoreInfo'],
     queryFn: () =>

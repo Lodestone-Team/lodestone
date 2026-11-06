@@ -17,6 +17,9 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { CoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import CoreConnectionHelp, {
+  isRemoteNetworkError,
+} from 'components/CoreConnectionHelp';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -64,7 +67,10 @@ const CoreSelectExisting = () => {
       })
       .catch((err) => {
         const errorMessages = errorToString(err);
-        actions.setStatus({ error: errorMessages });
+        actions.setStatus({
+          error: errorMessages,
+          helpCore: isRemoteNetworkError(err, core) ? core : null,
+        });
         actions.setSubmitting(false);
         return;
       });
@@ -93,12 +99,17 @@ const CoreSelectExisting = () => {
             autoComplete={DISABLE_AUTOFILL}
           >
             {status && (
-              <WarningAlert>
-                <p>
-                  <b>{status.error}</b>: Please ensure your fields are filled
-                  out correctly.
-                </p>
-              </WarningAlert>
+              <div className="flex flex-col gap-4">
+                <WarningAlert>
+                  <p>
+                    <b>{status.error}</b>: Please ensure your fields are filled
+                    out correctly.
+                  </p>
+                </WarningAlert>
+                {status.helpCore && (
+                  <CoreConnectionHelp core={status.helpCore} savedCore />
+                )}
+              </div>
             )}
             <div className="flex flex-row items-baseline gap-8">
               <SelectField
