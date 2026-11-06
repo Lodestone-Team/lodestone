@@ -686,7 +686,15 @@ impl UsersManager {
         let old_hash = user.hashed_psw.clone();
         let old_secret = user.secret.clone();
         if let Some(old_password) = old_password {
-            verify_password(&old_hash, old_password.as_ref())?;
+            // The requester is logged in, so a wrong old password is a refused action (403),
+            // not a missing or expired login (401).
+            verify_password(&old_hash, old_password.as_ref()).map_err(|e| match e.kind {
+                ErrorKind::Unauthorized => Error {
+                    kind: ErrorKind::PermissionDenied,
+                    source: e.source,
+                },
+                _ => e,
+            })?;
         }
         // changing the password also logs the user out everywhere
         if let Some(user) = self.users.get_mut(uid.as_ref()) {
@@ -1326,11 +1334,12 @@ mod permission_tests {
             })
         ));
         assert!(rx.try_recv().is_err(), "only one logout event");
-        // wrong old password
-        assert!(users_manager
+        // wrong old password: 403, because 401 means the login itself is not valid
+        let err = users_manager
             .change_password(&a.uid, Some("old"), "x".to_string(), CausedBy::System)
             .await
-            .is_err());
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
         users_manager.login("a", "new").unwrap();
     }
 
