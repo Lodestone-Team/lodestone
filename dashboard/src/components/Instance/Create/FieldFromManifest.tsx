@@ -3,12 +3,21 @@ import FormComboField from './SetupFormFields/FormComboField';
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
 import { SettingManifest } from 'bindings/SettingManifest';
+import {
+  COMMAND_LINE_SETTINGS,
+  useCommandLineBlockedReason,
+} from 'data/CodeExecution';
 
 export const FieldFromManifest = ({
   setting,
 }: {
   setting: SettingManifest;
 }) => {
+  const commandLineBlockedReason = useCommandLineBlockedReason();
+  // the core refuses a custom java command or arguments from this user
+  const commandLineReadOnly =
+    COMMAND_LINE_SETTINGS.includes(setting.setting_id) &&
+    commandLineBlockedReason !== null;
   switch (setting.value_type.type) {
     case 'String':
       return (
@@ -17,8 +26,13 @@ export const FieldFromManifest = ({
           type={setting.is_secret ? 'password' : 'text'}
           name={`${setting.setting_id}.value`}
           label={setting.name ?? ''}
-          description={setting.description ?? ''}
+          description={
+            commandLineReadOnly
+              ? `${setting.description ?? ''} ${commandLineBlockedReason}`
+              : (setting.description ?? '')
+          }
           optional={setting.is_required ? false : true}
+          disabled={commandLineReadOnly}
         />
       );
     case 'Integer':
