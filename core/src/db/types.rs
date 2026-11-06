@@ -33,18 +33,14 @@ impl From<&ClientEvent> for ClientEventRow {
         };
 
         ClientEventRow {
-            event_value: serde_json::to_value(client_event).unwrap(),
+            // ClientEvent is plain data (string map keys only), so this cannot fail
+            event_value: serde_json::to_value(client_event)
+                .expect("ClientEvent always serializes to JSON"),
             details: client_event.details.clone(),
             snowflake: client_event.snowflake,
             level: client_event.level.clone(),
             caused_by_user_id,
             instance_id,
         }
-    }
-}
-
-impl From<&ClientEventRow> for ClientEvent {
-    fn from(client_event_row: &ClientEventRow) -> Self {
-        serde_json::from_value(client_event_row.event_value.to_owned()).unwrap()
     }
 }
