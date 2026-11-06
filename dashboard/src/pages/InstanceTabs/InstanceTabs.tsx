@@ -166,7 +166,9 @@ const InstanceTabs = () => {
       >
         <div
           className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
-          key={`${instance.name}-${tab.title}`}
+          // not keyed by name: renaming must not remount the tab (and e.g.
+          // reconnect the performance stream)
+          key={`${uuid}-${tab.path}`}
         >
           <div className="flex h-fit min-h-full w-full flex-col gap-2 pt-6 pb-10 focus:outline-hidden">
             {tab.displayTitle && (
