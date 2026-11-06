@@ -133,6 +133,8 @@ pub struct AppState {
     playit_signup: Arc<std::sync::Mutex<Option<playitgg::PlayitSignupData>>>,
     /// The current safe mode setting, kept in sync by [`GlobalSettings`].
     safe_mode: Arc<AtomicBool>,
+    /// Failed logins per username, see [`auth::login_limiter::LoginRateLimiter`].
+    login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
 }
 
 impl AppState {
@@ -617,6 +619,7 @@ pub async fn run(
         playit_keep_running: Arc::new(Mutex::new(None)),
         playit_signup: Arc::new(std::sync::Mutex::new(None)),
         safe_mode: global_settings.safe_mode_flag(),
+        login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -791,6 +794,9 @@ pub async fn run(
                         Method::OPTIONS,
                     ])
                     .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+                    // sent with a 429 from the login route; a dashboard on another origin
+                    // can only read it if it is exposed
+                    .expose_headers([header::RETRY_AFTER])
                     .allow_origin(Any);
 
                 let trace = TraceLayer::new_for_http();

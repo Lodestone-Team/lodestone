@@ -18,6 +18,8 @@ pub enum ErrorKind {
     BadRequest,
     PermissionDenied,
     Unauthorized,
+    // too many attempts in a short time, such as failed logins (HTTP 429)
+    TooManyRequests,
     External,
     Internal,
 }
@@ -57,6 +59,7 @@ impl Display for ErrorKind {
             ErrorKind::BadRequest => write!(f, "Bad Request"),
             ErrorKind::PermissionDenied => write!(f, "Permission Denied"),
             ErrorKind::Unauthorized => write!(f, "Unauthorized"),
+            ErrorKind::TooManyRequests => write!(f, "Too Many Requests"),
             ErrorKind::Internal => write!(f, "Internal Error"),
             ErrorKind::External => write!(f, "External Error"),
         }
@@ -114,6 +117,7 @@ impl IntoResponse for Error {
             ErrorKind::BadRequest => StatusCode::BAD_REQUEST,
             ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
+            ErrorKind::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             ErrorKind::External => StatusCode::BAD_GATEWAY,
         };
