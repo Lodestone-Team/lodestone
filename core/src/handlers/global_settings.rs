@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
 };
 use color_eyre::eyre::eyre;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     error::ErrorKind,
@@ -105,6 +105,37 @@ pub async fn change_code_execution(
     Ok(())
 }
 
+/// Allows or refuses plain HTTP from other devices. Takes effect for new connections;
+/// connections that are already open stay open.
+pub async fn change_allow_lan_http(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    requester: AuthedUser,
+    Json(allow_lan_http): Json<bool>,
+) -> Result<(), Error> {
+    requester.owner_only("allow or refuse plain HTTP from other devices")?;
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_allow_lan_http(allow_lan_http)
+        .await?;
+    if allow_lan_http {
+        warn!("Plain HTTP from other devices is now allowed: passwords and login tokens can cross the network unencrypted");
+    } else {
+        info!("Plain HTTP from other devices is now refused");
+    }
+    state.event_broadcaster.send(Event {
+        event_inner: EventInner::GlobalSettingsChanged,
+        details: format!(
+            "Plain HTTP from other devices {}",
+            if allow_lan_http { "allowed" } else { "refused" }
+        ),
+        snowflake: Snowflake::default(),
+        caused_by: requester.caused_by(),
+    });
+    Ok(())
+}
+
 pub async fn change_domain(
     axum::extract::State(state): axum::extract::State<AppState>,
     requester: AuthedUser,
@@ -166,6 +197,10 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
             put(change_code_execution),
         )
         .route("/global_settings/domain", put(change_domain))
+        .route(
+            "/global_settings/allow_lan_http",
+            put(change_allow_lan_http),
+        )
         .route(
             "/global_settings/playit_enabled",
             put(change_core_playit_enabled),

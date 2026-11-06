@@ -41,6 +41,11 @@ pub struct GlobalSettingsData {
     // a request, and never written to the file (see `stored_settings_json`).
     #[serde(default, skip_deserializing)]
     pub code_execution_locked: bool,
+    // Whether other devices may use plain HTTP (otherwise only HTTPS). New installs start
+    // with it off. Files written by older versions have no field and served plain HTTP to
+    // everyone, so it defaults to on for them; it is saved once resolved, see `load_from_file`.
+    #[serde(default = "default_true")]
+    pub allow_lan_http: bool,
 }
 
 /// A lock-free view of the code execution kill switch, shared by everything that runs
@@ -142,6 +147,7 @@ impl Default for GlobalSettingsData {
             playit_enabled: true,
             code_execution_enabled: true,
             code_execution_locked: false,
+            allow_lan_http: false,
         }
     }
 }
@@ -152,6 +158,9 @@ pub struct GlobalSettings {
     global_settings_data: GlobalSettingsData,
     /// Mirrors `global_settings_data.safe_mode`, see [`GlobalSettings::safe_mode_flag`].
     safe_mode_flag: Arc<AtomicBool>,
+    /// Mirrors `global_settings_data.allow_lan_http`, see
+    /// [`GlobalSettings::allow_lan_http_flag`].
+    allow_lan_http_flag: Arc<AtomicBool>,
     /// On when `global_settings_data.code_execution_enabled` is on and the switch is not
     /// locked, see [`GlobalSettings::code_execution_switch`].
     code_execution: CodeExecutionSwitch,
@@ -166,12 +175,14 @@ impl GlobalSettings {
         global_settings_data: GlobalSettingsData,
     ) -> Self {
         let safe_mode_flag = Arc::new(AtomicBool::new(global_settings_data.safe_mode));
+        let allow_lan_http_flag = Arc::new(AtomicBool::new(global_settings_data.allow_lan_http));
         let code_execution = CodeExecutionSwitch::new(global_settings_data.code_execution_enabled);
         Self {
             path_to_global_settings,
             _event_broadcaster,
             global_settings_data,
             safe_mode_flag,
+            allow_lan_http_flag,
             code_execution,
             code_execution_locked: false,
         }
@@ -189,7 +200,11 @@ impl GlobalSettings {
         self.code_execution
             .set(self.global_settings_data.code_execution_enabled && !self.code_execution_locked);
     }
+    /// Loads the settings, or the defaults when the file is new or empty. Settings that the
+    /// file does not have yet (a new install, or `allow_lan_http` from an older version) are
+    /// saved right away, so their resolved value no longer depends on the file's age.
     pub async fn load_from_file(&mut self) -> Result<(), Error> {
+        let must_save;
         if tokio::fs::OpenOptions::new()
             .read(true)
             .create(true)
@@ -211,8 +226,9 @@ impl GlobalSettings {
             == 0
         {
             self.global_settings_data = GlobalSettingsData::default();
+            must_save = true;
         } else {
-            self.global_settings_data = serde_json::from_slice(
+            let stored: serde_json::Value = serde_json::from_slice(
                 &tokio::fs::read(&self.path_to_global_settings)
                     .await
                     .context(format!(
@@ -224,10 +240,23 @@ impl GlobalSettings {
                 "Failed to parse global settings file at {}",
                 self.path_to_global_settings.display()
             ))?;
+            must_save = stored.get("allow_lan_http").is_none();
+            self.global_settings_data = serde_json::from_value(stored).context(format!(
+                "Failed to parse global settings file at {}",
+                self.path_to_global_settings.display()
+            ))?;
         }
         self.safe_mode_flag
             .store(self.global_settings_data.safe_mode, Ordering::SeqCst);
+        self.allow_lan_http_flag
+            .store(self.global_settings_data.allow_lan_http, Ordering::SeqCst);
         self.sync_code_execution_switch();
+        if must_save {
+            // Not fatal: the value is the same on the next start, just resolved again.
+            if let Err(e) = self.write_to_file().await {
+                warn!("Failed to save the global settings: {}", e.source);
+            }
+        }
         Ok(())
     }
     /// Writes the settings to a temporary file and renames it over the old one, so a crash
@@ -281,6 +310,33 @@ impl GlobalSettings {
 
     pub fn safe_mode(&self) -> bool {
         self.global_settings_data.safe_mode
+    }
+
+    /// Allows or refuses plain HTTP from other devices. Takes effect for new connections.
+    pub async fn set_allow_lan_http(&mut self, allow_lan_http: bool) -> Result<(), Error> {
+        let old_allow_lan_http = self.global_settings_data.allow_lan_http;
+        self.global_settings_data.allow_lan_http = allow_lan_http;
+        match self.write_to_file().await {
+            Ok(_) => {
+                self.allow_lan_http_flag
+                    .store(allow_lan_http, Ordering::SeqCst);
+                Ok(())
+            }
+            Err(e) => {
+                self.global_settings_data.allow_lan_http = old_allow_lan_http;
+                Err(e)
+            }
+        }
+    }
+
+    /// A shared flag that always holds the current `allow_lan_http` setting. The web server
+    /// reads it for every new connection without locking the global settings.
+    pub fn allow_lan_http_flag(&self) -> Arc<AtomicBool> {
+        self.allow_lan_http_flag.clone()
+    }
+
+    pub fn allow_lan_http(&self) -> bool {
+        self.global_settings_data.allow_lan_http
     }
 
     pub async fn set_domain(&mut self, domain: Option<String>) -> Result<(), Error> {
@@ -433,6 +489,78 @@ mod tests {
         // check that the core name was set correctly
 
         assert_eq!(global_settings.core_name(), "test_core_name");
+    }
+
+    mod allow_lan_http {
+        use super::super::*;
+
+        fn settings_in(dir: &tempfile::TempDir) -> GlobalSettings {
+            let (event_broadcaster, _) = EventBroadcaster::new(10);
+            GlobalSettings::new(
+                dir.path().join("global_settings.json"),
+                event_broadcaster,
+                GlobalSettingsData::default(),
+            )
+        }
+
+        fn stored_json(dir: &tempfile::TempDir) -> serde_json::Value {
+            serde_json::from_slice(&std::fs::read(dir.path().join("global_settings.json")).unwrap())
+                .unwrap()
+        }
+
+        #[tokio::test]
+        async fn new_install_refuses_lan_http_and_saves_it() {
+            let dir = tempfile::TempDir::with_prefix("test_allow_lan_http_new").unwrap();
+            let mut settings = settings_in(&dir);
+            settings.load_from_file().await.unwrap();
+            assert!(!settings.allow_lan_http());
+            assert!(!settings.allow_lan_http_flag().load(Ordering::SeqCst));
+            assert_eq!(stored_json(&dir)["allow_lan_http"], false);
+        }
+
+        #[tokio::test]
+        async fn existing_file_without_the_field_allows_lan_http_and_saves_it() {
+            let dir = tempfile::TempDir::with_prefix("test_allow_lan_http_old").unwrap();
+            std::fs::write(
+                dir.path().join("global_settings.json"),
+                r#"{"core_name":"old core","safe_mode":true,"domain":null}"#,
+            )
+            .unwrap();
+            let mut settings = settings_in(&dir);
+            settings.load_from_file().await.unwrap();
+            assert!(settings.allow_lan_http());
+            assert!(settings.allow_lan_http_flag().load(Ordering::SeqCst));
+            let stored = stored_json(&dir);
+            assert_eq!(stored["allow_lan_http"], true);
+            assert_eq!(stored["core_name"], "old core");
+        }
+
+        #[tokio::test]
+        async fn stored_value_is_kept_and_setter_updates_flag_and_file() {
+            let dir = tempfile::TempDir::with_prefix("test_allow_lan_http_set").unwrap();
+            std::fs::write(
+                dir.path().join("global_settings.json"),
+                r#"{"core_name":"c","safe_mode":true,"domain":null,"allow_lan_http":true}"#,
+            )
+            .unwrap();
+            let mut settings = settings_in(&dir);
+            settings.load_from_file().await.unwrap();
+            let flag = settings.allow_lan_http_flag();
+            assert!(flag.load(Ordering::SeqCst));
+
+            settings.set_allow_lan_http(false).await.unwrap();
+            assert!(!flag.load(Ordering::SeqCst));
+            assert!(!settings.client_view().allow_lan_http);
+            assert_eq!(stored_json(&dir)["allow_lan_http"], false);
+
+            let mut reloaded = settings_in(&dir);
+            reloaded.load_from_file().await.unwrap();
+            assert!(!reloaded.allow_lan_http());
+
+            settings.set_allow_lan_http(true).await.unwrap();
+            assert!(flag.load(Ordering::SeqCst));
+            assert_eq!(stored_json(&dir)["allow_lan_http"], true);
+        }
     }
 
     mod code_execution {
