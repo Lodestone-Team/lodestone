@@ -3373,8 +3373,6 @@ dependencies = [
 [[package]]
 name = "deno_tls"
 version = "0.247.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a33b25abb86a9bd6cfaa9a5895a4607e14ccbb4da98ddd387804be6d40a334cd"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -9293,9 +9291,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.40"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -11627,7 +11625,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.59.0",

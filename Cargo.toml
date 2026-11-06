@@ -22,3 +22,11 @@ edition = "2021"
 license = "APGL-3.0"
 authors = ["Lodestone Team"]
 rust-version = "1.99.1"
+
+# deno_tls 0.247.0 (used by deno_runtime 0.268.0) pins rustls =0.23.40, which has
+# GHSA-2mjx-qc3c-rqvc, GHSA-c8m5-c952-6cm4, GHSA-w44r-93j7-qv28 and GHSA-h2v8-394m-p7vv.
+# vendor/deno_tls is the published 0.247.0 crate with only that pin changed to =0.23.46,
+# the same pin Deno's main branch uses. Remove this patch when deno_runtime is upgraded
+# to a release whose deno_tls allows rustls 0.23.46 or later.
+[patch.crates-io]
+deno_tls = { path = "vendor/deno_tls" }
