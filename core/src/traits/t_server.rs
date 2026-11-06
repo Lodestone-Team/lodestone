@@ -97,9 +97,8 @@ impl State {
             (State::Starting, StateAction::UserStart) => {
                 Err(eyre!("Cannot start an instance that is already starting"))
             }
-            (State::Starting, StateAction::UserStop) => {
-                Err(eyre!("Cannot stop an instance that is starting"))
-            }
+            // a server that never finishes starting must still be stoppable
+            (State::Starting, StateAction::UserStop) => Ok(State::Stopping),
             (_, StateAction::InstanceStart) => Ok(State::Running),
             (_, StateAction::InstanceStop) => Ok(State::Stopped),
             (State::Running, StateAction::UserStart) => {
@@ -116,8 +115,11 @@ impl State {
             (State::Stopped, StateAction::UserStop) => {
                 Err(eyre!("Cannot stop an instance that is already stopped"))
             }
-            (State::Error, StateAction::UserStart) => todo!(),
-            (State::Error, StateAction::UserStop) => todo!(),
+            // let the user retry after an error
+            (State::Error, StateAction::UserStart) => Ok(State::Starting),
+            (State::Error, StateAction::UserStop) => Err(eyre!(
+                "Cannot stop an instance that is in an error state, kill it instead"
+            )),
         }?;
         if let Some(on_transit) = on_transit {
             on_transit(state);
@@ -148,4 +150,49 @@ pub trait TServer {
     async fn state(&self) -> State;
     async fn send_command(&self, command: &str, caused_by: CausedBy) -> Result<(), Error>;
     async fn monitor(&self) -> MonitorReport;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{State, StateAction};
+
+    fn next(state: State, action: StateAction) -> Option<State> {
+        state.try_new_state(action, None).ok()
+    }
+
+    #[test]
+    fn state_transitions() {
+        use State::*;
+        use StateAction::*;
+        assert_eq!(next(Stopped, UserStart), Some(Starting));
+        assert_eq!(next(Starting, UserStart), None);
+        assert_eq!(next(Starting, UserStop), Some(Stopping));
+        assert_eq!(next(Running, UserStop), Some(Stopping));
+        assert_eq!(next(Running, UserStart), None);
+        assert_eq!(next(Stopping, UserStart), None);
+        assert_eq!(next(Stopping, UserStop), None);
+        assert_eq!(next(Stopped, UserStop), None);
+        assert_eq!(next(Error, UserStart), Some(Starting));
+        assert_eq!(next(Error, UserStop), None);
+        for state in [Starting, Running, Stopping, Stopped, Error] {
+            assert_eq!(next(state, InstanceStart), Some(Running));
+            assert_eq!(next(state, InstanceStop), Some(Stopped));
+        }
+    }
+
+    #[test]
+    fn on_transit_runs_only_on_success() {
+        let called = std::cell::Cell::new(None);
+        let record = |s: State| called.set(Some(s));
+        let mut state = State::Stopped;
+        assert!(state
+            .try_transition(StateAction::UserStop, Some(&record))
+            .is_err());
+        assert_eq!(called.get(), None);
+        state
+            .try_transition(StateAction::UserStart, Some(&record))
+            .unwrap();
+        assert_eq!(state, State::Starting);
+        assert_eq!(called.get(), Some(State::Starting));
+    }
 }

@@ -14,13 +14,6 @@ use crate::error::Error;
 
 const PAPER_API: &str = "https://fill.papermc.io/v3/projects/paper";
 
-/// PaperMC asks API clients to identify themselves.
-const USER_AGENT: &str = concat!(
-    "Lodestone/",
-    env!("CARGO_PKG_VERSION"),
-    " (https://github.com/Lodestone-Team/lodestone)"
-);
-
 #[derive(Deserialize)]
 struct VersionsResponse {
     versions: Vec<VersionEntry>,
@@ -55,11 +48,10 @@ pub struct PaperDownload {
     pub url: String,
 }
 
-fn client() -> Result<reqwest::Client, Error> {
-    Ok(reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .build()
-        .context("Failed to create HTTP client")?)
+/// PaperMC asks API clients to identify themselves; the shared client sends a Lodestone
+/// user agent and has a timeout.
+fn client() -> Result<&'static reqwest::Client, Error> {
+    Ok(super::util::http_client())
 }
 
 /// All Minecraft versions Paper has builds for, newest first.
