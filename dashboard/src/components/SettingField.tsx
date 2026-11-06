@@ -24,7 +24,8 @@ const useCanChangeCommandLine = () => {
   if (!user) return false;
   if (user.is_owner) return true;
   return (
-    user.permissions.can_write_global_file && globalSettings?.safe_mode === false
+    user.permissions.can_write_global_file &&
+    globalSettings?.safe_mode === false
   );
 };
 
@@ -45,14 +46,7 @@ export default function SettingField({
   descriptionFunc?: (arg: string | boolean) => React.ReactNode,
   onSubmit?: (updated: ConfigurableValue | null) => void
 }) {
-  const {
-    name: label,
-    type,
-    options,
-    value: initialValue,
-    min,
-    max,
-  } = setting;
+  const { name: label, type, options, value: initialValue, min, max } = setting;
   const canChangeCommandLine = useCanChangeCommandLine();
   const ownerOnly =
     COMMAND_LINE_SETTINGS.includes(settingId) && !canChangeCommandLine;
