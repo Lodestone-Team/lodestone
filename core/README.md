@@ -136,6 +136,10 @@ These instructions apply to Ubuntu 20.04 LTS and later.
   ```sh
   sudo apt-get install pkg-config libssl-dev
   ```
+* `clang` and `libclang-dev` are required to generate bindings for native dependencies of the Deno runtime
+  ```sh
+  sudo apt-get install clang libclang-dev
+  ```
 * `cpuidtool` is required to query CPU information
   ```sh
   sudo apt-get install cpuidtool libcpuid-dev

@@ -99,6 +99,19 @@ impl TServer for MinecraftInstance {
             );
         }
 
+        // The instance may have been stopped or killed (e.g. on shutdown) while the prelaunch
+        // script ran; launching the server now would leave an untracked process behind.
+        if self.state().await != State::Starting {
+            warn!(
+                "[{}] Instance is no longer starting after the prelaunch script, not launching the server",
+                config.name
+            );
+            return Err(Error {
+                kind: ErrorKind::Internal,
+                source: eyre!("Instance was stopped while the prelaunch script was running"),
+            });
+        }
+
         let jre = if let Some(jre) = &config.java_cmd {
             PathBuf::from(jre)
         } else {

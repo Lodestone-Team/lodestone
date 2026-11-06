@@ -70,7 +70,7 @@ VALUES
         row.caused_by_user_id,
         row.instance_id,
     )
-    .execute(&mut connection)
+    .execute(&mut *connection)
     .await
     .context("Failed to write to DB")?
     .last_insert_rowid();
@@ -96,7 +96,7 @@ pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
         );
         "#
     )
-    .execute(&mut connection)
+    .execute(&mut *connection)
     .await
     .context("Failed to create table")?;
 

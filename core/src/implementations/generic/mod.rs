@@ -1,18 +1,18 @@
-use std::{path::PathBuf, rc::Rc, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use color_eyre::eyre::Context;
 use tracing::{debug, error};
 
 use self::{
-    bridge::procedure_call::{emit_result, next_procedure, proc_bridge_ready, ProcedureCallInner},
+    bridge::procedure_call::{procedure_bridge_extension, ProcedureCallInner},
     r#macro::GenericMainWorkerGenerator,
 };
 use crate::{
     error::Error,
     event_broadcaster::EventBroadcaster,
     events::{CausedBy, ProgressionEventID},
-    macro_executor::{self, MacroExecutor, MacroPID, SpawnResult, WorkerOptionGenerator},
+    macro_executor::{MacroExecutor, MacroPID, SpawnResult, WorkerOptionGenerator},
     traits::{
         t_configurable::{
             manifest::{SetupManifest, SetupValue},
@@ -65,22 +65,8 @@ struct InitWorkerGenerator {
 
 impl WorkerOptionGenerator for InitWorkerGenerator {
     fn generate(&self) -> deno_runtime::worker::WorkerOptions {
-        let ext = deno_core::Extension::builder("generic_deno_extension_builder")
-            .ops(vec![
-                next_procedure::decl(),
-                emit_result::decl(),
-                proc_bridge_ready::decl(),
-            ])
-            .state({
-                let brige = self.bridge.clone();
-                move |state| {
-                    state.put(brige);
-                }
-            })
-            .build();
         deno_runtime::worker::WorkerOptions {
-            extensions: vec![ext],
-            module_loader: Rc::new(macro_executor::TypescriptModuleLoader::default()),
+            extensions: vec![procedure_bridge_extension(self.bridge.clone())],
             ..Default::default()
         }
     }
@@ -101,8 +87,10 @@ impl GenericInstance {
             &path.display()
         ))?;
         let path_to_config = path.join(".lodestone_config");
-        let run_ts_content =
-            include_str!("js/main/bootstrap.ts").replace("REPLACE_ME_WITH_URL", &path_to_source.join("main.ts").as_os_str().to_string_lossy());
+        let run_ts_content = include_str!("js/main/bootstrap.ts").replace(
+            "REPLACE_ME_WITH_URL",
+            &path_to_source.join("main.ts").as_os_str().to_string_lossy(),
+        );
 
         let path_to_bootstrap = path.join("run.ts");
         tokio::fs::write(&path_to_bootstrap, run_ts_content)

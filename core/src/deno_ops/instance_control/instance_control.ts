@@ -41,7 +41,7 @@ export function getInstanceState(instanceUuid: string): Promise<InstanceState> {
 }
 
 export function sendCommand(command: string, instanceUuid: string): Promise<void> {
-    return core.opAsync("send_command", instanceUuid, command);
+    return core.opAsync("send_command", instanceUuid, command, getCurrentTaskPid());
 }
 
 export function monitorInstance(instanceUuid: string): Promise<PerformanceReport> {

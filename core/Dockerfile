@@ -3,6 +3,11 @@ FROM rust as build
 # create and enter app directory
 WORKDIR /app
 
+# libclang is needed by bindgen (libsqlite3-sys, libnghttp2) in the deno dependency tree
+RUN apt-get update \
+  && apt-get install -y clang libclang-dev \
+  && rm -rf /var/lib/apt/lists/*
+
 # copy over project files
 COPY . ./
 

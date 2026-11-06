@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use color_eyre::eyre::eyre;
 use deno_core::anyhow::anyhow;
-use deno_core::{anyhow, op, OpState};
+use deno_core::{op2, OpState};
+
+use crate::deno_ops::{op_try, op_try_sync, OpError};
 use enum_kinds::EnumKind;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -342,38 +344,59 @@ pub struct ProcedureCallResultIR {
     error: Option<ErrorIR>,
 }
 
-#[op]
-async fn next_procedure(state: Rc<RefCell<OpState>>) -> Result<ProcedureCall, anyhow::Error> {
+#[op2]
+#[serde]
+pub(crate) async fn next_procedure(state: Rc<RefCell<OpState>>) -> Result<ProcedureCall, OpError> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
-    let mut rx = bridge.procedure_rx.lock().await;
-    Ok(rx.recv().await?)
+    op_try(async move {
+        let mut rx = bridge.procedure_rx.lock().await;
+        Ok(rx.recv().await?)
+    })
+    .await
 }
 
-#[op]
-fn proc_bridge_ready(state: Rc<RefCell<OpState>>) -> Result<String, anyhow::Error> {
+#[op2]
+#[string]
+pub(crate) fn proc_bridge_ready(state: Rc<RefCell<OpState>>) -> Result<String, OpError> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
-    // if already ready, return error
-    if bridge.ready.load(std::sync::atomic::Ordering::SeqCst) {
-        return Err(anyhow!("ProcedureBridge::proc_bridge_ready: already ready"));
-    }
-    bridge
-        .ready
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    Ok("".to_string())
+    op_try_sync(|| {
+        // if already ready, return error
+        if bridge.ready.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(anyhow!("ProcedureBridge::proc_bridge_ready: already ready"));
+        }
+        bridge
+            .ready
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok("".to_string())
+    })
 }
 
-#[op]
-fn emit_result(
+#[op2]
+pub(crate) fn emit_result(
     state: Rc<RefCell<OpState>>,
-    result: ProcedureCallResultIR,
-) -> Result<(), anyhow::Error> {
+    #[serde] result: ProcedureCallResultIR,
+) -> Result<(), OpError> {
     let bridge = state.borrow().borrow::<ProcedureBridge>().clone();
     let _rx = bridge.procedure_result_tx.subscribe();
-    bridge
-        .procedure_result_tx
-        .send(result)
-        .map_err(|_| anyhow!("ProcedureBridge::emit_result: procedure_result_tx closed"))?;
-    Ok(())
+    op_try_sync(|| {
+        bridge
+            .procedure_result_tx
+            .send(result)
+            .map_err(|_| anyhow!("ProcedureBridge::emit_result: procedure_result_tx closed"))?;
+        Ok(())
+    })
+}
+
+/// Builds the deno extension exposing the procedure bridge ops to the generic instance runtime.
+pub(crate) fn procedure_bridge_extension(bridge: ProcedureBridge) -> deno_core::Extension {
+    deno_core::Extension {
+        name: "generic_deno_extension_builder",
+        ops: std::borrow::Cow::Owned(vec![next_procedure(), emit_result(), proc_bridge_ready()]),
+        op_state_fn: Some(Box::new(move |state| {
+            state.put(bridge);
+        })),
+        ..Default::default()
+    }
 }
 
 #[derive(Debug, Clone)]
