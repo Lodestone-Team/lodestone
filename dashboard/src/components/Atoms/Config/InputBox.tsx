@@ -91,9 +91,10 @@ export default function InputBox({
           ? parseFloatStrict(value)
           : parseintStrict(value);
         if (isNaN(numValue)) throw new Error('Must be a number');
-        if (min && numValue < min)
+        if (min != null && numValue < min)
           throw new Error(`Must be greater than ${min}`);
-        if (max && numValue > max) throw new Error(`Must be less than ${max}`);
+        if (max != null && numValue > max)
+          throw new Error(`Must be less than ${max}`);
       }
       if (validateProp) await validateProp(value);
     },
@@ -139,7 +140,7 @@ export default function InputBox({
     const trimmed = value.trim();
     setValue(trimmed);
     setIsLoading(true);
-    const validateError = await catchAsyncToString(validate(value, true));
+    const validateError = await catchAsyncToString(validate(trimmed, true));
     if (validateError) {
       setError(validateError);
       setIsLoading(false);
