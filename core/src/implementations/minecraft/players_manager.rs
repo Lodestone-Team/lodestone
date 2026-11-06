@@ -102,6 +102,17 @@ impl PlayersManager {
     }
 }
 
+impl PlayersManager {
+    /// The online players, without cloning the rest of the manager.
+    pub fn players(&self) -> HashSet<Player> {
+        self.players
+            .iter()
+            .cloned()
+            .map(Player::MinecraftPlayer)
+            .collect()
+    }
+}
+
 impl AsRef<HashSet<MinecraftPlayer>> for PlayersManager {
     fn as_ref(&self) -> &HashSet<MinecraftPlayer> {
         &self.players
