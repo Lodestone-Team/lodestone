@@ -9,6 +9,7 @@ import Avatar from 'components/Atoms/Avatar';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
 import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
+import CoreConnectionStatus from './CoreConnectionStatus';
 
 
 
@@ -21,8 +22,8 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
   const uid = useUid();
 
   return (
-    <div className={`flex w-full flex-col items-center px-4 ${className}`}>
-      <div className="flex h-full w-full grow flex-col items-start gap-4 pt-12 pb-4">
+    <div className={`flex h-full w-full flex-col items-center overflow-y-auto px-4 ${className}`}>
+      <div className="flex w-full grow flex-col items-start gap-4 pt-12 pb-4">
       <button
                 className={clsx(
                   'flex flex-row items-center gap-x-1.5',
@@ -148,6 +149,9 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
               ))}
           </RadioGroup>
         }
+      </div>
+      <div className="sticky bottom-0 w-full border-t border-fade-700 bg-gray-850 py-2">
+        <CoreConnectionStatus />
       </div>
     </div>
   );
