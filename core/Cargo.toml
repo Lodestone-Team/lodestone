@@ -98,6 +98,7 @@ walkdir = "2.5.0"
 which = "8.0.6"
 whoami = "2.1.3"
 zip = { version = "9.0.5", default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd", "time"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 
 [build-dependencies]
 # Used by build.rs to create the deno runtime startup snapshot.
