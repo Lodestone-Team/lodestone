@@ -10,7 +10,6 @@ import {
 import SelectGenericGameCard from './SelectGenericGameCard';
 import { GameInstanceContext } from 'data/GameInstanceContext';
 import { useContext } from 'react';
-import { useCodeExecution } from 'data/CodeExecution';
 export default function GameTypeSelectForm({
   manifestLoading,
   manifestError,
@@ -23,9 +22,6 @@ export default function GameTypeSelectForm({
   const { gameType: selectedGameType, setGameType } =
     useContext(GameInstanceContext);
   const { data: game_types, isPending: isLoading } = InstanceGameTypes();
-  // atom (Docker) instances run code: owner only, and not while code
-  // execution is disabled
-  const { canManage, canRun } = useCodeExecution();
   if (!game_types || isLoading) {
     return <Spinner />;
   }
@@ -37,31 +33,23 @@ export default function GameTypeSelectForm({
       <p className="text-left text-medium font-medium italic leading-5 tracking-medium text-white/50">
         What will your instance be used for?
       </p>
-      {canManage && !canRun && (
-        <p className="pt-2 text-left text-medium leading-5 font-medium tracking-medium text-white/50 italic">
-          Docker instances are unavailable while code execution is disabled on
-          this core.
-        </p>
-      )}
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
-        {canRun && (
-          <SelectGenericGameCard
-            key={'Generic'}
-            title={'Learn about Docker Instance (beta)'}
-            game_type={{
-              type: 'Generic',
-              game_name: 'Generic',
-              game_display_name: 'Docker Instance',
-            }}
-            className={clsx(
-              'Generic' === selectedGameType &&
-                'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected '
-            )}
-            onClick={() => setGameType('Generic')}
-            manifestLoading={manifestLoading}
-            errorText={manifestError ? 'Error fetching the instance' : ''}
-          />
-        )}
+        <SelectGenericGameCard
+          key={'Generic'}
+          title={'Learn about Docker Instance (beta)'}
+          game_type={{
+            type: 'Generic',
+            game_name: 'Generic',
+            game_display_name: 'Docker Instance',
+          }}
+          className={clsx(
+            'Generic' === selectedGameType &&
+              'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected '
+          )}
+          onClick={() => setGameType('Generic')}
+          manifestLoading={manifestLoading}
+          errorText={manifestError ? 'Error fetching the instance' : ''}
+        />
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];
           return (

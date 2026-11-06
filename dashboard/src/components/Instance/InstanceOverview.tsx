@@ -11,7 +11,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import {
-  OWNER_ONLY_GENERIC_MESSAGE,
+  OWNER_ONLY_ATOM_MESSAGE,
   useCanControlInstance,
 } from 'data/CodeExecution';
 
@@ -27,7 +27,7 @@ const InstanceOverview = () => {
   const domain = globalSettings?.domain || address || 'localhost';
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
-  // only the owner can rename atom (Docker) instances
+  // only the owner can rename atom instances
   const canControlInstance = useCanControlInstance(instance);
 
   if (!instance || !uuid) {
@@ -86,7 +86,7 @@ const InstanceOverview = () => {
               placeholder="No name"
               containerClassName="min-w-0"
               disabled={!canControlInstance}
-              disabledTooltip={OWNER_ONLY_GENERIC_MESSAGE}
+              disabledTooltip={OWNER_ONLY_ATOM_MESSAGE}
             />
           </div>
           <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
@@ -116,7 +116,7 @@ const InstanceOverview = () => {
               placeholder="No description"
               containerClassName="min-w-0"
               disabled={!canControlInstance}
-              disabledTooltip={OWNER_ONLY_GENERIC_MESSAGE}
+              disabledTooltip={OWNER_ONLY_ATOM_MESSAGE}
             />
           </div>
         </div>

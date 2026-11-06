@@ -10,7 +10,7 @@ import {
   COMMAND_LINE_SETTINGS,
   useCanControlInstance,
   useCommandLineBlockedReason,
-  OWNER_ONLY_GENERIC_MESSAGE,
+  OWNER_ONLY_ATOM_MESSAGE,
 } from 'data/CodeExecution';
 import ToggleBox from './Atoms/Config/ToggleBox';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
@@ -38,10 +38,10 @@ export default function SettingField({
   const { name: label, type, options, value: initialValue, min, max } = setting;
   const commandLineBlockedReason = useCommandLineBlockedReason();
   const canControlInstance = useCanControlInstance(instance);
-  // atom (Docker) instances can only be changed by the owner; java_cmd and
+  // atom instances can only be changed by the owner; java_cmd and
   // cmd_args also need code execution to be enabled
   const readOnlyReason = !canControlInstance
-    ? `${OWNER_ONLY_GENERIC_MESSAGE}.`
+    ? `${OWNER_ONLY_ATOM_MESSAGE}.`
     : COMMAND_LINE_SETTINGS.includes(settingId)
       ? commandLineBlockedReason
       : null;

@@ -160,7 +160,25 @@ pub fn require_code_write(state: &AppState, user: &User) -> Result<(), Error> {
     check_code_write(user.is_owner, &state.code_execution)
 }
 
-/// Whether `instance` is an atom (generic) instance, which runs as a macro.
+/// The rule for creating an atom instance (`POST /instance/create_generic`), which runs
+/// TypeScript from a URL as a macro: only the owner, and only while code execution is on.
+pub fn check_create_atom(user: &User, code_execution: &CodeExecutionSwitch) -> Result<(), Error> {
+    user.owner_only("create atom instances")?;
+    code_execution.check()
+}
+
+/// The rule for adding a Docker container to the watch list (`PUT /generic_setup_manifest`).
+///
+/// A Docker instance is not an atom: Lodestone runs no code of its own for it, it only
+/// starts, stops and reads an existing container through the Docker daemon. So this needs
+/// the normal `CreateInstance` permission, is not owner only, and is not stopped by the
+/// code execution kill switch.
+pub fn check_watch_docker_container(user: &User, safe_mode: bool) -> Result<(), Error> {
+    user.try_action(&UserAction::CreateInstance, safe_mode)
+}
+
+/// Whether `instance` is an atom (generic) instance, which runs as a macro. Docker
+/// instances (`DOCKER-` UUIDs) are never in `AppState::instances`, so they are never atoms.
 pub fn is_atom(instance: &GameInstance) -> bool {
     matches!(instance, GameInstance::GenericInstance(_))
 }
@@ -357,6 +375,53 @@ mod tests {
             crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
         );
         assert!(check_code_write(false, &off).is_err());
+    }
+
+    fn non_owner(permissions: crate::auth::permission::UserPermission) -> User {
+        User::new("user".to_string(), "pw", false, false, permissions)
+    }
+
+    #[test]
+    fn docker_watch_list_needs_create_instance_only() {
+        let off = CodeExecutionSwitch::new(false);
+        let creator = non_owner(crate::auth::permission::UserPermission {
+            can_create_instance: true,
+            ..Default::default()
+        });
+        let nobody = non_owner(Default::default());
+
+        // a non-owner with CreateInstance may add a container, whether or not code
+        // execution is on (the switch is not an input to the rule at all)
+        assert!(off.check().is_err());
+        assert!(check_watch_docker_container(&creator, false).is_ok());
+        assert!(check_watch_docker_container(&creator, true).is_ok());
+        let err = check_watch_docker_container(&nobody, false).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+
+        // the same user may not create an atom, with the switch on or off
+        let on = CodeExecutionSwitch::new(true);
+        for switch in [&on, &off] {
+            let err = check_create_atom(&creator, switch).unwrap_err();
+            assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+            assert_eq!(
+                err.source.to_string(),
+                "Only the owner can create atom instances"
+            );
+        }
+    }
+
+    #[test]
+    fn atom_creation_is_owner_only_and_follows_the_switch() {
+        let owner = User::new("owner".to_string(), "pw", true, false, Default::default());
+        assert!(check_create_atom(&owner, &CodeExecutionSwitch::new(true)).is_ok());
+        let err = check_create_atom(&owner, &CodeExecutionSwitch::new(false)).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+        assert_eq!(
+            err.source.to_string(),
+            crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
+        );
+        // the owner may add Docker containers with the switch off too
+        assert!(check_watch_docker_container(&owner, true).is_ok());
     }
 
     #[tokio::test]

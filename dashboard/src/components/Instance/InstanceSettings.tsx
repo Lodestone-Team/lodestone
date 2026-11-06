@@ -6,7 +6,7 @@ import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
 import {
-  OWNER_ONLY_GENERIC_MESSAGE,
+  OWNER_ONLY_ATOM_MESSAGE,
   useCanControlInstance,
 } from 'data/CodeExecution';
 import { useQueryClient } from '@tanstack/react-query';
@@ -32,7 +32,7 @@ export default function InstanceSetting() {
   } = useInstanceManifest(instance.uuid);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  // atom (Docker) instances can only be deleted by the owner
+  // atom instances can only be deleted by the owner
   const canControlInstance = useCanControlInstance(instance);
   const can_delete_instance =
     useUserAuthorized('can_delete_instance') && canControlInstance;
@@ -148,7 +148,7 @@ export default function InstanceSetting() {
                 <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
                   {canControlInstance
                     ? 'No permission'
-                    : OWNER_ONLY_GENERIC_MESSAGE}
+                    : OWNER_ONLY_ATOM_MESSAGE}
                 </div>
               )}
             </div>
