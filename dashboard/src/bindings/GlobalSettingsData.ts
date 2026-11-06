@@ -5,4 +5,6 @@ export type GlobalSettingsData = {
   safe_mode: boolean;
   domain: string | null;
   playit_enabled: boolean;
+  code_execution_enabled: boolean;
+  code_execution_locked: boolean;
 };

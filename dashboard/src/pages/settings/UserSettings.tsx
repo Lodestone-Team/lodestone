@@ -92,11 +92,6 @@ const UnsafePermissions: {
       'The user can modify the resources(worlds, mods, etc.) of these instances.',
   },
   {
-    permission: 'can_access_instance_macro' as keyof UserPermission,
-    title: 'Access Instance Macros',
-    description: 'The user can read and modify the macros of these instances.',
-  },
-  {
     permission: 'can_write_instance_file' as keyof UserPermission,
     title: 'Modify Instance Files',
     description: 'The user can modify the files of these instances.',
@@ -369,6 +364,16 @@ export const UserSettings = () => {
                   UnsafePermissions,
                   globalSettings?.safe_mode || false
                 )}
+                <div className="-mt-6 mb-10">
+                  <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
+                    Macros, Extensions and Docker Instances
+                  </div>
+                  <div className="text-medium font-medium tracking-medium text-white/50 italic">
+                    Only the owner can use macros, install extensions, and
+                    create or control atom (Docker) instances. These can&apos;t
+                    be granted to other users.
+                  </div>
+                </div>
               </div>
             </>
           )}

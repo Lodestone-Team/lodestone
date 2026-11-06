@@ -5,6 +5,10 @@ import { useContext, useState, useEffect } from 'react';
 import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { useUserAuthorized } from 'data/UserInfo';
+import {
+  OWNER_ONLY_GENERIC_MESSAGE,
+  useCanControlInstance,
+} from 'data/CodeExecution';
 import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { toast } from 'react-toastify';
@@ -28,7 +32,10 @@ export default function InstanceSetting() {
   } = useInstanceManifest(instance.uuid);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const can_delete_instance = useUserAuthorized('can_delete_instance');
+  // atom (Docker) instances can only be deleted by the owner
+  const canControlInstance = useCanControlInstance(instance);
+  const can_delete_instance =
+    useUserAuthorized('can_delete_instance') && canControlInstance;
   const queryClient = useQueryClient();
 
   const [sections, setSections] = useState<SectionFieldObject[]>([]);
@@ -139,7 +146,9 @@ export default function InstanceSetting() {
                 </div>
               ) : (
                 <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-                  No permission
+                  {canControlInstance
+                    ? 'No permission'
+                    : OWNER_ONLY_GENERIC_MESSAGE}
                 </div>
               )}
             </div>

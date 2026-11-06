@@ -11,6 +11,7 @@ import { tabs } from 'pages/InstanceTabs/tabList';
 import { useQueryClient } from '@tanstack/react-query';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import { useCodeExecution } from 'data/CodeExecution';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -25,6 +26,8 @@ export const SelectedInstanceInfo = ({
   const { setPathname } = useContext(BrowserLocationContext);
   const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
   const { data: globalSettings } = useGlobalSettings();
+  // macros are owner only
+  const { canManage } = useCodeExecution();
 
   const uuid = selectedInstance?.uuid;
   if (!selectedInstance || !uuid) {
@@ -61,6 +64,7 @@ export const SelectedInstanceInfo = ({
       {selectedInstance &&
         tabs.map((tab) => (
           (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
+          (tab.path !== 'macros' || canManage) &&
           <RadioGroup.Option
             key={tab.path}
             value={`/dashboard/${tab.path}`}

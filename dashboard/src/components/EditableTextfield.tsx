@@ -16,6 +16,10 @@ type Props = {
   iconClassName?: string;
   placeholder?: string;
   onSubmit: (arg: string) => Promise<void>;
+  /** shows the text without the edit controls */
+  disabled?: boolean;
+  /** shown on hover while disabled */
+  disabledTooltip?: string;
 };
 
 export default function EditableTextfield({
@@ -26,6 +30,8 @@ export default function EditableTextfield({
   iconClassName = '',
   placeholder = '',
   onSubmit: onSubmitProp,
+  disabled = false,
+  disabledTooltip,
 }: Props) {
   const [displayText, setDisplayText] = useState<string>(initialText);
   const [editText, setEditText] = useState<string>(initialText);
@@ -76,6 +82,29 @@ export default function EditableTextfield({
       window.removeEventListener('keydown', handleKey);
     };
   });
+
+  if (disabled) {
+    return (
+      <div
+        className={`relative flex flex-row items-center justify-start gap-1 ${
+          type === 'heading'
+            ? 'dashboard-instance-heading'
+            : 'text-h3 font-medium tracking-tight italic'
+        } ${containerClassName}`}
+        title={disabledTooltip}
+      >
+        <div
+          className={`min-w-0 truncate ${
+            type === 'heading' ? 'text-gray-300' : 'text-gray-500'
+          } ${textClassName}`}
+        >
+          <span className="whitespace-pre">
+            {initialText ? initialText : placeholder}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   const errorNode = error ? (
     <div
