@@ -938,8 +938,19 @@ mod tests {
             "attachment; filename=\"world.zip\""
         );
         assert_eq!(
-            attachment_header(std::path::Path::new("/a/we\"ird\\wörld.zip")),
-            "attachment; filename=\"we_ird_w_rld.zip\""
+            attachment_header(std::path::Path::new("/a/we\"ird wörld.zip")),
+            "attachment; filename=\"we_ird w_rld.zip\""
+        );
+        // `\` is part of the name on Unix, and a path separator on Windows
+        #[cfg(unix)]
+        assert_eq!(
+            attachment_header(std::path::Path::new("/a/we\\ird.zip")),
+            "attachment; filename=\"we_ird.zip\""
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            attachment_header(std::path::Path::new("/a/we\\ird.zip")),
+            "attachment; filename=\"ird.zip\""
         );
         assert_eq!(
             attachment_header(std::path::Path::new("/")),
