@@ -1,3 +1,5 @@
+use tracing::{debug, warn};
+
 use crate::AppState;
 
 async fn handle_docker_command(input_tokens: &[&str], app_state: AppState) {
@@ -30,31 +32,48 @@ async fn handle_docker_command(input_tokens: &[&str], app_state: AppState) {
     }
 }
 
+/// Listens for commands on stdin.
+///
+/// Reading stdin blocks, so it runs on its own OS thread instead of a tokio worker, which
+/// it would otherwise occupy for the life of the process. Commands run on the runtime that
+/// called `init`.
 pub fn init(app_state: AppState) {
-    // start a new thread to listen for commands in stdin
-    tokio::spawn({
-        let app_state = app_state;
-        async move {
+    let runtime = tokio::runtime::Handle::current();
+    let spawn_result = std::thread::Builder::new()
+        .name("lodestone-console".to_string())
+        .spawn(move || {
+            let stdin = std::io::stdin();
             loop {
-                let app_state = app_state.clone();
                 let mut input = String::new();
-                let buf_size = std::io::stdin().read_line(&mut input).unwrap();
-                if buf_size == 0 {
-                    println!("EOF");
-                    break;
+                match stdin.read_line(&mut input) {
+                    Ok(0) => {
+                        debug!("stdin closed, command console stopped");
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                        println!("Ignoring input that is not valid UTF-8");
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("Failed to read stdin, command console stopped: {e}");
+                        break;
+                    }
                 }
                 let input_tokens = input.split_whitespace().collect::<Vec<&str>>();
                 match input_tokens.first() {
                     Some(&"di") => {
                         // send input tokens without the first element
-                        handle_docker_command(&input_tokens[1..], app_state).await;
+                        runtime
+                            .block_on(handle_docker_command(&input_tokens[1..], app_state.clone()));
                     }
                     _ => {
                         println!("Unknown command: {}", input);
-                        continue;
                     }
                 }
             }
-        }
-    });
+        });
+    if let Err(e) = spawn_result {
+        warn!("Failed to start the command console: {e}");
+    }
 }
