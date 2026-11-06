@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import NotificationPanel from './NotificationPanel';
 import { useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { Popover } from '@headlessui/react';
 import { DEFAULT_LOCAL_CORE } from 'utils/util';
@@ -26,7 +26,7 @@ export default function DashboardLayout() {
     useContext(LodestoneContext);
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
-  const { data: coreInfo, isLoading: coreInfoLoading } = useCoreInfo();
+  const { data: coreInfo, isPending: coreInfoLoading } = useCoreInfo();
   const { data: localCoreInfo } = useLocalCoreInfo();
   const [showVersionMismatchModal, setShowVersionMismatchModal] =
     useState(false);

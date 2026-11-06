@@ -26,26 +26,25 @@ export const DEFAULT_LOCAL_CORE: CoreConnectionInfo = {
   protocol: 'http',
   apiVersion: 'v1',
 };
+// custom font sizes from tailwind.config.js (text-* is a color otherwise)
 export const myTwMerge = extendTailwindMerge({
-  classGroups: {
-    'font-size': [
-      {
-        text: [
-          'caption',
-          'small',
-          'medium',
-          'h3',
-          'h2',
-          'h1',
-          'title',
-          '2xlarge',
-          '3xlarge',
-          '4xlarge',
-          '5xlarge',
-          '6xlarge',
-        ],
-      },
-    ],
+  extend: {
+    theme: {
+      text: [
+        'caption',
+        'small',
+        'medium',
+        'h3',
+        'h2',
+        'h1',
+        'title',
+        '2xlarge',
+        '3xlarge',
+        '4xlarge',
+        '5xlarge',
+        '6xlarge',
+      ],
+    },
   },
 });
 

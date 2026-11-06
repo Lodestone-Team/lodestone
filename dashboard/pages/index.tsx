@@ -16,14 +16,14 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router';
 import { useLocalStorage } from 'usehooks-ts';
 import { useLocalStorageQueryParam } from 'utils/hooks';
 import { DEFAULT_LOCAL_CORE, errorToString, LODESTONE_PORT } from 'utils/util';
 import Dashboard from 'pages/dashboard';
 import Home from 'pages/home';
 import axios from 'axios';
-import jwt from 'jsonwebtoken';
+import { jwtDecode } from 'jwt-decode';
 import DashboardLayout from 'components/DashboardLayout';
 import SettingsPage from 'pages/settings';
 import CoreSelectExisting from 'pages/login/CoreSelectExisting';
@@ -202,11 +202,14 @@ export default function App() {
       // TODO: clear ongoing notifications as well
     } else {
       try {
-        const decoded = jwt.decode(token, { complete: true });
-        if (!decoded) throw new Error('Invalid token');
-        const payload = decoded.payload;
-        if (typeof payload === 'undefined') throw new Error('Invalid token');
-        if (typeof payload === 'string') throw new Error('Invalid token');
+        let payload: { exp?: number; uid?: unknown };
+        try {
+          payload = jwtDecode(token);
+        } catch {
+          throw new Error('Invalid token');
+        }
+        if (typeof payload !== 'object' || payload === null)
+          throw new Error('Invalid token');
         const exp = payload.exp;
         const uid = payload.uid;
 

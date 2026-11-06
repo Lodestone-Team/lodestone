@@ -2,6 +2,12 @@
 import type { GameType } from './GameType';
 import type { MinecraftVariant } from './MinecraftVariant';
 
+/**
+ * The type of game this instance is
+ *
+ * Meant to be consumed by frontend to display the correct icon
+ */
 export type Game =
   | { type: 'MinecraftJava'; variant: MinecraftVariant }
+  | { type: 'MinecraftBedrock' }
   | { type: 'Generic'; game_name: GameType; game_display_name: string };

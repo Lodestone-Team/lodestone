@@ -1,18 +1,23 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import InstanceLoadingPill from './InstanceLoadingPill';
 
-export default {
+const meta: Meta<typeof InstanceLoadingPill> = {
   title: 'library/InstanceLoadingPill',
   component: InstanceLoadingPill,
-} as ComponentMeta<typeof InstanceLoadingPill>;
+  decorators: [
+    (Story) => (
+      <div className="flex w-60 flex-col child:w-full">
+        <Story />
+      </div>
+    ),
+  ],
+};
+export default meta;
 
-const Template: ComponentStory<typeof InstanceLoadingPill> = (args) => (
-  <div className="flex w-60 flex-col child:w-full">
-    <InstanceLoadingPill {...args} />
-  </div>
-);
+type Story = StoryObj<typeof InstanceLoadingPill>;
 
-export const Default = Template.bind({});
-Default.args = {
-  progress_percent: 0.5,
+export const Default: Story = {
+  args: {
+    progress_percent: 0.5,
+  },
 };

@@ -50,9 +50,9 @@ export const deleteInstance = (uuid: string, queryClient: QueryClient) => {
 
 // instance list sorted by creation time
 export const useInstanceList = (enabled = true) =>
-  useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>(
-    ['instances', 'list'],
-    () => {
+  useQuery<{ [uuid: string]: InstanceInfo }, AxiosError>({
+    queryKey: ['instances', 'list'],
+    queryFn: () => {
       return axios.get<InstanceInfo[]>('/instance/list').then((response) => {
         if (response.status !== 200) {
           throw new Error('Invalid status code');
@@ -69,7 +69,5 @@ export const useInstanceList = (enabled = true) =>
         );
       });
     },
-    {
-      enabled,
-    }
-  );
+    enabled,
+  });

@@ -6,6 +6,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;
+  placeholder?: string;
   type?: 'text' | 'number' | 'password';
 };
 

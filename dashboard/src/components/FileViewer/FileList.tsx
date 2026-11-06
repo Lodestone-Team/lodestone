@@ -5,9 +5,9 @@ import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
 import { formatBytes, formatTimeAgo, supportedZip } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { RefObject, useState, useEffect, useRef } from 'react';
 import { useEventListener, useOnClickOutside } from 'usehooks-ts';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { UnzipOption } from 'bindings/UnzipOption';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -171,7 +171,9 @@ export default function FileList({
   useEventListener('mousemove', onMouseMove);
   useEventListener('resize', onResize);
   useEventListener('mousedown', onResize);
-  useOnClickOutside(contextMenuRef, () => setShowContextMenu(false));
+  useOnClickOutside(contextMenuRef as RefObject<HTMLDivElement>, () =>
+    setShowContextMenu(false)
+  );
 
   function fileToIcon(file: ClientFile) {
     if (file.file_type === 'Directory') {
@@ -336,14 +338,15 @@ export default function FileList({
                 tickFile(file, ticked);
               }}
             />
-            <div className="h-4 w-4 flex-shrink-0">{fileToIcon(file)}</div>
+            <div className="h-4 w-4 shrink-0">{fileToIcon(file)}</div>
             <p
               className={clsx(
-                'truncate text-gray-300 hover:cursor-pointer hover:text-blue-200 hover:underline',
+                'truncate hover:cursor-pointer hover:underline',
                 openedFile?.path === file.path && 'italic',
                 clipboardAction === 'cut' &&
-                  clipboard?.some((f) => f.path === file.path) &&
-                  'text-opacity-60 '
+                  clipboard?.some((f) => f.path === file.path)
+                  ? 'text-gray-300/60 hover:text-blue-200/60'
+                  : 'text-gray-300 hover:text-blue-200'
               )}
               onClick={() => onFileClick(file)}
             >

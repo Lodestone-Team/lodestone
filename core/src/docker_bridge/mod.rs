@@ -5,13 +5,18 @@ use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bollard::container::{AttachContainerOptions, AttachContainerResults, ListContainersOptions};
-use bollard::{secret::EventMessage, system::EventsOptions, Docker};
+use bollard::container::AttachContainerResults;
+use bollard::models::EventMessage;
+use bollard::query_parameters::{
+    AttachContainerOptions, EventsOptions, KillContainerOptions, ListContainersOptions,
+    RestartContainerOptions, StartContainerOptions, StopContainerOptions,
+};
+use bollard::Docker;
 use color_eyre::eyre::{Context, ContextCompat};
 
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use virtual_fs::{get_virtual_path, to_virtual_path};
 
 use crate::handlers::global_fs::FileEntry;
@@ -27,7 +32,9 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct DockerBridge {
-    docker: Docker,
+    /// `None` when no Docker daemon is reachable at startup. bollard >= 0.16 checks for the
+    /// socket eagerly, so a missing daemon must not stop Lodestone from starting.
+    docker: Option<Docker>,
     event_broadcaster: EventBroadcaster,
     watch_list: Arc<RwLock<HashSet<InstanceUuid>>>,
     db_file_path: PathBuf,
@@ -71,8 +78,13 @@ impl DockerBridge {
         event_broadcaster: EventBroadcaster,
         db_file_path: PathBuf,
     ) -> Result<Self, Error> {
-        let docker =
-            Docker::connect_with_local_defaults().context("Failed to connect to docker")?;
+        let docker = match Docker::connect_with_local_defaults() {
+            Ok(docker) => Some(docker),
+            Err(e) => {
+                warn!("Docker is not available, Docker instances are disabled: {e}");
+                None
+            }
+        };
         // make sure the db file exists
         let file = File::options()
             .create(true)
@@ -98,31 +110,34 @@ impl DockerBridge {
             };
 
         let watch_list = Arc::new(RwLock::new(watch_list));
-        tokio::spawn({
-            let docker = docker.clone();
-            let event_broadcaster = event_broadcaster.clone();
-            let watch_list = watch_list.clone();
-            async move {
-                let mut stream = docker.events(None::<EventsOptions<String>>);
-                while let Some(event) = stream.next().await {
-                    match event {
-                        Ok(event) => {
-                            if !watch_list.read().await.contains(&docker_id_to_uuid(
-                                &extract_container_name(&event).unwrap(),
-                            )) {
-                                continue;
+        if let Some(docker) = docker.clone() {
+            tokio::spawn({
+                let event_broadcaster = event_broadcaster.clone();
+                let watch_list = watch_list.clone();
+                async move {
+                    let mut stream = docker.events(None::<EventsOptions>);
+                    while let Some(event) = stream.next().await {
+                        match event {
+                            Ok(event) => {
+                                if !watch_list.read().await.contains(&docker_id_to_uuid(
+                                    &extract_container_name(&event).unwrap(),
+                                )) {
+                                    continue;
+                                }
+                                if let Some(lodestone_event) =
+                                    docker_event_to_lodestone_event(event)
+                                {
+                                    event_broadcaster.send(lodestone_event);
+                                }
                             }
-                            if let Some(lodestone_event) = docker_event_to_lodestone_event(event) {
-                                event_broadcaster.send(lodestone_event);
+                            Err(e) => {
+                                error!("Error while listening to docker events: {:?}", e);
                             }
-                        }
-                        Err(e) => {
-                            error!("Error while listening to docker events: {:?}", e);
                         }
                     }
                 }
-            }
-        });
+            });
+        }
         Ok(Self {
             docker,
             db_file_path,
@@ -131,11 +146,15 @@ impl DockerBridge {
         })
     }
 
+    fn docker(&self) -> Result<&Docker, Error> {
+        Ok(self.docker.as_ref().context("Docker is not available")?)
+    }
+
     pub async fn list_containers(&self) -> Result<Vec<InstanceInfo>, Error> {
         let mut ret = Vec::new();
         let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions::<String> {
+            .docker()?
+            .list_containers(Some(ListContainersOptions {
                 all: true,
                 ..Default::default()
             }))
@@ -161,7 +180,7 @@ impl DockerBridge {
                 path: "/no_peek/Volume".to_string(),
                 auto_start: false,
                 restart_on_crash: false,
-                state: State::from_docker_state_string(&container.state.unwrap()),
+                state: State::from_docker_state_string(container.state.unwrap().as_ref()),
                 player_count: None,
                 max_player_count: None,
                 player_list: None,
@@ -174,7 +193,7 @@ impl DockerBridge {
     pub async fn get_container_state(&self, uuid: &InstanceUuid) -> Result<State, Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
         let state = self
-            .docker
+            .docker()?
             .inspect_container(&name, None)
             .await
             .context("Failed to inspect container")?
@@ -185,8 +204,8 @@ impl DockerBridge {
 
     pub async fn stop_container(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
-        self.docker
-            .stop_container(&name, None::<bollard::container::StopContainerOptions>)
+        self.docker()?
+            .stop_container(&name, None::<StopContainerOptions>)
             .await
             .context("Failed to stop container")?;
         Ok(())
@@ -194,23 +213,23 @@ impl DockerBridge {
 
     pub async fn start_container(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
-        self.docker
-            .start_container(
-                &name,
-                None::<bollard::container::StartContainerOptions<String>>,
-            )
+        self.docker()?
+            .start_container(&name, None::<StartContainerOptions>)
             .await
             .context("Failed to start container")?;
-        let options = Some(AttachContainerOptions::<String> {
-            stdin: Some(true),
-            stdout: Some(true),
-            stderr: Some(true),
-            stream: Some(true),
-            logs: Some(false),
+        let options = Some(AttachContainerOptions {
+            stdin: true,
+            stdout: true,
+            stderr: true,
+            stream: true,
+            logs: false,
             detach_keys: None,
         });
-        let AttachContainerResults { mut output, .. } =
-            self.docker.attach_container(&name, options).await.unwrap();
+        let AttachContainerResults { mut output, .. } = self
+            .docker()?
+            .attach_container(&name, options)
+            .await
+            .unwrap();
 
         let event_broadcaster = self.event_broadcaster.clone();
         tokio::spawn({
@@ -235,8 +254,8 @@ impl DockerBridge {
 
     pub async fn restart_container(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
-        self.docker
-            .restart_container(&name, None::<bollard::container::RestartContainerOptions>)
+        self.docker()?
+            .restart_container(&name, None::<RestartContainerOptions>)
             .await
             .context("Failed to restart container")?;
         Ok(())
@@ -244,11 +263,8 @@ impl DockerBridge {
 
     pub async fn kill_container(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
-        self.docker
-            .kill_container(
-                &name,
-                None::<bollard::container::KillContainerOptions<String>>,
-            )
+        self.docker()?
+            .kill_container(&name, None::<KillContainerOptions>)
             .await
             .context("Failed to kill container")?;
         Ok(())
@@ -290,7 +306,7 @@ impl DockerBridge {
     ) -> Result<Vec<FileEntry>, Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
         let mounts = &self
-            .docker
+            .docker()?
             .inspect_container(&name, None)
             .await
             .context("Failed to inspect container")?
@@ -346,7 +362,7 @@ impl DockerBridge {
     ) -> Result<String, Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
         let mounts = &self
-            .docker
+            .docker()?
             .inspect_container(&name, None)
             .await
             .context("Failed to inspect container")?
@@ -379,7 +395,7 @@ impl DockerBridge {
     ) -> Result<(), Error> {
         let name = uuid.to_string().replace("DOCKER-", "");
         let mounts = &self
-            .docker
+            .docker()?
             .inspect_container(&name, None)
             .await
             .context("Failed to inspect container")?

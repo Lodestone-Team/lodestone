@@ -2,4 +2,4 @@
 import type { ErrorKind } from "./ErrorKind";
 import type { SettingManifest } from "./SettingManifest";
 
-export interface GetConfigResponse { config: Record<string, SettingManifest>, message: string | null, error: ErrorKind | null, }
+export type GetConfigResponse = { config: { [key in string]: SettingManifest }, message: string | null, error: ErrorKind | null, };

@@ -1,14 +1,19 @@
-import Editor, { useMonaco } from '@monaco-editor/react';
+import Editor, { loader, useMonaco } from '@monaco-editor/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import type * as monaco from 'monaco-editor';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { saveInstanceFile } from 'utils/apis';
 import * as toml from 'utils/monaco-languages/toml';
 
 type Monaco = typeof monaco;
+
+// Load monaco from our own origin instead of the jsdelivr CDN (the loader's
+// default). public/monaco/vs is copied from the installed monaco-editor
+// package by scripts/copy-monaco.mjs (run by `npm run dev` / `npm run build`).
+loader.config({ paths: { vs: '/monaco/vs' } });
 
 // A wrapper of monaco editor for file editing, with toml support and ctrl+s
 export function FileEditor({
@@ -27,7 +32,7 @@ export function FileEditor({
   setFileContent: (content: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const fileContentRef = useRef<string>();
+  const fileContentRef = useRef<string | undefined>(undefined);
   fileContentRef.current = fileContent;
 
   const monaco = useMonaco();
@@ -74,22 +79,22 @@ export function FileEditor({
           'editor.lineHighlightBackground': '#2c2e33',
         },
       });
-      monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-        target: monaco.languages.typescript.ScriptTarget.ES2016,
+      // monaco 0.55 moved languages.typescript to the top level typescript namespace
+      monaco.typescript.typescriptDefaults.setCompilerOptions({
+        target: monaco.typescript.ScriptTarget.ES2016,
         allowNonTsExtensions: true,
         allowJs: true,
         allowSyntheticDefaultImports: true,
-        moduleResolution:
-          monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-        module: monaco.languages.typescript.ModuleKind.ESNext,
+        moduleResolution: monaco.typescript.ModuleResolutionKind.NodeJs,
+        module: monaco.typescript.ModuleKind.ESNext,
         esModuleInterop: true,
       });
-      monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+      monaco.typescript.typescriptDefaults.setEagerModelSync(true);
       monaco.languages.register({ id: 'toml' });
       monaco.languages.setLanguageConfiguration('toml', toml.conf);
       if (toml.language)
         monaco.languages.setMonarchTokensProvider('toml', toml.language);
-      // monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      // monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
       //   noSemanticValidation: true,
       //   noSyntaxValidation: true,
       // });

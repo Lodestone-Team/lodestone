@@ -1,5 +1,6 @@
+use std::sync::LazyLock;
+
 use fancy_regex::Regex;
-use lazy_static::lazy_static;
 
 pub struct PlayerMessage {
     pub player: String,
@@ -7,9 +8,7 @@ pub struct PlayerMessage {
 }
 
 pub fn parse_system_msg(msg: &str) -> Option<String> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"\[.+\]+: (?!<)(.+)").unwrap();
-    }
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\]+: (?!<)(.+)").unwrap());
     if RE.is_match(msg).ok()? {
         RE.captures(msg)
             .ok()?
@@ -20,9 +19,7 @@ pub fn parse_system_msg(msg: &str) -> Option<String> {
 }
 
 pub fn parse_player_msg(msg: &str) -> Option<PlayerMessage> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"\[.+\]+: <(.+)> (.+)").unwrap();
-    }
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[.+\]+: <(.+)> (.+)").unwrap());
     if RE.is_match(msg).unwrap() {
         if let Some(cap) = RE.captures(msg).ok()? {
             Some(PlayerMessage {
@@ -38,9 +35,7 @@ pub fn parse_player_msg(msg: &str) -> Option<PlayerMessage> {
 }
 
 pub fn parse_player_joined(system_msg: &str) -> Option<String> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"(.+) joined the game").unwrap();
-    }
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+) joined the game").unwrap());
     if RE.is_match(system_msg).unwrap() {
         if let Some(cap) = RE.captures(system_msg).ok()? {
             Some(cap.get(1)?.as_str().to_string())
@@ -53,9 +48,7 @@ pub fn parse_player_joined(system_msg: &str) -> Option<String> {
 }
 
 pub fn parse_player_left(system_msg: &str) -> Option<String> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"(.+) left the game").unwrap();
-    }
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(.+) left the game").unwrap());
     if RE.is_match(system_msg).unwrap() {
         if let Some(cap) = RE.captures(system_msg).ok()? {
             Some(cap.get(1)?.as_str().to_string())
@@ -68,8 +61,6 @@ pub fn parse_player_left(system_msg: &str) -> Option<String> {
 }
 
 pub fn parse_server_started(system_msg: &str) -> bool {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r#"Done \(.+\)!"#).unwrap();
-    }
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"Done \(.+\)!"#).unwrap());
     RE.is_match(system_msg).unwrap()
 }

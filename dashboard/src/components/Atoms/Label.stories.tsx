@@ -1,7 +1,7 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import Label from './Label';
 
-export default {
+const meta: Meta<typeof Label> = {
   title: 'Library/Label',
   component: Label,
   argTypes: {
@@ -9,19 +9,22 @@ export default {
     size: { control: 'inline-radio' },
     children: { control: 'text' },
   },
-} as ComponentMeta<typeof Label>;
+};
+export default meta;
 
-const Template: ComponentStory<typeof Label> = (args) => <Label {...args} />;
+type Story = StoryObj<typeof Label>;
 
-export const RunningCard = Template.bind({});
-RunningCard.args = {
-  children: 'Running',
-  color: 'green',
+export const RunningCard: Story = {
+  args: {
+    children: 'Running',
+    color: 'green',
+  },
 };
 
-export const CrashedPage = Template.bind({});
-CrashedPage.args = {
-  children: 'Crashed',
-  color: 'red',
-  size: 'large',
+export const CrashedPage: Story = {
+  args: {
+    children: 'Crashed',
+    color: 'red',
+    size: 'large',
+  },
 };

@@ -4,8 +4,8 @@ import type { Player } from './Player';
 
 export type InstanceEventInner =
   | { type: 'StateTransition'; to: InstanceState }
-  | { type: 'InstanceWarning' }
-  | { type: 'InstanceError' }
+  | { type: 'InstanceWarning'; message: string }
+  | { type: 'InstanceError'; message: string }
   | { type: 'InstanceInput'; message: string }
   | { type: 'InstanceOutput'; message: string }
   | { type: 'SystemMessage'; message: string }

@@ -77,7 +77,10 @@ You should not download Lodestone Core directly due to its lack of ability to se
 
 As of v0.4.3 we have added Docker support to lodestone core.
 Our precompiled images will be based on the newest release available from: `ghcr.io/lodestone-team/lodestone_core`.
-Alternatively, you may build your own image using the default `Dockerfile`, not additional arguments required.
+Alternatively, you may build your own image using `core/Dockerfile`. Run the build from the repository root, because core is part of the Cargo workspace there:
+```sh
+docker build -f core/Dockerfile -t lodestone_core .
+```
 
 > **Note**
 > You may add additional ports as you wish to forward, but 16662 is the default port served in the image.
@@ -104,7 +107,6 @@ docker compose up -d
 ```
 Alternatively, create docker-compose.yml yourself:
 ```yml
-version: '3.8'
 services:
   lodestone:
     container_name: lodestone
@@ -132,9 +134,9 @@ These instructions apply to Ubuntu 20.04 LTS and later.
   ```sh
   sudo apt-get install build-essential
   ```
-* `pkg-config` and `libssl-dev` are required to compile Axum
+* `pkg-config` is required by some native dependencies (OpenSSL is not needed, TLS uses rustls)
   ```sh
-  sudo apt-get install pkg-config libssl-dev
+  sudo apt-get install pkg-config
   ```
 * `clang` and `libclang-dev` are required to generate bindings for native dependencies of the Deno runtime
   ```sh
@@ -160,9 +162,9 @@ These instructions apply to Ubuntu 20.04 LTS and later.
    ```sh
    export LODESTONE_PATH=~/test_dev
    ```
-3. Running
+3. Running (from the repository root; rustup uses the toolchain pinned in `rust-toolchain.toml`, install it with `rustup toolchain install` if needed)
    ```sh
-   cargo run --bin main
+   cargo run -p lodestone_core
    ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>

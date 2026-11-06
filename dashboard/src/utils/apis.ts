@@ -16,7 +16,7 @@ import {
   isAxiosError,
   parentPath,
 } from './util';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { UnzipOption } from 'bindings/UnzipOption';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
 import { TaskEntry } from 'bindings/TaskEntry';
@@ -170,7 +170,9 @@ export const uploadInstanceFiles = async (
   }
 
   // invalidate the query instead of updating it because file name might be different
-  queryClient.invalidateQueries(['instance', uuid, 'fileList', directory]);
+  queryClient.invalidateQueries({
+    queryKey: ['instance', uuid, 'fileList', directory],
+  });
 };
 
 export const createInstanceFile = async (
@@ -218,12 +220,14 @@ export const copyRecursive = async (
     toast.error(error);
     return;
   }
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    parentPath(request.relative_path_dest, direcotrySeparator),
-  ]);
+  queryClient.invalidateQueries({
+    queryKey: [
+      'instance',
+      uuid,
+      'fileList',
+      parentPath(request.relative_path_dest, direcotrySeparator),
+    ],
+  });
 };
 
 export const moveInstanceFileOrDirectory = async (
@@ -251,18 +255,22 @@ export const moveInstanceFileOrDirectory = async (
   }
 
   // just invalided the query instead of updating it because file name might be different due to conflict
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    parentPath(source, direcotrySeparator),
-  ]);
-  queryClient.invalidateQueries([
-    'instance',
-    uuid,
-    'fileList',
-    parentPath(destination, direcotrySeparator),
-  ]);
+  queryClient.invalidateQueries({
+    queryKey: [
+      'instance',
+      uuid,
+      'fileList',
+      parentPath(source, direcotrySeparator),
+    ],
+  });
+  queryClient.invalidateQueries({
+    queryKey: [
+      'instance',
+      uuid,
+      'fileList',
+      parentPath(destination, direcotrySeparator),
+    ],
+  });
 };
 
 export const zipInstanceFiles = async (
@@ -490,7 +498,7 @@ export const createTask = async (
   macro_name: string,
   args: string[]
 ) => {
-  queryClient.invalidateQueries(['instance', uuid, 'taskList']);
+  queryClient.invalidateQueries({ queryKey: ['instance', uuid, 'taskList'] });
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',

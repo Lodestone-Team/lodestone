@@ -1,29 +1,34 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import InstanceLoadingCard from './InstanceLoadingCard';
 
-export default {
+const meta: Meta<typeof InstanceLoadingCard> = {
   title: 'library/InstanceLoadingCard',
   component: InstanceLoadingCard,
-} as ComponentMeta<typeof InstanceLoadingCard>;
+  decorators: [
+    (Story) => (
+      <div className="flex w-60 flex-col child:w-full">
+        <Story />
+      </div>
+    ),
+  ],
+};
+export default meta;
 
-const Template: ComponentStory<typeof InstanceLoadingCard> = (args) => (
-  <div className="flex w-60 flex-col child:w-full">
-    <InstanceLoadingCard {...args} />
-  </div>
-);
+type Story = StoryObj<typeof InstanceLoadingCard>;
 
-export const Default = Template.bind({});
-Default.args = {
-  uuid: 'bruh moment',
-  name: 'My Minecraft Server',
-  port: 25565,
-  game_type: {
-    type: 'MinecraftJava',
-    variant: {
-      type: 'Vanilla',
+export const Default: Story = {
+  args: {
+    uuid: 'bruh moment',
+    name: 'My Minecraft Server',
+    port: 25565,
+    game_type: {
+      type: 'MinecraftJava',
+      variant: {
+        type: 'Vanilla',
+      },
     },
+    focus: false,
+    progress_percent: 0.5,
+    progress_title: 'Setting up...',
   },
-  focus: false,
-  progress_percent: 0.5,
-  progress_title: 'Setting up...',
 };

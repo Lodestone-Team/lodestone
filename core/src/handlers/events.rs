@@ -10,7 +10,7 @@ use axum_auth::AuthBearer;
 
 use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt};
-use ringbuffer::{AllocRingBuffer, RingBufferExt};
+use ringbuffer::RingBuffer;
 use tracing::{debug, error};
 
 use crate::output_types::ClientEvent;
@@ -119,17 +119,20 @@ pub async fn get_console_buffer(
             .lock()
             .await
             .get(&uuid)
-            .unwrap_or(&AllocRingBuffer::new())
-            .iter()
-            .filter(|event| match &event.event_inner {
-                EventInner::InstanceEvent(instance_event) => {
-                    (instance_event.instance_uuid == uuid || uuid == "all")
-                        && requester.can_view_event(event)
-                }
-                _ => false,
+            .map(|buffer| {
+                buffer
+                    .iter()
+                    .filter(|event| match &event.event_inner {
+                        EventInner::InstanceEvent(instance_event) => {
+                            (instance_event.instance_uuid == uuid || uuid == "all")
+                                && requester.can_view_event(event)
+                        }
+                        _ => false,
+                    })
+                    .cloned()
+                    .collect()
             })
-            .cloned()
-            .collect(),
+            .unwrap_or_default(),
     ))
 }
 
@@ -192,7 +195,7 @@ async fn event_stream_ws(
                     }
                 };
                 if query.filter(ClientEvent::from(event.clone())) && user.can_view_event(&event) {
-                    if let Err(e) = sender.send(axum::extract::ws::Message::Text(serde_json::to_string(&event).unwrap())).await {
+                    if let Err(e) = sender.send(axum::extract::ws::Message::Text(serde_json::to_string(&event).unwrap().into())).await {
                         error!("Error sending event to websocket: {}", e);
                         break;
                     }
@@ -252,7 +255,7 @@ async fn console_stream_ws(
                         {
                             if let Err(e) = sender
                                 .send(axum::extract::ws::Message::Text(
-                                    serde_json::to_string(&event).unwrap(),
+                                    serde_json::to_string(&event).unwrap().into(),
                                 ))
                                 .await
                             {
@@ -289,10 +292,10 @@ async fn console_stream_ws(
 
 pub fn get_events_routes(state: AppState) -> Router {
     Router::new()
-        .route("/events/:uuid/stream", get(event_stream))
-        .route("/events/:uuid/buffer", get(get_event_buffer))
+        .route("/events/{uuid}/stream", get(event_stream))
+        .route("/events/{uuid}/buffer", get(get_event_buffer))
         .route("/events/search", get(get_event_search))
-        .route("/instance/:uuid/console/stream", get(console_stream))
-        .route("/instance/:uuid/console/buffer", get(get_console_buffer))
+        .route("/instance/{uuid}/console/stream", get(console_stream))
+        .route("/instance/{uuid}/console/buffer", get(get_console_buffer))
         .with_state(state)
 }

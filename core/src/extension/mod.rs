@@ -55,7 +55,7 @@ pub struct Manifest {
     pub version: String,
     pub description: String,
     #[serde(default)]
-    pub release_notes : Option<String>,
+    pub release_notes: Option<String>,
     #[serde(default)]
     pub permission: Option<Permission>,
 }
@@ -63,7 +63,7 @@ pub struct Manifest {
 /// Manifest but with github username, repo, url, and domain
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ManifestWithMetadata {
-    pub manifest : Manifest,
+    pub manifest: Manifest,
     /// GitHub username
     pub username: String,
     pub repo: String,
@@ -107,7 +107,9 @@ impl From<FetchExtensionManifestError> for Error {
     }
 }
 
-pub async fn get_manifest(url: impl AsRef<str>) -> Result<ManifestWithMetadata, FetchExtensionManifestError> {
+pub async fn get_manifest(
+    url: impl AsRef<str>,
+) -> Result<ManifestWithMetadata, FetchExtensionManifestError> {
     // https://github.com/Lodestone-Team/lodestone
 
     let _url = url::Url::parse(url.as_ref()).map_err(|e| {
@@ -215,7 +217,10 @@ impl ExtensionManager {
         // a possible race condition, but it's fine
         let manifest = get_manifest(url).await?;
         let extension_path = match manifest.manifest.r#type {
-            ExtensionType::Atom => self.install_atom(&manifest.username, &manifest.url, &manifest.manifest.name).await?,
+            ExtensionType::Atom => {
+                self.install_atom(&manifest.username, &manifest.url, &manifest.manifest.name)
+                    .await?
+            }
             ExtensionType::Macro => todo!(),
         };
         Ok(extension_path)
@@ -235,7 +240,8 @@ impl ExtensionManager {
         if path.exists() {
             return Ok(path);
         }
-        let git = git::GitClient::clone(url, &self.atom_path, format!("{atom_name}.{username}")).await?;
+        let git =
+            git::GitClient::clone(url, &self.atom_path, format!("{atom_name}.{username}")).await?;
         Ok(git.cwd())
     }
 }

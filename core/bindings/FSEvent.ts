@@ -2,4 +2,4 @@
 import type { FSOperation } from "./FSOperation";
 import type { FSTarget } from "./FSTarget";
 
-export interface FSEvent { operation: FSOperation, target: FSTarget, }
+export type FSEvent = { operation: FSOperation, target: FSTarget, };

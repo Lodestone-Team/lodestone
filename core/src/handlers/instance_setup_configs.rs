@@ -96,7 +96,7 @@ pub async fn get_generic_setup_manifest(
 pub fn get_instance_setup_config_routes(appstate: AppState) -> Router {
     Router::new()
         .route("/games", get(get_available_games))
-        .route("/setup_manifest/:game_type", get(get_setup_manifest))
+        .route("/setup_manifest/{game_type}", get(get_setup_manifest))
         .route("/generic_setup_manifest", put(get_generic_setup_manifest))
         .with_state(appstate)
 }

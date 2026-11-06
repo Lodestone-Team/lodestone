@@ -1,51 +1,49 @@
-use lazy_static::lazy_static;
 use std::path::PathBuf;
+use std::sync::{LazyLock, OnceLock};
 
-use once_cell::sync::OnceCell;
-
-static LODESTONE_PATH: OnceCell<PathBuf> = OnceCell::new();
+static LODESTONE_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn lodestone_path() -> &'static PathBuf {
     LODESTONE_PATH.get().unwrap()
 }
 
-static PATH_TO_INSTANCES: OnceCell<PathBuf> = OnceCell::new();
+static PATH_TO_INSTANCES: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn path_to_instances() -> &'static PathBuf {
     PATH_TO_INSTANCES.get().unwrap()
 }
 
-static PATH_TO_BINARIES: OnceCell<PathBuf> = OnceCell::new();
+static PATH_TO_BINARIES: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn path_to_binaries() -> &'static PathBuf {
     PATH_TO_BINARIES.get().unwrap()
 }
 
-static PATH_TO_STORES: OnceCell<PathBuf> = OnceCell::new();
+static PATH_TO_STORES: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn path_to_stores() -> &'static PathBuf {
     PATH_TO_STORES.get().unwrap()
 }
 
-static PATH_TO_GLOBAL_SETTINGS: OnceCell<PathBuf> = OnceCell::new();
+static PATH_TO_GLOBAL_SETTINGS: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn path_to_global_settings() -> &'static PathBuf {
     PATH_TO_GLOBAL_SETTINGS.get().unwrap()
 }
 
-static PATH_TO_USERS: OnceCell<PathBuf> = OnceCell::new();
+static PATH_TO_USERS: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn path_to_users() -> &'static PathBuf {
     PATH_TO_USERS.get().unwrap()
 }
 
-static PATH_TO_TMP: OnceCell<PathBuf> = OnceCell::new();
+static PATH_TO_TMP: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn path_to_tmp() -> &'static PathBuf {
     PATH_TO_TMP.get().unwrap()
 }
 
-static APP_STATE: OnceCell<AppState> = OnceCell::new();
+static APP_STATE: OnceLock<AppState> = OnceLock::new();
 
 pub fn init_app_state(app_state: AppState) {
     let _ = APP_STATE.set(app_state);
@@ -92,14 +90,14 @@ thread_local! {
     pub static LODESTONE_EPOCH_MIL: i64 = 1667530800000;
 }
 
-lazy_static! {
-    pub static ref SNOWFLAKE_GENERATOR: std::sync::Mutex<snowflake::SnowflakeIdGenerator> =
+pub static SNOWFLAKE_GENERATOR: LazyLock<std::sync::Mutex<snowflake::SnowflakeIdGenerator>> =
+    LazyLock::new(|| {
         std::sync::Mutex::new(snowflake::SnowflakeIdGenerator::with_epoch(
             1,
             1,
-            std::time::UNIX_EPOCH + std::time::Duration::from_millis(1667530800000)
-        ));
-}
+            std::time::UNIX_EPOCH + std::time::Duration::from_millis(1667530800000),
+        ))
+    });
 
 use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;

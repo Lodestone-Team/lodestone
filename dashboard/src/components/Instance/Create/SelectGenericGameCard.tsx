@@ -76,10 +76,10 @@ const SelectGenericGameCard = ({
     <div
       className={clsx(
         'relative col-span-2 flex flex-row items-start text-left align-top font-sans tracking-medium',
-        ' w-full border-solid p-4 outline outline-1',
+        ' w-full border-solid p-4 outline-solid outline-1',
         'generic-gametype-unselected enabled:hover:generic-gametype-hover rounded-md border-gray-faded/30 text-gray-faded/30 disabled:text-gray-900',
         'outline-gray-faded/30',
-        'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
+        'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
         className
       )}
       onClick={onClick}

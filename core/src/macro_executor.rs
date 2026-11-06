@@ -1264,13 +1264,14 @@ mod tests {
     async fn basic_execution() {
         // init tracing
         let _ = tracing_subscriber::fmt::try_init();
+        crate::test_util::install_crypto_provider();
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
         let executor =
             super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
 
         // create a temp directory
-        let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
+        let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap().keep();
 
         // create a macro file
 
@@ -1305,10 +1306,51 @@ mod tests {
         assert!(exit_status.is_success(), "{exit_status:?}");
     }
 
+    /// Serves `/redirect/mod.ts` (302 to `/std/io/mod.ts`), `/std/io/mod.ts` and
+    /// `/std/io/lines.ts` over plain HTTP on loopback, so remote module loading is
+    /// tested without internet access.
+    async fn serve_remote_modules() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 4096];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let path = request.split_whitespace().nth(1).unwrap_or("/");
+                let response = match path {
+                    "/redirect/mod.ts" => {
+                        "HTTP/1.1 302 Found\r\nlocation: /std/io/mod.ts\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string()
+                    }
+                    "/std/io/mod.ts" | "/std/io/lines.ts" => {
+                        let body = if path == "/std/io/mod.ts" {
+                            // relative import: must resolve against the redirected URL
+                            "export { readLines } from \"./lines.ts\";\n"
+                        } else {
+                            "export function readLines(s: string): string[] { return s.split(\"\\n\"); }\n"
+                        };
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/typescript\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    }
+                    _ => "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        .to_string(),
+                };
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        port
+    }
+
     // multi-threaded like production: deno_core ops need the per-macro runtime
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_http_url() {
         let _ = tracing_subscriber::fmt::try_init();
+        crate::test_util::install_crypto_provider();
+        let port = serve_remote_modules().await;
 
         let (event_broadcaster, _rx) = EventBroadcaster::new(10);
         // construct a macro executor
@@ -1316,7 +1358,7 @@ mod tests {
             super::MacroExecutor::new(event_broadcaster, tokio::runtime::Handle::current());
 
         // create a temp directory
-        let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
+        let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap().keep();
 
         // create a macro file
 
@@ -1324,10 +1366,13 @@ mod tests {
 
         std::fs::write(
             &path_to_macro,
-            r#"
-            import { readLines } from "https://deno.land/std@0.104.0/io/mod.ts";
+            format!(
+                r#"
+            import {{ readLines }} from "http://127.0.0.1:{port}/redirect/mod.ts";
             console.log(readLines);
-            "#,
+            if (readLines("a\nb").length !== 2) throw new Error("bad remote module");
+            "#
+            ),
         )
         .unwrap();
 
@@ -1356,12 +1401,13 @@ mod tests {
         pre_injection_code: Option<String>,
     ) -> (super::MacroExecutor, SpawnResult, EventBroadcaster) {
         let _ = tracing_subscriber::fmt::try_init();
+        crate::test_util::install_crypto_provider();
         let (event_broadcaster, rx) = EventBroadcaster::new(64);
         // keep a receiver alive for the whole test so sends never fail
         std::mem::forget(rx);
         let executor =
             super::MacroExecutor::new(event_broadcaster.clone(), tokio::runtime::Handle::current());
-        let temp_dir = tempdir::TempDir::new("macro_test").unwrap().into_path();
+        let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap().keep();
         for (name, content) in files {
             std::fs::write(temp_dir.join(name), content).unwrap();
         }

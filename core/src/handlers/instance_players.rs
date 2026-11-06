@@ -77,11 +77,11 @@ pub async fn get_player_list(
 
 pub fn get_instance_players_routes(state: AppState) -> Router {
     Router::new()
-        .route("/instance/:uuid/players/count", get(get_player_count))
+        .route("/instance/{uuid}/players/count", get(get_player_count))
         .route(
-            "/instance/:uuid/players/max",
+            "/instance/{uuid}/players/max",
             get(get_max_player_count).put(set_max_player_count),
         )
-        .route("/instance/:uuid/players", get(get_player_list))
+        .route("/instance/{uuid}/players", get(get_player_list))
         .with_state(state)
 }

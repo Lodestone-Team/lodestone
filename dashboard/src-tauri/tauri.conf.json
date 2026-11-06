@@ -1,71 +1,23 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Lodestone",
+  "mainBinaryName": "Lodestone",
+  "version": "0.5.1",
+  "identifier": "com.lodestone.cc",
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:3001",
-    "distDir": "../out",
-    "withGlobalTauri": true
+    "devUrl": "http://localhost:3001",
+    "frontendDist": "../out"
   },
-  "package": {
-    "productName": "Lodestone",
-    "version": "0.5.1"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": true
-    },
-    "bundle": {
-      "active": true,
-      "publisher": "Lodestone Team",
-      "category": "DeveloperTool",
-      "copyright": "",
-      "deb": {
-        "depends": []
-      },
-      "externalBin": [],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "com.lodestone.cc",
-      "longDescription": "",
-      "macOS": {
-        "entitlements": null,
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": null
-      },
-      "resources": [],
-      "shortDescription": "",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
-      }
-    },
+  "app": {
+    "withGlobalTauri": true,
     "security": {
       "csp": null
     },
-    "systemTray": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
-    },
-    "updater": {
-      "active": true,
-      "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3RDRBOTcwQUYxNTgxRDIKUldUU2dSV3ZjS25VeDVONUFPNEpqWlFBdU5IUzdsUnVhWkwwdFFpT0Nmb0xmb29mbEFnOWg3c20K",
-      "endpoints": [
-        "https://raw.githubusercontent.com/Lodestone-Team/updates/main/updates.json"
-      ]
-    },
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "height": 600,
         "minHeight": 550,
@@ -73,8 +25,52 @@
         "title": "Lodestone",
         "width": 1100,
         "minWidth": 1000,
-        "fileDropEnabled": false
+        "dragDropEnabled": false
       }
     ]
+  },
+  "bundle": {
+    "active": true,
+    "publisher": "Lodestone Team",
+    "category": "DeveloperTool",
+    "copyright": "",
+    "createUpdaterArtifacts": "v1Compatible",
+    "externalBin": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "longDescription": "",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "resources": [],
+    "shortDescription": "",
+    "targets": "all",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3RDRBOTcwQUYxNTgxRDIKUldUU2dSV3ZjS25VeDVONUFPNEpqWlFBdU5IUzdsUnVhWkwwdFFpT0Nmb0xmb29mbEFnOWg3c20K",
+      "endpoints": [
+        "https://raw.githubusercontent.com/Lodestone-Team/updates/main/updates.json"
+      ]
+    }
   }
 }

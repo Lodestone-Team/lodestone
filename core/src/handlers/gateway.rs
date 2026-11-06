@@ -34,6 +34,6 @@ pub async fn open_port(
 
 pub fn get_gateway_routes(state: AppState) -> Router {
     Router::new()
-        .route("/gateway/open_port/:port", put(open_port))
+        .route("/gateway/open_port/{port}", put(open_port))
         .with_state(state)
 }

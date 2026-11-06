@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bollard::secret::ContainerState;
+use bollard::models::ContainerState;
 use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +26,8 @@ impl State {
             "exited" => State::Stopped,
             "paused" => State::Stopped,
             "restarting" => State::Starting,
+            // newer Docker engines report this while a container shuts down
+            "stopping" => State::Stopping,
             "dead" => State::Error,
             _ => State::Error,
         }

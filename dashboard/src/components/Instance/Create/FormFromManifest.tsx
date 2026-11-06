@@ -25,7 +25,7 @@ export const FormFromManifest = ({
         (section, i: number) => (
           <div
             key={i}
-            className="mt-9 flex flex-col rounded-md border border-gray-faded/30 text-left child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0"
+            className="mt-9 flex flex-col rounded-md border border-gray-faded/30 text-left child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0"
           >
             {Object.keys(section['settings']).map((field: string) => (
               <FieldFromManifest

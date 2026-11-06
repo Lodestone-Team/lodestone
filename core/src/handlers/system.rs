@@ -1,6 +1,6 @@
 use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
-use sysinfo::{CpuExt, CpuRefreshKind, DiskExt, SystemExt};
+use sysinfo::{CpuRefreshKind, Disks};
 
 use tokio::time::sleep;
 
@@ -29,12 +29,8 @@ pub struct DiskInfo {
     free: u64,
 }
 
-pub async fn get_disk(
-    axum::extract::State(state): axum::extract::State<AppState>,
-) -> Json<DiskInfo> {
-    let mut sys = state.system.lock().await;
-    sys.refresh_disks_list();
-    let disks = sys.disks();
+pub async fn get_disk() -> Json<DiskInfo> {
+    let disks = Disks::new_with_refreshed_list();
     Json(DiskInfo {
         total: disks.iter().fold(0, |acc, v| acc + v.total_space()),
         free: disks.iter().fold(0, |acc, v| acc + v.available_space()),
@@ -53,7 +49,7 @@ pub async fn get_cpu_info(
     let mut sys = state.system.lock().await;
     sys.refresh_cpu_specifics(CpuRefreshKind::everything());
     sleep(tokio::time::Duration::from_millis(100)).await;
-    sys.refresh_cpu();
+    sys.refresh_cpu_usage();
     Json(CPUInfo {
         cpu_speed: {
             sys.cpus().iter().fold(0, |acc, v| acc + v.frequency()) / sys.cpus().len() as u64

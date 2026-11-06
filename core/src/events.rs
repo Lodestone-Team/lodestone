@@ -341,9 +341,9 @@ impl AsRef<EventInner> for EventInner {
 
 #[test]
 fn event_type_export() {
-    let _ = EventType::export();
-    let _ = UserEventKind::export();
-    let _ = InstanceEventKind::export();
+    let _ = EventType::export(&ts_rs::Config::from_env());
+    let _ = UserEventKind::export(&ts_rs::Config::from_env());
+    let _ = InstanceEventKind::export(&ts_rs::Config::from_env());
 }
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]

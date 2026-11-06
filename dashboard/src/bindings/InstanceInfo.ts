@@ -4,7 +4,7 @@ import type { InstanceState } from './InstanceState';
 import type { InstanceUuid } from './InstanceUuid';
 import type { Player } from './Player';
 
-export interface InstanceInfo {
+export type InstanceInfo = {
   uuid: InstanceUuid;
   name: string;
   game_type: Game;
@@ -19,4 +19,4 @@ export interface InstanceInfo {
   player_count: number | null;
   max_player_count: number | null;
   player_list: Array<Player> | null;
-}
+};

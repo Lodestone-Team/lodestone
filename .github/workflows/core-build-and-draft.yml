@@ -14,11 +14,17 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   core-build-and-draft:
+    # contents: write is needed to upload the binaries to the draft release.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -28,32 +34,34 @@ jobs:
             os: "windows"
             arch: "x86_64"
             postfix: ".exe"
-            cross: false
-          - platform: "ubuntu-latest"
+          # Pinned (not ubuntu-latest): the binary is shipped in the ubuntu:24.04 image
+          # (core/githubactions.Dockerfile), so the build host's glibc must not be newer.
+          - platform: "ubuntu-24.04"
             target: "x86_64-unknown-linux-gnu"
             os: "linux"
             arch: "x86_64"
             postfix: ""
-            cross: false
+          # Requires actions/runner >= 2.327.1 (node24 actions), rustup, and glibc <= 2.39.
           - platform: "self-hosted"
             target: "aarch64-unknown-linux-gnu"
             os: "linux"
             arch: "aarch64"
             postfix: ""
-            cross: false
 
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          toolchain: stable
-          profile: minimal
-          override: false
-          target: ${{ matrix.target }}
+          persist-credentials: false
+
+      # Installs the toolchain pinned in rust-toolchain.toml. Core is never cross-compiled
+      # (its build script snapshots deno for the host), so the target is the host target.
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add ${{ matrix.target }}
 
       # libclang is needed by bindgen (libsqlite3-sys, libnghttp2) in the deno dependency tree
       - name: Install dependencies (linux only)
@@ -63,11 +71,13 @@ jobs:
           sudo apt-get install -y clang libclang-dev
 
       - name: Cache Dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: rust-cache
           shared-key: ${{ matrix.target }}-release-build
           key: workspace
+          # Only main writes the cache that release builds restore.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Find Version (Linux, MacOS)
         id: find_version
@@ -87,24 +97,9 @@ jobs:
           echo "VERSION=$VERSION" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
           echo "FILENAME=$FILENAME" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
-        
-
-      # - name: Verify Version
-      #   if: inputs.version && false
-      #   uses: actions/github-script@v6
-      #   with:
-      #     github-token: ${{ secrets.GITHUB_TOKEN }}
-      #     script: |
-      #       if (process.env.VERSION != ${{ inputs.version }}) {
-      #         core.setFailed("Version mismatch: " + process.env.VERSION + " != " + ${{ inputs.version }});
-      #       }
 
       - name: Build Lodestone Core
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: ${{ matrix.cross }}
-          command: build
-          args: --profile=github-release --features "vendored-openssl" --target ${{ matrix.target }}
+        run: cargo build --locked --profile=github-release --target ${{ matrix.target }}
 
       - name: Rename File (Linux, MacOS)
         if: runner.os != 'Windows'
@@ -120,14 +115,15 @@ jobs:
           echo "::debug::Listing files in current directory"
           echo "::debug::$(ls)"
 
+      # Artifact names are unique per matrix leg (os, arch and version are in FILENAME).
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{env.FILENAME}}
           path: ./${{env.FILENAME}}
 
       - name: Draft Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: inputs.version
         with:
           files: ./${{env.FILENAME}}

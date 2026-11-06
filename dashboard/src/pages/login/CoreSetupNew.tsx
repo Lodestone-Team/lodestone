@@ -9,12 +9,12 @@ import * as yup from 'yup';
 import { faArrowLeft, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { useCoreInfo } from 'data/SystemInfo';
-import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle } from 'usehooks-ts';
 import { useTauri } from 'utils/tauriUtil';
 import { useQueryClient } from '@tanstack/react-query';
 import { LoginReply } from 'bindings/LoginReply';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import useAnalyticsEventTracker from 'utils/hooks';
+import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -30,7 +30,7 @@ const validationSchema = yup.object({
     .string()
     .required('Password confirmation is required')
     .oneOf(
-      [yup.ref('password'), null],
+      [yup.ref('password')],
       'Password confirmation must match password'
     ),
   setupKey: yup.string().required('Setup key is required'),
@@ -52,8 +52,8 @@ const CoreSetupNew = () => {
 
   useEffectOnce(() => {
     if (!tauri) return;
-    tauri
-      ?.invoke<string | null>('get_first_time_setup_key')
+    tauri?.core
+      .invoke<string | null>('get_first_time_setup_key')
       .then((setup_key) => {
         setSetupKey(setup_key ?? '');
       })

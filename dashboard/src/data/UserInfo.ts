@@ -1,4 +1,3 @@
-import jwt from 'jsonwebtoken';
 import { ClientError } from 'bindings/ClientError';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
@@ -7,6 +6,7 @@ import { useContext, useMemo } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { UserPermission } from 'bindings/UserPermission';
 import { errorToString } from 'utils/util';
+import { useQueryFetchCallbacks } from 'utils/hooks';
 
 // this won't ever change. if it does it will be invalidated manually
 export const useUserInfo = (enabled = true) => {
@@ -14,15 +14,9 @@ export const useUserInfo = (enabled = true) => {
   const { port, address } = core;
   const socket = `${address}:${port}`;
 
-  return useQuery<PublicUser, AxiosError<ClientError>>(
+  useQueryFetchCallbacks<PublicUser, AxiosError<ClientError>>(
     ['user', 'info'],
-    () => {
-      return axios
-        .get<PublicUser>(`/user/info`)
-        .then((response) => response.data);
-    },
     {
-      enabled: token !== '' && enabled,
       onError: (error) => {
         if (error.response?.data?.kind === 'Unauthorized')
           // then token is invalid, delete it
@@ -30,6 +24,16 @@ export const useUserInfo = (enabled = true) => {
       },
     }
   );
+
+  return useQuery<PublicUser, AxiosError<ClientError>>({
+    queryKey: ['user', 'info'],
+    queryFn: () => {
+      return axios
+        .get<PublicUser>(`/user/info`)
+        .then((response) => response.data);
+    },
+    enabled: token !== '' && enabled,
+  });
 };
 
 // check if type is boolean

@@ -18,6 +18,8 @@ export default function LeftNav({ className }: { className?: string }) {
   const userLoggedIn = useUserLoggedIn();
   return (
     <div
+      // overflow-y-auto is the fallback for browsers without overflow: overlay
+      // eslint-disable-next-line tailwindcss/no-contradicting-classname
       className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
       <div className="mt-10 flex h-full w-full grow flex-col ">
@@ -58,11 +60,11 @@ export default function LeftNav({ className }: { className?: string }) {
                   className={clsx(
                     'w-full text-medium font-medium tracking-normal',
                     showCreateInstance
-                      ? 'bg-gray-850 text-gray-300 outline outline-1 outline-fade-700/10'
+                      ? 'bg-gray-850 text-gray-300 outline-solid outline-1 outline-fade-700/10'
                       : 'text-white/50',
                     'disabled:text-white/30',
-                    'enabled:hover:bg-gray-800 enabled:focus-visible:outline-none',
-                    'enabled:active:bg-gray-850 enabled:active:text-gray-300 enabled:active:outline enabled:active:outline-1 enabled:active:outline-fade-700/10'
+                    'enabled:hover:bg-gray-800 enabled:focus-visible:outline-hidden',
+                    'enabled:active:bg-gray-850 enabled:active:text-gray-300 enabled:active:outline-solid enabled:active:outline-1 enabled:active:outline-fade-700/10'
                   )}
                   intention="none"
                   variant="text"

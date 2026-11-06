@@ -1,4 +1,4 @@
-import monaco from 'monaco-editor';
+import type * as monaco from 'monaco-editor';
 import { negativeLookbehindSupported } from 'utils/util';
 
 type IRichLanguageConfiguration = monaco.languages.LanguageConfiguration;

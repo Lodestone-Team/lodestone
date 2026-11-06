@@ -724,17 +724,14 @@ fn decode_token(token: &str, jwt_secret: &UserSecret) -> Option<UserId> {
     }
 }
 
+/// Reads the claimed uid without checking the signature or `exp`.
+///
+/// Only used by `try_auth` to look up the claimed user's secret; the token is then fully
+/// validated by `decode_token` before it is trusted.
 fn decode_no_verify(token: &str) -> Option<UserId> {
-    let mut no_verify = Validation::new(Algorithm::HS512);
-    no_verify.insecure_disable_signature_validation();
-    match jsonwebtoken::decode::<Claim>(
-        token,
-        &jsonwebtoken::DecodingKey::from_secret("noverify".as_bytes()),
-        &no_verify,
-    ) {
-        Ok(t) => Some(t.claims.uid),
-        Err(_) => None,
-    }
+    jsonwebtoken::dangerous::insecure_decode_claims::<Claim>(token)
+        .ok()
+        .map(|claims| claims.uid)
 }
 
 impl AsRef<HashMap<UserId, User>> for UsersManager {
@@ -745,11 +742,66 @@ impl AsRef<HashMap<UserId, User>> for UsersManager {
 
 mod tests {
 
+    #[test]
+    fn test_jwt_round_trip() {
+        use super::*;
+        let user = User::new(
+            "test_user1".to_string(),
+            "12345",
+            true,
+            false,
+            UserPermission::default(),
+        );
+        let (tx, _rx) = EventBroadcaster::new(10);
+        let users_manager = UsersManager::new(
+            tx,
+            HashMap::from([(user.uid.clone(), user.clone())]),
+            PathBuf::from("users.json"),
+        );
+
+        let token = user.create_jwt().unwrap();
+        assert_eq!(decode_no_verify(token.as_ref()), Some(user.uid.clone()));
+        assert_eq!(
+            decode_token(token.as_ref(), &user.secret),
+            Some(user.uid.clone())
+        );
+        assert_eq!(
+            users_manager.try_auth(token.as_ref()).map(|u| u.uid),
+            Some(user.uid.clone())
+        );
+
+        // signed with a different secret: the claimed uid is readable but auth must fail
+        let forged = JwtToken::new(
+            Claim {
+                uid: user.uid.clone(),
+                exp: (chrono::Utc::now().timestamp() + 3600) as usize,
+            },
+            UserSecret::default(),
+        )
+        .unwrap();
+        assert_eq!(decode_no_verify(forged.as_ref()), Some(user.uid.clone()));
+        assert!(users_manager.try_auth(forged.as_ref()).is_none());
+
+        // expired (beyond the default 60s leeway)
+        let expired = JwtToken::new(
+            Claim {
+                uid: user.uid.clone(),
+                exp: (chrono::Utc::now().timestamp() - 3600) as usize,
+            },
+            user.secret.clone(),
+        )
+        .unwrap();
+        assert!(users_manager.try_auth(expired.as_ref()).is_none());
+
+        assert!(users_manager.try_auth("not.a.jwt").is_none());
+        assert!(users_manager.try_auth("garbage").is_none());
+    }
+
     #[tokio::test]
     async fn test_login() {
         use super::*;
         // create a temporary folder
-        let temp_dir = tempdir::TempDir::new("test_login").unwrap().into_path();
+        let temp_dir = tempfile::TempDir::with_prefix("test_login").unwrap().keep();
         let (tx, _rx) = EventBroadcaster::new(10);
         let mut users_manager =
             UsersManager::new(tx.clone(), HashMap::new(), temp_dir.join("users.json"));
@@ -773,7 +825,7 @@ mod tests {
     async fn test_change_password() {
         use super::*;
         // create a temporary folder
-        let temp_dir = tempdir::TempDir::new("test_login").unwrap().into_path();
+        let temp_dir = tempfile::TempDir::with_prefix("test_login").unwrap().keep();
         let (tx, _rx) = EventBroadcaster::new(10);
         let mut users_manager =
             UsersManager::new(tx.clone(), HashMap::new(), temp_dir.join("users.json"));
@@ -809,7 +861,7 @@ mod tests {
     async fn test_persistent() {
         use super::*;
         // create a temporary folder
-        let temp_dir = tempdir::TempDir::new("test_login").unwrap().into_path();
+        let temp_dir = tempfile::TempDir::with_prefix("test_login").unwrap().keep();
         let (tx, _rx) = EventBroadcaster::new(10);
         let mut users_manager =
             UsersManager::new(tx.clone(), HashMap::new(), temp_dir.join("users.json"));

@@ -24,11 +24,14 @@ use crate::{
         playitgg::get_playitgg_routes, setup::get_setup_route, system::get_system_routes,
         users::get_user_routes,
     },
-    util::rand_alphanumeric,
+    util::{port_in_use, rand_alphanumeric},
 };
 
 use auth::user::UsersManager;
-use axum::Router;
+use axum::{
+    http::{header, Method},
+    Router,
+};
 
 use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
@@ -44,10 +47,8 @@ use macro_executor::MacroExecutor;
 use playitgg::utils::is_valid_secret_key;
 use port_manager::PortManager;
 use prelude::GameInstance;
-use reqwest::{header, Method};
-use ringbuffer::{AllocRingBuffer, RingBufferWrite};
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 
-use fs3::FileExt;
 use semver::Version;
 use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::sync::atomic::AtomicBool;
@@ -59,7 +60,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use sysinfo::{CpuExt, SystemExt};
 use tokio::{
     select,
     sync::{broadcast::error::RecvError, Mutex, RwLock},
@@ -98,6 +98,15 @@ mod traits;
 pub mod types;
 pub mod util;
 use handlers::global_fs::DownloadableFile;
+
+#[cfg(test)]
+pub(crate) mod test_util {
+    /// Installs the same rustls crypto provider as [`crate::run`]. Call it at the start of
+    /// any test that uses TLS or deno's fetch(), which panic without a process default.
+    pub(crate) fn install_crypto_provider() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -316,7 +325,7 @@ fn output_sys_info() {
     info!("  OS: {}", std::env::consts::OS);
     info!("  Arch: {}", std::env::consts::ARCH);
     // CPU and RAM info
-    let sys = sysinfo::System::new_all();
+    let sys = crate::util::cpu_and_memory_system();
     let cpu_name = sys
         .cpus()
         .first()
@@ -411,6 +420,12 @@ pub async fn run(
     ),
     Error,
 > {
+    // Several crates in the dependency graph enable different rustls crypto providers
+    // (deno_runtime/reqwest/axum-server: aws-lc-rs, playit-api-client: ring), so rustls
+    // cannot pick a process-wide default on its own and `ClientConfig::builder()` /
+    // `ServerConfig::builder()` would panic (deno's fetch(), the TLS listener). Install
+    // aws-lc-rs explicitly before anything touches TLS. Errors only if one is already set.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -420,7 +435,7 @@ pub async fn run(
         PathBuf::from(match std::env::var("LODESTONE_PATH") {
             Ok(v) => v,
             Err(_) => {
-                match home::home_dir()
+                match std::env::home_dir()
                     .unwrap_or_else(|| {
                         std::env::current_dir()
                             .expect("what kinda os are you running lodestone on???")
@@ -459,7 +474,7 @@ pub async fn run(
     let lockfile_path = lodestone_path.join("lodestone.lock");
     let lock_file =
         std::fs::File::create(lockfile_path.as_path()).expect("failed to create lockfile");
-    if lock_file.try_lock_exclusive().is_err() {
+    if lock_file.try_lock().is_err() {
         return Err(Error {
             kind: ErrorKind::Internal,
             source: Report::msg("Another instance of lodestone is running"),
@@ -488,16 +503,9 @@ pub async fn run(
 
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
-        // log the first time setup key in green so it's easy to find
-        info!(
-            "First time setup key: {}",
-            ansi_term::Color::Green.paint(key.clone())
-        );
+        info!("First time setup key: {key}");
         info!("This is a one-time, in-memory randomly generated key that allows you to create the owner account.");
-        info!(
-            "{}",
-            ansi_term::Color::Red.paint("DO NOT SHARE THIS KEY WITH ANYONE!")
-        );
+        info!("DO NOT SHARE THIS KEY WITH ANYONE!");
         Some(key)
     } else {
         None
@@ -536,7 +544,7 @@ pub async fn run(
     let shared_state = AppState {
         instances: Arc::new(instances),
         users_manager: Arc::new(RwLock::new(users_manager)),
-        events_buffer: Arc::new(Mutex::new(AllocRingBuffer::with_capacity(512))),
+        events_buffer: Arc::new(Mutex::new(AllocRingBuffer::new(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
@@ -545,7 +553,7 @@ pub async fn run(
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
         playitgg_key: Arc::new(Mutex::new(playitgg_key)),
-        system: Arc::new(Mutex::new(sysinfo::System::new_all())),
+        system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
         playit_keep_running: Arc::new(Mutex::new(None)),
         global_settings: Arc::new(Mutex::new(global_settings)),
@@ -616,10 +624,10 @@ pub async fn run(
                         .lock()
                         .await
                         .entry(event.get_instance_uuid().unwrap())
-                        .or_insert_with(|| AllocRingBuffer::with_capacity(1024))
-                        .push(event.clone());
+                        .or_insert_with(|| AllocRingBuffer::new(1024))
+                        .enqueue(event.clone());
                 } else {
-                    event_buffer.lock().await.push(event.clone());
+                    event_buffer.lock().await.enqueue(event.clone());
                 }
             }
         }
@@ -639,8 +647,8 @@ pub async fn run(
                         .lock()
                         .await
                         .entry(entry.key().to_owned())
-                        .or_insert_with(|| AllocRingBuffer::with_capacity(64))
-                        .push(report);
+                        .or_insert_with(|| AllocRingBuffer::new(64))
+                        .enqueue(report);
                 }
                 interval.tick().await;
             }
@@ -698,17 +706,17 @@ pub async fn run(
                 #[allow(unused_variables, unused_mut)]
                 let mut port = 16_662_u16;
                 #[cfg(not(debug_assertions))]
-                if port_scanner::scan_port(port) {
+                if port_in_use(port) {
                     error!("Port {port} is already in use, exiting");
                     std::process::exit(1);
                 }
                 #[cfg(debug_assertions)]
-                while port_scanner::scan_port(port) {
+                while port_in_use(port) {
                     debug!("Port {port} is already in use, trying next port");
                     port += 1;
                 }
                 let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
-                let axum_server_handle = axum_server::Handle::new();
+                let axum_server_handle = axum_server::Handle::<SocketAddr>::new();
                 tokio::spawn({
                     let axum_server_handle = axum_server_handle.clone();
                     async move {

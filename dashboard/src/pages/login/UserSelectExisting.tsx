@@ -12,7 +12,8 @@ import {
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import Avatar from 'components/Atoms/Avatar';
-import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle } from 'usehooks-ts';
+import { useEffectOnce } from 'utils/hooks';
 import { tauri } from 'utils/tauriUtil';
 import { JwtToken } from 'bindings/JwtToken';
 import { isLocalCore } from 'utils/util';
@@ -25,7 +26,7 @@ const UserSelectExisting = () => {
   const socket = `${address}:${port}`;
   const { data: coreInfo } = useCoreInfo();
   const { core_name, is_setup } = coreInfo ?? {};
-  const { data: userInfo, isLoading: isUserInfoLoading } = useUserInfo();
+  const { data: userInfo, isPending: isUserInfoLoading } = useUserInfo();
   const uid = useUid();
 
   useEffectOnce(() => {
@@ -34,8 +35,8 @@ const UserSelectExisting = () => {
       setPathname('/login/user', true);
       return;
     }
-    tauri
-      ?.invoke<JwtToken | null>('get_owner_jwt')
+    tauri?.core
+      .invoke<JwtToken | null>('get_owner_jwt')
       .then((token) => {
         if (token) {
           setToken(token, socket);

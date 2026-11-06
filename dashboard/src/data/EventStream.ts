@@ -191,7 +191,7 @@ export const useEventStream = () => {
           match(event_inner, {
             UserCreated: () => {
               console.log(`User ${uid} created`);
-              if (fresh) queryClient.invalidateQueries(['user', 'list']);
+              if (fresh) queryClient.invalidateQueries({ queryKey: ['user', 'list'] });
               // dispatch({
               //   title: `User ${uid} created`,
               //   event,
@@ -238,6 +238,8 @@ export const useEventStream = () => {
               //   type: 'add',
               // });
             },
+            // Sent by the core but not handled by the dashboard yet
+            UsernameChanged: () => {},
             PermissionChanged: ({ new_permissions }) => {
               if (fresh) {
                 if (uid === selfUid) {
@@ -357,10 +359,9 @@ export const useEventStream = () => {
                             } else {
                               toast.error(message)
                             }
-                            queryClient.invalidateQueries(['instance', instance_uuid, 'fileList']);
+                            queryClient.invalidateQueries({ queryKey: ['instance', instance_uuid, 'fileList'] });
                           }
                         },
-                        // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => { }
                       )
                     );
@@ -374,13 +375,11 @@ export const useEventStream = () => {
                           // InstanceDelete: ({ instance_uuid: uuid }) =>
                           //   deleteInstance(uuid, queryClient),
                         },
-                        // eslint-disable-next-line @typescript-eslint/no-empty-function
                         (_) => { }
                       )
                     );
                   },
                 },
-                // eslint-disable-next-line @typescript-eslint/no-empty-function
                 (_) => { }
               )
             );

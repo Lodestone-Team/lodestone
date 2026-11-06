@@ -2,4 +2,4 @@
 import type { UserEventInner } from "./UserEventInner";
 import type { UserId } from "./UserId";
 
-export interface UserEvent { user_id: UserId, user_event_inner: UserEventInner, }
+export type UserEvent = { user_id: UserId, user_event_inner: UserEventInner, };

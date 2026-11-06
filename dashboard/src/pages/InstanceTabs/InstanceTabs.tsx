@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
 import Spinner from 'components/DashboardLayout/Spinner';
@@ -170,7 +170,7 @@ const InstanceTabs = () => {
           className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
           key={`${instance.name}-${tab.title}`}
         >
-          <div className="flex h-fit min-h-full w-full flex-col gap-2 pt-6 pb-10 focus:outline-none">
+          <div className="flex h-fit min-h-full w-full flex-col gap-2 pt-6 pb-10 focus:outline-hidden">
             {tab.displayTitle && (
               <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
                 {tab.displayTitle}

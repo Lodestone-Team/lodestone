@@ -7,7 +7,7 @@ import {
 
 export default function GameIcon({
   game_type,
-  className = 'h-8 w-8 rounded-sm',
+  className = 'h-8 w-8 rounded-xs',
 }: {
   game_type: Game;
   className?: string;

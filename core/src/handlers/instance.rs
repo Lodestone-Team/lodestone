@@ -3,8 +3,6 @@ use axum::Router;
 use axum::{extract::Path, Json};
 use axum_auth::AuthBearer;
 
-use bollard::container::ListContainersOptions;
-use bollard::Docker;
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -396,11 +394,11 @@ pub fn get_instance_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/list", get(get_instance_list))
         .route(
-            "/instance/create/:game_type",
+            "/instance/create/{game_type}",
             post(create_minecraft_instance),
         )
         .route("/instance/create_generic", post(create_generic_instance))
-        .route("/instance/:uuid", delete(delete_instance))
-        .route("/instance/:uuid/info", get(get_instance_info))
+        .route("/instance/{uuid}", delete(delete_instance))
+        .route("/instance/{uuid}/info", get(get_instance_info))
         .with_state(state)
 }

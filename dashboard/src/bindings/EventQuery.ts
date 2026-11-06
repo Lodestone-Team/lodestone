@@ -7,7 +7,7 @@ import type { TimeRange } from './TimeRange';
 import type { UserEventKind } from './UserEventKind';
 import type { UserId } from './UserId';
 
-export interface EventQuery {
+export type EventQuery = {
   event_levels: Array<EventLevel> | null;
   event_types: Array<EventType> | null;
   instance_event_types: Array<InstanceEventKind> | null;
@@ -16,4 +16,4 @@ export interface EventQuery {
   event_instance_ids: Array<InstanceUuid> | null;
   bearer_token: string | null;
   time_range: TimeRange | null;
-}
+};

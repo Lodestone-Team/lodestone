@@ -25,10 +25,10 @@ const buttonClasses = cva(
       intention: {
         default: [
           'text-gray-faded/30 enabled:hover:text-white/50 disabled:text-gray-900',
-          'outline outline-1 rounded',
+          'outline-solid outline-1 rounded',
           'bg-gray-800 border-gray-faded/30 enabled:hover:bg-gray-700 enabled:hover:border-gray-faded/50 enabled:active:bg-gray-800 enabled:active:border-gray-faded/50 disabled:border-fade-700/10',
           'outline-gray-faded/30 enabled:hover:outline-white/50',
-          'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
+          'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50',
         ],
       },
     },

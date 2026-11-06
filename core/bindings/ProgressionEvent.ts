@@ -2,4 +2,4 @@
 import type { ProgressionEventInner } from "./ProgressionEventInner";
 import type { Snowflake } from "./Snowflake";
 
-export interface ProgressionEvent { event_id: Snowflake, progression_event_inner: ProgressionEventInner, }
+export type ProgressionEvent = { event_id: Snowflake, progression_event_inner: ProgressionEventInner, };

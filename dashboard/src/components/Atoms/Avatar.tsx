@@ -1,5 +1,9 @@
-import BoringAvatar, { AvatarProps } from 'boring-avatars';
+import { ComponentProps } from 'react';
+import BoringAvatar from 'boring-avatars';
 import clsx from 'clsx';
+
+// boring-avatars 2 no longer exports its props type
+type AvatarProps = ComponentProps<typeof BoringAvatar>;
 
 const Avatar = ({
   name,

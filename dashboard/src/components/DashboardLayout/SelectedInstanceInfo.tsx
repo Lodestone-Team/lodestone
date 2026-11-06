@@ -79,7 +79,7 @@ export const SelectedInstanceInfo = ({
           <RadioGroup.Option
             key={tab.path}
             value={`/dashboard/${tab.path}`}
-            className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+            className="rounded-md outline-hidden focus-visible:bg-gray-800 child:w-full"
           >
             <button
               className={clsx(
@@ -87,9 +87,9 @@ export const SelectedInstanceInfo = ({
                 'cursor-pointer rounded-md px-2 py-1',
                 'text-medium font-medium leading-5 tracking-normal',
                 'hover:bg-gray-800',
-                'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                'focus-visible:outline-hidden focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                 setActive === tab.path
-                  ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                  ? 'bg-gray-800 outline-solid outline-1 outline-fade-700'
                   : ''
               )}
               onClick={() => setPathname(`/dashboard/${tab.path}`)}

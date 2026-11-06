@@ -51,7 +51,7 @@ pub enum Game {
 
 #[test]
 fn export_game_type() {
-    let _ = GameType::export();
+    let _ = GameType::export(&ts_rs::Config::from_env());
 }
 
 impl From<Flavour> for Game {

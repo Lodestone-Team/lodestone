@@ -148,16 +148,22 @@ pub async fn change_version(
 pub fn get_instance_config_routes(state: AppState) -> Router {
     Router::new()
         .route(
-            "/instance/:uuid/configurable_manifest",
+            "/instance/{uuid}/configurable_manifest",
             get(get_instance_configurable_manifest),
         )
-        .route("/instance/:uuid/version/:new_version", put(change_version))
-        .route("/instance/:uuid/settings", get(get_instance_settings))
         .route(
-            "/instance/:uuid/settings/:section_id/:setting_id",
+            "/instance/{uuid}/version/{new_version}",
+            put(change_version),
+        )
+        .route("/instance/{uuid}/settings", get(get_instance_settings))
+        .route(
+            "/instance/{uuid}/settings/{section_id}/{setting_id}",
             put(set_instance_setting),
         )
-        .route("/instance/:uuid/name", put(set_instance_name))
-        .route("/instance/:uuid/description", put(set_instance_description))
+        .route("/instance/{uuid}/name", put(set_instance_name))
+        .route(
+            "/instance/{uuid}/description",
+            put(set_instance_description),
+        )
         .with_state(state)
 }

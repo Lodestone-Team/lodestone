@@ -175,7 +175,7 @@ export const UserSettings = () => {
           }}
         />
       </div>
-      <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+      <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
         {Object.keys(userList)
           .sort((a, b) =>
             userList[a].uid === uid

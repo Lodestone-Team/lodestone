@@ -28,7 +28,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                   'flex flex-row items-center gap-x-1.5',
                   'cursor-pointer rounded-md py-1 px-2',
                   'text-medium font-medium leading-5 tracking-normal',
-                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                  'focus-visible:outline-hidden focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                 )}
                 onClick={() => {
               setSearchParam('user', undefined);
@@ -53,7 +53,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
           <RadioGroup.Option
               key={setting.path}
               value={`/settings/${setting.path}`}
-              className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+              className="rounded-md outline-hidden focus-visible:bg-gray-800 child:w-full"
             >
               <button
                 className={clsx(
@@ -61,9 +61,9 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                   'cursor-pointer rounded-md py-1 px-2',
                   'text-medium font-medium leading-5 tracking-normal',
                   'hover:bg-gray-800',
-                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                  'focus-visible:outline-hidden focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                   setActive === setting.path
-                    ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                    ? 'bg-gray-800 outline-solid outline-1 outline-fade-700'
                     : ''
                 )}
                 onClick={() => setPathname(`/settings/${setting.path}`)}
@@ -80,7 +80,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
           <RadioGroup.Option
               key={setting.path}
               value={`/settings/${setting.path}`}
-              className="rounded-md outline-none focus-visible:bg-gray-800 child:w-full"
+              className="rounded-md outline-hidden focus-visible:bg-gray-800 child:w-full"
             >
               <button
                 className={clsx(
@@ -88,9 +88,9 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                   'cursor-pointer rounded-md py-1 px-2',
                   'text-medium font-medium leading-5 tracking-normal',
                   'hover:bg-gray-800',
-                  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                  'focus-visible:outline-hidden focus-visible:ring-4 focus-visible:ring-blue-faded/50',
                   setActive === setting.path
-                    ? 'bg-gray-800 outline outline-1 outline-fade-700'
+                    ? 'bg-gray-800 outline-solid outline-1 outline-fade-700'
                     : ''
                 )}
                 onClick={() => setPathname(`/settings/${setting.path}`)}
@@ -133,7 +133,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
                         'w-full cursor-pointer rounded-md py-1.5 px-3 hover:bg-gray-700',
                         'flex flex-row items-center justify-start gap-1.5 text-medium',
                         checked
-                          ? 'bg-gray-800 outline outline-1 outline-white/50'
+                          ? 'bg-gray-800 outline-solid outline-1 outline-white/50'
                           : ''
                       )}
                       onClick={() => setPathname(`/settings/users`)}

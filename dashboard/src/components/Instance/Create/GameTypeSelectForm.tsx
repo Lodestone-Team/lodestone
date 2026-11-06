@@ -21,7 +21,7 @@ export default function GameTypeSelectForm({
 }) {
   const { gameType: selectedGameType, setGameType } =
     useContext(GameInstanceContext);
-  const { data: game_types, isLoading } = InstanceGameTypes();
+  const { data: game_types, isPending: isLoading } = InstanceGameTypes();
   if (!game_types || isLoading) {
     return <Spinner />;
   }

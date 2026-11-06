@@ -10,15 +10,20 @@ use lodestone_core::error::Error;
 use lodestone_core::auth::jwt_token::JwtToken;
 use lodestone_core::tauri_export::is_owner_account_present;
 
-use tauri::Manager;
-use tauri::{utils::config::AppUrl, WindowUrl};
-use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+#[cfg(not(dev))]
+use tauri::{utils::config::FrontendDist, Url};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_updater::UpdaterExt;
 
 use notify_rust::Notification;
 #[derive(Clone, serde::Serialize)]
 struct Payload {
-  args: Vec<String>,
-  cwd: String,
+    args: Vec<String>,
+    cwd: String,
 }
 
 #[tauri::command]
@@ -49,8 +54,70 @@ async fn get_owner_jwt(state: tauri::State<'_, AppState>) -> Result<JwtToken, ()
         .ok_or(())
 }
 
+/// Shows a native Yes/No dialog over the main window and returns whether the user chose Yes.
+async fn ask(app: &AppHandle, title: String, message: String) -> bool {
+    let app = app.clone();
+    // blocking_show must not run on the main thread or block an async worker.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = app
+            .dialog()
+            .message(message)
+            .title(title)
+            .buttons(MessageDialogButtons::YesNo);
+        if let Some(window) = app.get_webview_window("main") {
+            dialog = dialog.parent(&window);
+        }
+        dialog.blocking_show()
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// Tauri 2 removed the built-in updater dialog (v1 `updater.dialog: true`).
+/// This does the same as v1: check on startup, ask before installing, then ask to restart.
+async fn check_update_with_dialog(app: AppHandle) -> tauri_plugin_updater::Result<()> {
+    let Some(update) = app.updater()?.check().await? else {
+        return Ok(());
+    };
+    let app_name = app.package_info().name.clone();
+    let body = update.body.clone().unwrap_or_default();
+
+    let should_install = ask(
+        &app,
+        format!("A new version of {app_name} is available! "),
+        format!(
+            "{app_name} {} is now available -- you have {}.\n\nWould you like to install it now?\n\nRelease Notes:\n{body}",
+            update.version, update.current_version
+        ),
+    )
+    .await;
+
+    if should_install {
+        // On Windows the installer exits the app here; on Linux and macOS we ask to restart.
+        update.download_and_install(|_, _| {}, || {}).await?;
+
+        let should_restart = ask(
+            &app,
+            "Ready to Restart".to_string(),
+            "The installation was successful, do you want to restart the application now?"
+                .to_string(),
+        )
+        .await;
+        if should_restart {
+            app.restart();
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
+    // Several crates in the dependency graph enable different rustls crypto providers, so
+    // rustls cannot pick a process-wide default on its own. Install aws-lc-rs before anything
+    // touches TLS (lodestone_core, the updater). Errors only if one is already set.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let run_result = lodestone_core::run(lodestone_core::Args {
         is_cli: false,
         is_desktop: true,
@@ -69,12 +136,15 @@ async fn main() {
         Err(e) => {
             Notification::new()
                 .summary("Lodestone failed to start")
-                .body(&format!("Oh no! Looks like Lodestone was unable to start. Error: {}", e))
+                .body(&format!(
+                    "Oh no! Looks like Lodestone was unable to start. Error: {}",
+                    e
+                ))
                 .auto_icon()
                 .show()
                 .expect("Failed to show notification");
-            
-            return
+
+            return;
         }
     }
 
@@ -84,29 +154,33 @@ async fn main() {
         println!("Core has exited");
         std::process::exit(128);
     });
+    #[cfg_attr(dev, allow(unused_mut))]
     let mut context = tauri::generate_context!();
-    let mut builder = tauri::Builder::default();
+
+    // The single instance plugin must be registered first.
+    #[cfg_attr(dev, allow(unused_mut))]
+    let mut builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            app.emit("single-instance", Payload { args: argv, cwd })
+                .unwrap();
+        }));
 
     #[cfg(not(dev))]
     {
         let port = portpicker::pick_unused_port().expect("Failed to pick unused port");
-        let url = format!("http://localhost:{}", port).parse().unwrap();
-        let window_url = WindowUrl::External(url);
+        let url: Url = format!("http://localhost:{}", port).parse().unwrap();
         // rewrite the config so the IPC is enabled on this URL
-        context.config_mut().build.dist_dir = AppUrl::Url(window_url.clone());
-        context.config_mut().build.dev_path = AppUrl::Url(window_url);
+        context.config_mut().build.frontend_dist = Some(FrontendDist::Url(url.clone()));
+        context.config_mut().build.dev_url = Some(url);
 
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
     }
 
-    let quit = CustomMenuItem::new("quit".to_string(), "Quit");
-
-    let tray_menu = SystemTrayMenu::new().add_item(quit);
-
     if let Err(e) = builder
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            app.emit_all("single-instance", Payload { args: argv, cwd }).unwrap();
-        }))
+        // opens <a target="_blank"> http(s) links in the system browser, like v1's shell-open
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             is_setup,
@@ -114,37 +188,70 @@ async fn main() {
             get_owner_jwt,
             get_first_time_setup_key
         ])
-        .on_window_event(|event| match event.event() {
-            tauri::WindowEvent::CloseRequested { api, .. } => {
-                event.window().hide().unwrap();
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                window.hide().unwrap();
                 api.prevent_close();
             }
-            _ => {}
         })
-        .system_tray(SystemTray::new().with_menu(tray_menu))
-        .on_system_tray_event(move |app, event| match event {
-            SystemTrayEvent::MenuItemClick { id, .. } => {
-                if id == "quit" {
-                    if let Some(tx) = shutdown_tx.lock().unwrap().take() {
-                        tx.send(()).unwrap();
+        .setup(move |app| {
+            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&quit])?;
+
+            TrayIconBuilder::new()
+                .icon(tauri::include_image!("icons/icon.png"))
+                .icon_as_template(true)
+                .menu(&tray_menu)
+                // v1 opened the menu on left click only on macOS; on Windows left click shows the window
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
+                .on_menu_event(move |app, event| {
+                    if event.id().as_ref() == "quit" {
+                        if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                            tx.send(()).unwrap();
+                        }
+                        app.exit(0);
                     }
-                    app.exit(0);
-                }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let window = tray.app_handle().get_webview_window("main").unwrap();
+                        window.show().unwrap();
+                        window.set_focus().unwrap();
+                    }
+                })
+                .build(app)?;
+
+            // Like v1, on Linux only an AppImage (or a dev build) can update itself.
+            #[cfg(target_os = "linux")]
+            let updater_enabled = cfg!(dev) || app.env().appimage.is_some();
+            #[cfg(not(target_os = "linux"))]
+            let updater_enabled = true;
+            if updater_enabled {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = check_update_with_dialog(handle).await {
+                        eprintln!("Failed to check for updates: {e}");
+                    }
+                });
             }
-            SystemTrayEvent::LeftClick { .. } => {
-                let window = app.get_window("main").unwrap();
-                window.show().unwrap();
-                window.set_focus().unwrap();
-            }
-                _ => {}
-            })
-            .run(context)
+
+            Ok(())
+        })
+        .run(context)
     {
         Notification::new()
             .summary("Lodestone failed to start")
-            .body(&format!("Oh no! Looks like Lodestone was unable to start. Error: {}", e))
+            .body(&format!(
+                "Oh no! Looks like Lodestone was unable to start. Error: {}",
+                e
+            ))
             .auto_icon()
             .show()
             .expect("Failed to show notification");
-    } 
+    }
 }

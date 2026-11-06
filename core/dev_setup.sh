@@ -24,6 +24,6 @@ apt-get install cpuidtool libcpuid14 libcpuid-dev
 apt-get install unzip
 apt-get install build-essential
 apt-get install pkg-config
-apt-get install libssl-dev
+apt-get install clang libclang-dev
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env

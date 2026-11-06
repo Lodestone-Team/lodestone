@@ -14,7 +14,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import IconButton from './Atoms/IconButton';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 
 export type UserState = 'loading' | 'logged-in' | 'logged-out';
 
@@ -23,7 +23,7 @@ const UserMenu = () => {
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const location = useLocation();
   const uid = useUid();
-  const { isLoading, isError, data: user } = useUserInfo();
+  const { isPending: isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
   const { address, port } = core;
   const socket = `${address}:${port}`;
@@ -72,7 +72,7 @@ const UserMenu = () => {
           leaveFrom="opacity-100 translate-y-0"
           leaveTo="opacity-0 -translate-y-1"
         >
-          <Menu.Items className="absolute right-0 z-10 mt-1.5 w-full origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+          <Menu.Items className="absolute right-0 z-10 mt-1.5 w-full origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
             <div className="py-2 px-1.5">
               <Menu.Item>
                 {({ disabled }) => (

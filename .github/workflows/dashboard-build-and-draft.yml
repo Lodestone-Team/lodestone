@@ -11,6 +11,12 @@ on:
         required: true
         default: true
         type: boolean
+    # Only needed (and only passed by release.yml) when a version is given.
+    secrets:
+      TAURI_PRIVATE_KEY:
+        required: false
+      TAURI_KEY_PASSWORD:
+        required: false
 
   workflow_dispatch:
     inputs:
@@ -24,8 +30,14 @@ on:
         default: true
         type: boolean
 
+permissions:
+  contents: read
+
 jobs:
   dashboard-build-and-draft:
+    # contents: write is needed to create the draft release and upload assets to it.
+    permissions:
+      contents: write
     strategy:
       fail-fast: true
       matrix:
@@ -39,73 +51,90 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Use Node.js 18.x
-        uses: actions/setup-node@v3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 18.x
-          cache: "npm"
-          cache-dependency-path: ./dashboard/package-lock.json
+          persist-credentials: false
 
-      - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
+      # No npm cache in this job: it holds the updater signing key, so it must not
+      # restore a cache that another (e.g. pull request) run could have written.
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          toolchain: stable
+          node-version: 24.x
 
+      # Installs the toolchain pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal --no-self-update
+
+      # Tauri 2 Linux build dependencies (webkit2gtk-4.1); clang/libclang for bindgen.
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf clang libclang-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf clang libclang-dev
 
       - name: Cache Rust Dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: rust-cache
           shared-key: workspace-${{ matrix.target }}-${{ inputs.debug == true && 'debug' || 'release' }}-build
+          # Only main writes the cache that release builds restore.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install npm dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
         working-directory: ./dashboard
 
       - name: Build Tauri desktop app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         id: tauri
 
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          # The token is only needed to create/upload the release, so it is not exposed
+          # to the build (npm run build) when no version is given.
+          GITHUB_TOKEN: ${{ inputs.version && secrets.GITHUB_TOKEN || '' }}
+          # Tauri 2 names; the repository secrets keep their Tauri 1 names.
+          # An unset password secret means an empty password, as before.
+          # The updater signing key is likewise only given to release builds; the others
+          # build with --no-sign (see args), so they do not need it.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.version && secrets.TAURI_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.version && secrets.TAURI_KEY_PASSWORD || '' }}
         with:
           projectPath: ./dashboard
           tagName: ${{ inputs.version || null }}
           releaseName: ${{ inputs.version || null }}
           releaseBody: "Automated release for ${{ inputs.version }}"
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           releaseDraft: true
           prerelease: true
-          includeDebug: ${{ inputs.debug }}
-          includeRelease: ${{ !inputs.debug }}
+          # Replaces includeDebug/includeRelease: build either debug or release.
+          # Without a version nothing is published, so the updater artifacts are not signed.
+          args: ${{ format('{0} {1}', inputs.debug && '--debug' || '', !inputs.version && '--no-sign' || '') }}
 
+      # The workspace target dir is ./target. The main binary is Lodestone.exe because
+      # tauri.conf.json sets mainBinaryName.
       - name: Add windows portable exe to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: matrix.platform == 'windows-latest' && inputs.version
         with:
           files: |
-            ../target/release/Lodestone.exe
-            ../target/debug/Lodestone.exe
+            ./target/release/Lodestone.exe
+            ./target/debug/Lodestone.exe
           tag_name: ${{ inputs.version }}
           draft: true
           prerelease: true
 
-      # on windows, cache installer in src-tauri/target/release/bundle/msi/Lodestone*.msi
-      # on windows cache exe in src-tauri/target/release/Lodestone.exe
-      # on linux, cache deb in src-tauri/target/release/bundle/deb/lodestone*.deb
-      # on linux, cache appimage in src-tauri/target/release/bundle/appimage/lodestone*.AppImage
+      # on windows, cache installer in target/release/bundle/msi/Lodestone*.msi
+      # on windows cache exe in target/release/Lodestone.exe
+      # on linux, cache deb in target/release/bundle/deb/lodestone*.deb
+      # on linux, cache appimage in target/release/bundle/appimage/lodestone*.AppImage
       # note linux has lowercase l, windows has uppercase L
+      # (debug builds use target/debug instead of target/release)
 
+      # Artifact names are unique per matrix leg.
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.platform }}-tauri
-          path: "${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}\n./src-tauri/target/release/Lodestone.exe\n./src-tauri/target/debug/Lodestone.exe"
+          path: "${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}\n./target/release/Lodestone.exe\n./target/debug/Lodestone.exe"

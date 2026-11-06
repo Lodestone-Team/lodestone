@@ -52,7 +52,7 @@ const MacroModalContents = ({
     useState<GetConfigResponse>(initialMacroData);
   return (
     <div className={clsx('mb-2', 'flex flex-col gap-4 @4xl:flex-row')}>
-      <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+      <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
         {Object.entries(macroData.config).map(([_, manifest], index) => {
           return (
             <SettingField
@@ -82,7 +82,7 @@ const MacroModalContents = ({
       </span>
       {macroData && macroData.error && (
         <TextCaption
-          text={'This macro requires additional config.' || ''}
+          text={'This macro requires additional config.'}
           className="whitespace-pre-wrap text-small text-red-300"
         />
       )}
@@ -401,7 +401,7 @@ const Macros = () => {
               selectedPage === page &&
                 'border-b-2 border-blue-200 text-blue-200',
               'mr-4 font-mediumbold hover:cursor-pointer',
-              'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
+              'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
             )}
             onClick={() => setSelectedPage(page)}
           >

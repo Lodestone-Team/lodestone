@@ -1,0 +1,8 @@
+# Ignore file for core/Dockerfile (BuildKit), whose build context is the repository root.
+# Keep .env and dev.db: the sqlx query! macros read DATABASE_URL from .env at compile time.
+.git
+.github
+target
+dashboard/node_modules
+dashboard/.next
+dashboard/out

@@ -12,7 +12,7 @@ const Home = () => {
   const { setShowCreateInstance } = useContext(InstanceContext);
   const userLoggedIn = useUserLoggedIn();
   const canCreateInstance = useUserAuthorized('can_create_instance');
-  const { isLoading } = useUserInfo();
+  const { isPending: isLoading } = useUserInfo();
 
 
   const [loading, setLoading] = useState(true);

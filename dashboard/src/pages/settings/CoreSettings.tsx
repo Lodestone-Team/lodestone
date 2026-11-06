@@ -27,7 +27,7 @@ export const CoreSettings = () => {
   useDocumentTitle('Lodestone Core Settings - Lodestone');
   const { core } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
-  const { data: globalSettings, isLoading, error } = useGlobalSettings();
+  const { data: globalSettings, isPending: isLoading, error } = useGlobalSettings();
   const { data: coreInfo } = useCoreInfo();
   const { data: userInfo } = useUserInfo();
   const can_change_core_settings = userInfo?.is_owner ?? false;
@@ -384,7 +384,7 @@ export const CoreSettings = () => {
                 These settings are for the core itself.
               </h3>
             </div>
-            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
               {nameField}
               {domainField}
               {enablePlayitField}
@@ -397,7 +397,7 @@ export const CoreSettings = () => {
                 These settings can cause irreversible damage to your server!
               </h3>
             </div>
-            <div className="mb-10 w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="mb-10 w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
               {unsafeModeField}
               {openPortField}
             </div>
@@ -411,7 +411,7 @@ export const CoreSettings = () => {
                 This is information about your core and dashboard
               </h3>
             </div>
-            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
               {coreVersionField}
               {dashboardVersionField}
               {osField}

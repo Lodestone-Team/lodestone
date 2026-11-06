@@ -4,14 +4,13 @@ use std::path::PathBuf;
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path},
+    http::{header::CONTENT_LENGTH, HeaderMap},
     routing::{delete, get, put},
     Json, Router,
 };
 use axum_auth::AuthBearer;
 use color_eyre::eyre::{eyre, Context};
 use fs_extra::TransitProcess;
-use headers::HeaderMap;
-use reqwest::header::CONTENT_LENGTH;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tracing::error;
@@ -1016,51 +1015,51 @@ async fn zip_instance_files(
 pub fn get_instance_fs_routes(state: AppState) -> Router {
     Router::new()
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/ls",
+            "/instance/{uuid}/fs/{base64_relative_path}/ls",
             get(list_instance_files),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/read",
+            "/instance/{uuid}/fs/{base64_relative_path}/read",
             get(read_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/write",
+            "/instance/{uuid}/fs/{base64_relative_path}/write",
             put(write_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/mkdir",
+            "/instance/{uuid}/fs/{base64_relative_path}/mkdir",
             put(make_instance_directory),
         )
-        .route("/instance/:uuid/fs/cpr", put(copy_instance_files))
+        .route("/instance/{uuid}/fs/cpr", put(copy_instance_files))
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/move/:base64_relative_path_dest",
+            "/instance/{uuid}/fs/{base64_relative_path}/move/{base64_relative_path_dest}",
             put(move_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/rm",
+            "/instance/{uuid}/fs/{base64_relative_path}/rm",
             delete(remove_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/rmdir",
+            "/instance/{uuid}/fs/{base64_relative_path}/rmdir",
             delete(remove_instance_dir),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/new",
+            "/instance/{uuid}/fs/{base64_relative_path}/new",
             put(new_instance_file),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/url",
+            "/instance/{uuid}/fs/{base64_relative_path}/url",
             get(get_instance_file_url),
         )
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/upload",
+            "/instance/{uuid}/fs/{base64_relative_path}/upload",
             put(upload_instance_file),
         )
         .layer(DefaultBodyLimit::disable())
         .route(
-            "/instance/:uuid/fs/:base64_relative_path/unzip",
+            "/instance/{uuid}/fs/{base64_relative_path}/unzip",
             put(unzip_instance_file),
         )
-        .route("/instance/:uuid/fs/zip", put(zip_instance_files))
+        .route("/instance/{uuid}/fs/zip", put(zip_instance_files))
         .with_state(state)
 }

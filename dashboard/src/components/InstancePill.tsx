@@ -17,7 +17,6 @@ export default function InstancePill({
   state,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   port,
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
 }: InstancePillProps) {
   const stateColor = stateToColor[state];
@@ -29,8 +28,8 @@ export default function InstancePill({
         'cursor-pointer rounded-md py-1 px-2',
         'text-medium font-medium leading-5 tracking-normal',
         'text-white/50 ui-checked:text-gray-300',
-        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
-        'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
+        'ui-checked:bg-gray-800 ui-checked:outline-solid ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
+        'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
       )}
       onClick={cardOnClick}
     >

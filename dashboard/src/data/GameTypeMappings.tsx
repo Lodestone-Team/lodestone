@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import { InstanceSettingCard } from 'components/Instance';
 import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
@@ -43,6 +44,7 @@ export const game_to_game_icon = (game: Game) =>
           () => unknown_icon
         )
       ),
+    MinecraftBedrock: () => unknown_icon,
     Generic: () => '/assets/GenericIcon.svg',
   });
 
@@ -57,6 +59,7 @@ export const game_to_game_title = (game: Game) =>
         Spigot: () => 'Spigot (Minecraft)',
         Other: ({ name }) => `${name} (Minecraft)`,
       }),
+    MinecraftBedrock: () => 'Minecraft Bedrock',
     Generic: ({ game_name }) => `${game_name} (Generic)`,
   });
 
@@ -74,6 +77,7 @@ export const game_to_description = (game: Game) =>
           'Modified Minecraft server software that supports plugins, offering enhanced performance and customization options.',
         Other: ({ name }) => `Unknown Minecraft variant: ${name}`,
       }),
+    MinecraftBedrock: () => 'Minecraft Bedrock Edition server.',
     Generic: ({ game_name }) => `Unknown game: ${game_name}`,
   });
 
@@ -101,5 +105,9 @@ export const HandlerGameType_to_Game: Record<HandlerGameType, Game> = {
     variant: {
       type: 'Paper',
     },
+  },
+  // Not offered by the core's game list yet
+  MinecraftBedrock: {
+    type: 'MinecraftBedrock',
   },
 };

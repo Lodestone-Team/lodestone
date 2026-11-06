@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef } from 'react';
 import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { UnzipOption } from 'bindings/UnzipOption';
 import { supportedZip } from 'utils/util';
 import { requestInstanceFileUrl } from 'utils/apis';
 import { InstanceInfo } from 'bindings/InstanceInfo';
@@ -153,7 +153,7 @@ const FileContextMenu = forwardRef(
 
     return (
       <div
-        className="fixed right-0 z-50 mt-1.5 w-44 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-none"
+        className="fixed right-0 z-50 mt-1.5 w-44 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-hidden"
         style={{
           top: coords.y + 'px',
           left: coords.x + 'px',

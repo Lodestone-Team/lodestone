@@ -1,9 +1,13 @@
-use std::{collections::HashSet, net::SocketAddrV4};
+use std::{
+    collections::HashSet,
+    net::{SocketAddr, SocketAddrV4},
+};
 
 use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
+use crate::util::local_port_available;
 
 pub struct PortManager {
     allocated_ports: HashSet<u32>,
@@ -23,8 +27,7 @@ impl PortManager {
     pub fn allocate(&mut self, start_port: u32) -> u32 {
         if self.allocated_ports.contains(&start_port) {
             let mut new_port = start_port + 1;
-            while self.allocated_ports.contains(&new_port)
-                || !port_scanner::local_port_available(new_port as u16)
+            while self.allocated_ports.contains(&new_port) || !local_port_available(new_port as u16)
             {
                 new_port += 1;
             }
@@ -38,7 +41,7 @@ impl PortManager {
 
     pub fn port_status(&self, port: u32) -> PortStatus {
         PortStatus {
-            is_in_use: !port_scanner::local_port_available(port as u16),
+            is_in_use: !local_port_available(port as u16),
             is_allocated: self.allocated_ports.contains(&port),
         }
     }
@@ -56,15 +59,15 @@ impl PortManager {
             if let Ok(local_ip) = local_ip_address::local_ip() {
                 // convert local_ip to a SocketAddrV4
                 let local_ip = if let std::net::IpAddr::V4(ipv4) = local_ip {
-                    SocketAddrV4::new(ipv4, port)
+                    SocketAddr::V4(SocketAddrV4::new(ipv4, port))
                 } else {
                     panic!();
                 };
 
-                igd::search_gateway(Default::default())
+                igd_next::search_gateway(Default::default())
                     .context("Could not find gateway")?
                     .add_port(
-                        igd::PortMappingProtocol::TCP,
+                        igd_next::PortMappingProtocol::TCP,
                         port,
                         local_ip,
                         0,

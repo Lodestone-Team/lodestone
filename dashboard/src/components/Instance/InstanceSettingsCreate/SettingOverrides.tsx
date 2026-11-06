@@ -1,5 +1,5 @@
 import { MOTDRender } from 'components/Atoms/MOTDRender';
-import { parse } from 'minecraft-motd-util';
+import { parse } from 'utils/motd';
 import { convertUnicode } from 'utils/util';
 
 export const SettingOverrides: Record<string, any> = {

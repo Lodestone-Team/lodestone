@@ -23,7 +23,7 @@ export default function InstanceSetting() {
   if (!instance) throw new Error('No instance selected');
   const {
     data: manifest,
-    isLoading,
+    isPending: isLoading,
     error,
   } = useInstanceManifest(instance.uuid);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -54,7 +54,7 @@ export default function InstanceSetting() {
             url: `/instance/${instance.uuid}`,
           })
             .then(() => {
-              queryClient.invalidateQueries(['instances', 'list']);
+              queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
               selectInstance(null);
             })
             .catch((err) => {
@@ -86,7 +86,7 @@ export default function InstanceSetting() {
               {section.description}
             </h3>
           </div>
-          <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+          <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
             {Object.keys(section['settings']).length ? (
               Object.keys(section['settings']).map((settingKey: string) => {
                 const setting: SettingFieldObject =
@@ -127,7 +127,7 @@ export default function InstanceSetting() {
             These settings can cause irreversible damage to your server!
           </h3>
         </div>
-        <div className="w-full min-w-0 rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+        <div className="w-full min-w-0 rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
           <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
             <div className="flex min-w-0 grow flex-col">
               {can_delete_instance ? (
