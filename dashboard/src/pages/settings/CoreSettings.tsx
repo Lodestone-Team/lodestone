@@ -19,9 +19,9 @@ import {
   errorToString,
 } from 'utils/util';
 import { openPort, stopCli } from 'utils/apis';
+import { DASHBOARD_VERSION } from 'utils/version';
 import InputField from 'components/Atoms/Form/InputField';
 import { useDocumentTitle } from 'usehooks-ts';
-import packageinfo from '../../../package.json';
 
 // a read-only row in the Information section
 const InfoRow = ({ children }: { children: React.ReactNode }) => (
@@ -349,7 +349,7 @@ export const CoreSettings = () => {
             </div>
             <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
               <InfoRow>Core version: {coreInfo?.version}</InfoRow>
-              <InfoRow>Dashboard version: {packageinfo.version}</InfoRow>
+              <InfoRow>Dashboard version: {DASHBOARD_VERSION}</InfoRow>
               <InfoRow>OS: {coreInfo?.os}</InfoRow>
               <InfoRow>Architecture: {coreInfo?.arch}</InfoRow>
               <InfoRow>CPU: {coreInfo?.cpu}</InfoRow>
