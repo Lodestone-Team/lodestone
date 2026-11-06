@@ -938,8 +938,19 @@ mod tests {
             "attachment; filename=\"world.zip\""
         );
         assert_eq!(
-            attachment_header(std::path::Path::new("/a/we\"ird\\wörld.zip")),
-            "attachment; filename=\"we_ird_w_rld.zip\""
+            attachment_header(std::path::Path::new("/a/we\"ird wörld.zip")),
+            "attachment; filename=\"we_ird w_rld.zip\""
+        );
+        // `\` is part of the name on Unix, and a path separator on Windows
+        #[cfg(unix)]
+        assert_eq!(
+            attachment_header(std::path::Path::new("/a/we\\ird.zip")),
+            "attachment; filename=\"we_ird.zip\""
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            attachment_header(std::path::Path::new("/a/we\\ird.zip")),
+            "attachment; filename=\"ird.zip\""
         );
         assert_eq!(
             attachment_header(std::path::Path::new("/")),
@@ -1014,10 +1025,18 @@ mod tests {
             resolve_existing_prefix(&root.join("instances/a/macros/new/prelaunch.ts")).await,
             Some(root.join("instances/a/macros/new/prelaunch.ts"))
         );
-        // `..` in the part that does not exist yet cannot be checked
+        // `..` after a folder that does not exist: Unix can't resolve it, so the path can't
+        // be checked. Windows removes `..` by name before it looks at the disk, so the path
+        // resolves to the folder that a write would really use.
+        #[cfg(unix)]
         assert_eq!(
             resolve_existing_prefix(&root.join("missing/../instances")).await,
             None
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            resolve_existing_prefix(&root.join("missing/../instances")).await,
+            Some(root.join("instances"))
         );
         #[cfg(unix)]
         {
