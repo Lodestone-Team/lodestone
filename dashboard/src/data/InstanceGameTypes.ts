@@ -2,7 +2,7 @@ import { HandlerGameType } from 'bindings/HandlerGameType';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { SetupManifest } from 'bindings/SetupManifest';
-import { GenericHandlerGameType } from 'components/Instance/InstanceCreateForm';
+import type { GenericHandlerGameType } from 'components/Instance/InstanceCreateForm';
 export const InstanceGameTypes = () =>
   useQuery<HandlerGameType[], AxiosError>({
     queryKey: ['games'],
@@ -12,7 +12,10 @@ export const InstanceGameTypes = () =>
     },
   });
 
-export const SetupInstanceManifest = (game_type: HandlerGameType) => {
+export const SetupInstanceManifest = (
+  game_type: HandlerGameType,
+  enabled = true
+) => {
   return useQuery<SetupManifest, AxiosError>({
     queryKey: ['setup_manifest', game_type],
     queryFn: async () => {
@@ -21,6 +24,7 @@ export const SetupInstanceManifest = (game_type: HandlerGameType) => {
       );
       return response.data;
     },
+    enabled,
   });
 };
 
@@ -30,7 +34,8 @@ export const SetupGenericInstanceManifest = (
   url_is_ready: boolean
 ) => {
   return useQuery<SetupManifest, AxiosError>({
-    queryKey: ['generic_setup_manifest', game_type],
+    // the manifest depends on the URL, a different URL is a different manifest
+    queryKey: ['generic_setup_manifest', game_type, generic_instance_url],
     queryFn: async () => {
       const response = await axios.put<SetupManifest>(
         `/generic_setup_manifest`,

@@ -63,37 +63,6 @@ export function useQueryFetchCallbacks<TData = unknown, TError = Error>(
   );
 }
 
-export function useIntervalImmediate(
-  callback: () => void,
-  delay: number | null
-) {
-  // Based on usehooks-ts's useInterval
-  const savedCallback = useRef(callback);
-
-  // Remember the latest callback if it changes.
-  useIsomorphicLayoutEffect(() => {
-    savedCallback.current = callback;
-  }, [callback]);
-
-  // Set up the interval.
-  useEffect(() => {
-    // Don't schedule if no delay is specified.
-    // Note: 0 is a valid value for delay.
-    if (!delay && delay !== 0) {
-      return;
-    }
-
-    const id = setInterval(() => savedCallback.current(), delay);
-
-    return () => clearInterval(id);
-  }, [delay]);
-
-  // Run the callback immediately.
-  useEffect(() => {
-    savedCallback.current();
-  }, []);
-}
-
 export function useIntervalClock(
   callback: () => void,
   delay: number | null,
@@ -101,11 +70,15 @@ export function useIntervalClock(
 ) {
   // Based on usehooks-ts's useInterval
   const savedCallback = useRef(callback);
+  // only read when the timers are (re)scheduled, so a new function every
+  // render doesn't restart them
+  const savedInitialDelayGen = useRef(initialDelayGen);
 
-  // Remember the latest callback if it changes.
+  // Remember the latest callbacks if they change.
   useIsomorphicLayoutEffect(() => {
     savedCallback.current = callback;
-  }, [callback]);
+    savedInitialDelayGen.current = initialDelayGen;
+  }, [callback, initialDelayGen]);
 
   // Set up the interval.
   useEffect(() => {
@@ -115,7 +88,7 @@ export function useIntervalClock(
       return;
     }
 
-    const initialDelay = initialDelayGen();
+    const initialDelay = savedInitialDelayGen.current();
 
     // call the callback after the initial delay, then set up the interval
     // clear both the timeout and the interval on unmount
@@ -129,7 +102,7 @@ export function useIntervalClock(
       clearTimeout(timeoutId);
       clearInterval(intervalId);
     };
-  }, [delay, initialDelayGen]);
+  }, [delay]);
 
   // Run the callback immediately.
   useEffect(() => {
@@ -145,8 +118,6 @@ export function useIntervalClockSeconds(callback: () => void, seconds: number) {
   };
   useIntervalClock(callback, delay, initialDelayGen);
 }
-
-export let globalSearchParams: URLSearchParams;
 
 /**
  * Similar to useState, but stores the value in the search params.
