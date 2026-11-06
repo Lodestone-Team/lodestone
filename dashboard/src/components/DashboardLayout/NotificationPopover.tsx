@@ -4,10 +4,10 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Popover } from '@headlessui/react';
-import { NotificationContext, NotificationItem } from 'data/NotificationContext';
+import { NotificationContext } from 'data/NotificationContext';
 
 import NotificationPanel from './NotificationPanel';
-import { forwardRef, useContext, useEffect, useState } from 'react';
+import { forwardRef, useContext, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 
 const IconWithBadge = forwardRef((
@@ -35,17 +35,18 @@ IconWithBadge.displayName = 'IconWithBadge';
 export const NotificationPopover = () => {
   const { notifications, ongoingNotifications } = useContext(NotificationContext);
   const [ newNotifications, setNewNotifications ] = useState<boolean>(false);
-  const [ previousNotifications, setPreviousNotifications ] = useState<NotificationItem[]>([]);
+  // keys of the notifications seen in the previous update
+  const seenKeys = useRef<Set<string>>(new Set());
 
-  const shouldShowPopup = () => {
-    return newNotifications || 
-      ongoingNotifications.length > 0 || 
-      previousNotifications.map(n => n.fresh && !(notifications.includes(n))).length > 0;
-  };
-
+  // show the badge for an ongoing task, or for a live (not replayed) notification
+  // that wasn't there before; it stays until the bell is clicked
   useEffect(() => {
-    setPreviousNotifications(notifications);
-    setNewNotifications(shouldShowPopup());
+    const hasNewFresh = notifications.some(
+      (n) => n.fresh && !seenKeys.current.has(n.key)
+    );
+    seenKeys.current = new Set(notifications.map((n) => n.key));
+    if (hasNewFresh || ongoingNotifications.length > 0)
+      setNewNotifications(true);
   }, [notifications, ongoingNotifications]);
     
 

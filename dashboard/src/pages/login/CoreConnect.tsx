@@ -1,7 +1,13 @@
 import axios from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
-import { DISABLE_AUTOFILL, errorToString, LODESTONE_PORT } from 'utils/util';
+import {
+  coreApiBaseUrl,
+  DISABLE_AUTOFILL,
+  errorToString,
+  isAxiosError,
+  LODESTONE_PORT,
+} from 'utils/util';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import InputField from 'components/Atoms/Form/InputField';
 import { Form, Formik, FormikHelpers } from 'formik';
@@ -27,19 +33,45 @@ const validationSchema = yup.object({
   protocol: yup.string().required('Required'),
 });
 
+/** Query parameters a link can use to fill in this form. */
+export const CORE_QUERY_PARAMS = [
+  'address',
+  'port',
+  'protocol',
+  'apiVersion',
+] as const;
+
+// An https page can't call an http core, browsers block it as mixed content.
+const pageIsHttps = () =>
+  typeof window !== 'undefined' && window.location.protocol === 'https:';
+
 const CoreConnect = () => {
   useDocumentTitle('Connect to Core - Lodestone');
-  const { navigateBack, setPathname } = useContext(BrowserLocationContext);
+  const { navigateBack, setPathname, searchParams, setSearchParam } =
+    useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
-  const [ShowBlurb, setShowBlurb] = useState(false);
-  const [showPopup, setShowPopup] = useState(false);
+  const [showMixedContentError, setShowMixedContentError] = useState(false);
 
-  const initialValues: CoreConnectionInfo = {
-    address: '',
-    port: LODESTONE_PORT.toString(),
-    apiVersion: 'v1',
-    protocol: 'http',
-  };
+  // A link may suggest a core (?address=&port=&protocol=&apiVersion=). It only
+  // fills in the form; the user still has to press "Add and Continue".
+  const [initialValues] = useState<CoreConnectionInfo>(() => {
+    const protocol = searchParams.get('protocol');
+    const apiVersion = searchParams.get('apiVersion');
+    const port = searchParams.get('port');
+    return {
+      address: searchParams.get('address') ?? '',
+      port: port && /^\d+$/.test(port) ? port : LODESTONE_PORT.toString(),
+      apiVersion: apiVersion === 'v1' ? apiVersion : 'v1',
+      protocol: protocol === 'https' ? 'https' : 'http',
+    };
+  });
+
+  // the values are in the form now, take them out of the URL
+  useEffect(() => {
+    CORE_QUERY_PARAMS.forEach((key) => {
+      if (searchParams.has(key)) setSearchParam(key, undefined, true);
+    });
+  }, [searchParams, setSearchParam]);
 
   const onSubmit = (
     values: CoreConnectionInfo,
@@ -54,7 +86,7 @@ const CoreConnect = () => {
     }
     axios
       .get<CoreInfo>(`/info`, {
-        baseURL: `${values.protocol}://${values.address}:${values.port}/api/${values.apiVersion}`,
+        baseURL: coreApiBaseUrl(values),
       })
       .then((res) => {
         if (res.status !== 200)
@@ -73,32 +105,24 @@ const CoreConnect = () => {
         const errorMessages = errorToString(err);
         actions.setStatus({ error: errorMessages });
         actions.setSubmitting(false);
+        // the request to the core being added was blocked as mixed content
+        if (
+          isAxiosError(err) &&
+          !err.response &&
+          pageIsHttps() &&
+          values.protocol === 'http'
+        )
+          setShowMixedContentError(true);
         return;
       });
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // http site hosted on kevins arm server
-        const response = await fetch('http://132.145.101.179:42069/');
-        if (!response.ok) {
-          setShowBlurb(true);
-        }
-      } catch (error) {
-        setShowBlurb(true);
-      }
-    };
-
-    fetchData();
-  }, []);
-
   return (
     <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
-      {showPopup && (
+      {showMixedContentError && (
         <ConfirmDialog
-          isOpen={ShowBlurb}
-          onClose={() => setShowPopup(false)}
+          isOpen={showMixedContentError}
+          onClose={() => setShowMixedContentError(false)}
           title="HTTP Error"
           type="danger"
         >
@@ -119,7 +143,7 @@ const CoreConnect = () => {
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>
-        {ShowBlurb && (
+        {pageIsHttps() && (
           <WarningAlert>
             <p>
               You may need to adjust your network and browser settings.{' '}
@@ -202,7 +226,6 @@ const CoreConnect = () => {
                   label="Add and Continue"
                   iconRight={faArrowRight}
                   loading={isSubmitting} //TODO: fix button size changing when loading
-                  onClick={() => setShowPopup(true)}
                 />
               </div>
             </div>

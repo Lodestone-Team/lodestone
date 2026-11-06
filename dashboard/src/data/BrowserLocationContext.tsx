@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 // eslint-disable-next-line no-restricted-imports -- this is the only place that should import useNavigate
 import { useLocation, useNavigate, Location } from 'react-router';
 
@@ -7,7 +7,11 @@ interface BrowserLocationContext {
   searchParams: URLSearchParams;
   setLocation: (func: (loc: Location) => Location, replace?: boolean) => void;
   setPathname: (pathname: string, replace?: boolean) => void;
-  setSearchParam: (key: string, value: string | undefined, replace?: boolean) => void;
+  setSearchParam: (
+    key: string,
+    value: string | undefined,
+    replace?: boolean
+  ) => void;
   navigateBack: () => void;
 }
 
@@ -47,48 +51,75 @@ export const BrowserLocationContextProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
-  // location is let since we want to manually update it
-  let location = useLocation();
+  const location = useLocation();
   const navigate = useNavigate();
-  const setLocation = (func: (loc: Location) => Location, replace = false) => {
-    const newLocation = func(location);
-    console.log('setLocation', {...location}, {...newLocation});
-    location = newLocation;
-    navigate(location, { replace });
-  };
-  const setPathname = (pathname: string, replace = false) => {
-    if(pathname === location.pathname) return;
-    setLocation((loc) => ({ ...loc, pathname }), replace);
-  };
-  const setSearchParam = (key: string, value: string | undefined, replace = false) => {
-    console.log('setSearchParam', key, value);
-    setLocation((loc) => {
-      const newSearch = new URLSearchParams(loc.search);
-      if (value === undefined) {
-        newSearch.delete(key);
-      } else {
-        newSearch.set(key, value);
-      }
-      return { ...loc, search: newSearch.toString() };
-    }, replace);
-  };
-  const navigateBack = () => {
-    console.log('navigateBack');
+
+  // Setters start from the browser's current URL rather than the location of
+  // the last render, so several setters called in a row build on each other
+  // (BrowserRouter updates window.location synchronously on navigate).
+  const setLocation = useCallback(
+    (func: (loc: Location) => Location, replace = false) => {
+      const current: Location = {
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+        state: null,
+        key: 'default',
+      };
+      navigate(func(current), { replace });
+    },
+    [navigate]
+  );
+  const setPathname = useCallback(
+    (pathname: string, replace = false) => {
+      if (pathname === window.location.pathname) return;
+      setLocation((loc) => ({ ...loc, pathname }), replace);
+    },
+    [setLocation]
+  );
+  const setSearchParam = useCallback(
+    (key: string, value: string | undefined, replace = false) => {
+      setLocation((loc) => {
+        const newSearch = new URLSearchParams(loc.search);
+        if (value === undefined) {
+          newSearch.delete(key);
+        } else {
+          newSearch.set(key, value);
+        }
+        return { ...loc, search: newSearch.toString() };
+      }, replace);
+    },
+    [setLocation]
+  );
+  const navigateBack = useCallback(() => {
     navigate(-1);
-  };
+  }, [navigate]);
 
-  // searchParam is const since we don't use it for updating the URL
-  // it's only provided in the context for convenience
-  const searchParams = new URLSearchParams(location.search);
+  // searchParam is only provided in the context for convenience, it is not
+  // used for updating the URL
+  const searchParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search]
+  );
 
-  const contextValue = {
-    location,
-    searchParams,
-    setLocation,
-    setPathname,
-    setSearchParam,
-    navigateBack,
-  };
+  const contextValue = useMemo(
+    () => ({
+      location,
+      searchParams,
+      setLocation,
+      setPathname,
+      setSearchParam,
+      navigateBack,
+    }),
+    [
+      location,
+      searchParams,
+      setLocation,
+      setPathname,
+      setSearchParam,
+      navigateBack,
+    ]
+  );
 
   return (
     <BrowserLocationContext.Provider value={contextValue}>

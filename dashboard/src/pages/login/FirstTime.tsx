@@ -6,7 +6,7 @@ import { useDocumentTitle } from 'usehooks-ts';
 import { useEffectOnce } from 'utils/hooks';
 import { tauri } from 'utils/tauriUtil';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import packageinfo from '../../../package.json';
+import { DASHBOARD_VERSION } from 'utils/version';
 import { DEFAULT_LOCAL_CORE } from 'utils/util';
 
 const FirstTime = () => {
@@ -55,7 +55,7 @@ const FirstTime = () => {
             Welcome to Lodestone!
           </h1>
           <span className="mt-3 text-right text-small font-medium tracking-medium text-green-200">
-            VERSION {packageinfo.version}
+            VERSION {DASHBOARD_VERSION}
           </span>
         </div>
 

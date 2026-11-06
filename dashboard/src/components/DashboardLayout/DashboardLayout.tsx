@@ -1,20 +1,25 @@
 import TopNav from './TopNav';
 import { useContext } from 'react';
 import { useEventStream } from 'data/EventStream';
-import { useCoreInfo, useLocalCoreInfo } from 'data/SystemInfo';
-import { useEffect, useState } from 'react';
+import {
+  canReachLocalCore,
+  useCoreInfo,
+  useLocalCoreInfo,
+} from 'data/SystemInfo';
+import { Suspense, useEffect, useState } from 'react';
+import Spinner from './Spinner';
 import NotificationPanel from './NotificationPanel';
 import { useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Outlet } from 'react-router';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { Popover } from '@headlessui/react';
-import { DEFAULT_LOCAL_CORE } from 'utils/util';
+import { DEFAULT_LOCAL_CORE, isLocalCore } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { major, minor, patch, valid, eq } from 'semver';
 import { toast } from 'react-toastify';
 import { useLocalStorage } from 'usehooks-ts';
-import packageinfo from '../../../package.json';
+import { DASHBOARD_VERSION } from 'utils/version';
 
 export default function DashboardLayout() {
   const { data: userInfo } = useUserInfo();
@@ -27,14 +32,17 @@ export default function DashboardLayout() {
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
   const { data: coreInfo, isPending: coreInfoLoading } = useCoreInfo();
-  const { data: localCoreInfo } = useLocalCoreInfo();
+  // look for a new local core only if it's reachable and not the current core
+  const { data: localCoreInfo } = useLocalCoreInfo(
+    canReachLocalCore() && !isLocalCore(core)
+  );
   const [showVersionMismatchModal, setShowVersionMismatchModal] =
     useState(false);
   const [showThankYouModal, setShowThankYouModal] =
     useState(false);
   const [showCoreErrorModal, setShowCoreErrorModal] = useState(false);
   const [latestVersion, setLatestVersion] = useLocalStorage('latestVersion', '0.0.0');
-  const dashboardVersion = packageinfo.version;
+  const dashboardVersion = DASHBOARD_VERSION;
 
   // open the error modal is coreConnectionStatus is error for more than 3 seconds
   useEffect(() => {
@@ -203,7 +211,9 @@ export default function DashboardLayout() {
         <TopNav />
         <div className="flex min-h-0 w-full grow flex-row bg-gray-875">
           {versionMismatchModal}
-          <Outlet />
+          <Suspense fallback={<Spinner />}>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
       {thankYouModal}

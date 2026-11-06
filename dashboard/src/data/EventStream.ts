@@ -2,19 +2,90 @@ import { useUid } from 'data/UserInfo';
 import { addInstance, deleteInstance, updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 
-import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef } from 'react';
 import { InstanceState } from 'bindings/InstanceState';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { match, otherwise } from 'variant';
 import { NotificationContext } from './NotificationContext';
 import { EventQuery } from 'bindings/EventQuery';
 import axios from 'axios';
-import { LODESTONE_PORT } from 'utils/util';
+import { coreWebSocketUrl, errorToString, isAxiosError } from 'utils/util';
 import { UserPermission } from 'bindings/UserPermission';
 import { PublicUser } from 'bindings/PublicUser';
 import { toast } from 'react-toastify';
 import { Player } from 'bindings/Player';
-import { useQueryClient } from '@tanstack/react-query';
+import { QueryClient, useQueryClient } from '@tanstack/react-query';
+import { openReconnectingWebSocket } from 'utils/websocket';
+
+/**
+ * The query for both the event buffer and the event stream.
+ * The token is only needed for the websocket, since browsers cannot set
+ * headers on websockets. REST requests send it in the Authorization header.
+ */
+const eventQuery = (bearer_token: string | null): EventQuery => ({
+  bearer_token,
+  event_levels: null,
+  event_types: null,
+  instance_event_types: null,
+  user_event_types: null,
+  event_user_ids: null,
+  event_instance_ids: null,
+  time_range: null,
+});
+
+/**
+ * Console lines are shown by the console's own websocket (ConsoleStream),
+ * the global event stream has nothing to do with them.
+ */
+const isConsoleEvent = (event: ClientEvent) =>
+  event.event_inner.type === 'InstanceEvent' &&
+  (event.event_inner.instance_event_inner.type === 'InstanceOutput' ||
+    event.event_inner.instance_event_inner.type === 'InstanceInput' ||
+    event.event_inner.instance_event_inner.type === 'SystemMessage');
+
+const updateInstanceState = (
+  queryClient: QueryClient,
+  uuid: string,
+  state: InstanceState
+) => updateInstance(uuid, queryClient, (oldInfo) => ({ ...oldInfo, state }));
+
+const updateInstancePlayerList = (
+  queryClient: QueryClient,
+  uuid: string,
+  players: Player[]
+) =>
+  updateInstance(uuid, queryClient, (oldInfo) => ({
+    ...oldInfo,
+    player_list: players,
+    player_count: players.length,
+  }));
+
+const updateUserInList = (
+  queryClient: QueryClient,
+  uid: string,
+  update: (user: PublicUser) => PublicUser
+) =>
+  queryClient.setQueryData(
+    ['user', 'list'],
+    (oldList: { [uid: string]: PublicUser } | undefined) => {
+      if (!oldList || !oldList[uid]) return oldList;
+      return { ...oldList, [uid]: update(oldList[uid]) };
+    }
+  );
+
+const updateSelf = (
+  queryClient: QueryClient,
+  update: (user: PublicUser) => PublicUser
+) =>
+  queryClient.setQueryData(
+    ['user', 'info'],
+    (oldInfo: PublicUser | undefined) => (oldInfo ? update(oldInfo) : oldInfo)
+  );
+
+const setPermission = (permissions: UserPermission) => (user: PublicUser) => ({
+  ...user,
+  permissions,
+});
 
 /**
  * does not return anything, call this for the side effect of subscribing to the event stream
@@ -27,467 +98,357 @@ export const useEventStream = () => {
   const { token, core, setCoreConnectionStatus, setToken } =
     useContext(LodestoneContext);
   const socket = `${core.address}:${core.port}`;
-  const wsRef = useRef<WebSocket | null>(null);
-  const wsConnected = useRef(false);
 
-  const eventQuery: EventQuery = useMemo(
-    () => ({
-      bearer_token: token,
-      event_levels: null,
-      event_types: null,
-      instance_event_types: null,
-      user_event_types: null,
-      event_user_ids: null,
-      event_instance_ids: null,
-      time_range: null,
-    }),
-    [token]
-  );
+  const handleEvent = (event: ClientEvent, fresh: boolean) => {
+    const { event_inner } = event;
 
-  const updateInstanceState = useCallback(
-    (uuid: string, state: InstanceState) => {
-      updateInstance(uuid, queryClient, (oldInfo) => {
-        return { ...oldInfo, state };
-      });
-    },
-    [queryClient]
-  );
-  const updateInstancePlayerCount = useCallback(
-    (uuid: string, player_num: number) => {
-      updateInstance(uuid, queryClient, (oldInfo) => {
-        return {
-          ...oldInfo,
-          player_count: player_num,
-        };
-      });
-    },
-    [queryClient]
-  );
-  const updateInstancePlayerList = useCallback(
-    (uuid: string, players: Player[]) => {
-      updateInstance(uuid, queryClient, (oldInfo) => {
-        return {
-          ...oldInfo,
-          player_list: players,
-        };
-      });
-    },
-    [queryClient]
-  );
-  const updatePermission = useCallback(
-    (permission: UserPermission) => {
-      queryClient.setQueryData(
-        ['user', 'info'],
-        (oldInfo: PublicUser | undefined) => {
-          if (!oldInfo) return oldInfo;
-          return {
-            ...oldInfo,
-            permissions: permission,
-          };
-        }
-      );
-    },
-    [queryClient]
-  );
-
-  const handleEvent = useCallback(
-    (event: ClientEvent, fresh: boolean) => {
-      const { event_inner } = event;
-
-      match(event_inner, {
-        InstanceEvent: ({
-          instance_event_inner: event_inner,
-          instance_uuid: uuid,
-          instance_name: name,
-        }) =>
-          match(event_inner, {
-            StateTransition: ({ to }) => {
-              if (fresh) updateInstanceState(uuid, to);
-              dispatch({
-                title: `Instance ${name} ${{
+    match(event_inner, {
+      InstanceEvent: ({
+        instance_event_inner: event_inner,
+        instance_uuid: uuid,
+        instance_name: name,
+      }) =>
+        match(event_inner, {
+          StateTransition: ({ to }) => {
+            if (fresh) updateInstanceState(queryClient, uuid, to);
+            dispatch({
+              title: `Instance ${name} ${
+                {
                   Starting: `is starting`,
                   Running: `started`,
                   Stopping: `is stopping`,
                   Stopped: `stopped`,
                   Error: `encountered an error`,
                 }[to]
-                  }!`,
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-            InstanceWarning: () => {
-              toast.error(
-                "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
-              );
-              dispatch({
-                title: `Instance ${name} encountered a warning`,
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-            InstanceError: () => {
-              if (fresh) updateInstanceState(uuid, 'Error');
-              dispatch({
-                title: `Instance ${name} encountered an error`,
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-            InstanceInput: ({ message }) => {
-              console.log(`Got input on ${name}: ${message}`);
-            },
-            InstanceOutput: ({ message }) => {
-              console.log(`Got output on ${name}: ${message}`);
-            },
-            SystemMessage: ({ message }) => {
-              console.log(`Got system message on ${name}: ${message}`);
-            },
-            PlayerChange: ({ player_list, players_joined, players_left }) => {
-              console.log(`Got player change on ${name}: ${player_list}`);
-              console.log(`${players_joined} joined ${name}`);
-              console.log(`${players_left} left ${name}`);
-              if (fresh) {
-                updateInstancePlayerList(uuid, player_list);
-                updateInstancePlayerCount(uuid, player_list.length);
-              }
+              }!`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          InstanceWarning: () => {
+            toast.error(
+              "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
+            );
+            dispatch({
+              title: `Instance ${name} encountered a warning`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          InstanceError: () => {
+            if (fresh) updateInstanceState(queryClient, uuid, 'Error');
+            dispatch({
+              title: `Instance ${name} encountered an error`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          // console lines are filtered out before they get here
+          InstanceInput: () => {},
+          InstanceOutput: () => {},
+          SystemMessage: () => {},
+          PlayerChange: ({ player_list, players_joined, players_left }) => {
+            if (fresh) updateInstancePlayerList(queryClient, uuid, player_list);
 
-              // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
-              const players_joined_names = players_joined.map((p) => p.name);
-              const players_left_names = players_left.map((p) => p.name);
+            // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
+            const players_joined_names = players_joined.map((p) => p.name);
+            const players_left_names = players_left.map((p) => p.name);
 
-              const title =
-                (players_joined.length > 0
-                  ? `${players_joined_names.join(', ')} Joined ${name}`
-                  : '') +
-                (players_left.length > 0 && players_joined.length > 0
-                  ? ' and '
-                  : '') +
-                (players_left.length > 0
-                  ? `${players_left_names.join(', ')} Left ${name}`
-                  : '');
-              if (title.length > 0)
-                dispatch({
-                  title,
-                  event,
-                  type: 'add',
-                  fresh,
-                });
-            },
-            PlayerMessage: ({ player, player_message }) => {
-              console.log(`${player} said ${player_message} on ${name}`);
+            const title =
+              (players_joined.length > 0
+                ? `${players_joined_names.join(', ')} Joined ${name}`
+                : '') +
+              (players_left.length > 0 && players_joined.length > 0
+                ? ' and '
+                : '') +
+              (players_left.length > 0
+                ? `${players_left_names.join(', ')} Left ${name}`
+                : '');
+            if (title.length > 0)
               dispatch({
-                title: `${player} said ${player_message} on ${name}`,
+                title,
                 event,
                 type: 'add',
                 fresh,
               });
-            },
-          }),
-        UserEvent: ({ user_id: uid, user_event_inner: event_inner }) =>
-          match(event_inner, {
-            UserCreated: () => {
-              console.log(`User ${uid} created`);
-              if (fresh) queryClient.invalidateQueries({ queryKey: ['user', 'list'] });
-              // dispatch({
-              //   title: `User ${uid} created`,
-              //   event,
-              //   type: 'add',
-              // });
-            },
-            UserDeleted: () => {
-              console.log(`User ${uid} deleted`);
-              if (fresh) {
-                if (uid === selfUid) {
-                  console.log('User deleted themselves, logging out');
-                  setToken('', socket);
-                  queryClient.setQueryData(['user', 'info'], undefined);
-                }
-                queryClient.setQueryData(
-                  ['user', 'list'],
-                  (oldList: { [uid: string]: PublicUser } | undefined) => {
-                    if (!oldList) return oldList;
-                    const newList = { ...oldList };
-                    delete newList[uid];
-                    return newList;
-                  }
-                );
+          },
+          PlayerMessage: ({ player, player_message }) => {
+            dispatch({
+              title: `${player} said ${player_message} on ${name}`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+        }),
+      UserEvent: ({ user_id: uid, user_event_inner: event_inner }) => {
+        if (!fresh) return;
+        match(event_inner, {
+          UserCreated: () => {
+            queryClient.invalidateQueries({ queryKey: ['user', 'list'] });
+          },
+          UserDeleted: () => {
+            if (uid === selfUid) {
+              // the user deleted themselves, log out
+              setToken('', socket);
+              queryClient.setQueryData(['user', 'info'], undefined);
+            }
+            queryClient.setQueryData(
+              ['user', 'list'],
+              (oldList: { [uid: string]: PublicUser } | undefined) => {
+                if (!oldList) return oldList;
+                const newList = { ...oldList };
+                delete newList[uid];
+                return newList;
               }
-              // dispatch({
-              //   title: `User ${uid} deleted`,
-              //   event,
-              //   type: 'add',
-              // });
-            },
-            UserLoggedIn: () => {
-              console.log(`User ${uid} logged in`);
-              // dispatch({
-              //   title: `User ${uid} logged in`,
-              //   event,
-              //   type: 'add',
-              // });
-            },
-            UserLoggedOut: () => {
-              console.log(`User ${uid} logged out`);
-              // dispatch({
-              //   title: `User ${uid} logged out`,
-              //   event,
-              //   type: 'add',
-              // });
-            },
-            // Sent by the core but not handled by the dashboard yet
-            UsernameChanged: () => {},
-            PermissionChanged: ({ new_permissions }) => {
-              if (fresh) {
-                if (uid === selfUid) {
-                  updatePermission(new_permissions);
-                }
-                queryClient.setQueryData(
-                  ['user', 'list'],
-                  (oldList: { [uid: string]: PublicUser } | undefined) => {
-                    if (!oldList) return oldList;
-                    const newUser = { ...oldList[uid], permissions: new_permissions };
-                    const newList = { ...oldList };
-                    newList[uid] = newUser;
-                    return newList;
-                  }
-                );
-              }
-              // dispatch({
-              //   title: `User ${uid}'s permission has changed`,
-              //   event,
-              //   type: 'add',
-              // });
-            },
-          }),
-        MacroEvent: ({
-          instance_uuid: uuid,
-          macro_pid,
-          macro_event_inner: event_inner,
-        }) =>
-          match(event_inner, {
-            Started: () => {
-              console.log(`Macro ${macro_pid} started on ${uuid}`);
-              dispatch({
-                title: `Macro ${macro_pid} started on ${uuid}`,
-                event,
-                type: 'add',
-                fresh,
+            );
+          },
+          UserLoggedIn: () => {},
+          UserLoggedOut: () => {},
+          UsernameChanged: ({ new_username }) => {
+            const rename = (user: PublicUser) => ({
+              ...user,
+              username: new_username,
+            });
+            if (uid === selfUid) updateSelf(queryClient, rename);
+            updateUserInList(queryClient, uid, rename);
+          },
+          PermissionChanged: ({ new_permissions }) => {
+            if (uid === selfUid)
+              updateSelf(queryClient, setPermission(new_permissions));
+            updateUserInList(queryClient, uid, setPermission(new_permissions));
+          },
+        });
+      },
+      MacroEvent: ({
+        instance_uuid: uuid,
+        macro_pid,
+        macro_event_inner: event_inner,
+      }) =>
+        match(event_inner, {
+          Started: () => {
+            if (fresh) {
+              queryClient.invalidateQueries({
+                queryKey: ['instance', uuid, 'taskList'],
               });
-            },
-            Detach: () => {
-              console.log(`Macro ${macro_pid} detached on ${uuid}`);
-              dispatch({
-                title: `Macro ${macro_pid} detached on ${uuid}`,
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-            Stopped: ({ exit_status }) => {
-              console.log(`Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`);
-              dispatch({
-                title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-          }),
-        PlayitggRunnerEvent: ({ playitgg_runner_event_inner: event_inner }) => {
-          console.log(event_inner)
-          match(event_inner, {
-            RunnerStarted: () => {
-              queryClient.setQueryData(['playitgg', 'status'], "Started");
-              dispatch({
-                title: "Playitgg runner started!",
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-            RunnerLoading: () => {
-              queryClient.setQueryData(['playitgg', 'status'], "Loading");
-              dispatch({
-                title: "Playitgg runner loading...",
-                event,
-                type: 'add',
-                fresh,
-              });
-            },
-            RunnerStopped: () => {
-              queryClient.setQueryData(['playitgg', 'status'], "Stopped");
-              dispatch({
-                title: "Playitgg runner stopped!",
-                event,
-                type: 'add',
-                fresh,
+              queryClient.invalidateQueries({
+                queryKey: ['instance', uuid, 'macroList'],
               });
             }
-          })
-        },
-        ProgressionEvent: (progressionEvent) => {
-          ongoingDispatch({
-            event,
-            progressionEvent,
-            dispatch,
-            fresh,
-          });
-          // check if there's a "value"
-          const inner = progressionEvent.progression_event_inner;
-          if (fresh) {
-            match(
-              inner,
-              otherwise(
-                {
-                  ProgressionEnd: ({ inner }) => {
-                    if (!inner) return;
-                    match(
-                      inner,
-                      otherwise(
-                        {
-                          InstanceCreation: (instance_info) =>
-                            addInstance(instance_info, queryClient),
-                          InstanceDelete: ({ instance_uuid: uuid }) =>
-                            deleteInstance(uuid, queryClient),
-                          FSOperationCompleted: ({ instance_uuid, success, message }) => {
-                            if (success) {
-                              toast.success(message)
-                            } else {
-                              toast.error(message)
-                            }
-                            queryClient.invalidateQueries({ queryKey: ['instance', instance_uuid, 'fileList'] });
-                          }
-                        },
-                        (_) => { }
-                      )
-                    );
-                  },
-                  ProgressionStart: ({ inner }) => {
-                    if (!inner) return;
-                    match(
-                      inner,
-                      otherwise(
-                        {
-                          // InstanceDelete: ({ instance_uuid: uuid }) =>
-                          //   deleteInstance(uuid, queryClient),
-                        },
-                        (_) => { }
-                      )
-                    );
-                  },
-                },
-                (_) => { }
-              )
-            );
-          }
-        },
-        FSEvent: () => {
-          // console.log(`FS ${operation} on ${target.path}`);
-          // match(target, {
-          //   File: ({ path }) => {
-          //     dispatch({
-          //       title: `FS ${operation} on ${path}`,
-          //       event,
-          //       type: 'add',
-          //     });
-          //   },
-          //   Directory: ({ path }) => {
-          //     dispatch({
-          //       title: `FS ${operation} on ${path}`,
-          //       event,
-          //       type: 'add',
-          //     });
-          //   },
-          // });
-        },
-      });
-    },
-    [
-      dispatch,
-      ongoingDispatch,
-      queryClient,
-      updateInstancePlayerCount,
-      updateInstanceState,
-    ]
-  );
+            dispatch({
+              title: `Macro ${macro_pid} started on ${uuid}`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          Detach: () => {
+            dispatch({
+              title: `Macro ${macro_pid} detached on ${uuid}`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          Stopped: ({ exit_status }) => {
+            if (fresh) {
+              queryClient.invalidateQueries({
+                queryKey: ['instance', uuid, 'taskList'],
+              });
+              queryClient.invalidateQueries({
+                queryKey: ['instance', uuid, 'historyList'],
+              });
+            }
+            dispatch({
+              title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+        }),
+      PlayitggRunnerEvent: ({ playitgg_runner_event_inner: event_inner }) => {
+        match(event_inner, {
+          RunnerStarted: () => {
+            if (fresh)
+              queryClient.setQueryData(['playitgg', 'status'], 'Started');
+            dispatch({
+              title: 'Playitgg runner started!',
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          RunnerLoading: () => {
+            if (fresh)
+              queryClient.setQueryData(['playitgg', 'status'], 'Loading');
+            dispatch({
+              title: 'Playitgg runner loading...',
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          RunnerStopped: () => {
+            if (fresh)
+              queryClient.setQueryData(['playitgg', 'status'], 'Stopped');
+            dispatch({
+              title: 'Playitgg runner stopped!',
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+        });
+      },
+      ProgressionEvent: (progressionEvent) => {
+        ongoingDispatch({
+          event,
+          progressionEvent,
+          fresh,
+        });
+        if (!fresh) return;
+        match(
+          progressionEvent.progression_event_inner,
+          otherwise(
+            {
+              ProgressionEnd: ({ inner }) => {
+                if (!inner) return;
+                match(
+                  inner,
+                  otherwise(
+                    {
+                      InstanceCreation: (instance_info) =>
+                        addInstance(instance_info, queryClient),
+                      InstanceDelete: ({ instance_uuid: uuid }) =>
+                        deleteInstance(uuid, queryClient),
+                      FSOperationCompleted: ({
+                        instance_uuid,
+                        success,
+                        message,
+                      }) => {
+                        if (success) {
+                          toast.success(message);
+                        } else {
+                          toast.error(message);
+                        }
+                        queryClient.invalidateQueries({
+                          queryKey: ['instance', instance_uuid, 'fileList'],
+                        });
+                      },
+                    },
+                    () => {}
+                  )
+                );
+              },
+            },
+            () => {}
+          )
+        );
+      },
+      FSEvent: () => {},
+    });
+  };
 
+  // The websocket below lives as long as token and core don't change, but the
+  // handler must always see the latest selfUid, setToken and contexts.
+  const handleEventRef = useRef(handleEvent);
+  useLayoutEffect(() => {
+    handleEventRef.current = handleEvent;
+  });
+
+  // fetch the events that happened before we connected
   useEffect(() => {
     if (!token) return;
+    let cancelled = false;
 
     dispatch({
       type: 'clear',
     });
 
-    const bufferAddress = `/events/all/buffer?filter=${JSON.stringify(
-      eventQuery
-    )}`;
-
-    axios.get<Array<ClientEvent>>(bufferAddress).then((response) => {
-      response.data.forEach((event) => {
-        handleEvent(event, false);
+    axios
+      .get<Array<ClientEvent>>('/events/all/buffer', {
+        params: { filter: JSON.stringify(eventQuery(null)) },
+      })
+      .then((response) => {
+        if (cancelled) return;
+        response.data.forEach((event) => {
+          if (!isConsoleEvent(event)) handleEventRef.current(event, false);
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        // an expired token is handled by the 401 interceptor (pages/index.tsx)
+        if (isAxiosError(error) && error.response?.status === 401) return;
+        console.error('Failed to fetch the event buffer', error);
+        toast.error(`Failed to load notifications: ${errorToString(error)}`, {
+          toastId: 'eventBufferError',
+        });
       });
-    });
-  }, [eventQuery, handleEvent, queryClient, token, core]);
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, token, core]);
 
+  // subscribe to new events
   useEffect(() => {
     if (!token) return;
 
-    const connectWebsocket = () => {
-      const wsAddress = `${core.protocol === 'https' ? 'wss' : 'ws'}://${core.address}:${core.port ?? LODESTONE_PORT
-        }/api/${core.apiVersion}/events/all/stream?filter=${JSON.stringify(
-          eventQuery
-        )}`;
-
-      if (wsRef.current) wsRef.current.close();
-
-      const websocket = new WebSocket(wsAddress);
-
-      wsRef.current = websocket;
-      wsConnected.current = true;
-
-      websocket.onopen = () => {
-        console.log('websocket opened');
+    const websocket = openReconnectingWebSocket({
+      url: () =>
+        coreWebSocketUrl(
+          core,
+          `/events/all/stream?filter=${encodeURIComponent(
+            JSON.stringify(eventQuery(token))
+          )}`
+        ),
+      onOpen: (_, isReconnect) => {
         setCoreConnectionStatus('success');
-      };
+        // events sent while we were disconnected are lost, refetch what they would have updated
+        if (isReconnect) {
+          queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
+          queryClient.invalidateQueries({ queryKey: ['user', 'info'] });
+        }
+      },
+      onMessage: (messageEvent) => {
+        let event: ClientEvent;
+        try {
+          event = JSON.parse(messageEvent.data);
+        } catch (e) {
+          console.error('Invalid event from the event stream', e);
+          return;
+        }
+        if (!isConsoleEvent(event)) handleEventRef.current(event, true);
+      },
+      onClose: async (_, opened) => {
+        // a dropped connection is retried right away; the status only changes
+        // if the retry fails
+        if (opened) return true;
+        // Browsers don't expose why a websocket handshake failed, so ask the
+        // REST API whether the token is still valid and the core is reachable.
+        try {
+          await axios.get('/user/info');
+          // the core is up and the token is valid, only the websocket fails
+          setCoreConnectionStatus('degraded');
+          return true;
+        } catch (error) {
+          if (isAxiosError(error) && error.response?.status === 401) {
+            // the 401 interceptor logs the user out, which closes this socket
+            return false;
+          }
+          setCoreConnectionStatus(
+            isAxiosError(error) && !error.response ? 'error' : 'degraded'
+          );
+          return true;
+        }
+      },
+    });
 
-      websocket.onerror = (event) => {
-        console.error('websocket error', event);
-        setCoreConnectionStatus('error');
-        websocket.close();
-      };
-
-      websocket.onmessage = (messageEvent) => {
-        const event: ClientEvent = JSON.parse(messageEvent.data);
-        handleEvent(event, true);
-      };
-
-      websocket.onclose = () => {
-        console.log('websocket closed');
-        wsRef.current = null;
-        if (!wsConnected.current) return;
-        setTimeout(() => {
-          console.log('reconnecting');
-          connectWebsocket();
-        }, 1000);
-      };
-    };
-
-    try {
-      connectWebsocket();
-    } catch (e) {
-      console.error(e);
-      setCoreConnectionStatus('degraded');
-    }
     return () => {
-      console.log('unmounting event listener');
-      wsConnected.current = false;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      websocket.close();
     };
-  }, [handleEvent, token, eventQuery, handleEvent, core]);
+  }, [token, core, queryClient, setCoreConnectionStatus]);
 };

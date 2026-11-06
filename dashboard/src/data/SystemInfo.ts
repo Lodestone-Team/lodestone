@@ -1,4 +1,5 @@
-import { LODESTONE_PORT } from 'utils/util';
+import { coreApiBaseUrl, DEFAULT_LOCAL_CORE } from 'utils/util';
+import { tauri } from 'utils/tauriUtil';
 import { useQueryFetchCallbacks } from 'utils/hooks';
 import { useQuery } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
@@ -86,19 +87,31 @@ export const useCoreInfo = (refetchInterval: number | false = false) => {
   });
 };
 
+/**
+ * Whether this dashboard can reach a core on this machine: in the desktop
+ * app, or when the dashboard page itself is served over http. An https page
+ * can't call the local core (plain http), browsers block it as mixed content.
+ */
+export const canReachLocalCore = () =>
+  !!tauri ||
+  (typeof window !== 'undefined' && window.location.protocol === 'http:');
+
 // this should only be used to check if the core is setup or not
-// it refetches frequently to check if any new core shows up
-export const useLocalCoreInfo = () => {
+// it polls until a local core answers, to detect a newly installed core
+export const useLocalCoreInfo = (enabled = true) => {
   //change to https when we default to it in core
   return useQuery<CoreInfo, AxiosError>({
     queryKey: ['systeminfo', 'LocalCoreInfo'],
     queryFn: () =>
       axios
         .get<CoreInfo>(`/info`, {
-          baseURL: `http://localhost:${LODESTONE_PORT}/api/v1`,
-          timeout: 3000,
+          baseURL: coreApiBaseUrl(DEFAULT_LOCAL_CORE),
+          timeout: 2500,
         })
         .then((res) => res.data),
-    refetchInterval: 3000,
+    enabled,
+    retry: false,
+    // stop once the local core is known
+    refetchInterval: (query) => (query.state.data ? false : 3000),
   });
 };

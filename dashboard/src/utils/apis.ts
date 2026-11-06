@@ -1,20 +1,20 @@
 import { QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { ClientError } from 'bindings/ClientError';
 import { ClientFile } from 'bindings/ClientFile';
 import { MacroEntry } from 'bindings/MacroEntry';
 import { LoginReply } from 'bindings/LoginReply';
 import { UserPermission } from 'bindings/UserPermission';
 import { Base64 } from 'js-base64';
-import { LoginValues } from 'pages/login/UserLogin';
 import { toast } from 'react-toastify';
 import {
+  ApiError,
   axiosWrapper,
   catchAsyncToString,
   errorToString,
   getFileName,
-  isAxiosError,
+  joinPath,
   parentPath,
+  toApiError,
 } from './util';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
@@ -26,10 +26,30 @@ import { SettingManifest } from 'bindings/SettingManifest';
 import { PlayitSignupData } from 'bindings/PlayitSignupData';
 import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 
+/*
+ * Error convention
+ *
+ * Every request goes through axiosWrapper, which throws an ApiError (an Error
+ * with a message formatted for the user, plus the HTTP status and error kind).
+ * Helpers that return data resolve with it and throw ApiError on failure.
+ *
+ * Older helpers keep the shape the components depend on, and never throw:
+ * - marked "Returns the error message": resolve with '' on success or the
+ *   error message on failure (catchAsyncToString); always check the result.
+ * - marked "Shows a toast on failure": report the error to the user
+ *   themselves and resolve with nothing.
+ */
+
+export type LoginValues = {
+  username: string;
+  password: string;
+};
+
 /***********************
  * Start Files API
  ***********************/
 
+/** Shows a toast on failure. */
 export const saveInstanceFile = async (
   uuid: string,
   directory: string,
@@ -68,6 +88,7 @@ export const saveInstanceFile = async (
   queryClient.setQueryData(fileListKey, newFileList);
 };
 
+/** Shows a toast on failure (and on success). */
 export const deleteInstanceFile = async (
   uuid: string,
   directory: string,
@@ -96,6 +117,7 @@ export const deleteInstanceFile = async (
   );
 };
 
+/** Shows a toast on failure (and on success). */
 export const deleteInstanceDirectory = async (
   uuid: string,
   parentDirectory: string,
@@ -122,6 +144,7 @@ export const deleteInstanceDirectory = async (
   );
 };
 
+/** @throws ApiError */
 export const requestInstanceFileUrl = async (
   uuid: string,
   file: ClientFile,
@@ -135,12 +158,23 @@ export const requestInstanceFileUrl = async (
   return axios.defaults.baseURL + `/file/${tokenResponse}`;
 };
 
-export const downloadInstanceFile = async (uuid: string, file: ClientFile, timeout = 5000) => {
-  // TODO handle errors
-
-  window.open(await requestInstanceFileUrl(uuid, file, timeout), '_blank');
+/** Shows a toast on failure. */
+export const downloadInstanceFile = async (
+  uuid: string,
+  file: ClientFile,
+  timeout = 5000
+) => {
+  let url: string;
+  try {
+    url = await requestInstanceFileUrl(uuid, file, timeout);
+  } catch (error) {
+    toast.error(`Failed to download ${file.name}: ${errorToString(error)}`);
+    return;
+  }
+  window.open(url, '_blank');
 };
 
+/** Shows a toast on failure. */
 export const uploadInstanceFiles = async (
   uuid: string,
   directory: string,
@@ -175,12 +209,17 @@ export const uploadInstanceFiles = async (
   });
 };
 
+/**
+ * Returns the error message.
+ * @param direcotrySeparator the core's directory separator ('\\' on Windows)
+ */
 export const createInstanceFile = async (
   uuid: string,
   directory: string,
-  name: string
+  name: string,
+  direcotrySeparator = '/'
 ) => {
-  const filePath = directory + '/' + name;
+  const filePath = joinPath(directory, name, direcotrySeparator);
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
@@ -189,12 +228,17 @@ export const createInstanceFile = async (
   );
 };
 
+/**
+ * Returns the error message.
+ * @param direcotrySeparator the core's directory separator ('\\' on Windows)
+ */
 export const createInstanceDirectory = async (
   uuid: string,
   parentDirectory: string,
-  name: string
+  name: string,
+  direcotrySeparator = '/'
 ) => {
-  const filePath = parentDirectory + '/' + name;
+  const filePath = joinPath(parentDirectory, name, direcotrySeparator);
   return await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
@@ -203,6 +247,7 @@ export const createInstanceDirectory = async (
   );
 };
 
+/** Shows a toast on failure. */
 export const copyRecursive = async (
   uuid: string,
   request: CopyInstanceFileRequest,
@@ -230,6 +275,10 @@ export const copyRecursive = async (
   });
 };
 
+/**
+ * Shows a toast on failure, and returns the error message (or undefined on
+ * success).
+ */
 export const moveInstanceFileOrDirectory = async (
   uuid: string,
   source: string,
@@ -273,6 +322,7 @@ export const moveInstanceFileOrDirectory = async (
   });
 };
 
+/** Shows a toast on failure. */
 export const zipInstanceFiles = async (
   uuid: string,
   zipRequest: ZipRequest
@@ -298,6 +348,7 @@ export const zipInstanceFiles = async (
   }
 };
 
+/** Shows a toast on failure. */
 export const unzipInstanceFile = async (
   uuid: string,
   file: ClientFile,
@@ -331,44 +382,37 @@ export const unzipInstanceFile = async (
  ***********************/
 
 /**
- * @throws string
+ * Logs in with basic auth.
+ * @throws ApiError: "Error: <reason>" if the core answered with an error,
+ *   "Login failed: <reason>" if the core could not be reached
  */
 export async function loginToCore(
   loginValue: LoginValues
-): Promise<LoginReply | undefined> {
-  // we manually handle error here because we want to show different error messages
+): Promise<LoginReply> {
   try {
-    return await axios
-      .post<LoginReply>(
-        '/user/login',
-        {},
-        {
-          auth: {
-            username: loginValue.username,
-            password: loginValue.password,
-          },
-        }
-      )
-      .then((response) => {
-        return response.data;
-      });
+    return await axiosWrapper<LoginReply>({
+      method: 'post',
+      url: '/user/login',
+      data: {},
+      auth: {
+        username: loginValue.username,
+        password: loginValue.password,
+      },
+    });
   } catch (error) {
-    if (isAxiosError<ClientError>(error) && error.response) {
-      if (
-        error.response.status === 401 ||
-        error.response.status === 403 ||
-        error.response.status === 500
-      ) {
-        throw `Error: ${error.response.data.kind}: ${error.response.data.causes}`;
-      }
-    } else {
-      throw `Login failed: ${errorToString(error)}`;
-    }
+    const apiError = toApiError(error);
+    if (apiError.status === undefined)
+      throw new ApiError(`Login failed: ${apiError.message}`);
+    throw new ApiError(
+      `Error: ${apiError.message}`,
+      apiError.status,
+      apiError.kind
+    );
   }
 }
 
 /**
- * @throws string if error
+ * @throws ApiError
  * @returns LoginReply if success
  */
 export const createNewUser = async (values: {
@@ -383,7 +427,7 @@ export const createNewUser = async (values: {
 };
 
 /**
- * @throws string if error
+ * @throws ApiError
  * @returns undefined if success
  */
 export const changePassword = async (values: {
@@ -399,7 +443,7 @@ export const changePassword = async (values: {
 };
 
 /**
- * @throws string if error
+ * @throws ApiError
  * @returns undefined if success
  */
 export const deleteUser = async (uid: string) => {
@@ -410,7 +454,7 @@ export const deleteUser = async (uid: string) => {
 };
 
 /**
- * @throws string if error
+ * @throws ApiError
  * @returns undefined if success
  * @param uid user id
  */
@@ -429,6 +473,7 @@ export const changeUserPermissions = async (
  * End User API
  ***********************/
 
+/** Returns the error message. */
 export const openPort = async (port: number) => {
   return await catchAsyncToString(
     axiosWrapper<null>({
@@ -440,6 +485,7 @@ export const openPort = async (port: number) => {
 
 /***********************
  * Start Tasks/Macro API
+ * the getters below throw ApiError
  ***********************/
 
 export const getTasks = async (uuid: string) => {
@@ -491,24 +537,29 @@ export const getInstanceHistory = async (uuid: string) => {
   return historyList;
 };
 
-//run macro
+/** Runs a macro. Returns the error message. */
 export const createTask = async (
   queryClient: QueryClient,
   uuid: string,
   macro_name: string,
   args: string[]
 ) => {
-  queryClient.invalidateQueries({ queryKey: ['instance', uuid, 'taskList'] });
-  return await catchAsyncToString(
+  const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
       url: `/instance/${uuid}/macro/run/${macro_name}`,
       data: args,
     })
   );
+  // refetch the task list once the task exists
+  if (!error)
+    queryClient.invalidateQueries({
+      queryKey: ['instance', uuid, 'taskList'],
+    });
+  return error;
 };
 
-//run macro
+/** Kills a running macro. Returns the error message. */
 export const killTask = async (
   queryClient: QueryClient,
   uuid: string,
@@ -527,6 +578,7 @@ export const killTask = async (
 
 /***********************
  * Playitgg API
+ * the getters below throw ApiError
  ***********************/
 export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
   const response = await axiosWrapper<PlayitSignupData>({
@@ -544,6 +596,7 @@ export const verifyKey = async (): Promise<boolean> => {
   return response;
 };
 
+/** Returns the error message. */
 export const startCli = async () => {
   return await catchAsyncToString(
     axiosWrapper<null>({
@@ -553,6 +606,7 @@ export const startCli = async () => {
   );
 };
 
+/** Returns the error message. */
 export const stopCli = async () => {
   return await catchAsyncToString(
     axiosWrapper<null>({
