@@ -1,7 +1,7 @@
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 
 use rand::distr::Alphanumeric;
@@ -17,20 +17,8 @@ use ts_rs::TS;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Authentication {
-    username: String,
-    password: String,
-}
-
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::prelude::path_to_tmp;
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct SetupProgress {
-    pub current_step: (u8, String),
-    pub total_steps: u8,
-}
 
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
@@ -39,6 +27,29 @@ pub struct DownloadProgress {
     pub step: u64,
     pub download_name: String,
 }
+
+/// Extracts a safe file name from a `Content-Disposition` header value.
+///
+/// The name comes from a remote server, so only its last path segment is kept and it is
+/// sanitized. Returns `None` if the header has no usable `filename` parameter.
+fn file_name_from_content_disposition(header: &str) -> Option<String> {
+    let raw = header.split(';').skip(1).find_map(|param| {
+        let (key, value) = param.split_once('=')?;
+        key.trim()
+            .eq_ignore_ascii_case("filename")
+            .then(|| value.trim().trim_matches('"'))
+    })?;
+    // Keep only the last segment, for both Unix and Windows separators.
+    let last_segment = raw.rsplit(['/', '\\']).next().unwrap_or_default();
+    let name = sanitize_filename::sanitize(last_segment);
+    let name = name.trim();
+    if name.is_empty() || name.chars().all(|c| c == '.') {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
 pub async fn download_file(
     url: &str,
     path: &Path,
@@ -50,10 +61,10 @@ pub async fn download_file(
     tokio::fs::create_dir_all(&lodestone_tmp)
         .await
         .context("Failed to create tmp dir")?;
+    // Dropping the TempPath deletes the partial download if anything below fails.
     let temp_file_path = tempfile::NamedTempFile::new_in(lodestone_tmp)
         .context("Failed to create temporary file")?
-        .path()
-        .to_owned();
+        .into_temp_path();
     let mut temp_file = tokio::fs::File::create(&temp_file_path)
         .await
         .context("Failed to create temporary file")?;
@@ -63,40 +74,25 @@ pub async fn download_file(
         .send()
         .await
         .context("Failed to send GET request")?;
-    response.error_for_status_ref().context(
-        "
-        Failed to download file
-    ",
-    )?;
+    response
+        .error_for_status_ref()
+        .context("Failed to download file")?;
     tokio::fs::create_dir_all(path)
         .await
-        .context(format!("Failed to create dir {}", &path.display()))?;
+        .context(format!("Failed to create dir {}", path.display()))?;
 
-    let file_name;
-    if let Some(name) = name_override {
-        file_name = name.to_string();
-    } else {
-        file_name = response
+    let file_name = match name_override {
+        Some(name) => name.to_string(),
+        None => response
             .headers()
-            .get("Content-Disposition")
-            .map_or_else(
-                || "unknown".to_string(),
-                |h| {
-                    h.to_str()
-                        .map_or_else(|_| "unknown".to_string(), |s| s.to_string())
-                },
-            )
-            // parse filename's value from the header, remove the ""
-            .split(';')
-            .nth(1)
-            .unwrap_or("unknown")
-            .split('=')
-            .nth(1)
-            .unwrap_or("unknown")
-            .replace('\"', "");
-    }
-    if !overwrite_old && path.join(&file_name).exists() {
-        return Err(eyre!("File {} already exists", path.join(&file_name).display()).into());
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|h| h.to_str().ok())
+            .and_then(file_name_from_content_disposition)
+            .unwrap_or_else(|| "unknown".to_string()),
+    };
+    let dest = path.join(&file_name);
+    if !overwrite_old && dest.exists() {
+        return Err(eyre!("File {} already exists", dest.display()).into());
     }
     let total_size = response.content_length();
 
@@ -109,7 +105,7 @@ pub async fn download_file(
         temp_file
             .write_all(&chunk)
             .await
-            .context(format!("Failed to write to file {}", &file_name))?;
+            .context(format!("Failed to write to file {}", file_name))?;
         new_downloaded += chunk.len() as u64;
         let step = new_downloaded - downloaded;
         if step > threshold {
@@ -122,10 +118,15 @@ pub async fn download_file(
             downloaded = new_downloaded;
         }
     }
-    tokio::fs::rename(temp_file_path, path.join(&file_name))
+    temp_file
+        .flush()
         .await
-        .context(format!("Failed to rename file {}", &file_name))?;
-    Ok(path.join(&file_name))
+        .context(format!("Failed to write to file {}", file_name))?;
+    drop(temp_file);
+    tokio::fs::rename(&temp_file_path, &dest)
+        .await
+        .context(format!("Failed to rename file {}", file_name))?;
+    Ok(dest)
 }
 
 /// List all files in a directory
@@ -197,12 +198,25 @@ pub enum UnzipOption {
     ToDir(PathBuf),
 }
 
+/// Called for every entry of an archive after it was extracted to a temporary folder and
+/// before anything is moved to the destination. It gets the entry's path relative to the
+/// archive root and its file type (symbolic links are not followed). Returning an error
+/// aborts the extraction and leaves the destination untouched.
+pub type UnzipEntryCheck = dyn Fn(&Path, &std::fs::FileType) -> Result<(), Error> + Send + Sync;
+
 pub fn unzip_file(
     file: impl AsRef<Path>,
     unzip_option: UnzipOption,
 ) -> Result<HashSet<PathBuf>, Error> {
-    let file = file.as_ref();
+    unzip_file_in(file.as_ref(), unzip_option, path_to_tmp(), None)
+}
 
+fn unzip_file_in(
+    file: &Path,
+    unzip_option: UnzipOption,
+    tmp_root: &Path,
+    check_entry: Option<&UnzipEntryCheck>,
+) -> Result<HashSet<PathBuf>, Error> {
     if !file.exists() {
         return Err(eyre!("File {} does not exist", file.display()).into());
     }
@@ -223,20 +237,12 @@ pub fn unzip_file(
         .file_stem()
         .context(format!("Failed to get file stem of {}", file.display()))?;
 
-    let mut dest = match unzip_option {
-        UnzipOption::Normal => parent.to_path_buf(),
-        // resolve the dest after we unzip the file to a temp dir
-        UnzipOption::Smart => Default::default(),
-        UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
-        UnzipOption::ToDir(ref d) => d.to_owned(),
-    };
-    let lodestone_tmp = path_to_tmp().clone();
-    std::fs::create_dir_all(&lodestone_tmp).context(format!(
+    std::fs::create_dir_all(tmp_root).context(format!(
         "Failed to create temporary directory {}",
-        lodestone_tmp.display()
+        tmp_root.display()
     ))?;
 
-    let temp_dest_dir = tempfile::tempdir_in(lodestone_tmp).context(
+    let temp_dest_dir = tempfile::tempdir_in(tmp_root).context(
         "Failed to create temporary directory for unzipping. Please make sure you have enough space in your disk",
     )?;
     let temp_dest = temp_dest_dir.path();
@@ -266,22 +272,35 @@ pub fn unzip_file(
             .context(format!("Failed to decompress file {}", file.display()))?;
     }
 
+    if let Some(check_entry) = check_entry {
+        for entry in walkdir::WalkDir::new(temp_dest).min_depth(1) {
+            let entry = entry.context("Failed to read the extracted files")?;
+            let relative_path = entry
+                .path()
+                .strip_prefix(temp_dest)
+                .context("Failed to strip prefix of an extracted file")?;
+            check_entry(relative_path, &entry.file_type())?;
+        }
+    }
+
     let mut ret: HashSet<PathBuf> = HashSet::new();
 
     let temp_dir_content = std::fs::read_dir(temp_dest)
         .context(format!("Failed to read directory {}", temp_dest.display()))?
-        .filter_map(|entry| entry.ok().map(|v| v.path()))
-        .collect::<Vec<_>>();
+        .map(|entry| entry.map(|v| v.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .context(format!("Failed to read directory {}", temp_dest.display()))?;
 
-    if let UnzipOption::Smart = unzip_option {
-        dest = if temp_dir_content.len() > 1 {
+    let dest = match unzip_option {
+        UnzipOption::Normal => parent.to_path_buf(),
+        // only make a new folder when the archive would otherwise spill several entries
+        UnzipOption::Smart if temp_dir_content.len() > 1 => {
             resolve_path_conflict(parent.join(file_stem), None)
-        } else {
-            parent.to_path_buf()
         }
+        UnzipOption::Smart => parent.to_path_buf(),
+        UnzipOption::ToDirectoryWithFileName => resolve_path_conflict(parent.join(file_stem), None),
+        UnzipOption::ToDir(d) => d,
     };
-
-    // let dest = resolve_path_conflict(dest, None);
 
     std::fs::create_dir_all(&dest)
         .context(format!("Failed to create directory {}", dest.display()))?;
@@ -310,13 +329,27 @@ pub async fn unzip_file_async(
     file: impl AsRef<Path>,
     unzip_option: UnzipOption,
 ) -> Result<HashSet<PathBuf>, Error> {
-    let _file = file.as_ref().to_owned();
-    tokio::task::spawn_blocking(move || unzip_file(_file, unzip_option))
+    let file = file.as_ref().to_owned();
+    let display = file.display().to_string();
+    tokio::task::spawn_blocking(move || unzip_file(file, unzip_option))
         .await
-        .context(format!(
-            "Failed to unzip file {} in a blocking task",
-            file.as_ref().display()
-        ))?
+        .context(format!("Failed to unzip file {display} in a blocking task"))?
+}
+
+/// Like [`unzip_file_async`], but runs `check_entry` on every extracted entry before
+/// anything is moved to the destination.
+pub async fn unzip_file_checked_async(
+    file: impl AsRef<Path>,
+    unzip_option: UnzipOption,
+    check_entry: Box<UnzipEntryCheck>,
+) -> Result<HashSet<PathBuf>, Error> {
+    let file = file.as_ref().to_owned();
+    let display = file.display().to_string();
+    tokio::task::spawn_blocking(move || {
+        unzip_file_in(&file, unzip_option, path_to_tmp(), Some(&*check_entry))
+    })
+    .await
+    .context(format!("Failed to unzip file {display} in a blocking task"))?
 }
 
 pub fn zip_files(
@@ -324,109 +357,109 @@ pub fn zip_files(
     dest: impl AsRef<Path>,
     overwrite_dest: bool,
 ) -> Result<PathBuf, Error> {
-    let dest = dest.as_ref();
+    zip_files_in(files, dest.as_ref(), overwrite_dest, path_to_tmp())
+}
+
+/// Streams the file at `source` into the archive entry that was just started.
+fn copy_file_into_zip<W: Write + std::io::Seek>(
+    writer: &mut zip::ZipWriter<W>,
+    source: &Path,
+) -> Result<(), Error> {
+    let mut file =
+        std::fs::File::open(source).context(format!("Failed to open {}", source.display()))?;
+    std::io::copy(&mut file, writer)
+        .context(format!("Failed to write {} to archive", source.display()))?;
+    Ok(())
+}
+
+/// Zips `files` into `dest`. Symbolic links inside folders are skipped, so a link cannot
+/// pull files from outside the folder into the archive.
+fn zip_files_in(
+    files: &[impl AsRef<Path>],
+    dest: &Path,
+    overwrite_dest: bool,
+    tmp_root: &Path,
+) -> Result<PathBuf, Error> {
     std::fs::create_dir_all(dest.parent().context("Failed to get destination parent")?)
         .context(format!("Failed to create directory {}", dest.display()))?;
-    let lodestone_tmp = path_to_tmp().clone();
-    std::fs::create_dir_all(&lodestone_tmp).context(format!(
+    std::fs::create_dir_all(tmp_root).context(format!(
         "Failed to create temporary directory {}",
-        lodestone_tmp.display()
+        tmp_root.display()
     ))?;
-    let tmp_archive = tempfile::NamedTempFile::new_in(lodestone_tmp)
+    let tmp_archive = tempfile::NamedTempFile::new_in(tmp_root)
         .context("Failed to create temporary file for zipping")?;
 
-    let mut buffer = Vec::new();
-    let mut writer = zip::ZipWriter::new(&tmp_archive);
+    let mut writer = zip::ZipWriter::new(tmp_archive.as_file());
     let options = zip::write::SimpleFileOptions::default().unix_permissions(0o775);
     for entry_path in files.iter().map(|f| f.as_ref()) {
-        if entry_path.is_dir() {
-            writer
-                .add_directory(
-                    entry_path
-                        .file_name()
-                        .ok_or_else(|| eyre!("Entry has abnormal name"))?
-                        .to_str()
-                        .ok_or_else(|| eyre!("Entry has abnormal name"))?,
-                    options,
-                )
-                .context(format!(
-                    "Failed to create {} in archive",
+        let file_type = std::fs::symlink_metadata(entry_path)
+            .context(format!(
+                "Failed to read metadata of {}",
+                entry_path.display()
+            ))?
+            .file_type();
+        let entry_name = entry_path
+            .file_name()
+            .ok_or_else(|| eyre!("File to zip has no name"))?
+            .to_str()
+            .ok_or_else(|| eyre!("File to zip has abnormal name"))?;
+
+        if file_type.is_dir() {
+            writer.add_directory(entry_name, options).context(format!(
+                "Failed to create {} in archive",
+                entry_path.display()
+            ))?;
+            let entry_parent = entry_path
+                .parent()
+                .context(format!("Failed to get parent for {}", entry_path.display()))?;
+
+            // min_depth(1): the directory itself was added above (zip rejects duplicate names).
+            // WalkDir does not follow symbolic links by default.
+            for child_entry in walkdir::WalkDir::new(entry_path).min_depth(1) {
+                let child_entry = child_entry.context(format!(
+                    "Failed to read the contents of {}",
                     entry_path.display()
                 ))?;
-
-            // min_depth(1): the directory itself was added above (zip rejects duplicate names)
-            for child_entry in walkdir::WalkDir::new(entry_path)
-                .min_depth(1)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
                 let child_entry_path = child_entry.path();
                 let child_entry_dest =
                     child_entry_path
-                        .strip_prefix(entry_path.parent().context(format!(
-                            "Failed to get parent for {}",
-                            entry_path.display()
-                        ))?)
+                        .strip_prefix(entry_parent)
                         .context(format!(
                             "Failed to strip prefix for {}",
                             child_entry_path.display()
                         ))?;
 
-                if child_entry_path.is_dir() {
+                if child_entry.file_type().is_dir() {
                     writer
                         .add_directory(child_entry_dest.to_string_lossy(), options)
                         .context(format!(
                             "Failed to create {} in archive",
                             child_entry_path.display()
                         ))?;
-                }
-
-                if child_entry_path.is_file() {
-                    let child_entry_name = child_entry_dest.to_string_lossy();
-
+                } else if child_entry.file_type().is_file() {
                     writer
-                        .start_file(child_entry_name, options)
+                        .start_file(child_entry_dest.to_string_lossy(), options)
                         .context(format!(
                             "Failed to create {} in archive",
                             child_entry_path.display()
                         ))?;
-
-                    let mut child_entry_file = std::fs::File::open(child_entry_path)
-                        .context(format!("Failed to open {}", child_entry_path.display()))?;
-                    child_entry_file
-                        .read_to_end(&mut buffer)
-                        .context(format!("Failed to read {}", child_entry_path.display()))?;
-                    writer.write_all(&buffer).context(format!(
-                        "Failed to write {} to archive",
-                        child_entry_path.display()
-                    ))?;
-                    buffer.clear();
+                    copy_file_into_zip(&mut writer, child_entry_path)?;
                 }
             }
-        }
-
-        if entry_path.is_file() {
-            let entry_name = entry_path
-                .file_name()
-                .ok_or_else(|| eyre!("File to zip has no name"))?
-                .to_str()
-                .ok_or_else(|| eyre!("File to zip has abnormal name"))?;
-
+        } else if file_type.is_file() {
             writer.start_file(entry_name, options).context(format!(
                 "Failed to create {} in archive",
                 entry_path.display()
             ))?;
-
-            let mut entry_file = std::fs::File::open(entry_path)
-                .context(format!("Failed to open {}", entry_path.display()))?;
-            entry_file
-                .read_to_end(&mut buffer)
-                .context(format!("Failed to read {}", entry_path.display()))?;
-            writer.write_all(&buffer).context(format!(
-                "Failed to write {} to archive",
-                entry_path.display()
-            ))?;
-            buffer.clear();
+            copy_file_into_zip(&mut writer, entry_path)?;
+        } else {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "{} is not a regular file or folder and cannot be zipped",
+                    entry_path.display()
+                ),
+            });
         }
     }
 
@@ -437,11 +470,14 @@ pub fn zip_files(
         resolve_path_conflict(dest.into(), None)
     };
 
-    std::fs::rename(tmp_archive.path(), &dest).context(format!(
-        "Failed to move {} to {}",
-        tmp_archive.path().display(),
-        dest.display()
-    ))?;
+    tmp_archive.persist(&dest).map_err(|e| {
+        eyre!(
+            "Failed to move {} to {}: {}",
+            e.file.path().display(),
+            dest.display(),
+            e.error
+        )
+    })?;
     Ok(dest)
 }
 
@@ -450,12 +486,12 @@ pub async fn zip_files_async(
     dest: impl AsRef<Path>,
     overwrite_dest: bool,
 ) -> Result<PathBuf, Error> {
-    let _files = files
+    let files = files
         .iter()
         .map(|f| f.as_ref().to_owned())
         .collect::<Vec<_>>();
-    let _dest = dest.as_ref().to_owned();
-    tokio::task::spawn_blocking(move || zip_files(&_files, &_dest, overwrite_dest))
+    let dest = dest.as_ref().to_owned();
+    tokio::task::spawn_blocking(move || zip_files(&files, &dest, overwrite_dest))
         .await
         .context("Failed to spawn blocking task")?
 }
@@ -505,10 +541,11 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
 pub mod fs {
     use std::path::Path;
 
-    use color_eyre::eyre::Context;
+    use color_eyre::eyre::{eyre, Context};
     use tokio::fs::File;
+    use tokio::io::AsyncReadExt;
 
-    use crate::error::Error;
+    use crate::error::{Error, ErrorKind};
 
     pub async fn remove_file(file: impl AsRef<Path>) -> Result<(), Error> {
         let file = file.as_ref();
@@ -563,6 +600,44 @@ pub mod fs {
         Ok(data)
     }
 
+    /// Reads a UTF-8 text file, failing with a `BadRequest` error if it is larger than
+    /// `max_bytes`. The limit is enforced while reading, so files that report a wrong size
+    /// (such as `/dev/zero` or a log that is still growing) cannot exhaust memory.
+    pub async fn read_to_string_capped(
+        file: impl AsRef<Path>,
+        max_bytes: u64,
+    ) -> Result<String, Error> {
+        let path = file.as_ref();
+        let too_large = || Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!(
+                "{} is larger than {}, download it instead",
+                path.display(),
+                super::format_byte(max_bytes)
+            ),
+        };
+        let file = File::open(path)
+            .await
+            .context(format!("Failed to read file at {}", path.display()))?;
+        if let Ok(metadata) = file.metadata().await {
+            if metadata.len() > max_bytes {
+                return Err(too_large());
+            }
+        }
+        let mut data = Vec::new();
+        file.take(max_bytes + 1)
+            .read_to_end(&mut data)
+            .await
+            .context(format!("Failed to read file at {}", path.display()))?;
+        if data.len() as u64 > max_bytes {
+            return Err(too_large());
+        }
+        String::from_utf8(data).map_err(|_| Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("{} is not a UTF-8 text file", path.display()),
+        })
+    }
+
     pub async fn create(file: impl AsRef<Path>) -> Result<File, Error> {
         let file = file.as_ref();
         let file = tokio::fs::File::create(file)
@@ -578,86 +653,44 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
     cmd
 }
 
-pub fn format_byte_download(mut bytes: u64, mut total: u64) -> String {
-    let mut unit = "B";
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "KB";
+const BYTE_UNITS: [&str; 7] = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
+
+/// Picks the largest binary unit (1 KB = 1024 B) that keeps `bytes` at 1 or more,
+/// and returns its index in `BYTE_UNITS` and its size in bytes.
+fn byte_unit(bytes: u64) -> (usize, f64) {
+    let mut index = 0;
+    let mut size = 1_u64;
+    while index + 1 < BYTE_UNITS.len() && bytes / size >= 1024 {
+        index += 1;
+        size *= 1024;
     }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "MB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "GB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "TB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "PB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "EB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "ZB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        total /= 1024;
-        unit = "YB";
-    }
-    format!("{:.1} / {:.1} {}", bytes, total, unit)
+    (index, size as f64)
 }
 
-pub fn format_byte(mut bytes: u64) -> String {
-    let mut unit = "B";
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "KB";
+/// Formats download progress such as `1.5 / 10.0 MB`. The unit is picked from the larger
+/// of the two values so both numbers share it.
+pub fn format_byte_download(bytes: u64, total: u64) -> String {
+    let (index, size) = byte_unit(bytes.max(total));
+    if index == 0 {
+        format!("{} / {} B", bytes, total)
+    } else {
+        format!(
+            "{:.1} / {:.1} {}",
+            bytes as f64 / size,
+            total as f64 / size,
+            BYTE_UNITS[index]
+        )
     }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "MB";
+}
+
+/// Formats a byte count such as `512 B` or `1.5 MB`.
+pub fn format_byte(bytes: u64) -> String {
+    let (index, size) = byte_unit(bytes);
+    if index == 0 {
+        format!("{} B", bytes)
+    } else {
+        format!("{:.1} {}", bytes as f64 / size, BYTE_UNITS[index])
     }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "GB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "TB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "PB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "EB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "ZB";
-    }
-    if bytes > 1024 {
-        bytes /= 1024;
-        unit = "YB";
-    }
-    format!("{:.1} {}", bytes, unit)
 }
 
 /// A `System` with CPU and memory information only. `System::new_all()` would also load
@@ -673,18 +706,24 @@ pub fn cpu_and_memory_system() -> sysinfo::System {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::init_paths;
-    use crate::util::{resolve_path_conflict, unzip_file, zip_files, UnzipOption};
+    use crate::util::{
+        file_name_from_content_disposition, format_byte, format_byte_download,
+        resolve_path_conflict, unzip_file_in, zip_files_in, UnzipOption,
+    };
+    use color_eyre::eyre::eyre;
     use std::collections::HashSet;
-    use std::io::Read;
-    use std::path::PathBuf;
-    use tokio;
+    use std::path::{Path, PathBuf};
 
-    #[tokio::test]
-    async fn test_unzip_file() {
-        let temp_lodestone_path = tempfile::tempdir().unwrap();
-        let temp_lodestone_path = temp_lodestone_path.path();
-        init_paths(temp_lodestone_path.to_path_buf());
+    // Every test gets its own temporary folder instead of the global `path_to_tmp()`, which
+    // is shared by all tests in the process and races when they run in parallel.
+
+    fn read(path: impl AsRef<Path>) -> String {
+        std::fs::read_to_string(path).unwrap().trim().to_string()
+    }
+
+    #[test]
+    fn test_unzip_file() {
+        let tmp = tempfile::tempdir().unwrap();
         let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let zip = PathBuf::from("testdata/sample.zip");
@@ -695,7 +734,13 @@ mod tests {
         test.insert(temp_path.join("constitution.txt"));
 
         assert_eq!(
-            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned())).unwrap(),
+            unzip_file_in(
+                &zip,
+                UnzipOption::ToDir(temp_path.to_owned()),
+                tmp.path(),
+                None
+            )
+            .unwrap(),
             test
         );
 
@@ -705,16 +750,20 @@ mod tests {
         test.insert(temp_path.join("constitution_1.txt"));
 
         assert_eq!(
-            unzip_file(&zip, UnzipOption::ToDir(temp_path.to_owned())).unwrap(),
+            unzip_file_in(
+                &zip,
+                UnzipOption::ToDir(temp_path.to_owned()),
+                tmp.path(),
+                None
+            )
+            .unwrap(),
             test
         );
     }
 
-    #[tokio::test]
-    async fn test_unzip_file_3() {
-        let temp_lodestone_path = tempfile::tempdir().unwrap();
-        let temp_lodestone_path = temp_lodestone_path.path();
-        init_paths(temp_lodestone_path.to_path_buf());
+    #[test]
+    fn test_unzip_file_3() {
+        let tmp = tempfile::tempdir().unwrap();
         let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
         let tar_gz = PathBuf::from("testdata/sample.gz");
@@ -723,7 +772,13 @@ mod tests {
         expected.insert(dest_path.join("sample"));
 
         assert_eq!(
-            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.clone())).unwrap(),
+            unzip_file_in(
+                &tar_gz,
+                UnzipOption::ToDir(dest_path.clone()),
+                tmp.path(),
+                None
+            )
+            .unwrap(),
             expected
         );
         assert!(dest_path.join("sample").join("sample.exe").is_file());
@@ -734,12 +789,52 @@ mod tests {
         expected.insert(dest_path.join("sample_1"));
 
         assert_eq!(
-            unzip_file(&tar_gz, UnzipOption::ToDir(dest_path.to_owned())).unwrap(),
+            unzip_file_in(
+                &tar_gz,
+                UnzipOption::ToDir(dest_path.to_owned()),
+                tmp.path(),
+                None
+            )
+            .unwrap(),
             expected
         );
         assert!(dest_path.join("sample_1").join("sample.exe").is_file());
         assert!(dest_path.join("sample_1").join("sample.c").is_file());
         assert!(dest_path.join("sample_1").join("sample.obj").is_file(),);
+    }
+
+    #[test]
+    fn test_unzip_check_rejects_before_moving() {
+        let tmp = tempfile::tempdir().unwrap();
+        let temp = tempfile::TempDir::with_prefix("test_unzip_check").unwrap();
+        let dest_path = temp.path().join("dest");
+        let tar_gz = PathBuf::from("testdata/sample.gz");
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_by_check = seen.clone();
+        let check = move |path: &Path, _: &std::fs::FileType| {
+            seen_by_check.lock().unwrap().push(path.to_path_buf());
+            if path.extension().is_some_and(|e| e == "exe") {
+                Err(eyre!("{} is protected", path.display()).into())
+            } else {
+                Ok(())
+            }
+        };
+        assert!(unzip_file_in(
+            &tar_gz,
+            UnzipOption::ToDir(dest_path.clone()),
+            tmp.path(),
+            Some(&check)
+        )
+        .is_err());
+        // nothing reached the destination, and paths were relative to the archive root
+        assert!(!dest_path.exists());
+        assert!(seen
+            .lock()
+            .unwrap()
+            .contains(&Path::new("sample").join("sample.exe")));
+        // the temporary extraction folder was cleaned up
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 
     #[test]
@@ -756,9 +851,6 @@ mod tests {
 
     #[test]
     fn test_resolve_path_conflict() {
-        let temp_lodestone_path = tempfile::tempdir().unwrap();
-        let temp_lodestone_path = temp_lodestone_path.path();
-        init_paths(temp_lodestone_path.to_path_buf());
         let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let txt_path = temp_path.join("test.txt");
@@ -786,95 +878,160 @@ mod tests {
         assert_eq!(resolve_path_conflict(dir, None), temp_path.join("test_1"));
     }
 
-    #[tokio::test]
-    async fn test_zip_files() {
-        let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
+    #[test]
+    fn test_zip_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let temp = tempfile::TempDir::with_prefix("test_zip_files").unwrap();
         let dest_path = temp.path().to_path_buf();
+        let sources = ["testdata/zip_test/test1.txt", "testdata/zip_test/test2"];
 
-        assert_eq!(
-            zip_files(
-                &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
-                dest_path.join("test_dest.zip"),
-                false,
-            )
-            .unwrap(),
-            dest_path.join("test_dest.zip")
-        );
-        assert_eq!(
-            zip_files(
-                &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
-                dest_path.join("test_dest.zip"),
-                false,
-            )
-            .unwrap(),
-            dest_path.join("test_dest_1.zip")
-        );
-        assert_eq!(
-            zip_files(
-                &["testdata/zip_test/test1.txt", "testdata/zip_test/test2"],
-                dest_path.join("test_dest.zip"),
-                false,
-            )
-            .unwrap(),
-            dest_path.join("test_dest_2.zip")
-        );
+        for expected in ["test_dest.zip", "test_dest_1.zip", "test_dest_2.zip"] {
+            assert_eq!(
+                zip_files_in(
+                    &sources,
+                    &dest_path.join("test_dest.zip"),
+                    false,
+                    tmp.path()
+                )
+                .unwrap(),
+                dest_path.join(expected)
+            );
+        }
 
         let mut expected: HashSet<PathBuf> = HashSet::new();
         expected.insert(dest_path.join("unzipped").join("test1.txt"));
         expected.insert(dest_path.join("unzipped").join("test2"));
 
         assert_eq!(
-            unzip_file(
-                dest_path.join("test_dest_2.zip"),
-                UnzipOption::ToDir(dest_path.join("unzipped"))
+            unzip_file_in(
+                &dest_path.join("test_dest_2.zip"),
+                UnzipOption::ToDir(dest_path.join("unzipped")),
+                tmp.path(),
+                None
             )
             .unwrap(),
             expected
         );
 
-        assert!(dest_path.join("unzipped").join("test1.txt").is_file());
-        assert!(dest_path.join("unzipped").join("test2").is_dir());
-        assert!(dest_path
-            .join("unzipped")
-            .join("test2")
-            .join("test1.txt")
-            .is_file());
-        assert!(dest_path
-            .join("unzipped")
-            .join("test2")
-            .join("test2")
-            .is_dir());
-        assert!(dest_path
-            .join("unzipped")
-            .join("test2")
-            .join("test2")
-            .join("test1.txt")
-            .is_file());
+        let unzipped = dest_path.join("unzipped");
+        assert!(unzipped.join("test2").join("test2").is_dir());
+        assert_eq!(read(unzipped.join("test1.txt")), "test1");
+        assert_eq!(
+            read(unzipped.join("test2").join("test1.txt")),
+            "test2_test1"
+        );
+        assert_eq!(
+            read(unzipped.join("test2").join("test2").join("test1.txt")),
+            "test2_test2_test1"
+        );
+    }
 
-        let file = std::fs::File::open(dest_path.join("unzipped").join("test1.txt")).unwrap();
-        let mut buf_reader = std::io::BufReader::new(file);
-        let mut contents = String::new();
-        buf_reader.read_to_string(&mut contents).unwrap();
-        assert_eq!(contents.trim(), "test1");
+    #[cfg(unix)]
+    #[test]
+    fn test_zip_files_skips_symlinks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let outside = temp.path().join("outside.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        let folder = temp.path().join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("inside.txt"), "inside").unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join("link.txt")).unwrap();
+        std::os::unix::fs::symlink(temp.path(), folder.join("link_dir")).unwrap();
 
-        let file = std::fs::File::open(dest_path.join("unzipped").join("test2").join("test1.txt"))
-            .unwrap();
-        let mut buf_reader = std::io::BufReader::new(file);
-        let mut contents = String::new();
-        buf_reader.read_to_string(&mut contents).unwrap();
-        assert_eq!(contents.trim(), "test2_test1");
+        let zip =
+            zip_files_in(&[&folder], &temp.path().join("out.zip"), false, tmp.path()).unwrap();
+        let unzipped = temp.path().join("unzipped");
+        unzip_file_in(&zip, UnzipOption::ToDir(unzipped.clone()), tmp.path(), None).unwrap();
 
-        let file = std::fs::File::open(
-            dest_path
-                .join("unzipped")
-                .join("test2")
-                .join("test2")
-                .join("test1.txt"),
+        assert_eq!(read(unzipped.join("folder").join("inside.txt")), "inside");
+        assert!(!unzipped.join("folder").join("link.txt").exists());
+        assert!(!unzipped.join("folder").join("link_dir").exists());
+
+        // a symbolic link given directly is refused rather than followed
+        assert!(zip_files_in(
+            &[folder.join("link.txt")],
+            &temp.path().join("link.zip"),
+            false,
+            tmp.path()
         )
-        .unwrap();
-        let mut buf_reader = std::io::BufReader::new(file);
-        let mut contents = String::new();
-        buf_reader.read_to_string(&mut contents).unwrap();
-        assert_eq!(contents.trim(), "test2_test2_test1");
+        .is_err());
+    }
+
+    #[test]
+    fn test_file_name_from_content_disposition() {
+        let parse = file_name_from_content_disposition;
+        assert_eq!(
+            parse("attachment; filename=\"jre.tar.gz\"").as_deref(),
+            Some("jre.tar.gz")
+        );
+        assert_eq!(
+            parse("attachment; FileName=jre.zip").as_deref(),
+            Some("jre.zip")
+        );
+        assert_eq!(
+            parse("attachment; filename*=UTF-8''x.zip; filename=\"y.zip\"").as_deref(),
+            Some("y.zip")
+        );
+        // path traversal and absolute paths keep only the last segment
+        assert_eq!(
+            parse("attachment; filename=\"../../x\"").as_deref(),
+            Some("x")
+        );
+        assert_eq!(
+            parse("attachment; filename=\"/etc/cron.d/job\"").as_deref(),
+            Some("job")
+        );
+        assert_eq!(
+            parse("attachment; filename=\"..\\..\\evil.bat\"").as_deref(),
+            Some("evil.bat")
+        );
+        assert_eq!(
+            parse("attachment; filename=\"C:evil.bat\"").as_deref(),
+            Some("Cevil.bat")
+        );
+        assert_eq!(parse("attachment; filename=\"..\""), None);
+        assert_eq!(parse("attachment; filename=\"a/..\""), None);
+        assert_eq!(parse("attachment; filename=\"\""), None);
+        assert_eq!(parse("attachment"), None);
+        assert_eq!(parse("inline; name=x"), None);
+    }
+
+    #[test]
+    fn test_format_byte() {
+        assert_eq!(format_byte(0), "0 B");
+        assert_eq!(format_byte(1023), "1023 B");
+        assert_eq!(format_byte(1024), "1.0 KB");
+        assert_eq!(format_byte(1536), "1.5 KB");
+        assert_eq!(format_byte(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
+        assert_eq!(format_byte(u64::MAX), "16.0 EB");
+
+        assert_eq!(format_byte_download(10, 100), "10 / 100 B");
+        assert_eq!(format_byte_download(512, 2048), "0.5 / 2.0 KB");
+        assert_eq!(
+            format_byte_download(1024 * 1024, 3 * 1024 * 1024 / 2),
+            "1.0 / 1.5 MB"
+        );
+        // a download that grows past the reported total still formats
+        assert_eq!(format_byte_download(2048, 1024), "2.0 / 1.0 KB");
+    }
+
+    #[tokio::test]
+    async fn test_read_to_string_capped() {
+        use crate::util::fs::read_to_string_capped;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("file.txt");
+        std::fs::write(&path, "0123456789").unwrap();
+
+        assert_eq!(
+            read_to_string_capped(&path, 10).await.unwrap(),
+            "0123456789"
+        );
+        assert!(read_to_string_capped(&path, 9).await.is_err());
+        assert!(read_to_string_capped(temp.path().join("missing"), 10)
+            .await
+            .is_err());
+        #[cfg(unix)]
+        assert!(read_to_string_capped("/dev/zero", 1024).await.is_err());
     }
 }
