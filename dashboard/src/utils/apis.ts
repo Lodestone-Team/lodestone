@@ -13,6 +13,7 @@ import {
   catchAsyncToString,
   errorToString,
   getFileName,
+  isAxiosError,
   joinPath,
   parentPath,
   toApiError,
@@ -32,6 +33,8 @@ import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
  *
  * Every request goes through axiosWrapper, which throws an ApiError (an Error
  * with a message formatted for the user, plus the HTTP status and error kind).
+ * (loginToCore calls axios itself to read the Retry-After header, and also
+ * throws ApiError.)
  * Helpers that return data resolve with it and throw ApiError on failure.
  *
  * Older helpers keep the shape the components depend on, and never throw:
@@ -382,16 +385,30 @@ export const unzipInstanceFile = async (
  * Start User API
  ***********************/
 
+/** The message for a login the core refused with 429 Too Many Requests. */
+function tooManyLoginAttemptsMessage(retryAfter: unknown): string {
+  // Retry-After is a number of seconds (or an HTTP date, not used here)
+  const seconds = Number(retryAfter);
+  const wait =
+    Number.isFinite(seconds) && seconds > 0
+      ? seconds < 120
+        ? `${Math.ceil(seconds)} seconds`
+        : `${Math.ceil(seconds / 60)} minutes`
+      : 'a few minutes';
+  return `Too many failed sign-in attempts. Wait ${wait}, then try again.`;
+}
+
 /**
  * Logs in with basic auth.
  * @throws ApiError: "Error: <reason>" if the core answered with an error,
- *   "Login failed: <reason>" if the core could not be reached
+ *   "Login failed: <reason>" if the core could not be reached, or a
+ *   "Too many failed sign-in attempts" message (status 429)
  */
 export async function loginToCore(
   loginValue: LoginValues
 ): Promise<LoginReply> {
   try {
-    return await axiosWrapper<LoginReply>({
+    const response = await axios.request<LoginReply>({
       method: 'post',
       url: '/user/login',
       data: {},
@@ -400,8 +417,15 @@ export async function loginToCore(
         password: loginValue.password,
       },
     });
+    return response.data;
   } catch (error) {
     const apiError = toApiError(error);
+    if (isAxiosError(error) && error.response?.status === 429)
+      throw new ApiError(
+        tooManyLoginAttemptsMessage(error.response.headers['retry-after']),
+        429,
+        apiError.kind
+      );
     if (apiError.status === undefined)
       throw new ApiError(`Login failed: ${apiError.message}`);
     throw new ApiError(
