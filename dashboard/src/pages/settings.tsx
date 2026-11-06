@@ -1,5 +1,5 @@
 import { Tab } from '@headlessui/react';
-import { useContext, useState } from 'react';
+import { Fragment, useContext, useState } from 'react';
 import { useUserInfo } from 'data/UserInfo';
 import CoreSettings from 'pages/settings/CoreSettings';
 import UserSettings from 'pages/settings/UserSettings';
@@ -28,7 +28,10 @@ const SettingsPage = () => {
         <div className="flex min-w-0 flex-row items-center gap-4">
           <h1 className="dashboard-instance-heading">Core Settings</h1>
         </div>
+        {/* Headless UI 2 renders a div by default; keep the v1 Fragment so that the
+            tab list and panels stay direct flex children */}
         <Tab.Group
+          as={Fragment}
           selectedIndex={tabIndex}
           onChange={(i) => {
             setTabIndex(i);
@@ -42,7 +45,7 @@ const SettingsPage = () => {
               <Tab
                 key={tab.title}
                 className={({ selected }) =>
-                  `text-h3 font-bold tracking-medium focus-visible:outline-none ${
+                  `text-h3 font-bold tracking-medium focus-visible:outline-hidden ${
                     selected
                       ? 'border-b-2 border-blue-200 text-blue-200'
                       : 'mb-0.5 text-gray-500'
@@ -56,7 +59,7 @@ const SettingsPage = () => {
           <Tab.Panels className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2">
             {tabList.map((tab) => (
               <Tab.Panel
-                className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-none"
+                className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-hidden"
                 key={tab.title}
               >
                 {tab.content}

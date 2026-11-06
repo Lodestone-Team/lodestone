@@ -1,8 +1,8 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const defaultTheme = require('tailwindcss/defaultTheme');
+// Loaded from src/globals.css with `@config` (Tailwind CSS v4). The sources to
+// scan for class names are listed there with `@source`.
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ['./pages/**/*.{js,ts,jsx,tsx}', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     colors: {
       transparent: 'transparent', //! what
@@ -112,7 +112,6 @@ module.exports = {
     function ({ addVariant }) {
       addVariant('child', '& > *');
     },
-    require('@tailwindcss/container-queries'),
     require('@headlessui/tailwindcss')({ prefix: 'ui' }),
   ],
 };

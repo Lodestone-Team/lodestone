@@ -57,7 +57,7 @@ export default function InstanceLoadingCard({
   return (
     <div
       className={`group relative flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight ${
-        focus ? `bg-gray-900 outline outline-2 ring-[6px] ${borderClass}` : ''
+        focus ? `bg-gray-900 outline-solid outline-2 ring-[6px] ${borderClass}` : ''
       }`}
     >
       <div className="absolute top-0 left-0 z-10 flex h-full w-full flex-col overflow-clip rounded-xl bg-[#000]/70 backdrop-blur-[1px]">

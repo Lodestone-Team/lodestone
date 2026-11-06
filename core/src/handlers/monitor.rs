@@ -8,7 +8,7 @@ use axum::{
 };
 use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt};
-use ringbuffer::{AllocRingBuffer, RingBufferExt};
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 use tokio::sync::Mutex;
 use tracing::error;
 
@@ -48,7 +48,7 @@ async fn monitor_ws(
         for report in buffer.iter() {
             if let Err(e) = tx
                 .send(axum::extract::ws::Message::Text(
-                    serde_json::to_string(&report).unwrap(),
+                    serde_json::to_string(&report).unwrap().into(),
                 ))
                 .await
             {
@@ -64,7 +64,7 @@ async fn monitor_ws(
                 let monitor = instance.monitor().await;
                 if let Err(e) = tx
                     .send(axum::extract::ws::Message::Text(
-                        serde_json::to_string(&monitor).unwrap(),
+                        serde_json::to_string(&monitor).unwrap().into(),
                     ))
                     .await
                 {
@@ -83,6 +83,6 @@ async fn monitor_ws(
 
 pub fn get_monitor_routes(state: AppState) -> Router {
     Router::new()
-        .route("/monitor/:uuid", get(monitor))
+        .route("/monitor/{uuid}", get(monitor))
         .with_state(state)
 }

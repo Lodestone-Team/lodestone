@@ -3,7 +3,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use color_eyre::eyre::{eyre, Context};
-use sysinfo::{Pid, PidExt, ProcessExt, SystemExt};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
@@ -21,7 +21,7 @@ use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::types::Snowflake;
-use crate::util::{dont_spawn_terminal, list_dir};
+use crate::util::{dont_spawn_terminal, list_dir, local_port_available};
 
 use super::r#macro::resolve_macro_invocation;
 use super::{Flavour, ForgeBuildVersion, MinecraftInstance};
@@ -47,7 +47,7 @@ impl TServer for MinecraftInstance {
             }),
         )?;
 
-        if !port_scanner::local_port_available(config.port as u16) {
+        if !local_port_available(config.port as u16) {
             return Err(Error {
                 kind: ErrorKind::Internal,
                 source: eyre!("Port {} is already in use", config.port),
@@ -706,7 +706,15 @@ impl TServer for MinecraftInstance {
         let mut sys = self.system.lock().await;
         sys.refresh_memory();
         if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
-            sys.refresh_process(Pid::from_u32(pid));
+            // Same data the old `refresh_process` refreshed; dead processes are not removed.
+            sys.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
+                false,
+                ProcessRefreshKind::nothing()
+                    .with_memory()
+                    .with_cpu()
+                    .with_disk_usage(),
+            );
             let proc = (*sys).process(Pid::from_u32(pid));
             if let Some(proc) = proc {
                 let cpu_usage =

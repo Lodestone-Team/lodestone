@@ -56,6 +56,6 @@ pub async fn setup_owner(
 
 pub fn get_setup_route(state: AppState) -> Router {
     Router::new()
-        .route("/setup/:key", axum::routing::post(setup_owner))
+        .route("/setup/{key}", axum::routing::post(setup_owner))
         .with_state(state)
 }

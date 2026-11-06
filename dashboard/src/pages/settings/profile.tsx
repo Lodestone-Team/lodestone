@@ -15,7 +15,7 @@ const ProfilePage = () => {
   useDocumentTitle('User Profile - Lodestone');
   const { token } = useContext(LodestoneContext);
   const uid = useUid();
-  const { isLoading, isError, data: user } = useUserInfo();
+  const { isPending: isLoading, isError, data: user } = useUserInfo();
   const [userState, setUserState] = useState<UserState>('logged-out');
 
   const [username, setUsername] = useState(
@@ -95,7 +95,7 @@ const ProfilePage = () => {
           </p>
         </div>
 
-        <div className="mt-8 w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 first:child:rounded-t-lg last:child:rounded-b-lg last:child:border-b-0">
+        <div className="mt-8 w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
           <InputBox
             label={'Username'}
             value={username}

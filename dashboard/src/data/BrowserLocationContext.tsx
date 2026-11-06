@@ -1,6 +1,6 @@
 import React from 'react';
 // eslint-disable-next-line no-restricted-imports -- this is the only place that should import useNavigate
-import { useLocation, useNavigate, Location } from 'react-router-dom';
+import { useLocation, useNavigate, Location } from 'react-router';
 
 interface BrowserLocationContext {
   location: Location;
@@ -39,7 +39,7 @@ export const BrowserLocationContext =
  * We store too many information in the URL, and we update them too often.
  * There acts as the single source of truth for the URL (location) and provides
  * a way to update the URL.
- * Children can use this context to update the URL, but should use regular react-router-dom hooks
+ * Children can use this context to update the URL, but should use regular react-router hooks
  * to read the URL.
  */
 export const BrowserLocationContextProvider = ({

@@ -16,6 +16,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import {
   Fragment,
+  RefObject,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -38,7 +39,11 @@ import {
   zipInstanceFiles,
 } from 'utils/apis';
 import Button from 'components/Atoms/Button';
-import { useDocumentTitle, useElementSize, useLocalStorage } from 'usehooks-ts';
+import {
+  useDocumentTitle,
+  useLocalStorage,
+  useResizeObserver,
+} from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import { useUserAuthorized } from 'data/UserInfo';
@@ -55,7 +60,7 @@ import RenameFileForm from './RenameFileForm';
 import Breadcrumb from './Breadcrumb';
 import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
-import { UnzipOption } from 'bindings/UnzipOptions';
+import { UnzipOption } from 'bindings/UnzipOption';
 
 export default function FileViewer() {
   useDocumentTitle('Instance File Viewer - Lodestone');
@@ -78,10 +83,11 @@ export default function FileViewer() {
   const [clipboard, setClipboard] = useState<ClientFile[]>([]);
   const [clipboardAction, setClipboardAction] = useState<'copy' | 'cut'>('cut');
   const [fileContent, setFileContent] = useState('');
-  const [
-    boundingDivRef,
-    { height: boundingDivHeight, width: boundingDivWidth },
-  ] = useElementSize();
+  const boundingDivRef = useRef<HTMLDivElement>(null);
+  const { width: boundingDivWidth = 0 } = useResizeObserver({
+    ref: boundingDivRef as RefObject<HTMLDivElement>,
+    box: 'border-box',
+  });
 
   const tickFile = (file: ClientFile, ticked: boolean) => {
     if (ticked) {
@@ -111,13 +117,13 @@ export default function FileViewer() {
 
   const {
     data: fileList,
-    isLoading: fileListLoading,
+    isPending: fileListLoading,
     error: fileListError,
   } = useFileList(instance.uuid, path, canRead);
 
   const {
     data: originalFileContent,
-    isLoading: isFileLoading,
+    isPending: isFileLoading,
     error: fileError,
   } = useFileContent(instance.uuid, openedFile, canRead);
 
@@ -397,7 +403,7 @@ export default function FileViewer() {
             <div className="fixed inset-0 bg-[#000]/80" />
             <div className="fixed inset-0 overflow-y-auto">
               <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
-                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800 bg-opacity-50 pb-8 pt-12">
+                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pb-8 pt-12">
                   <FontAwesomeIcon
                     className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
                     icon={faDownload}
@@ -425,7 +431,7 @@ export default function FileViewer() {
               leaveFrom="opacity-100 translate-y-0"
               leaveTo="opacity-0 -translate-y-1"
             >
-              <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+              <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
                 <div className="py-2 px-1.5">
                   <Menu.Item disabled={!fileList}>
                     {({ active, disabled }) => (

@@ -35,7 +35,7 @@ const CoreConfigNew = () => {
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
   const queryClient = useQueryClient();
-  const { data: globalSettings, isLoading, error } = useGlobalSettings();
+  const { data: globalSettings, isPending: isLoading, error } = useGlobalSettings();
 
   const initialValues: ConfigNewCoreFormValues = {
     coreName: globalSettings?.core_name || '',

@@ -1,6 +1,6 @@
 // This is the only place where Tauri API import is allowed
 // eslint-disable-next-line no-restricted-imports
-import tauriApi from '@tauri-apps/api'; // Import the Tauri API
+import type * as tauriApi from '@tauri-apps/api'; // Import the Tauri API types (the module has no default export)
 
 export type tauri = typeof tauriApi; // Export the Tauri API as the `tauri` type
 
@@ -11,9 +11,7 @@ declare global {
 }
 
 const globalTauriExists: boolean =
-  typeof window !== 'undefined' &&
-  !!window.__TAURI__ &&
-  !!window.__TAURI__.tauri; // Check whether the Tauri API is available on the `window` object
+  typeof window !== 'undefined' && !!window.__TAURI__?.core; // Check whether the Tauri API is available on the `window` object (Tauri 2: window.__TAURI__.core.invoke)
 
 export const tauri = globalTauriExists ? window.__TAURI__ : undefined; // Export the `__TAURI__` object from the `window` object if it exists, or `undefined` if it doesn't
 

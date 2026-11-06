@@ -178,7 +178,7 @@ const Dashboard = () => {
   //             <Tab
   //               key={tab.title}
   //               className={({ selected }) =>
-  //                 `text-h3 font-bold tracking-medium focus-visible:outline-none ${
+  //                 `text-h3 font-bold tracking-medium focus-visible:outline-hidden ${
   //                   selected
   //                     ? 'border-b-2 border-blue-200 text-blue-200'
   //                     : 'mb-0.5 text-gray-500'
@@ -193,7 +193,7 @@ const Dashboard = () => {
   //         <Tab.Panels className="gutter-stable -mx-4 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2">
   //           {tabList[instance.game_type].map((tab) => (
   //             <Tab.Panel
-  //               className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-none"
+  //               className="flex h-fit min-h-full w-full flex-col gap-8 pt-10 pb-8 focus:outline-hidden"
   //               key={tab.title}
   //             >
   //               {tab.content}

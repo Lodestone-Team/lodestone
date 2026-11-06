@@ -4,7 +4,7 @@ members = [
     "core", # lodestone_core
     "dashboard/src-tauri" #lodestone-client
 ]
-default-members = ["core"] # Run `cargo install tauri` then `cargo tauri build` to build the client
+default-members = ["core"] # Build the client with `npm run tauri build` in dashboard/
 resolver = "2"
 
 [profile.github-release]

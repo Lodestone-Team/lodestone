@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Fragment, useMemo, useRef } from 'react';
+import { useEffect, useState, Fragment, useMemo, useRef } from 'react';
 import { FieldHookConfig, useField } from 'formik';
 import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -16,6 +16,7 @@ import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
  */
 export type ComboFieldProps = FieldHookConfig<string> & {
   label?: string;
+  placeholder?: string;
   loading?: boolean;
   options: string[];
   allowCustom?: boolean;
@@ -45,7 +46,6 @@ export default function ComboField(props: ComboFieldProps) {
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
-  const buttonRef = React.useRef<HTMLButtonElement>(null);
   const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
   const disabledVisual = disabled || loading;
@@ -105,7 +105,12 @@ export default function ComboField(props: ComboFieldProps) {
         <Combobox
           value={selectedValue ? selectedValue : ''}
           name={field.name}
-          onChange={(newValue: string) => {
+          // open the options when the input is focused
+          immediate
+          onChange={(newValue: string | null) => {
+            // Headless UI 2 comboboxes are nullable and emit null when the input
+            // is cleared; keep the previous value like the non-nullable v1 one
+            if (newValue === null) return;
             // need to generate a fake React.ChangeEvent
             const event = {
               target: {
@@ -129,12 +134,8 @@ export default function ComboField(props: ComboFieldProps) {
             )}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={placeholder}
-            onClick={() => {
-              buttonRef.current?.click();
-            }}
           />
           <Combobox.Button
-            ref={buttonRef}
             className="group absolute inset-y-0 right-0 flex items-center pr-1.5"
           >
             {icon}

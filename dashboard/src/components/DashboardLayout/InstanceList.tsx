@@ -62,7 +62,7 @@ export default function InstanceList({
           <RadioGroup.Option
             key={instance.uuid}
             value={instance}
-            className="rounded-md outline-none child:w-full"
+            className="rounded-md outline-hidden child:w-full"
           >
             <InstancePill {...instance} />
           </RadioGroup.Option>

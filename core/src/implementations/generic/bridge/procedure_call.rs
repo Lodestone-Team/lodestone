@@ -127,7 +127,7 @@ pub enum ProcedureCallInner {
 
 #[test]
 fn export_procedure_call_kind() {
-    let _ = ProcedureCallKind::export();
+    let _ = ProcedureCallKind::export(&ts_rs::Config::from_env());
 }
 
 // sent to TS side to call a TS procedure

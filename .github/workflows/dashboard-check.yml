@@ -4,49 +4,51 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   dashboard-check:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Use Node.js 18.x
-        uses: actions/setup-node@v3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 18.x
+          persist-credentials: false
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
           cache: 'npm'
           cache-dependency-path: ./dashboard/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
         working-directory: ./dashboard
 
       - name: Build dashboard
         run: npm run build --if-present
         working-directory: ./dashboard
 
-      - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+      # Installs the toolchain pinned in rust-toolchain.toml (its components include clippy).
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal --no-self-update
 
+      # Tauri 2 Linux build dependencies (webkit2gtk-4.1); clang/libclang for bindgen.
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf clang libclang-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf clang libclang-dev
 
       - name: Cache Rust Dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: rust-cache
           shared-key: workspace-x86_64-unknown-linux-gnu-release-check
 
 
       - name: Run Clippy Check
-        uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --release -p lodestone-client
-  
+        run: cargo clippy --locked --all-features --release -p lodestone-client

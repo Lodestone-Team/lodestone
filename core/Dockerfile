@@ -1,4 +1,7 @@
-FROM rust as build
+# Build from the repository root, since core is a member of the Cargo workspace there:
+#   docker build -f core/Dockerfile .
+# The toolchain must match rust-toolchain.toml.
+FROM rust:1.99.1-trixie@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07 AS build
 
 # create and enter app directory
 WORKDIR /app
@@ -8,13 +11,17 @@ RUN apt-get update \
   && apt-get install -y clang libclang-dev \
   && rm -rf /var/lib/apt/lists/*
 
-# copy over project files
+# copy over the workspace (see Dockerfile.dockerignore)
 COPY . ./
 
-# build app using 'release' profile
-RUN cargo build --release --features "vendored-openssl"
+# make sure the toolchain from rust-toolchain.toml (and its components) is installed
+RUN rustup toolchain install --profile minimal --no-self-update
 
-FROM debian:bullseye-slim as production
+# build app using 'release' profile
+RUN cargo build --locked --release -p lodestone_core
+
+# Same Debian release as the builder, so the binary's glibc requirement is met.
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS production
 
 #
 RUN apt-get update \
@@ -26,7 +33,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # copy over built app
-COPY --from=build /app/target/release/main ./
+COPY --from=build /app/target/release/lodestone_core ./main
 
 # specify default port
 EXPOSE 16662

@@ -1,9 +1,9 @@
 // Stories file for Button component
 import { faServer } from '@fortawesome/free-solid-svg-icons';
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import Button from './Button';
 
-export default {
+const meta: Meta<typeof Button> = {
   title: 'library/Button',
   component: Button,
   argTypes: {
@@ -11,26 +11,30 @@ export default {
     onClick: { table: { disable: true } },
     className: { table: { disable: true } },
   },
-} as ComponentMeta<typeof Button>;
-
-const Template: ComponentStory<typeof Button> = (args) => <Button {...args} />;
-
-export const Default = Template.bind({});
-Default.args = {
-  label: 'Button',
 };
+export default meta;
 
-export const Disabled = Template.bind({});
-Disabled.args = {
-  label: 'Button',
-  disabled: true,
-};
+type Story = StoryObj<typeof Button>;
 
-export const StartServer = Template.bind({});
-StartServer.args = {
-  label: 'Start Server',
-  onClick: () => {
-    console.log('Start Server');
+export const Default: Story = {
+  args: {
+    label: 'Button',
   },
-  icon: faServer,
+};
+
+export const Disabled: Story = {
+  args: {
+    label: 'Button',
+    disabled: true,
+  },
+};
+
+export const StartServer: Story = {
+  args: {
+    label: 'Start Server',
+    onClick: () => {
+      console.log('Start Server');
+    },
+    icon: faServer,
+  },
 };

@@ -1,32 +1,37 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import Checkbox from './Checkbox';
 
-export default {
+const meta: Meta<typeof Checkbox> = {
   title: 'library/Checkbox',
   component: Checkbox,
   argTypes: {
     onChange: { action: 'onChange' },
   },
-} as ComponentMeta<typeof Checkbox>;
+};
+export default meta;
 
-const Template: ComponentStory<typeof Checkbox> = (args) => (
-  <Checkbox {...args} />
-);
-export const Default = Template.bind({});
-Default.args = {
-  label: 'Checkbox',
-  checked: false,
-  disabled: false,
+type Story = StoryObj<typeof Checkbox>;
+
+export const Default: Story = {
+  args: {
+    label: 'Checkbox',
+    checked: false,
+    disabled: false,
+  },
 };
-export const Checked = Template.bind({});
-Checked.args = {
-  label: 'Checkbox',
-  checked: true,
-  disabled: false,
+
+export const Checked: Story = {
+  args: {
+    label: 'Checkbox',
+    checked: true,
+    disabled: false,
+  },
 };
-export const Disabled = Template.bind({});
-Disabled.args = {
-  label: 'Checkbox',
-  checked: false,
-  disabled: true,
+
+export const Disabled: Story = {
+  args: {
+    label: 'Checkbox',
+    checked: false,
+    disabled: true,
+  },
 };

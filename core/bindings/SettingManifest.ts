@@ -2,4 +2,4 @@
 import type { ConfigurableValue } from "./ConfigurableValue";
 import type { ConfigurableValueType } from "./ConfigurableValueType";
 
-export interface SettingManifest { setting_id: string, name: string, description: string, value: ConfigurableValue | null, value_type: ConfigurableValueType, default_value: ConfigurableValue | null, is_secret: boolean, is_required: boolean, is_mutable: boolean, }
+export type SettingManifest = { setting_id: string, name: string, description: string, value: ConfigurableValue | null, value_type: ConfigurableValueType, default_value: ConfigurableValue | null, is_secret: boolean, is_required: boolean, is_mutable: boolean, };

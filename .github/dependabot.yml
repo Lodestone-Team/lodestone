@@ -1,0 +1,36 @@
+version: 2
+
+# Every ecosystem waits 14 days after a release before proposing it (supply-chain cooldown).
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  # Actions are pinned to commit SHAs; Dependabot updates the SHA and the "# vX.Y.Z" comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  # Base images are pinned by digest in core/Dockerfile, core/githubactions.Dockerfile
+  # and dashboard/Dockerfile.
+  - package-ecosystem: docker
+    directories:
+      - /core
+      - /dashboard
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14

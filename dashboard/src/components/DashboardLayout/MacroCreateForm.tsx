@@ -3,8 +3,7 @@
 import Button from 'components/Atoms/Button';
 import { Field, Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef } from 'react';
-import { useEffectOnce } from 'usehooks-ts';
-import useAnalyticsEventTracker from 'utils/hooks';
+import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 import * as yup from 'yup';
 
 export default function CreateMacro({

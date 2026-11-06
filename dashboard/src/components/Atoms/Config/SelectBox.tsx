@@ -5,7 +5,6 @@ import clsx from 'clsx';
 import { useEffect, useState, Fragment } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
-import { Float } from '@headlessui-float/react';
 
 /**
  * A self controlled dropdown meant to represent a single value of a config
@@ -124,14 +123,7 @@ export default function SelectBox({
           onChange={onChange}
           disabled={disabled || isLoading}
         >
-          <Float
-          as="div"
-          className="relative w-full"
-          placement="bottom"
-          floatingAs={Fragment}
-          portal
-          adaptiveWidth
-          >
+          <div className="relative w-full">
           <Listbox.Button
             className={clsx(
               'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
@@ -159,9 +151,11 @@ export default function SelectBox({
             leaveFrom="opacity-100 translate-y-0"
             leaveTo="opacity-0 -translate-y-1"
           >
+              {/* anchored below the button in a portal, as wide as the button */}
               <Listbox.Options
+                anchor={{ to: 'bottom', gap: 8 }}
                 className={clsx(
-                  'input-outlines input-text-style absolute z-40 mt-2 max-h-60 w-full overflow-auto rounded p-0 py-1',
+                  'input-outlines input-text-style z-40 max-h-60 w-(--button-width) overflow-auto rounded p-0 py-1',
                   'bg-gray-850 outline-gray-550 drop-shadow-md focus-visible:ring-blue-faded/50'
                 )}
               >
@@ -210,7 +204,7 @@ export default function SelectBox({
                 )}
               </Listbox.Options>
           </Transition>
-          </Float>
+          </div>
         </Listbox>
       </div>
     </div>

@@ -2,4 +2,4 @@
 import type { ExtensionType } from "./ExtensionType";
 import type { Permission } from "./Permission";
 
-export interface Manifest { type: ExtensionType, author: string, name: string, version: string, description: string, release_notes: string | null, permission: Permission | null, }
+export type Manifest = { type: ExtensionType, author: string, name: string, version: string, description: string, release_notes: string | null, permission: Permission | null, };

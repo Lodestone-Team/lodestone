@@ -22,7 +22,7 @@ const validationSchema = yup.object({
   password_confirm: yup
     .string()
     .required('Password confirmation is required')
-    .oneOf([yup.ref('password'), null], 'Passwords must match'),
+    .oneOf([yup.ref('password')], 'Passwords must match'),
 });
 
 export const CreateUserForm = ({

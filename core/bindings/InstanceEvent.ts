@@ -2,4 +2,4 @@
 import type { InstanceEventInner } from "./InstanceEventInner";
 import type { InstanceUuid } from "./InstanceUuid";
 
-export interface InstanceEvent { instance_uuid: InstanceUuid, instance_name: string, instance_event_inner: InstanceEventInner, }
+export type InstanceEvent = { instance_uuid: InstanceUuid, instance_name: string, instance_event_inner: InstanceEventInner, };

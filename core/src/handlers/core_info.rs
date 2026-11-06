@@ -3,7 +3,7 @@ use std::env;
 use crate::{prelude::VERSION, AppState};
 use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
-use sysinfo::{CpuExt, DiskExt, System, SystemExt};
+use sysinfo::{Disks, System};
 
 #[derive(Serialize, Deserialize)]
 pub struct CoreInfo {
@@ -24,7 +24,7 @@ pub struct CoreInfo {
 pub async fn get_core_info(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<CoreInfo> {
-    let sys = System::new_all();
+    let sys = crate::util::cpu_and_memory_system();
     Json(CoreInfo {
         version: VERSION.with(|v| v.clone()),
         is_setup: state.first_time_setup_key.lock().await.is_none(),
@@ -42,11 +42,11 @@ pub async fn get_core_info(
             }
         },
         cpu_count: sys.cpus().len() as u32,
-        host_name: sys
-            .host_name()
-            .unwrap_or_else(|| "Unknown Hostname".to_string()),
+        host_name: System::host_name().unwrap_or_else(|| "Unknown Hostname".to_string()),
         total_ram: sys.total_memory(),
-        total_disk: sys.disks().iter().fold(0, |acc, v| acc + v.total_space()),
+        total_disk: Disks::new_with_refreshed_list()
+            .iter()
+            .fold(0, |acc, v| acc + v.total_space()),
         core_name: state.global_settings.lock().await.core_name(),
         uuid: state.uuid.clone(),
         up_since: state.up_since,

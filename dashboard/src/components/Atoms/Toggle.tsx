@@ -25,7 +25,7 @@ export const Toggle = ({
       disabled={disabled}
     >
       <span
-        className={clsx('inline-block h-4 w-4 transform rounded-full transition-transform duration-75', {
+        className={clsx('inline-block h-4 w-4 rounded-full transition-transform duration-75', {
           'translate-x-6': value,
           'translate-x-1': !value,
           'bg-gray-faded/40': disabled,

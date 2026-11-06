@@ -13,12 +13,10 @@ import {
   ChartData,
   ScriptableLineSegmentContext,
   ScriptableTooltipContext,
-  Chart,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { useIntervalClockSeconds } from 'utils/hooks';
 import { asyncCallWithTimeout } from 'utils/util';
-import { UnionToIntersection } from 'chart.js/types/utils';
 
 ChartJS.register(
   CategoryScale,
@@ -73,7 +71,7 @@ export default function PerformanceGraph({
   counter?: number;
   unit?: string;
   getter?: () => Promise<[number, number]>;
-}): JSX.Element {
+}): React.JSX.Element {
   const [max, setMax] = useState(100);
   const labels = Array.from(Array(timeWindow_s / pollrate_s).keys())
     .reverse()
@@ -246,7 +244,9 @@ export default function PerformanceGraph({
   return <Line data={chartData} options={options} className={`${className}`} />;
 }
 
-const getOrCreateTooltip = (chart: UnionToIntersection<Chart<'line'>>) => {
+const getOrCreateTooltip = (
+  chart: ScriptableTooltipContext<'line'>['chart']
+) => {
   let tooltipEl = chart.canvas.parentNode?.querySelector('div');
 
   if (!tooltipEl) {

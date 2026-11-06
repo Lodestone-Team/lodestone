@@ -70,10 +70,8 @@ export default function InstanceCard({
   state,
   player_count,
   max_player_count,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   port,
   focus = false,
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClick: cardOnClick,
 }: InstanceCardProps) {
   const [loading, setLoading] = useState(false);
@@ -189,7 +187,7 @@ export default function InstanceCard({
           'flex flex-row items-center gap-x-1.5',
           'rounded-md',
           'text-medium font-bold leading-5 tracking-medium text-gray-300',
-          'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
+          'ui-checked:bg-gray-800 ui-checked:outline-solid ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
         )}
       >
         <GameIcon game_type={game_type} className="h-4 w-4" />
@@ -212,7 +210,7 @@ export default function InstanceCard({
               leaveFrom="opacity-100 translate-y-0"
               leaveTo="opacity-0 -translate-y-1"
             >
-              <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none">
+              <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
                 <div className="py-2 px-1.5">
                   {stateToMenuInfo().map((menuInfo, i) => (
                     <Menu.Item key={i}>
@@ -243,7 +241,7 @@ export default function InstanceCard({
         )}
       >
         <ClipboardTextfield
-          className="grow rounded-sm bg-gray-800 p-1 text-small font-medium leading-4 tracking-medium text-gray-300 outline outline-1 outline-gray-faded/30 hover:bg-gray-700 hover:outline-white/50"
+          className="grow rounded-xs bg-gray-800 p-1 text-small font-medium leading-4 tracking-medium text-gray-300 outline-solid outline-1 outline-gray-faded/30 hover:bg-gray-700 hover:outline-white/50"
           textToCopy={`${domain}:${port}`}
           text="Copy IP"
         />

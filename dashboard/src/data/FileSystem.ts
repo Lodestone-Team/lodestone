@@ -4,9 +4,9 @@ import { Base64 } from 'js-base64';
 import { axiosWrapper, fileSorter } from 'utils/util';
 
 export const useFileList = (uuid: string, path: string, enabled: boolean) =>
-  useQuery<ClientFile[], Error>(
-    ['instance', uuid, 'fileList', path],
-    () => {
+  useQuery<ClientFile[], Error>({
+    queryKey: ['instance', uuid, 'fileList', path],
+    queryFn: () => {
       return axiosWrapper<ClientFile[]>({
         url: `/instance/${uuid}/fs/${Base64.encode(path, true)}/ls`,
         method: 'GET',
@@ -15,22 +15,20 @@ export const useFileList = (uuid: string, path: string, enabled: boolean) =>
         return response.sort(fileSorter);
       });
     },
-    {
-      enabled,
-      retry: false,
-      cacheTime: 0,
-      staleTime: 0,
-    }
-  );
+    enabled,
+    retry: false,
+    gcTime: 0,
+    staleTime: 0,
+  });
 
 export const useFileContent = (
   uuid: string,
   file: ClientFile | null,
   enabled: boolean
 ) =>
-  useQuery<string, Error>(
-    ['instance', uuid, 'fileContent', file?.path],
-    () => {
+  useQuery<string, Error>({
+    queryKey: ['instance', uuid, 'fileContent', file?.path],
+    queryFn: () => {
       return axiosWrapper<string>({
         url: `/instance/${uuid}/fs/${Base64.encode(
           file?.path ?? '',
@@ -42,10 +40,8 @@ export const useFileContent = (
         return response;
       });
     },
-    {
-      enabled: file !== null && enabled,
-      cacheTime: 0,
-      staleTime: 0,
-      retry: false,
-    }
-  );
+    enabled: file !== null && enabled,
+    gcTime: 0,
+    staleTime: 0,
+    retry: false,
+  });

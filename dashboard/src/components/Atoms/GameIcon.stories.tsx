@@ -1,15 +1,16 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import GameIcon from './GameIcon';
 
-export default {
+const meta: Meta<typeof GameIcon> = {
   title: 'library/GameIcon',
   component: GameIcon,
-} as ComponentMeta<typeof GameIcon>;
+};
+export default meta;
 
-const Template: ComponentStory<typeof GameIcon> = (args) => (
-  <GameIcon {...args} />
-);
-export const MinecraftVanilla = Template.bind({});
-MinecraftVanilla.args = {
-  game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
+type Story = StoryObj<typeof GameIcon>;
+
+export const MinecraftVanilla: Story = {
+  args: {
+    game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
+  },
 };

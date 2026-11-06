@@ -13,7 +13,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use playit_agent_core::api::{
+use playit_api_client::{
     api::{ApiError, ApiErrorNoFail, ApiResponseError},
     http_client::HttpClientError,
 };

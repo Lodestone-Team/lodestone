@@ -1,6 +1,6 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { setupWorker, rest } from 'msw';
+import { http, HttpResponse } from 'msw';
 import InstanceCard from './InstanceCard';
 
 const mockedUserInfo = {
@@ -27,59 +27,60 @@ const mockedUserInfo = {
   },
 };
 
-const worker = setupWorker(
-  rest.get('/user/info', (req, res, ctx) => {
-    return res(ctx.json(mockedUserInfo));
-  })
-);
-
-worker.start();
-
-export default {
+const meta: Meta<typeof InstanceCard> = {
   title: 'library/InstanceCard',
   component: InstanceCard,
   argTypes: {
     onClick: { table: { disable: true } },
-    id: { table: { disable: true } },
-    type: { control: 'select' },
-    status: { control: 'inline-radio' },
     focus: { control: 'boolean' },
   },
   parameters: {
-    backgrounds: {
-      default: 'gray-850',
+    // Served by the MSW worker that mswLoader (.storybook/preview.ts) starts
+    msw: {
+      handlers: [
+        http.get('/user/info', () => HttpResponse.json(mockedUserInfo)),
+      ],
     },
   },
-} as ComponentMeta<typeof InstanceCard>;
+  globals: {
+    backgrounds: { value: 'gray-850' },
+  },
+  decorators: [
+    (Story) => (
+      <QueryClientProvider client={new QueryClient()}>
+        <div className="flex w-60 flex-col child:w-full">
+          <Story />
+        </div>
+      </QueryClientProvider>
+    ),
+  ],
+};
+export default meta;
 
-const Template: ComponentStory<typeof InstanceCard> = (args) => (
-  <QueryClientProvider client={new QueryClient()}>
-    <div className="flex w-60 flex-col child:w-full">
-      <InstanceCard {...args} />
-    </div>
-  </QueryClientProvider>
-);
+type Story = StoryObj<typeof InstanceCard>;
 
-export const Default = Template.bind({});
-Default.args = {
-  uuid: '1',
-  name: 'Test Instance',
-  game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
-  state: 'Running',
-  player_count: 1,
-  max_player_count: 12,
-  port: 25565,
-  focus: false,
+export const Default: Story = {
+  args: {
+    uuid: '1',
+    name: 'Test Instance',
+    game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
+    state: 'Running',
+    player_count: 1,
+    max_player_count: 12,
+    port: 25565,
+    focus: false,
+  },
 };
 
-export const InvestigatingCrash = Template.bind({});
-InvestigatingCrash.args = {
-  uuid: '2',
-  name: 'Crashed Instance',
-  game_type:  { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
-  state: 'Error',
-  player_count: 0,
-  max_player_count: 12,
-  port: 25565,
-  focus: true,
+export const InvestigatingCrash: Story = {
+  args: {
+    uuid: '2',
+    name: 'Crashed Instance',
+    game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
+    state: 'Error',
+    player_count: 0,
+    max_player_count: 12,
+    port: 25565,
+    focus: true,
+  },
 };

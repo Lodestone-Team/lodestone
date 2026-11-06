@@ -8,26 +8,34 @@ on:
   push:
     tags: [ v* ]
 
+permissions:
+  contents: read
+
 jobs:
   workspace-check:
     uses: ./.github/workflows/workspace-check.yml
-    secrets: inherit
 
   core-cargo-test:
     uses: ./.github/workflows/core-cargo-test.yml
-    secrets: inherit
 
   dashboard-build-and-draft:
     uses: ./.github/workflows/dashboard-build-and-draft.yml
     needs: [workspace-check, core-cargo-test]
+    # Creates the draft release and uploads the Tauri bundles to it.
+    permissions:
+      contents: write
     with:
       version: ${{ github.ref_name }}
       debug: false
-    secrets: inherit
+    secrets:
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+      TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
   core-build-and-draft:
     uses: ./.github/workflows/core-build-and-draft.yml
     needs: [workspace-check, core-cargo-test]
+    # Uploads the core binaries to the draft release.
+    permissions:
+      contents: write
     with:
       version: ${{ github.ref_name }}
-    secrets: inherit

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the main window. The app's own commands (is_setup, setup_owner_account, get_owner_jwt, get_first_time_setup_key) need no permission. The updater and dialog plugins are only used from Rust, so they get no JS permissions.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:allow-open-url",
+    "opener:allow-default-urls"
+  ]
+}

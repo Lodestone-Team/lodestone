@@ -11,11 +11,9 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 */
 
 pub mod helper;
-pub mod tcp_client;
 pub mod utils;
 
 mod playit_secret;
-use std::sync::Mutex;
 use std::time::Duration;
 use toml::Value;
 mod errors;
@@ -27,11 +25,11 @@ use crate::AppState;
 use axum::Json;
 use color_eyre::eyre::eyre;
 use helper::*;
-use playit_agent_core::api::api::ApiError;
-use playit_agent_core::api::{
+use playit_agent_core::network::origin_lookup::OriginLookup;
+use playit_api_client::{
     api::{
-        AgentType, ClaimSetupResponse, PortType as PlayitPortType, ReqClaimExchange, ReqClaimSetup,
-        ReqTunnelsList,
+        AgentType, ApiError, ClaimSetupResponse, PortType as PlayitPortType, ReqClaimExchange,
+        ReqClaimSetup, ReqTunnelsList,
     },
     PlayitApi,
 };
@@ -110,10 +108,8 @@ pub async fn start_cli(
         let lookup = {
             let data = api.agents_rundata().await;
             if let Ok(data) = data {
-                let lookup = Arc::new(LocalLookup {
-                    data: Mutex::new(vec![]),
-                });
-                lookup.update(data.tunnels).await;
+                let lookup = Arc::new(OriginLookup::default());
+                lookup.update_from_run_data(&data).await;
 
                 lookup
             } else {
@@ -267,10 +263,8 @@ pub async fn generate_signup_link(
                 let lookup = {
                     let data = api.agents_rundata().await;
                     if let Ok(data) = data {
-                        let lookup = Arc::new(LocalLookup {
-                            data: Mutex::new(vec![]),
-                        });
-                        lookup.update(data.tunnels).await;
+                        let lookup = Arc::new(OriginLookup::default());
+                        lookup.update_from_run_data(&data).await;
 
                         lookup
                     } else {

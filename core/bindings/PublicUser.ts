@@ -2,4 +2,4 @@
 import type { UserId } from "./UserId";
 import type { UserPermission } from "./UserPermission";
 
-export interface PublicUser { uid: UserId, username: string, is_owner: boolean, is_admin: boolean, permissions: UserPermission, }
+export type PublicUser = { uid: UserId, username: string, is_owner: boolean, is_admin: boolean, permissions: UserPermission, };

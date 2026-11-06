@@ -1,23 +1,24 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import ClipboardTextfield from './ClipboardTextfield';
 
-export default {
+const meta: Meta<typeof ClipboardTextfield> = {
   title: 'library/ClipboardTextfield',
   component: ClipboardTextfield,
-} as ComponentMeta<typeof ClipboardTextfield>;
+};
+export default meta;
 
-const Template: ComponentStory<typeof ClipboardTextfield> = (args) => (
-  <ClipboardTextfield {...args} />
-);
+type Story = StoryObj<typeof ClipboardTextfield>;
 
-export const Default = Template.bind({});
-Default.args = {
-  text: 'Hello World',
-  className: 'text-h3 text-gray-300',
+export const Default: Story = {
+  args: {
+    text: 'Hello World',
+    className: 'text-h3 text-gray-300',
+  },
 };
 
-export const Small = Template.bind({});
-Small.args = {
-  text: 'Hello World',
-  className: 'text-regular text-gray-300',
+export const Small: Story = {
+  args: {
+    text: 'Hello World',
+    className: 'text-regular text-gray-300',
+  },
 };

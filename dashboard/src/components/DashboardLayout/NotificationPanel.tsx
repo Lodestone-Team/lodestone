@@ -2,8 +2,7 @@ import { NotificationContext } from 'data/NotificationContext';
 import { forwardRef, Fragment, useContext } from 'react';
 import NotificationCard from 'components/Atoms/NotificationCard';
 import { Transition } from '@headlessui/react';
-import { useEffectOnce } from 'usehooks-ts';
-import useAnalyticsEventTracker from 'utils/hooks';
+import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 
 const NotificationPanel = forwardRef(
   (

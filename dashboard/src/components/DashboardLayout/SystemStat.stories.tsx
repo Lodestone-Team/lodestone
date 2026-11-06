@@ -1,17 +1,17 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import SystemStat from './SystemStat';
 
-export default {
+const meta: Meta<typeof SystemStat> = {
   title: 'library/SystemStat',
   component: SystemStat,
-} as ComponentMeta<typeof SystemStat>;
+};
+export default meta;
 
-const Template: ComponentStory<typeof SystemStat> = (args) => (
-  <SystemStat {...args} />
-);
+type Story = StoryObj<typeof SystemStat>;
 
-export const Default = Template.bind({});
-Default.args = {
-  name: 'Memory',
-  value: '100%',
+export const Default: Story = {
+  args: {
+    name: 'Memory',
+    value: '100%',
+  },
 };

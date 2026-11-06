@@ -5,7 +5,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { SettingsContext } from 'data/SettingsContext';
 import { useUserInfo } from 'data/UserInfo';
 import { useContext, useEffect, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import SettingsLeftNav from './SettingsLeftNav';

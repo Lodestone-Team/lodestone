@@ -2,7 +2,4 @@
 import type { JwtToken } from './JwtToken';
 import type { PublicUser } from './PublicUser';
 
-export interface LoginReply {
-  token: JwtToken;
-  user: PublicUser;
-}
+export type LoginReply = { token: JwtToken; user: PublicUser };

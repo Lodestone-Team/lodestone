@@ -106,7 +106,7 @@ export default function EditableTextfield({
         {isEditing ? (
           <AutoGrowInput
             textClassName={clsx(
-              `bg-transparent focus:outline-none`,
+              `bg-transparent focus:outline-hidden`,
               error ? 'text-red-200' : 'text-gray-300',
               textClassName
             )}

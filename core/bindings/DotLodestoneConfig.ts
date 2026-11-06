@@ -2,4 +2,7 @@
 import type { GameType } from "./GameType";
 import type { InstanceUuid } from "./InstanceUuid";
 
-export interface DotLodestoneConfig { game_type: GameType, uuid: InstanceUuid, creation_time: bigint, }
+/**
+ * A marker file to indicate to lodestone that the directory contains a lodestone instance
+ */
+export type DotLodestoneConfig = { game_type: GameType, uuid: InstanceUuid, creation_time: bigint, };

@@ -2,11 +2,5 @@
 import type { InstanceUuid } from './InstanceUuid';
 
 export type ProgressionStartValue =
-  | {
-      type: 'InstanceCreation';
-      instance_uuid: InstanceUuid;
-      instance_name: string;
-      port: number;
-      game_type: string;
-    }
+  | { type: 'InstanceCreation'; instance_uuid: InstanceUuid }
   | { type: 'InstanceDelete'; instance_uuid: InstanceUuid };

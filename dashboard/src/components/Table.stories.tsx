@@ -1,6 +1,4 @@
-import React from 'react';
-
-import {ComponentStory, ComponentMeta} from '@storybook/react';
+import type {Meta, StoryObj} from '@storybook/nextjs-vite';
 import {Table, TableColumn, TableRow} from "./Table";
 import {cn} from "../utils/util";
 
@@ -30,39 +28,38 @@ const mockTableRows: TableRow[] = [
     {name: "Hello.js", start: "Jan 4 2023, 09:37", finish: "Jan 4 2023, 09:37", pId: 1234567890},
 ]
 
-export default {
+const meta: Meta<typeof Table> = {
     title: 'library/Table',
     component: Table,
-} as ComponentMeta<typeof Table>;
+};
+export default meta;
 
-const Template: ComponentStory<typeof Table> = (args) =>
-    (
-        <Table {...args}/>
-    )
-const TemplateDiv: ComponentStory<typeof Table> = (args) =>
-    (
-        <div className={cn("flex h-fit max-h-full w-full flex-col overflow-auto bg-gray-875", args.className)}>
-            <Table {...args}/>
-        </div>
-    )
+type Story = StoryObj<typeof Table>;
 
-export const Primary = Template.bind({});
-export const Minimal = Template.bind({});
-export const Clip = TemplateDiv.bind({});
-
-
-Primary.args = {
-    columns: mockTableColumns,
-    rows: mockTableRows.slice(0, 5),
-    className: "w-[600px]",
-}
-Minimal.args = {
-    columns: mockTableColumns,
-    rows: mockTableRows.slice(0, 5),
-    className: "w-full",
-}
-Clip.args = {
-    columns: mockTableColumns,
-    rows: mockTableRows,
-    className: "w-96 h-96",
-}
+export const Primary: Story = {
+    args: {
+        columns: mockTableColumns,
+        rows: mockTableRows.slice(0, 5),
+        className: "w-[600px]",
+    },
+};
+export const Minimal: Story = {
+    args: {
+        columns: mockTableColumns,
+        rows: mockTableRows.slice(0, 5),
+        className: "w-full",
+    },
+};
+export const Clip: Story = {
+    render: (args) =>
+        (
+            <div className={cn("flex h-fit max-h-full w-full flex-col overflow-auto bg-gray-875", args.className)}>
+                <Table {...args}/>
+            </div>
+        ),
+    args: {
+        columns: mockTableColumns,
+        rows: mockTableRows,
+        className: "w-96 h-96",
+    },
+};

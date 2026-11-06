@@ -2,4 +2,4 @@
 import type { ExitStatus } from "./ExitStatus";
 import type { TaskEntry } from "./TaskEntry";
 
-export interface HistoryEntry { task: TaskEntry, exit_status: ExitStatus, }
+export type HistoryEntry = { task: TaskEntry, exit_status: ExitStatus, };

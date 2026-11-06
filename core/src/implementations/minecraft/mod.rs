@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use sysinfo::SystemExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 
@@ -737,7 +736,7 @@ impl MinecraftInstance {
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
-            system: Arc::new(Mutex::new(sysinfo::System::new_all())),
+            system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
             stdin: Arc::new(Mutex::new(None)),
             rcon_conn: Arc::new(Mutex::new(None)),
             configurable_manifest,

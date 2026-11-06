@@ -1,6 +1,50 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind CSS v4 entry point (also read by prettier-plugin-tailwindcss and eslint-plugin-tailwindcss) */
+@layer theme, base, components, utilities;
+
+@import 'tailwindcss' source(none);
+/* Layered so that Tailwind utilities (e.g. `w-4` on icons) still override it */
+@import '@fortawesome/fontawesome-svg-core/styles.css' layer(components);
+
+/* Only scan the app sources for class names (the v3 `content` globs) */
+@source '../pages/**/*.{js,ts,jsx,tsx}';
+@source '../src/**/*.{js,ts,jsx,tsx}';
+
+/* Theme, `child` variant and the Headless UI `ui-*` variants */
+@config '../tailwind.config.js';
+
+/* Keep the Tailwind v3 behaviour this design was built with */
+@theme {
+  /* `ring` was 3px with a 50% blue-500 color by default */
+  --default-ring-width: 3px;
+  --default-ring-color: rgb(19 102 138 / 0.5);
+}
+
+/* `hover:` applied on every device, not only under @media (hover: hover) */
+@custom-variant hover (&:hover);
+
+@layer base {
+  /* v3 Preflight: placeholders used gray-400, buttons used the pointer cursor */
+  input::placeholder,
+  textarea::placeholder {
+    color: #a5a5ac;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Font Awesome 7 icons are fixed width by default; keep the v6 natural width */
+  :root {
+    --fa-width: auto;
+  }
+}
+
+/* Unlayered on purpose: the v6 styles were loaded after Tailwind, so their 1em icon
+   height won over `h-*` utilities on icons (widths such as `w-4` still apply) */
+.svg-inline--fa {
+  height: 1em;
+}
 
 /* Satoshi */
 @font-face {
@@ -63,25 +107,41 @@
   font-style: normal;
 }
 
-html,
-body {
-  padding: 0;
-  margin: 0;
-  scroll-behavior: smooth;
-  min-width: 100%;
-  min-height: 100%;
-  overscroll-behavior: none;
-  overflow: clip;
-  color-scheme: dark;
-}
+/* Unlayered CSS beats every Tailwind layer in v4, so element and universal
+ * selectors live in the base layer to keep utilities winning over them */
+@layer base {
+  html,
+  body {
+    padding: 0;
+    margin: 0;
+    scroll-behavior: smooth;
+    min-width: 100%;
+    min-height: 100%;
+    overscroll-behavior: none;
+    overflow: clip;
+    color-scheme: dark;
+  }
 
-main {
-  @apply font-sans text-gray-300;
-}
+  main {
+    @apply font-sans text-gray-300;
+  }
 
-* {
-  box-sizing: border-box;
-  --scrollbar-color: #00000000;
+  * {
+    box-sizing: border-box;
+    --scrollbar-color: #00000000;
+  }
+
+  input {
+    /* just inherit all font-style, stop user agent stylesheet from setting it */
+    font: inherit;
+    letter-spacing: inherit;
+    word-spacing: inherit;
+    text-transform: inherit;
+    text-indent: inherit;
+    text-shadow: inherit;
+    text-align: inherit;
+    text-decoration: inherit;
+  }
 }
 
 /* Tailwind custom classes */
@@ -110,7 +170,7 @@ main {
   }
 
   .input-outlines{
-    @apply outline outline-1 focus-visible:ring-4;
+    @apply outline-solid outline-1 focus-visible:ring-4;
   }
 
   .input-text-style{
@@ -127,54 +187,53 @@ main {
   
 }
 
-@layer utilities {
-  .overflow-overlay {
-    overflow: overlay;
-  }
+/* Custom utilities (support variants such as hover:generic-gametype-hover) */
+@utility overflow-overlay {
+  overflow: overlay;
+}
 
-  .overflow-y-overlay {
-    overflow-y: overlay;
-  }
+@utility overflow-y-overlay {
+  overflow-y: overlay;
+}
 
-  .overflow-x-overlay {
-    overflow-x: overlay;
-  }
+@utility overflow-x-overlay {
+  overflow-x: overlay;
+}
 
-  .gutter-stable {
-    scrollbar-gutter: stable;
-  }
+@utility gutter-stable {
+  scrollbar-gutter: stable;
+}
 
-  .gutter-both {
-    scrollbar-gutter: both-edges;
-  }
+@utility gutter-both {
+  scrollbar-gutter: both-edges;
+}
 
-  .gutter-both-stable {
-    scrollbar-gutter: both-edges stable;
-  }
+@utility gutter-both-stable {
+  scrollbar-gutter: both-edges stable;
+}
 
-  .generic-gametype-hover{
-    border: double 2px transparent;
-    border-radius: 0.375rem;
-    background-image: linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top right, #2AF588, #334675);
-    background-origin: border-box;
-    background-clip: padding-box, border-box;
-  }
+@utility generic-gametype-hover {
+  border: double 2px transparent;
+  border-radius: 0.375rem;
+  background-image: linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top right, #2AF588, #334675);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
 
-  .generic-gametype-selected {
-    border: double 2px transparent;
-    border-radius: 0.375rem;
-    background-image: linear-gradient(#303338, #303338), radial-gradient(circle at top right, #2AF588, #334675);
-    background-origin: border-box;
-    background-clip: padding-box, border-box;
-  }
+@utility generic-gametype-selected {
+  border: double 2px transparent;
+  border-radius: 0.375rem;
+  background-image: linear-gradient(#303338, #303338), radial-gradient(circle at top right, #2AF588, #334675);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
 
-  .generic-gametype-unselected{
-    border: double 2px transparent;
-    border-radius: 0.375rem;
-    background-image: linear-gradient( #2B2D32, #2B2D32), radial-gradient(circle at top right, #2B2D32, #2B2D32);
-    background-origin: border-box;
-    background-clip: padding-box, border-box;
-  }
+@utility generic-gametype-unselected {
+  border: double 2px transparent;
+  border-radius: 0.375rem;
+  background-image: linear-gradient( #2B2D32, #2B2D32), radial-gradient(circle at top right, #2B2D32, #2B2D32);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
 }
 
 /* Some libraries don't like class name */
@@ -197,18 +256,6 @@ main {
   padding-top: 5px !important;
   margin-top: -5px !important;
   z-index: 10000;
-}
-
-input {
-  /* just inherit all font-style, stop user agent stylesheet from setting it */
-  font: inherit;
-  letter-spacing: inherit;
-  word-spacing: inherit;
-  text-transform: inherit;
-  text-indent: inherit;
-  text-shadow: inherit;
-  text-align: inherit;
-  text-decoration: inherit;
 }
 
 /* custom scrollbar */

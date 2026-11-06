@@ -59,7 +59,7 @@ impl Display for ErrorKind {
             ErrorKind::PermissionDenied => write!(f, "Permission Denied"),
             ErrorKind::Unauthorized => write!(f, "Unauthorized"),
             ErrorKind::Internal => write!(f, "Internal Error"),
-            ErrorKind::External => write!(f, "External Error")
+            ErrorKind::External => write!(f, "External Error"),
         }
     }
 }

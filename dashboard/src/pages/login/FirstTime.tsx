@@ -2,7 +2,8 @@ import Button from 'components/Atoms/Button';
 import { useContext, useState } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useDocumentTitle, useEffectOnce } from 'usehooks-ts';
+import { useDocumentTitle } from 'usehooks-ts';
+import { useEffectOnce } from 'utils/hooks';
 import { tauri } from 'utils/tauriUtil';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import packageinfo from '../../../package.json';
@@ -20,7 +21,7 @@ const FirstTime = () => {
       return;
     }
     if (!tauri) return;
-    tauri
+    tauri.core
       .invoke<string | null>('is_setup')
       .then((is_setup) => {
         addCore(DEFAULT_LOCAL_CORE);

@@ -209,11 +209,11 @@ pub async fn get_instance_state(
 
 pub fn get_instance_server_routes(state: AppState) -> Router {
     Router::new()
-        .route("/instance/:uuid/start", put(start_instance))
-        .route("/instance/:uuid/stop", put(stop_instance))
-        .route("/instance/:uuid/restart", put(restart_instance))
-        .route("/instance/:uuid/kill", put(kill_instance))
-        .route("/instance/:uuid/console", post(send_command))
-        .route("/instance/:uuid/state", get(get_instance_state))
+        .route("/instance/{uuid}/start", put(start_instance))
+        .route("/instance/{uuid}/stop", put(stop_instance))
+        .route("/instance/{uuid}/restart", put(restart_instance))
+        .route("/instance/{uuid}/kill", put(kill_instance))
+        .route("/instance/{uuid}/console", post(send_command))
+        .route("/instance/{uuid}/state", get(get_instance_state))
         .with_state(state)
 }

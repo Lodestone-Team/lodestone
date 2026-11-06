@@ -255,7 +255,7 @@ export default function InputBox({
       <form
         onSubmit={onSubmit}
         onReset={onReset}
-        className="relative w-5/12 flex-shrink-0"
+        className="relative w-5/12 shrink-0"
         ref={formRef}
         onKeyDown={handleKeyDown}
         id={id}

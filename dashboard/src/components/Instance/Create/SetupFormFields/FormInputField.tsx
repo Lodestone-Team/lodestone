@@ -6,6 +6,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;
+  placeholder?: string;
   type?: 'text' | 'number' | 'password';
   description?: string;
   optional?: boolean;
@@ -46,7 +47,7 @@ export default function FormInputField(props: InputFieldProps) {
         )}
       </div>
 
-      <div className="relative w-5/12 flex-shrink-0">
+      <div className="relative w-5/12 shrink-0">
         <input
           className={`input-shape input-background input-outlines input-text-style w-full ${
             errorText ? 'input-border-error' : 'input-border-normal'

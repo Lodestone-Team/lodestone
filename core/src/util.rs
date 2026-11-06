@@ -2,9 +2,10 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::RngExt;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
@@ -254,8 +255,14 @@ pub fn unzip_file(
             std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
         let mut archive = zip::ZipArchive::new(zip)
             .context(format!("Failed to decompress file {}", file.display()))?;
+        // zip >= 2 creates real symlinks (and rejects ones pointing outside the
+        // destination); keep the zip 0.6 behaviour of writing them as regular files.
         archive
-            .extract(temp_dest)
+            .extract_with_options(
+                temp_dest,
+                zip::read::ExtractOptions::default()
+                    .symlink_action(zip::read::SymlinkExtractAction::ExtractAsFile),
+            )
             .context(format!("Failed to decompress file {}", file.display()))?;
     }
 
@@ -330,7 +337,7 @@ pub fn zip_files(
 
     let mut buffer = Vec::new();
     let mut writer = zip::ZipWriter::new(&tmp_archive);
-    let options = zip::write::FileOptions::default().unix_permissions(0o775);
+    let options = zip::write::SimpleFileOptions::default().unix_permissions(0o775);
     for entry_path in files.iter().map(|f| f.as_ref()) {
         if entry_path.is_dir() {
             writer
@@ -347,7 +354,9 @@ pub fn zip_files(
                     entry_path.display()
                 ))?;
 
+            // min_depth(1): the directory itself was added above (zip rejects duplicate names)
             for child_entry in walkdir::WalkDir::new(entry_path)
+                .min_depth(1)
                 .into_iter()
                 .filter_map(|e| e.ok())
             {
@@ -452,7 +461,21 @@ pub async fn zip_files_async(
 }
 
 pub fn rand_alphanumeric(len: usize) -> String {
-    thread_rng().sample_iter(&Alphanumeric).take(len).collect()
+    rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
+
+/// Returns true if a TCP listener can be bound to `127.0.0.1:port`.
+pub fn local_port_available(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// Returns true if something accepts TCP connections on `port` on this machine.
+pub fn port_in_use(port: u16) -> bool {
+    TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
 
 // safe_path only works on linux and messes up on windows
@@ -637,6 +660,17 @@ pub fn format_byte(mut bytes: u64) -> String {
     format!("{:.1} {}", bytes, unit)
 }
 
+/// A `System` with CPU and memory information only. `System::new_all()` would also load
+/// every process on the host, including each process's environment variables, which
+/// Lodestone never needs.
+pub fn cpu_and_memory_system() -> sysinfo::System {
+    sysinfo::System::new_with_specifics(
+        sysinfo::RefreshKind::nothing()
+            .with_cpu(sysinfo::CpuRefreshKind::everything())
+            .with_memory(sysinfo::MemoryRefreshKind::everything()),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use crate::prelude::init_paths;
@@ -651,7 +685,7 @@ mod tests {
         let temp_lodestone_path = tempfile::tempdir().unwrap();
         let temp_lodestone_path = temp_lodestone_path.path();
         init_paths(temp_lodestone_path.to_path_buf());
-        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let zip = PathBuf::from("testdata/sample.zip");
 
@@ -681,7 +715,7 @@ mod tests {
         let temp_lodestone_path = tempfile::tempdir().unwrap();
         let temp_lodestone_path = temp_lodestone_path.path();
         init_paths(temp_lodestone_path.to_path_buf());
-        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
         let tar_gz = PathBuf::from("testdata/sample.gz");
 
@@ -709,11 +743,23 @@ mod tests {
     }
 
     #[test]
+    fn test_port_helpers() {
+        use crate::util::{local_port_available, port_in_use};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!local_port_available(port));
+        assert!(port_in_use(port));
+        drop(listener);
+        assert!(local_port_available(port));
+        assert!(!port_in_use(port));
+    }
+
+    #[test]
     fn test_resolve_path_conflict() {
         let temp_lodestone_path = tempfile::tempdir().unwrap();
         let temp_lodestone_path = temp_lodestone_path.path();
         init_paths(temp_lodestone_path.to_path_buf());
-        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let temp_path = temp.path();
         let txt_path = temp_path.join("test.txt");
         assert_eq!(resolve_path_conflict(txt_path.clone(), None), txt_path);
@@ -742,7 +788,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zip_files() {
-        let temp = tempdir::TempDir::new("test_unzip_file").unwrap();
+        let temp = tempfile::TempDir::with_prefix("test_unzip_file").unwrap();
         let dest_path = temp.path().to_path_buf();
 
         assert_eq!(

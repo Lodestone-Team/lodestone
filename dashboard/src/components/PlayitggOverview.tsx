@@ -1,7 +1,7 @@
 import { useContext, useEffect } from 'react';
 import * as React from 'react';
 import { generatePlayitSignupLink, startCli, stopCli, verifyKey, getTunnels } from 'utils/apis';
-import { useEffectOnce } from 'usehooks-ts';
+import { useEffectOnce } from 'utils/hooks';
 import clsx from 'clsx';
 import Button from './Atoms/Button';
 import { PlayitSignupData } from 'bindings/PlayitSignupData';

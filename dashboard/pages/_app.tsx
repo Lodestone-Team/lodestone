@@ -1,18 +1,16 @@
 import 'rc-tooltip/assets/bootstrap.css';
 import 'globals.css';
-import 'react-toastify/dist/ReactToastify.css';
 import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
-import '@fortawesome/fontawesome-svg-core/styles.css';
 import axios from 'axios';
-import NoSSR from 'react-no-ssr';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter } from 'react-router';
 import { BrowserLocationContextProvider } from 'data/BrowserLocationContext';
 import { ToastContainer, Zoom, IconProps } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import ReactGA from 'react-ga4';
-import localFont from '@next/font/local';
+import ClientOnly from 'components/ClientOnly';
 
+// Font Awesome styles are imported (into a cascade layer) by globals.css
 config.autoAddCss = false;
 axios.defaults.timeout = 5000;
 const TRACKING_ID = 'G-LZQ3VZ6N26';
@@ -42,12 +40,11 @@ function MyApp({ Component, pageProps }: AppProps) {
 
   return (
     <main>
-      <NoSSR>
+      <ClientOnly>
         <ToastContainer
-          toastClassName="!bg-gray-850 cursor-pointer"
-          bodyClassName={() =>
-            'text-medium font-medium tracking-medium font-gray-300 p-1 flex flex-row'
-          }
+          // react-toastify 11 removed the toast body element (and bodyClassName),
+          // the message is now a direct child of the toast
+          toastClassName="!bg-gray-850 cursor-pointer text-medium font-medium tracking-medium"
           progressClassName={(context) => {
             const type = context?.type || 'info';
             return (
@@ -57,6 +54,8 @@ function MyApp({ Component, pageProps }: AppProps) {
           icon={renderIcon}
           position={'bottom-right'}
           closeButton={false}
+          // the default was true before react-toastify 10
+          closeOnClick
           pauseOnFocusLoss={false}
           draggable={false}
           pauseOnHover
@@ -68,7 +67,7 @@ function MyApp({ Component, pageProps }: AppProps) {
             <Component {...pageProps} />
           </BrowserLocationContextProvider>
         </BrowserRouter>
-      </NoSSR>
+      </ClientOnly>
     </main>
   );
 }

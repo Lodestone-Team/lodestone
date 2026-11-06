@@ -38,7 +38,7 @@ export default function ButtonMenu({ tableRows, rowIndex, menuItems, buttonIcon 
       />
       <Menu.Items
         className="absolute top-0 right-5 z-50 mr-0.5 divide-y divide-gray-faded/30
-          rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-none"
+          rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden"
       >
         <div className="py-2 px-1.5">
           {menuItems.map((menuItem, index) => (

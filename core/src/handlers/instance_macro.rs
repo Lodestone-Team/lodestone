@@ -219,20 +219,20 @@ pub async fn store_config_to_local(
 
 pub fn get_instance_macro_routes(state: AppState) -> Router {
     Router::new()
-        .route("/instance/:uuid/macro/run/:macro_name", put(run_macro))
-        .route("/instance/:uuid/macro/kill/:pid", put(kill_macro))
-        .route("/instance/:uuid/macro/list", get(get_instance_macro_list))
+        .route("/instance/{uuid}/macro/run/{macro_name}", put(run_macro))
+        .route("/instance/{uuid}/macro/kill/{pid}", put(kill_macro))
+        .route("/instance/{uuid}/macro/list", get(get_instance_macro_list))
         .route(
-            "/instance/:uuid/macro/config/get/:macro_name",
+            "/instance/{uuid}/macro/config/get/{macro_name}",
             get(get_macro_configs),
         )
         .route(
-            "/instance/:uuid/macro/config/store/:macro_name",
+            "/instance/{uuid}/macro/config/store/{macro_name}",
             post(store_config_to_local),
         )
-        .route("/instance/:uuid/task/list", get(get_instance_task_list))
+        .route("/instance/{uuid}/task/list", get(get_instance_task_list))
         .route(
-            "/instance/:uuid/history/list",
+            "/instance/{uuid}/history/list",
             get(get_instance_history_list),
         )
         .with_state(state)

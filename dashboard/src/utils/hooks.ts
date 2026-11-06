@@ -1,7 +1,67 @@
 import { BrowserLocationContext } from './../data/BrowserLocationContext';
-import { useCallback, useEffect, useRef, useState, useContext } from 'react';
+import {
+  EffectCallback,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useContext,
+} from 'react';
 import { useIsomorphicLayoutEffect, useLocalStorage } from 'usehooks-ts';
+import { hashKey, QueryKey, useQueryClient } from '@tanstack/react-query';
 import ReactGA from 'react-ga4';
+
+/**
+ * Runs an effect only on mount (and its cleanup on unmount).
+ * Replaces useEffectOnce, which was removed in usehooks-ts 3.
+ */
+export function useEffectOnce(effect: EffectCallback) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(effect, []);
+}
+
+/**
+ * Calls onSuccess / onError every time the query with this key finishes a
+ * fetch while the calling component is mounted, like the useQuery callbacks
+ * that were removed in react-query 5. Manual setQueryData updates do not call
+ * onSuccess, same as before.
+ */
+export function useQueryFetchCallbacks<TData = unknown, TError = Error>(
+  queryKey: QueryKey,
+  {
+    onSuccess,
+    onError,
+  }: {
+    onSuccess?: (data: TData) => void;
+    onError?: (error: TError) => void;
+  }
+) {
+  const queryClient = useQueryClient();
+  const queryHash = hashKey(queryKey);
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+
+  // Remember the latest callbacks if they change.
+  useIsomorphicLayoutEffect(() => {
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+  });
+
+  useEffect(
+    () =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (event.type !== 'updated' || event.query.queryHash !== queryHash)
+          return;
+        const { action } = event;
+        if (action.type === 'success' && !action.manual) {
+          onSuccessRef.current?.(action.data as TData);
+        } else if (action.type === 'error') {
+          onErrorRef.current?.(action.error as TError);
+        }
+      }),
+    [queryClient, queryHash]
+  );
+}
 
 export function useIntervalImmediate(
   callback: () => void,

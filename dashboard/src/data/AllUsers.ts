@@ -3,9 +3,9 @@ import axios from 'axios';
 import { PublicUser } from 'bindings/PublicUser';
 
 export const useAllUsers = (enabled = true) =>
-  useQuery<{ [uid: string]: PublicUser }, Error>(
-    ['user', 'list'],
-    () =>
+  useQuery<{ [uid: string]: PublicUser }, Error>({
+    queryKey: ['user', 'list'],
+    queryFn: () =>
       axios.get<PublicUser[]>('/user/list').then((response) => {
         if (response.status !== 200) {
           throw new Error('Invalid status code');
@@ -21,7 +21,5 @@ export const useAllUsers = (enabled = true) =>
           {}
         );
       }),
-    {
-      enabled: enabled,
-    }
-  );
+    enabled: enabled,
+  });

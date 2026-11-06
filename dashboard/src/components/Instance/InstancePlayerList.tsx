@@ -73,18 +73,23 @@ export default function InstancePlayerList() {
       </button>
       {updatedPlayerList && updatedPlayerList.length > 0 ? (
         <PlayerListCard>
-          {updatedPlayerList.map((player) => (
-            <PlayerListItem key={player.uuid}>
-              <img
-                src={`${mcHeadURL}${player.uuid}/${avatarDimension}.png`}
-                alt={`Avatar of ${player.name}`}
-                className="mx-1 h-4 w-4"
-                draggable="false"
-                style={{ imageRendering: 'pixelated', userSelect: 'none' }}
-              />
-              <div className="mx-1 text-medium">{player.name}</div>
-            </PlayerListItem>
-          ))}
+          {updatedPlayerList.map((player) => {
+            // Only Minecraft players have a uuid (GenericPlayer has an id)
+            const playerUuid =
+              player.type === 'MinecraftPlayer' ? player.uuid : undefined;
+            return (
+              <PlayerListItem key={playerUuid}>
+                <img
+                  src={`${mcHeadURL}${playerUuid}/${avatarDimension}.png`}
+                  alt={`Avatar of ${player.name}`}
+                  className="mx-1 h-4 w-4"
+                  draggable="false"
+                  style={{ imageRendering: 'pixelated', userSelect: 'none' }}
+                />
+                <div className="mx-1 text-medium">{player.name}</div>
+              </PlayerListItem>
+            );
+          })}
         </PlayerListCard>
       ) : (
         <PlayerListCard className="border-2 border-dashed">

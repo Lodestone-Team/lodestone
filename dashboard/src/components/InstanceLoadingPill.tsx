@@ -19,8 +19,8 @@ export default function InstanceLoadingPill({
         'rounded-md py-1 px-2',
         'text-medium font-bold leading-5 tracking-medium',
         'text-white/50 ui-checked:text-gray-300',
-        'ui-checked:bg-gray-800 ui-checked:outline ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
-        'focus-visible:outline-none enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
+        'ui-checked:bg-gray-800 ui-checked:outline-solid ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
+        'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
       )}
     >
       <div className="h-4 w-4">

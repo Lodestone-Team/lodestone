@@ -49,6 +49,8 @@ const ResizePanel = forwardRef(
   ) => {
     const contentRef = React.useRef<HTMLDivElement>(null);
     const wrapperRef = React.useRef<HTMLDivElement>(null);
+    // React 19 has no findDOMNode, so DraggableCore needs an explicit nodeRef
+    const handleRef = React.useRef<HTMLDivElement>(null);
     const wrappedCombinedRef = useCombinedRefs<HTMLDivElement>(ref, wrapperRef);
 
     const isHorizontal = direction === 'w' || direction === 'e';
@@ -144,8 +146,7 @@ const ResizePanel = forwardRef(
       isHorizontal ? 'flex-row' : 'flex-col'
     } ${containerClassNamesProps}`;
 
-    // eslint-disable-next-line prefer-const
-    let containerStyle = { ...style } || ({} as React.CSSProperties);
+    const containerStyle: React.CSSProperties = { ...style };
     if (size !== 0 && !grow) {
       containerStyle.flexGrow = 0;
       containerStyle[isHorizontal ? 'width' : 'height'] = 'auto';
@@ -181,11 +182,12 @@ const ResizePanel = forwardRef(
     const handle = (
       <DraggableCore
         key="handle"
+        nodeRef={handleRef}
         onDrag={handleDrag}
         onStop={handleDragEnd}
         onStart={() => setCursor(isHorizontal ? 'ew-resize' : 'ns-resize')}
       >
-        <div className={resizeBarClassNames}></div>
+        <div ref={handleRef} className={resizeBarClassNames}></div>
       </DraggableCore>
     );
 

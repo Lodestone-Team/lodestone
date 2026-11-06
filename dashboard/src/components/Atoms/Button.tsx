@@ -23,7 +23,7 @@ const buttonClasses = cva(
         between: 'justify-between',
       },
       size: {
-        slim: ['gap-1 rounded-sm p-1 text-small'],
+        slim: ['gap-1 rounded-xs p-1 text-small'],
         medium: ['gap-1.5 rounded py-1 px-2 text-medium'],
         large: ['gap-1.5 rounded py-1.5 px-3 text-h3'],
       },
@@ -49,7 +49,7 @@ const buttonClasses = cva(
         ],
       },
       variant: {
-        contained: 'outline outline-1',
+        contained: 'outline-solid outline-1',
         text: '',
       },
     },
@@ -120,7 +120,7 @@ const Button = forwardRef(
               <BeatLoader
                 size={5}
                 color="#6b7280"
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform"
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
               />
             )}
             <span className={clsx(loading && 'opacity-0')}>{label}</span>

@@ -6,26 +6,31 @@ on:
       - main
       - releases/**
 
+permissions:
+  contents: read
+
 jobs:
   workspace-check:
     uses: ./.github/workflows/workspace-check.yml
-    secrets: inherit
 
   core-cargo-test:
     uses: ./.github/workflows/core-cargo-test.yml
-    secrets: inherit
 
   dashboard-build-and-draft:
     uses: ./.github/workflows/dashboard-build-and-draft.yml
     needs: [workspace-check, core-cargo-test]
+    # The called job declares contents: write (needed only when it drafts a release).
+    permissions:
+      contents: write
     with:
       debug: false
       version: null
-    secrets: inherit
 
   core-build-and-draft:
     uses: ./.github/workflows/core-build-and-draft.yml
     needs: [workspace-check, core-cargo-test]
+    # The called job declares contents: write (needed only when it drafts a release).
+    permissions:
+      contents: write
     with:
       version: null
-    secrets: inherit

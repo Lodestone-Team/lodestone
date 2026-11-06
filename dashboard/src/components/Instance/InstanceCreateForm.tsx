@@ -1,8 +1,7 @@
 import Button from 'components/Atoms/Button';
 import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef, useState, useEffect, useMemo } from 'react';
-import { useEffectOnce } from 'usehooks-ts';
-import useAnalyticsEventTracker from 'utils/hooks';
+import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 import { axiosWrapper, catchAsyncToString } from 'utils/util';
 import {
   autoSettingPageObject,
@@ -51,7 +50,7 @@ export default function InstanceCreateForm({
 
   const {
     data: setup_manifest,
-    isLoading,
+    isPending: isLoading,
     error,
   } = gameType === 'Generic'
     ? SetupGenericInstanceManifest(gameType, url, genericFetchReady)

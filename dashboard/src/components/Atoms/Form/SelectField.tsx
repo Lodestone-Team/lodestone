@@ -8,6 +8,7 @@ import clsx from 'clsx';
 
 export type SelectFieldProps<T extends string | object> = FieldHookConfig<T> & {
   label?: string;
+  placeholder?: string;
   loading?: boolean;
   options: T[];
   actionIcon?: IconDefinition;
@@ -106,7 +107,7 @@ export default function SelectField<T extends string | object>(
         <Listbox
           value={selectedValue ? selectedValue : ''}
           name={field.name}
-          onChange={(newValue: string) => {
+          onChange={(newValue: T | '') => {
             // need to generate a fake React.ChangeEvent
             const event = {
               target: {

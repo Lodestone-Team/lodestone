@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ParseResult } from 'minecraft-motd-util/dist/types';
+import { ParseResult } from 'utils/motd';
 import React from 'react';
 
 const colors: {

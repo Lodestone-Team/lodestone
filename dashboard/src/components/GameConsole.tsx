@@ -169,7 +169,7 @@ export default function GameConsole() {
       </div> */}
       <div className="font-mono text-small mb-3 flex flex-row w-full justify-between">
             <input
-              className="w-full rounded-lg bg-gray-850 py-1 px-4 text-gray-300 outline-white/50 placeholder:text-gray-500 focus-visible:outline focus:outline-none disabled:placeholder:text-gray-500"
+              className="w-full rounded-lg bg-gray-850 py-1 px-4 text-gray-300 placeholder:text-gray-500 focus:outline-hidden disabled:placeholder:text-gray-500"
               placeholder={'Search console...'}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -236,7 +236,7 @@ export default function GameConsole() {
             }}
           >
             <input
-              className="w-full rounded-b-lg bg-gray-850 py-3 px-4 text-gray-300 outline-white/50 focus:outline-none placeholder:text-gray-500 focus-visible:outline focus-visible:outline-2 disabled:placeholder:text-gray-500"
+              className="w-full rounded-b-lg bg-gray-850 py-3 px-4 text-gray-300 focus:outline-hidden placeholder:text-gray-500 disabled:placeholder:text-gray-500"
               placeholder={consoleInputMessage || 'Enter command...'}
               value={command}
               onChange={(e) => setCommand(e.target.value)}

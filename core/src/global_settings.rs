@@ -20,7 +20,12 @@ pub struct GlobalSettingsData {
 impl Default for GlobalSettingsData {
     fn default() -> Self {
         Self {
-            core_name: format!("{}'s Lodestone Core", whoami::realname()),
+            core_name: format!(
+                "{}'s Lodestone Core",
+                whoami::realname()
+                    .or_else(|_| whoami::username())
+                    .unwrap_or_else(|_| "Unknown".to_string())
+            ),
             safe_mode: true,
             domain: None,
             playit_enabled: true,
@@ -181,7 +186,7 @@ mod tests {
         use std::path::PathBuf;
 
         // create a temporary directory
-        let temp_dir = tempdir::TempDir::new("test_global_settings").unwrap();
+        let temp_dir = tempfile::TempDir::with_prefix("test_global_settings").unwrap();
 
         // create a global settings object
 
