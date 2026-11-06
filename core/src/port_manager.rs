@@ -41,12 +41,6 @@ impl PortManager {
         self.allocated_ports.remove(&port);
     }
 
-    /// Forwards `port` on the UPnP gateway. Prefer [`PortManager::open_upnp_port`], which
-    /// does not need the port manager (and its lock) at all.
-    pub async fn open_port(&self, port: u16) -> Result<(), Error> {
-        Self::open_upnp_port(port).await
-    }
-
     /// Forwards TCP `port` on the local network's UPnP gateway to this machine.
     ///
     /// The gateway search can take several seconds, so callers should not hold the
