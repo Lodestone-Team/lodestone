@@ -23,8 +23,8 @@ import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import {
-  isGenericInstance,
-  OWNER_ONLY_GENERIC_MESSAGE,
+  isAtomInstance,
+  OWNER_ONLY_ATOM_MESSAGE,
   useCodeExecution,
 } from 'data/CodeExecution';
 import { LodestoneContext } from 'data/LodestoneContext';
@@ -90,14 +90,14 @@ export default function InstanceCard({
   const canStartInstance = useUserAuthorized('can_start_instance', uuid);
   const canStopInstance = useUserAuthorized('can_stop_instance', uuid);
   const gaEventTracker = useAnalyticsEventTracker('Instance Card');
-  // atom (Docker) instances are owner only, and can't start while code
+  // atom instances are owner only, and can't start while code
   // execution is disabled
   const { canManage, enabled: codeExecutionEnabled } = useCodeExecution();
-  const isGeneric = isGenericInstance({ game_type });
-  const genericBlockedReason =
-    isGeneric && !canManage ? OWNER_ONLY_GENERIC_MESSAGE : null;
-  const genericStartBlocked = isGeneric && !codeExecutionEnabled;
-  let disabled = !canViewInstance || genericBlockedReason !== null;
+  const isAtom = isAtomInstance({ uuid, game_type });
+  const atomBlockedReason =
+    isAtom && !canManage ? OWNER_ONLY_ATOM_MESSAGE : null;
+  const atomStartBlocked = isAtom && !codeExecutionEnabled;
+  let disabled = !canViewInstance || atomBlockedReason !== null;
   switch (stateToApiEndpointMap[state]) {
     case '/start':
       if (!canStartInstance) disabled = true;
@@ -111,7 +111,7 @@ export default function InstanceCard({
   }
 
   const stateToMenuInfo = () => {
-    if (genericBlockedReason) return [];
+    if (atomBlockedReason) return [];
     switch (state) {
       case 'Starting':
         return [{ label: 'Kill', icon: faPlug, onClick: powerButtonOnClick }];
@@ -207,7 +207,7 @@ export default function InstanceCard({
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}
-          overlay={<span>{genericBlockedReason ?? 'Power'}</span>}
+          overlay={<span>{atomBlockedReason ?? 'Power'}</span>}
           placement="top"
           trigger={['hover']}
           mouseEnterDelay={0.2}
@@ -216,7 +216,7 @@ export default function InstanceCard({
             <Menu.Button
               as={IconButton}
               icon={faPowerOff}
-              disabled={genericBlockedReason !== null}
+              disabled={atomBlockedReason !== null}
             />
             <Transition
               as={Fragment}
@@ -233,7 +233,7 @@ export default function InstanceCard({
                     <Menu.Item
                       key={i}
                       disabled={
-                        genericStartBlocked &&
+                        atomStartBlocked &&
                         (menuInfo.label === 'Start' ||
                           menuInfo.label === 'Restart')
                       }
@@ -251,7 +251,7 @@ export default function InstanceCard({
                       )}
                     </Menu.Item>
                   ))}
-                  {genericStartBlocked && (
+                  {atomStartBlocked && (
                     <p className="max-w-48 px-2 pt-1 text-small font-medium text-white/50 italic">
                       Code execution is disabled on this core
                     </p>

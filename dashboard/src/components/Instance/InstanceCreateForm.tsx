@@ -12,11 +12,9 @@ import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { FormFromManifest } from './Create/FormFromManifest';
 import GameTypeSelectForm from './Create/GameTypeSelectForm';
 import {
-  InstanceGameTypes,
   useGenericSetupInstanceManifest,
   useSetupInstanceManifest,
 } from 'data/InstanceGameTypes';
-import { useCodeExecution } from 'data/CodeExecution';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
 import WarningAlert from 'components/Atoms/WarningAlert';
@@ -42,30 +40,19 @@ export default function InstanceCreateForm({
   onComplete: () => void;
 }) {
   const [activeStep, setActiveStep] = useState(0);
-  const [selectedGameType, setGameType] =
-    useState<GenericHandlerGameType>('Generic');
+  const [gameType, setGameType] = useState<GenericHandlerGameType>('Generic');
   const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
   const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
   const [url, setUrl] = useState<string>(''); //the url the user enters
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
-  // atom (Docker) instances run code: owner only, and not while code
-  // execution is disabled
-  const { canRun: canCreateGeneric } = useCodeExecution();
-  const { data: gameTypes } = InstanceGameTypes();
-  // fall back to the first other game while Docker instances aren't allowed
-  const gameType: GenericHandlerGameType =
-    !canCreateGeneric && selectedGameType === 'Generic' && gameTypes?.length
-      ? gameTypes[0]
-      : selectedGameType;
-
   // Call both hooks every render (rules of hooks); only the one for the
   // selected game type is enabled.
   const genericManifestQuery = useGenericSetupInstanceManifest(
     gameType,
     url,
-    gameType === 'Generic' && genericFetchReady && canCreateGeneric
+    gameType === 'Generic' && genericFetchReady
   );
   const gameManifestQuery = useSetupInstanceManifest(
     gameType as HandlerGameType,
@@ -151,10 +138,10 @@ export default function InstanceCreateForm({
   // throws on failure
   const createInstance = async (value: SetupValue) => {
     if (gameType === 'Generic') {
-      if (!canCreateGeneric)
-        throw new Error(
-          'Only the owner can create Docker instances, and only while code execution is enabled'
-        );
+      // Left over from the removed atom flow. The Docker card has no
+      // container name field, so this step is never reached; the Docker
+      // flow's only request is the watch-list add in
+      // useGenericSetupInstanceManifest.
       await axiosWrapper<void>({
         method: 'post',
         url: `/instance/create_generic`,
@@ -318,9 +305,7 @@ export default function InstanceCreateForm({
                   type="submit"
                   label={formReady ? 'Create Instance' : 'Next'}
                   loading={isSubmitting}
-                  disabled={
-                    gameType === 'Generic' && (!urlValid || !canCreateGeneric)
-                  }
+                  disabled={gameType === 'Generic' && !urlValid}
                 />
               </div>
             </div>

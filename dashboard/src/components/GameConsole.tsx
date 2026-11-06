@@ -6,7 +6,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import { CommandHistoryContext } from 'data/CommandHistoryContext';
 import { useUserAuthorized } from 'data/UserInfo';
 import {
-  OWNER_ONLY_GENERIC_MESSAGE,
+  OWNER_ONLY_ATOM_MESSAGE,
   useCanControlInstance,
 } from 'data/CodeExecution';
 import Tooltip from 'rc-tooltip';
@@ -31,7 +31,7 @@ export default function GameConsole() {
     'can_access_instance_console',
     uuid
   );
-  // only the owner can send input to atom (Docker) instances
+  // only the owner can send input to atom instances
   const canControlInstance = useCanControlInstance(instance);
   const { consoleLog, consoleStatus } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
@@ -150,8 +150,7 @@ export default function GameConsole() {
   let consoleInputMessage = '';
   if (!canAccessConsole || consoleStatus === 'no-permission')
     consoleInputMessage = 'No permission';
-  else if (!canControlInstance)
-    consoleInputMessage = OWNER_ONLY_GENERIC_MESSAGE;
+  else if (!canControlInstance) consoleInputMessage = OWNER_ONLY_ATOM_MESSAGE;
   else if (instance.state === 'Stopped')
     consoleInputMessage = `Instance is ${instance.state.toLowerCase()}`;
   else if (consoleStatus === 'closed')

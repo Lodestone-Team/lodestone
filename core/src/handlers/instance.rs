@@ -25,7 +25,8 @@ use crate::{implementations::minecraft, traits::t_server::State as InstanceState
 
 use super::instance_setup_configs::HandlerGameType;
 use super::util::{
-    all_instances, get_instance, require_code_execution, require_owner_if_atom, AuthedUser,
+    all_instances, check_create_atom, get_instance, require_code_execution, require_owner_if_atom,
+    AuthedUser,
 };
 
 /// The longest instance name, in characters, that is used in the folder name.
@@ -253,8 +254,7 @@ pub async fn create_generic_instance(
     Json(setup_config): Json<GenericSetupConfig>,
 ) -> Result<Json<()>, Error> {
     // an atom is code that runs on the core
-    requester.owner_only("create atom instances")?;
-    require_code_execution(&state)?;
+    check_create_atom(&requester, &state.code_execution)?;
     let caused_by = requester.caused_by();
     let instance_uuid = InstanceUuid::default();
 
