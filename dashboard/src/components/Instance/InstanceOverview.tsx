@@ -10,6 +10,10 @@ import InstancePerformance from 'components/Instance/InstancePerformance';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import {
+  OWNER_ONLY_GENERIC_MESSAGE,
+  useCanControlInstance,
+} from 'data/CodeExecution';
 
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
@@ -23,6 +27,8 @@ const InstanceOverview = () => {
   const domain = globalSettings?.domain || address || 'localhost';
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
+  // only the owner can rename atom (Docker) instances
+  const canControlInstance = useCanControlInstance(instance);
 
   if (!instance || !uuid) {
     return (
@@ -79,6 +85,8 @@ const InstanceOverview = () => {
               onSubmit={setInstanceName}
               placeholder="No name"
               containerClassName="min-w-0"
+              disabled={!canControlInstance}
+              disabledTooltip={OWNER_ONLY_GENERIC_MESSAGE}
             />
           </div>
           <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
@@ -107,6 +115,8 @@ const InstanceOverview = () => {
               onSubmit={setInstanceDescription}
               placeholder="No description"
               containerClassName="min-w-0"
+              disabled={!canControlInstance}
+              disabledTooltip={OWNER_ONLY_GENERIC_MESSAGE}
             />
           </div>
         </div>

@@ -5,29 +5,18 @@ import Dropdown from './Atoms/Config/SelectBox';
 import InputBox from './Atoms/Config/InputBox';
 import { useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
-import { useUserAuthorized, useUserInfo } from 'data/UserInfo';
-import { useGlobalSettings } from 'data/GlobalSettings';
+import { useUserAuthorized } from 'data/UserInfo';
+import {
+  COMMAND_LINE_SETTINGS,
+  useCanControlInstance,
+  useCommandLineBlockedReason,
+  OWNER_ONLY_GENERIC_MESSAGE,
+} from 'data/CodeExecution';
 import ToggleBox from './Atoms/Config/ToggleBox';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
 import { AxiosError } from 'axios';
 import { toast } from 'react-toastify';
 import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';
-
-// Settings that choose the program an instance runs and its arguments. The
-// core answers 403 to anyone but the owner, or, with safe mode off, a user
-// allowed to write global files (handlers/instance_config.rs).
-const COMMAND_LINE_SETTINGS = ['java_cmd', 'cmd_args'];
-
-const useCanChangeCommandLine = () => {
-  const { data: user } = useUserInfo();
-  const { data: globalSettings } = useGlobalSettings();
-  if (!user) return false;
-  if (user.is_owner) return true;
-  return (
-    user.permissions.can_write_global_file &&
-    globalSettings?.safe_mode === false
-  );
-};
 
 export default function SettingField({
   instance,
@@ -47,16 +36,20 @@ export default function SettingField({
   onSubmit?: (updated: ConfigurableValue | null) => void
 }) {
   const { name: label, type, options, value: initialValue, min, max } = setting;
-  const canChangeCommandLine = useCanChangeCommandLine();
-  const ownerOnly =
-    COMMAND_LINE_SETTINGS.includes(settingId) && !canChangeCommandLine;
-  const is_mutable = setting.is_mutable && !ownerOnly;
-  const description = ownerOnly ? (
+  const commandLineBlockedReason = useCommandLineBlockedReason();
+  const canControlInstance = useCanControlInstance(instance);
+  // atom (Docker) instances can only be changed by the owner; java_cmd and
+  // cmd_args also need code execution to be enabled
+  const readOnlyReason = !canControlInstance
+    ? `${OWNER_ONLY_GENERIC_MESSAGE}.`
+    : COMMAND_LINE_SETTINGS.includes(settingId)
+      ? commandLineBlockedReason
+      : null;
+  const is_mutable = setting.is_mutable && !readOnlyReason;
+  const description = readOnlyReason ? (
     <>
       {setting.description}
-      <span className="block italic">
-        Only the owner can change this setting.
-      </span>
+      <span className="block italic">{readOnlyReason}</span>
     </>
   ) : (
     setting.description

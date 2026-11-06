@@ -22,6 +22,11 @@ import {
 import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import {
+  isGenericInstance,
+  OWNER_ONLY_GENERIC_MESSAGE,
+  useCodeExecution,
+} from 'data/CodeExecution';
 import { LodestoneContext } from 'data/LodestoneContext';
 import Tooltip from 'rc-tooltip';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -85,7 +90,14 @@ export default function InstanceCard({
   const canStartInstance = useUserAuthorized('can_start_instance', uuid);
   const canStopInstance = useUserAuthorized('can_stop_instance', uuid);
   const gaEventTracker = useAnalyticsEventTracker('Instance Card');
-  let disabled = !canViewInstance;
+  // atom (Docker) instances are owner only, and can't start while code
+  // execution is disabled
+  const { canManage, enabled: codeExecutionEnabled } = useCodeExecution();
+  const isGeneric = isGenericInstance({ game_type });
+  const genericBlockedReason =
+    isGeneric && !canManage ? OWNER_ONLY_GENERIC_MESSAGE : null;
+  const genericStartBlocked = isGeneric && !codeExecutionEnabled;
+  let disabled = !canViewInstance || genericBlockedReason !== null;
   switch (stateToApiEndpointMap[state]) {
     case '/start':
       if (!canStartInstance) disabled = true;
@@ -99,6 +111,7 @@ export default function InstanceCard({
   }
 
   const stateToMenuInfo = () => {
+    if (genericBlockedReason) return [];
     switch (state) {
       case 'Starting':
         return [{ label: 'Kill', icon: faPlug, onClick: powerButtonOnClick }];
@@ -194,13 +207,17 @@ export default function InstanceCard({
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}
-          overlay={<span>Power</span>}
+          overlay={<span>{genericBlockedReason ?? 'Power'}</span>}
           placement="top"
           trigger={['hover']}
           mouseEnterDelay={0.2}
         >
           <Menu as="div" className="relative">
-            <Menu.Button as={IconButton} icon={faPowerOff} />
+            <Menu.Button
+              as={IconButton}
+              icon={faPowerOff}
+              disabled={genericBlockedReason !== null}
+            />
             <Transition
               as={Fragment}
               enter="transition ease-out duration-200"
@@ -213,7 +230,14 @@ export default function InstanceCard({
               <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
                 <div className="py-2 px-1.5">
                   {stateToMenuInfo().map((menuInfo, i) => (
-                    <Menu.Item key={i}>
+                    <Menu.Item
+                      key={i}
+                      disabled={
+                        genericStartBlocked &&
+                        (menuInfo.label === 'Start' ||
+                          menuInfo.label === 'Restart')
+                      }
+                    >
                       {({ disabled }) => (
                         <Button
                           className="w-full gap-8 whitespace-nowrap"
@@ -227,6 +251,11 @@ export default function InstanceCard({
                       )}
                     </Menu.Item>
                   ))}
+                  {genericStartBlocked && (
+                    <p className="max-w-48 px-2 pt-1 text-small font-medium text-white/50 italic">
+                      Code execution is disabled on this core
+                    </p>
+                  )}
                 </div>
               </Menu.Items>
             </Transition>
