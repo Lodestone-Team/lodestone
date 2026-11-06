@@ -522,6 +522,8 @@ pub struct SetupManifest {
 }
 
 impl SetupManifest {
+    /// Checks that every setting in `value` exists and has the right type, and that every
+    /// required setting of the manifest has a value, even if its section was left out.
     pub fn validate_setup_value(&self, value: &SetupValue) -> Result<(), Error> {
         for (section_id, section_value) in value.setting_sections.iter() {
             if let Some(section) = self.setting_sections.get(section_id) {
@@ -529,8 +531,23 @@ impl SetupManifest {
             } else {
                 return Err(Error {
                     kind: ErrorKind::BadRequest,
-                    source: eyre!("Section not found"),
+                    source: eyre!("Section not found: {section_id}"),
                 });
+            }
+        }
+        for (section_id, section) in self.setting_sections.iter() {
+            for (setting_id, setting) in section.settings.iter() {
+                let has_value = value
+                    .setting_sections
+                    .get(section_id)
+                    .and_then(|s| s.settings.get(setting_id))
+                    .is_some_and(|s| s.value.is_some());
+                if setting.is_required && !has_value {
+                    return Err(Error {
+                        kind: ErrorKind::BadRequest,
+                        source: eyre!("Missing required setting: {setting_id}"),
+                    });
+                }
             }
         }
         Ok(())
@@ -726,6 +743,24 @@ impl ConfigurableManifest {
             .get_mut(section_id.as_ref())
             .map(|section| std::mem::take(&mut section.settings))
     }
+
+    /// Replaces all settings of a section in one step.
+    pub fn replace_section_settings(
+        &mut self,
+        section_id: &str,
+        settings: IndexMap<String, SettingManifest>,
+    ) -> Result<(), Error> {
+        match self.setting_sections.get_mut(section_id) {
+            Some(section) => {
+                section.settings = settings;
+                Ok(())
+            }
+            None => Err(Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("Section not found"),
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -813,5 +848,81 @@ impl SettingLocalCache {
 
     pub fn get_value(&self) -> &Option<ConfigurableValue> {
         &self.value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest() -> SetupManifest {
+        let mut settings = IndexMap::new();
+        settings.insert(
+            "port".to_string(),
+            SettingManifest::new_required_value(
+                "port".to_string(),
+                "Port".to_string(),
+                String::new(),
+                ConfigurableValue::UnsignedInteger(25565),
+                None,
+                false,
+                true,
+            ),
+        );
+        settings.insert(
+            "cmd_args".to_string(),
+            SettingManifest::new_optional_value(
+                "cmd_args".to_string(),
+                "Args".to_string(),
+                String::new(),
+                None,
+                ConfigurableValueType::String { regex: None },
+                None,
+                false,
+                true,
+            ),
+        );
+        let mut sections = IndexMap::new();
+        sections.insert(
+            "section_1".to_string(),
+            SectionManifest::new(
+                "section_1".to_string(),
+                String::new(),
+                String::new(),
+                settings,
+            ),
+        );
+        SetupManifest {
+            setting_sections: sections,
+        }
+    }
+
+    fn setup_value(sections: serde_json::Value) -> SetupValue {
+        serde_json::from_value(serde_json::json!({
+            "name": "test",
+            "description": null,
+            "auto_start": false,
+            "restart_on_crash": false,
+            "setting_sections": sections,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn missing_sections_or_required_settings_are_rejected() {
+        let manifest = manifest();
+        let check = |sections| manifest.validate_setup_value(&setup_value(sections));
+        assert!(check(serde_json::json!({})).is_err());
+        assert!(check(serde_json::json!({"section_1": {"settings": {}}})).is_err());
+        assert!(check(serde_json::json!({
+            "section_1": {"settings": {"port": {"value": null}}}
+        }))
+        .is_err());
+        assert!(check(serde_json::json!({"section_2": {"settings": {}}})).is_err());
+        // the optional setting may be left out
+        assert!(check(serde_json::json!({
+            "section_1": {"settings": {"port": {"value": {"type": "UnsignedInteger", "value": 25565}}}}
+        }))
+        .is_ok());
     }
 }
