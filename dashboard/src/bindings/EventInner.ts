@@ -12,4 +12,5 @@ export type EventInner =
   | ({ type: 'MacroEvent' } & MacroEvent)
   | ({ type: 'FSEvent' } & FSEvent)
   | ({ type: 'ProgressionEvent' } & ProgressionEvent)
-  | ({ type: 'PlayitggRunnerEvent' } & PlayitggRunnerEvent);
+  | ({ type: 'PlayitggRunnerEvent' } & PlayitggRunnerEvent)
+  | { type: 'GlobalSettingsChanged' };

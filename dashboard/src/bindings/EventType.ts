@@ -6,4 +6,5 @@ export type EventType =
   | 'MacroEvent'
   | 'FSEvent'
   | 'ProgressionEvent'
-  | 'PlayitggRunnerEvent';
+  | 'PlayitggRunnerEvent'
+  | 'GlobalSettingsChanged';
