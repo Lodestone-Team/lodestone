@@ -130,15 +130,9 @@ export default function InstanceSetting() {
         <div className="w-full min-w-0 rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
           <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
             <div className="flex min-w-0 grow flex-col">
-              {can_delete_instance ? (
-                <label className="text-medium font-medium text-gray-300">
-                  Delete Instance
-                </label>
-              ) : (
-                <label className="text-medium font-medium text-gray-300">
-                  Delete Instance
-                </label>
-              )}
+              <label className="text-medium font-medium text-gray-300">
+                Delete Instance
+              </label>
               {can_delete_instance ? (
                 <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
                   Permanently deletes this instance and its data
