@@ -5,6 +5,8 @@ import InputBox from 'components/Atoms/Config/InputBox';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { useGlobalSettings } from 'data/GlobalSettings';
+import { useCodeExecution } from 'data/CodeExecution';
+import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import { useUserInfo } from 'data/UserInfo';
@@ -44,6 +46,9 @@ export const CoreSettings = () => {
   const can_change_core_settings = userInfo?.is_owner ?? false;
   const [showSafemodeDialog, setShowSafemodeDialog] = useState(false);
   const [showOpenPortDialog, setShowOpenPortDialog] = useState(false);
+  const [showCodeExecutionDialog, setShowCodeExecutionDialog] = useState(false);
+  const { enabled: codeExecutionEnabled, locked: codeExecutionLocked } =
+    useCodeExecution();
   // use a promise to track if safemode is successfully disabled
 
   const errorString = errorToString(error);
@@ -131,6 +136,50 @@ export const CoreSettings = () => {
           });
         } else {
           setShowSafemodeDialog(true);
+        }
+      }}
+      optimistic={false}
+    />
+  );
+
+  const setCodeExecution = async (value: boolean) => {
+    await axiosPutSingleValue('/global_settings/code_execution', value);
+    queryClient.setQueryData(
+      ['global_settings'],
+      (old: GlobalSettingsData | undefined) =>
+        old && { ...old, code_execution_enabled: value }
+    );
+    // the core decides the final state (e.g. a lock), so read it back
+    queryClient.invalidateQueries({ queryKey: ['global_settings'] });
+  };
+
+  const codeExecutionField = (
+    <ToggleBox
+      label={'Code Execution'}
+      value={codeExecutionEnabled}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings || codeExecutionLocked}
+      canRead={userInfo !== undefined}
+      description={
+        codeExecutionLocked ? (
+          <>
+            Allow macros, atom instances, extensions, instance scripts and
+            custom Java commands to run on this core.
+            <span className="block italic">
+              Locked by the server administrator
+              (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).
+            </span>
+          </>
+        ) : (
+          'Allow macros, atom instances, extensions, instance scripts and custom Java commands to run on this core.'
+        )
+      }
+      onChange={async (value) => {
+        if (value) {
+          await setCodeExecution(true);
+        } else {
+          setShowCodeExecutionDialog(true);
         }
       }}
       optimistic={false}
@@ -258,6 +307,30 @@ export const CoreSettings = () => {
     </ConfirmDialog>
   );
 
+  const codeExecutionDialog = (
+    <ConfirmDialog
+      title="Turn off code execution?"
+      isOpen={showCodeExecutionDialog}
+      onConfirm={async () => {
+        const error = await catchAsyncToString(setCodeExecution(false));
+        if (error) {
+          toast.error(error);
+          return;
+        }
+        setShowCodeExecutionDialog(false);
+      }}
+      confirmButtonText="Turn off"
+      onClose={() => setShowCodeExecutionDialog(false)}
+      closeButtonText="Cancel"
+      type={'danger'}
+    >
+      Running macros and atom instances will be stopped. Macros, atom instances,
+      extensions, instance scripts and custom Java commands will not run on this
+      core until you turn code execution back on. Nothing is started again
+      automatically.
+    </ConfirmDialog>
+  );
+
   const openPortField = (
     <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
       <div className="flex min-w-0 grow flex-col">
@@ -307,6 +380,7 @@ export const CoreSettings = () => {
   return (
     <>
       {safeModeDialog}
+      {codeExecutionDialog}
       {openPortModal}
       <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container ">
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
@@ -335,6 +409,7 @@ export const CoreSettings = () => {
             </div>
             <div className="mb-10 w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
               {unsafeModeField}
+              {can_change_core_settings && codeExecutionField}
               {openPortField}
             </div>
           </div>
