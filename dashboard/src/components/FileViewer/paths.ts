@@ -5,10 +5,3 @@
 export const getDirectorySeparator = (instancePath: string) =>
   // assume only linux paths contain /
   instancePath.includes('/') ? '/' : '\\';
-
-/** Join a directory and a name with the given separator. */
-export const joinPath = (
-  directory: string,
-  name: string,
-  directorySeparator: string
-) => `${directory}${directorySeparator}${name}`;

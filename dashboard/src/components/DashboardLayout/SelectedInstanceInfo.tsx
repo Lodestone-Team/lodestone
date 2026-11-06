@@ -7,7 +7,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import InstanceCard from 'components/InstanceCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpand } from '@fortawesome/free-solid-svg-icons';
-import { tabs } from 'pages/InstanceTabs/InstanceTabs';
+import { tabs } from 'pages/InstanceTabs/tabList';
 import { useQueryClient } from '@tanstack/react-query';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { useGlobalSettings } from 'data/GlobalSettings';

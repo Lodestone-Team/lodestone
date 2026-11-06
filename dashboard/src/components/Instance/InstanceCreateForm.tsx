@@ -12,8 +12,8 @@ import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { FormFromManifest } from './Create/FormFromManifest';
 import GameTypeSelectForm from './Create/GameTypeSelectForm';
 import {
-  SetupGenericInstanceManifest,
-  SetupInstanceManifest,
+  useGenericSetupInstanceManifest,
+  useSetupInstanceManifest,
 } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import Spinner from 'components/DashboardLayout/Spinner';
@@ -48,13 +48,22 @@ export default function InstanceCreateForm({
     null
   );
 
+  // Call both hooks every render (rules of hooks); only the one for the
+  // selected game type is enabled.
+  const genericManifestQuery = useGenericSetupInstanceManifest(
+    gameType,
+    url,
+    gameType === 'Generic' && genericFetchReady
+  );
+  const gameManifestQuery = useSetupInstanceManifest(
+    gameType as HandlerGameType,
+    gameType !== 'Generic'
+  );
   const {
     data: setup_manifest,
     isPending: isLoading,
     error,
-  } = gameType === 'Generic'
-    ? SetupGenericInstanceManifest(gameType, url, genericFetchReady)
-    : SetupInstanceManifest(gameType as HandlerGameType);
+  } = gameType === 'Generic' ? genericManifestQuery : gameManifestQuery;
 
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const formikRef =

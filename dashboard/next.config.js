@@ -6,6 +6,11 @@ module.exports = (phase) => {
   const nextConfig = {
     // Static HTML export to out/ (replaces the removed `next export` command)
     output: 'export',
+    // Inlined into the bundle (see src/utils/version.ts), so package.json is
+    // not bundled just to read the version.
+    env: {
+      NEXT_PUBLIC_DASHBOARD_VERSION: require('./package.json').version,
+    },
   };
 
   // The dashboard is a react-router SPA served from a single page. Rewrites are

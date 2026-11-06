@@ -7,6 +7,7 @@ import { useContext } from 'react';
 import { createInstanceFile } from 'utils/apis';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
+import { useFileViewer } from './FileViewerContext';
 
 export default function CreateFileForm({
   onSuccess,
@@ -19,6 +20,7 @@ export default function CreateFileForm({
 }) {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
+  const { directorySeparator } = useFileViewer();
 
   if (!instance) throw new Error('No instance selected');
 
@@ -36,7 +38,8 @@ export default function CreateFileForm({
         const error = await createInstanceFile(
           instance.uuid,
           path,
-          values.name
+          values.name,
+          directorySeparator
         );
         if (error) {
           actions.setErrors({ name: error });

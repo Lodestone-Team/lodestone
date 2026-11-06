@@ -12,7 +12,7 @@ export const InstanceGameTypes = () =>
     },
   });
 
-export const SetupInstanceManifest = (
+export const useSetupInstanceManifest = (
   game_type: HandlerGameType,
   enabled = true
 ) => {
@@ -28,10 +28,10 @@ export const SetupInstanceManifest = (
   });
 };
 
-export const SetupGenericInstanceManifest = (
+export const useGenericSetupInstanceManifest = (
   game_type: GenericHandlerGameType,
   generic_instance_url: string,
-  url_is_ready: boolean
+  enabled: boolean
 ) => {
   return useQuery<SetupManifest, AxiosError>({
     // the manifest depends on the URL, a different URL is a different manifest
@@ -43,7 +43,7 @@ export const SetupGenericInstanceManifest = (
       );
       return response.data;
     },
-    enabled: url_is_ready,
+    enabled,
     gcTime: 0,
     retry: false,
   });

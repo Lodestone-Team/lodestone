@@ -6,23 +6,23 @@ import axios, { AxiosError } from 'axios';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 
+// The /system routes require login; axios sends the token by default
+// (set in pages/index.tsx).
+
+/** Bytes. `free` is the memory available to start new programs. */
 export interface MemInfo {
   total: number;
   free: number;
-  avail: number;
-  buffers: number;
-  cached: number;
-  swap_total: number;
-  swap_free: number;
 }
 
 export const useMemInfo = () => {
   return useQuery<MemInfo, AxiosError>({
     queryKey: ['systeminfo', 'meminfo'],
-    queryFn: () => axios.get<MemInfo>(`/system/memory`).then((res) => res.data),
+    queryFn: () => axios.get<MemInfo>(`/system/ram`).then((res) => res.data),
   });
 };
 
+/** Bytes, summed over all disks. */
 export interface DiskInfo {
   total: number;
   free: number;
@@ -35,8 +35,8 @@ export const useDiskInfo = () => {
   });
 };
 
+/** `cpu_speed` is the mean frequency in MHz, `cpu_load` the mean usage in percent. */
 export interface CPUInfo {
-  cpu_vendor: string;
   cpu_speed: number;
   cpu_load: number;
 }
