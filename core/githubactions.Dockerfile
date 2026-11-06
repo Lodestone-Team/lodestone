@@ -1,6 +1,6 @@
 # The binaries are built on ubuntu-24.04 runners (core-build-and-draft.yml), so this
 # image must ship the same or a newer glibc.
-FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852 AS base
+FROM ubuntu:25.10@sha256:7cc5e35f6567ee8c66d2abb4aab0fd866669e6207c237c3a8f0947a5c7f17092 AS base
 
 FROM base AS production-amd64
 ENV binpath="./release/lodestone_core_linux_x86_64_*"
