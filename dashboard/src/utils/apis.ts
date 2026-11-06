@@ -3,6 +3,7 @@ import axios from 'axios';
 import { ClientFile } from 'bindings/ClientFile';
 import { MacroEntry } from 'bindings/MacroEntry';
 import { LoginReply } from 'bindings/LoginReply';
+import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
 import { Base64 } from 'js-base64';
 import { toast } from 'react-toastify';
@@ -413,13 +414,13 @@ export async function loginToCore(
 
 /**
  * @throws ApiError
- * @returns LoginReply if success
+ * @returns the new user if success
  */
 export const createNewUser = async (values: {
   username: string;
   password: string;
 }) => {
-  return await axiosWrapper<LoginReply>({
+  return await axiosWrapper<PublicUser>({
     method: 'post',
     url: '/user',
     data: values,

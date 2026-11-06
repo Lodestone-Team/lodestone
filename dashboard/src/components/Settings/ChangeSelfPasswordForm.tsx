@@ -6,7 +6,7 @@ import InputField from 'components/Atoms/Form/InputField';
 import { useUid } from 'data/UserInfo';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
-import { changePassword, createNewUser } from 'utils/apis';
+import { changePassword } from 'utils/apis';
 import * as yup from 'yup';
 import WarningAlert from 'components/Atoms/WarningAlert';
 export type ChangeSelfPasswordValues = {
