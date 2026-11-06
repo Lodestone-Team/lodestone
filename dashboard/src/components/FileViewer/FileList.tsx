@@ -5,9 +5,9 @@ import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
 import { formatBytes, formatTimeAgo, supportedZip } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
-import React, { RefObject, useState, useEffect, useRef } from 'react';
-import { useEventListener, useOnClickOutside } from 'usehooks-ts';
-import { UnzipOption } from 'bindings/UnzipOption';
+import React, { RefObject, useMemo, useRef, useState } from 'react';
+import { useOnClickOutside } from 'usehooks-ts';
+import { useFileViewer } from './FileViewerContext';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -56,121 +56,42 @@ const iconMap: { [key: string]: string } = {
 };
 
 export default function FileList({
-  path,
   fileList,
   loading,
   error,
-  tickedFiles,
-  clipboard,
-  tickFile,
-  zipFiles,
-  unzipFile,
-  openedFile,
   atTopLevel,
   onParentClick,
   onEmptyClick,
   onFileClick,
-  setCreateFolderModalOpen,
-  setCreateFileModalOpen,
-  setModalPath,
-  setClipboard,
-  setClipboardAction,
-  pasteFiles,
-  clipboardAction,
-  setRenameFileModalOpen,
-  setTickedFiles,
-  deleteSingleFile,
-  deleteTickedFiles,
 }: {
-  path: string;
   fileList: ClientFile[] | undefined;
-  clipboard: ClientFile[] | undefined;
   loading: boolean;
   error: Error | null;
-  tickedFiles: ClientFile[];
-  tickFile: (file: ClientFile, ticked: boolean) => void;
-  zipFiles: (files: ClientFile[], dest: string) => void;
-  unzipFile: (file: ClientFile, unzipOption: UnzipOption) => void;
-  openedFile: ClientFile | null;
   atTopLevel: boolean;
   onParentClick: () => void;
   onEmptyClick: () => void;
-  pasteFiles: (path: string) => void;
   onFileClick: (file: ClientFile) => void;
-  setCreateFileModalOpen: (modalOpen: boolean) => void;
-  setRenameFileModalOpen: (modalOpen: boolean) => void;
-  setCreateFolderModalOpen: (modalOpen: boolean) => void;
-  setModalPath: (modalPath: string) => void;
-  setClipboard: (clipboard: ClientFile[]) => void;
-  clipboardAction: 'copy' | 'cut';
-  setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
-  setTickedFiles: (tickedFiles: ClientFile[]) => void;
-  deleteSingleFile: (file: ClientFile) => void;
-  deleteTickedFiles: () => void;
 }) {
-  const fileTicked = (file: ClientFile) => {
-    // check just the path and type, not other metadata
-    return tickedFiles.some(
-      (f) => f.path === file.path && f.file_type === file.file_type
-    );
-  };
+  const { tickedFiles, tickFile, openedFile, clipboard, clipboardAction } =
+    useFileViewer();
+
+  // check just the path and type, not other metadata
+  const tickedKeys = useMemo(
+    () => new Set(tickedFiles.map((f) => `${f.file_type}:${f.path}`)),
+    [tickedFiles]
+  );
+  const fileTicked = (file: ClientFile) =>
+    tickedKeys.has(`${file.file_type}:${file.path}`);
 
   const boundingDivRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const [mousePos, setMousePos] = useState<{ x: number; y: number }>({
-    x: 0,
-    y: 0,
-  });
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuCoords, setContextMenuCoords] = useState({ x: 0, y: 0 });
   const [contextMenuFile, setContextMenuFile] = useState<ClientFile | null>();
-  const [absCoords, setAbsCoords] = useState({ x: 0, y: 0 });
-  const [boundingDivDimensions, setBoundingDivDimensions] = useState({
-    height: 0,
-    width: 0,
-  });
 
   const contextMenuDimensionsWithoutUnzip = { height: 259, width: 176 }; // no unzip in menu (file name is null)
   const contextMenuDimensionsWithUnzip = { height: 337, width: 176 };
 
-  useEffect(() => {
-    if (boundingDivRef.current !== null) {
-      setBoundingDivDimensions({
-        height: boundingDivRef.current.offsetHeight,
-        width: boundingDivRef.current.offsetWidth,
-      });
-    }
-  }, [boundingDivRef]);
-
-  useEffect(() => {
-    if (boundingDivRef.current !== null) {
-      setAbsCoords({
-        x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX,
-        y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY,
-      });
-    }
-  }, []);
-
-  const onMouseMove = (e: MouseEvent) => {
-    setMousePos({ x: e.clientX - absCoords.x, y: e.clientY - absCoords.y });
-  };
-
-  const onResize = () => {
-    if (boundingDivRef.current !== null) {
-      setAbsCoords({
-        x: boundingDivRef.current.getBoundingClientRect().left + window.scrollX,
-        y: boundingDivRef.current.getBoundingClientRect().top + window.scrollY,
-      });
-      setBoundingDivDimensions({
-        height: boundingDivRef.current.offsetHeight,
-        width: boundingDivRef.current.offsetWidth,
-      });
-    }
-  };
-
-  useEventListener('mousemove', onMouseMove);
-  useEventListener('resize', onResize);
-  useEventListener('mousedown', onResize);
   useOnClickOutside(contextMenuRef as RefObject<HTMLDivElement>, () =>
     setShowContextMenu(false)
   );
@@ -220,7 +141,22 @@ export default function FileList({
     );
   }
 
-  const calculateContextMenuCoords = (file?: ClientFile) => {
+  // position the menu at the pointer, measured when the menu is opened
+  const calculateContextMenuCoords = (
+    e: React.MouseEvent,
+    file?: ClientFile
+  ) => {
+    const boundingDiv = boundingDivRef.current;
+    if (!boundingDiv) return;
+    const rect = boundingDiv.getBoundingClientRect();
+    const mousePos = {
+      x: e.clientX - (rect.left + window.scrollX),
+      y: e.clientY - (rect.top + window.scrollY),
+    };
+    const boundingDivDimensions = {
+      height: boundingDiv.offsetHeight,
+      width: boundingDiv.offsetWidth,
+    };
     let x = null;
     let y = null;
     let width = 0;
@@ -266,24 +202,9 @@ export default function FileList({
       {showContextMenu && (
         <FileContextMenu
           ref={contextMenuRef}
-          currentPath={path}
-          file={contextMenuFile as ClientFile}
+          file={contextMenuFile ?? null}
           coords={contextMenuCoords}
-          setCreateFileModalOpen={setCreateFileModalOpen}
-          setRenameFileModalOpen={setRenameFileModalOpen}
-          setCreateFolderModalOpen={setCreateFolderModalOpen}
           setShowContextMenu={setShowContextMenu}
-          setClipboard={setClipboard}
-          zipFiles={zipFiles}
-          unzipFile={unzipFile}
-          setModalPath={setModalPath}
-          setClipboardAction={setClipboardAction}
-          setTickedFiles={setTickedFiles}
-          tickedFiles={tickedFiles}
-          clipboard={clipboard}
-          pasteFiles={pasteFiles}
-          deleteSingleFile={deleteSingleFile}
-          deleteTickedFiles={deleteTickedFiles}
         />
       )}
       <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">
@@ -316,70 +237,74 @@ export default function FileList({
             </p>
           </div>
         )}
-        {fileList?.map((file: ClientFile) => (
-          <div
-            key={file.path}
-            className={clsx(fileTreeEntryClassName, 'hover:bg-gray-700', {
-              'bg-gray-900': file === openedFile,
-              'bg-gray-700': fileTicked(file) && file !== openedFile,
-              'bg-gray-800': !fileTicked(file) && file !== openedFile,
-            })}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setContextMenuFile(file);
-              calculateContextMenuCoords(file);
-              setShowContextMenu(true);
-              setModalPath(file.file_type === 'Directory' ? file.path : path);
-            }}
-          >
-            <Checkbox
-              checked={fileTicked(file)}
-              onChange={(ticked) => {
-                tickFile(file, ticked);
+        {fileList?.map((file: ClientFile) => {
+          // compare paths: the objects are replaced on every refetch
+          const isOpened = openedFile?.path === file.path;
+          const isTicked = fileTicked(file);
+          return (
+            <div
+              key={file.path}
+              className={clsx(fileTreeEntryClassName, 'hover:bg-gray-700', {
+                'bg-gray-900': isOpened,
+                'bg-gray-700': isTicked && !isOpened,
+                'bg-gray-800': !isTicked && !isOpened,
+              })}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenuFile(file);
+                calculateContextMenuCoords(e, file);
+                setShowContextMenu(true);
               }}
-            />
-            <div className="h-4 w-4 shrink-0">{fileToIcon(file)}</div>
-            <p
-              className={clsx(
-                'truncate hover:cursor-pointer hover:underline',
-                openedFile?.path === file.path && 'italic',
-                clipboardAction === 'cut' &&
-                  clipboard?.some((f) => f.path === file.path)
-                  ? 'text-gray-300/60 hover:text-blue-200/60'
-                  : 'text-gray-300 hover:text-blue-200'
-              )}
-              onClick={() => onFileClick(file)}
             >
-              {file.name}
-            </p>
-            <div className="grow"></div>
+              <Checkbox
+                checked={isTicked}
+                onChange={(ticked) => {
+                  tickFile(file, ticked);
+                }}
+              />
+              <div className="h-4 w-4 shrink-0">{fileToIcon(file)}</div>
+              <p
+                className={clsx(
+                  'truncate hover:cursor-pointer hover:underline',
+                  isOpened && 'italic',
+                  clipboardAction === 'cut' &&
+                    clipboard?.some((f) => f.path === file.path)
+                    ? 'text-gray-300/60 hover:text-blue-200/60'
+                    : 'text-gray-300 hover:text-blue-200'
+                )}
+                onClick={() => onFileClick(file)}
+              >
+                {file.name}
+              </p>
+              <div className="grow"></div>
 
-            <p className="hidden min-w-[8ch] text-left text-gray-500 @xs:inline">
-              {file.modification_time || file.creation_time
-                ? formatTimeAgo(
-                    Number(file.modification_time ?? file.creation_time) * 1000
-                  )
-                : 'Unknown Creation Time'}
-            </p>
+              <p className="hidden min-w-[8ch] text-left text-gray-500 @xs:inline">
+                {file.modification_time || file.creation_time
+                  ? formatTimeAgo(
+                      Number(file.modification_time ?? file.creation_time) *
+                        1000
+                    )
+                  : 'Unknown Creation Time'}
+              </p>
 
-            <p className="hidden min-w-[8ch] text-right text-gray-500 @sm:inline">
-              {file.file_type === 'Directory'
-                ? ''
-                : file.size
-                ? formatBytes(file.size, 1)
-                : ''}
-            </p>
-          </div>
-        ))}
+              <p className="hidden min-w-[8ch] text-right text-gray-500 @sm:inline">
+                {file.file_type === 'Directory'
+                  ? ''
+                  : file.size
+                    ? formatBytes(file.size, 1)
+                    : ''}
+              </p>
+            </div>
+          );
+        })}
         <div
           onClick={onEmptyClick}
           className="min-h-[25%] grow"
           onContextMenu={(e) => {
             e.preventDefault();
             setContextMenuFile(null);
-            calculateContextMenuCoords();
+            calculateContextMenuCoords(e);
             setShowContextMenu(true);
-            setModalPath(path);
           }}
         ></div>
       </div>

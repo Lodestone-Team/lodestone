@@ -1,11 +1,11 @@
-import React, { useState, useEffect, forwardRef } from 'react';
+import React, { forwardRef } from 'react';
 import ContextMenuButton from 'components/Atoms/ContextMenuButton';
 import { toast } from 'react-toastify';
 import { ClientFile } from 'bindings/ClientFile';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { supportedZip } from 'utils/util';
-import { requestInstanceFileUrl } from 'utils/apis';
-import { InstanceInfo } from 'bindings/InstanceInfo';
+import { useFileViewer } from './FileViewerContext';
+import { joinPath } from './paths';
 
 function generateZipText(
   tickedFiles: ClientFile[] | undefined,
@@ -47,97 +47,62 @@ const FileContextMenu = forwardRef(
   (
     {
       file,
-      currentPath,
       coords,
-      setCreateFileModalOpen,
-      setCreateFolderModalOpen,
-      setClipboard,
-      setClipboardAction,
-      setTickedFiles,
-      pasteFiles,
-      setModalPath,
-      tickedFiles,
-      clipboard,
       setShowContextMenu,
-      zipFiles,
-      unzipFile,
-      setRenameFileModalOpen,
-      deleteSingleFile,
-      deleteTickedFiles,
     }: {
       file: ClientFile | null;
       coords: { x: number; y: number };
-      currentPath: string;
-      setCreateFileModalOpen: (modalOpen: boolean) => void;
-      setCreateFolderModalOpen: (modalOpen: boolean) => void;
-      setRenameFileModalOpen: (modalOpen: boolean) => void;
       setShowContextMenu: (showContextMenu: boolean) => void;
-      setClipboard: (clipboard: ClientFile[]) => void;
-      zipFiles: (files: ClientFile[], dest: string) => void;
-      unzipFile: (file: ClientFile, unzipOption: UnzipOption) => void;
-      pasteFiles: (path: string) => void;
-      setClipboardAction: (clipboardAction: 'copy' | 'cut') => void;
-      setTickedFiles: (tickedFiles: ClientFile[]) => void;
-      setModalPath: (modalPath: string) => void;
-      deleteSingleFile: (file: ClientFile) => void;
-      deleteTickedFiles: () => void;
-      tickedFiles: ClientFile[] | undefined;
-      clipboard: ClientFile[] | undefined;
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
-    const [isMac, setIsMac] = useState(false);
-    useEffect(() => {
-      if (window.navigator.userAgent.indexOf('Mac') != -1) {
-        setIsMac(true);
-      }
-    }, []);
+    const {
+      path: currentPath,
+      directorySeparator,
+      tickedFiles,
+      setTickedFiles,
+      clipboard,
+      setClipboard,
+      setClipboardAction,
+      pasteFiles,
+      zipFiles,
+      unzipFile,
+      requestDelete,
+      openCreateFileModal,
+      openCreateFolderModal,
+      openRenameModal,
+    } = useFileViewer();
 
-    const deleteFile = async () => {
-      if (tickedFiles?.includes(file as ClientFile)) {
-        await deleteTickedFiles();
-      } else {
-        await deleteSingleFile(file as ClientFile);
-      }
-      setTickedFiles([]);
+    // right-clicking a ticked file acts on all ticked files, otherwise just on
+    // the clicked file. Compare paths: the objects are replaced on refetch.
+    const selection = (): ClientFile[] => {
+      if (!file) return [];
+      return tickedFiles.some((f) => f.path === file.path)
+        ? tickedFiles
+        : [file];
     };
 
-    const copyFile = async () => {
-      if (tickedFiles?.includes(file as ClientFile)) {
-        setClipboard(tickedFiles);
-      } else {
-        setClipboard([file as ClientFile]);
-      }
-      setTickedFiles([]);
-      setClipboardAction('copy');
-      // if ticked file is 0 and file is not null, return 1, else return ticked file length
-      const fileCount =
-        tickedFiles?.length === 0 && file !== null
-          ? 1
-          : tickedFiles?.length ?? 1;
-      const toastString = `${fileCount} item${
-        fileCount > 1 ? 's' : ''
-      } copied to clipboard`;
-      toast.info(toastString);
+    // new files and folders go into the right-clicked folder, or else the
+    // folder being shown
+    const targetDirectory =
+      file?.file_type === 'Directory' ? file.path : currentPath;
+
+    const deleteFile = () => {
+      // asks for confirmation first, like the toolbar's Delete
+      requestDelete(selection());
     };
 
-    const cutFile = async () => {
-      if (tickedFiles?.includes(file as ClientFile)) {
-        setClipboard(tickedFiles);
-      } else {
-        setClipboard([file as ClientFile]);
-      }
+    const copyOrCutFile = (action: 'copy' | 'cut') => {
+      const files = selection();
+      setClipboard(files);
       setTickedFiles([]);
-      setClipboardAction('cut');
-      // if ticked file is 0 and file is not null, return 1, else return ticked file length
-      const fileCount =
-        tickedFiles?.length === 0 && file !== null
-          ? 1
-          : tickedFiles?.length ?? 1;
-      const toastString = `${fileCount} item${
-        fileCount > 1 ? 's' : ''
-      } cut to clipboard`;
-      toast.info(toastString);
+      setClipboardAction(action);
+      const fileCount = files.length;
+      toast.info(
+        `${fileCount} item${fileCount > 1 ? 's' : ''} ${
+          action === 'copy' ? 'copied' : 'cut'
+        } to clipboard`
+      );
     };
 
     const unzip = async (unzipOption: UnzipOption) => {
@@ -165,9 +130,8 @@ const FileContextMenu = forwardRef(
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Copy"
-            // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
             onClick={() => {
-              copyFile();
+              copyOrCutFile('copy');
               setShowContextMenu(false);
             }}
             disabled={file === null}
@@ -175,9 +139,8 @@ const FileContextMenu = forwardRef(
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Cut"
-            // subLabel={ isMac ? "⌘+X" : "CTRL+X"}
             onClick={() => {
-              cutFile();
+              copyOrCutFile('cut');
               setShowContextMenu(false);
             }}
             disabled={file === null}
@@ -189,24 +152,19 @@ const FileContextMenu = forwardRef(
                 ? 'Paste'
                 : `Paste into ${file?.name}`
             }
-            // subLabel={ isMac ? "⌘+C" : "CTRL+C"}
             onClick={() => {
-              pasteFiles(
-                file?.file_type !== 'Directory' ? currentPath : file?.path
-              );
+              pasteFiles(targetDirectory);
               setShowContextMenu(false);
             }}
-            disabled={clipboard?.length === 0}
+            disabled={clipboard.length === 0}
           />
         </div>
         <div className="py-1">
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="Rename"
-            // subLabel={ isMac ? "⌘+R" : "CTRL+R"}
             onClick={() => {
-              setModalPath(file!.path);
-              setRenameFileModalOpen(true);
+              if (file) openRenameModal(file.path);
               setShowContextMenu(false);
             }}
             disabled={!file}
@@ -214,7 +172,6 @@ const FileContextMenu = forwardRef(
           <ContextMenuButton
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium text-red-200"
             label="Delete"
-            // iconComponent={<BackspaceIcon className="h-3.5 w-3.5 text-gray-300 opacity-50 group-hover:opacity-100" />}
             onClick={() => {
               deleteFile();
               setShowContextMenu(false);
@@ -227,14 +184,16 @@ const FileContextMenu = forwardRef(
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label={generateZipText(tickedFiles, file)}
             // disable if no file is ticked and if there is no file
-            disabled={tickedFiles?.length === 0 && !file}
+            disabled={tickedFiles.length === 0 && !file}
             onClick={() => {
               // if there is no file ticked, zip the current file to a zip file with the same name
               zipFiles(
-                tickedFiles?.length === 0
-                  ? [file! as ClientFile]
-                  : tickedFiles!,
-                `${currentPath}/` + generateZipFileName(tickedFiles!, file)
+                tickedFiles.length === 0 ? [file as ClientFile] : tickedFiles,
+                joinPath(
+                  currentPath,
+                  generateZipFileName(tickedFiles, file),
+                  directorySeparator
+                )
               );
               setTickedFiles([]);
               setShowContextMenu(false);
@@ -275,7 +234,7 @@ const FileContextMenu = forwardRef(
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New folder"
             onClick={() => {
-              setCreateFolderModalOpen(true);
+              openCreateFolderModal(targetDirectory);
               setShowContextMenu(false);
             }}
           />
@@ -283,7 +242,7 @@ const FileContextMenu = forwardRef(
             className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
             label="New file"
             onClick={() => {
-              setCreateFileModalOpen(true);
+              openCreateFileModal(targetDirectory);
               setShowContextMenu(false);
             }}
           />
