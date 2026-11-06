@@ -366,12 +366,13 @@ export const UserSettings = () => {
                 )}
                 <div className="-mt-6 mb-10">
                   <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
-                    Macros, Extensions and Docker Instances
+                    Macros, Extensions and Atom Instances
                   </div>
                   <div className="text-medium font-medium tracking-medium text-white/50 italic">
                     Only the owner can use macros, install extensions, and
-                    create or control atom (Docker) instances. These can&apos;t
-                    be granted to other users.
+                    create or control atom instances. These can&apos;t be
+                    granted to other users. Docker instances use the normal
+                    instance permissions.
                   </div>
                 </div>
               </div>
