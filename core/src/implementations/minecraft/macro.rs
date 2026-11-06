@@ -146,8 +146,10 @@ impl MinecraftInstance {
             })
     }
 
-    /// Keeps running macros and the newest finished ones.
-    async fn prune_task_history(&self) {
+    /// Keeps running macros and the newest finished ones. Also drops finished macros whose
+    /// exit status the executor no longer stores, which would otherwise look like they were
+    /// still running.
+    pub(super) async fn prune_task_history(&self) {
         let entries: Vec<(MacroPID, i64)> = self
             .pid_to_task_entry
             .lock()
@@ -156,16 +158,26 @@ impl MinecraftInstance {
             .map(|(pid, entry)| (*pid, entry.creation_time))
             .collect();
         let mut finished = Vec::new();
+        let mut forgotten = Vec::new();
         for (pid, creation_time) in entries {
+            // checked first: a macro's status is stored before it stops counting as running
+            if self.macro_executor.is_running(pid) {
+                continue;
+            }
             if self.macro_executor.get_macro_status(pid).await.is_some() {
                 finished.push((pid, creation_time));
+            } else {
+                forgotten.push(pid);
             }
         }
-        if finished.len() <= MAX_FINISHED_TASKS {
+        if finished.len() <= MAX_FINISHED_TASKS && forgotten.is_empty() {
             return;
         }
         finished.sort_by_key(|(_, creation_time)| std::cmp::Reverse(*creation_time));
         let mut tasks = self.pid_to_task_entry.lock().await;
+        for pid in forgotten {
+            tasks.shift_remove(&pid);
+        }
         for (pid, _) in finished.into_iter().skip(MAX_FINISHED_TASKS) {
             tasks.shift_remove(&pid);
         }
@@ -209,11 +221,14 @@ impl TMacro for MinecraftInstance {
             .collect();
         let mut ret = Vec::new();
         for entry in entries {
-            if self
-                .macro_executor
-                .get_macro_status(entry.pid)
-                .await
-                .is_none()
+            // a macro without a status is only running if the executor still tracks it;
+            // otherwise its status was forgotten long after it finished
+            if self.macro_executor.is_running(entry.pid)
+                && self
+                    .macro_executor
+                    .get_macro_status(entry.pid)
+                    .await
+                    .is_none()
             {
                 ret.push(entry);
             }

@@ -42,7 +42,7 @@ pub const DOWNLOAD_LINK_TTL: Duration = Duration::from_secs(60 * 60);
 pub(super) const MAX_WRITE_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 /// Largest file the read routes return. Bigger files must be downloaded instead.
-pub(super) const MAX_READ_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_READ_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The permission a download link's creator must still have when the link is used.
 #[derive(Clone)]
@@ -263,10 +263,7 @@ async fn list_files(
         .try_auth(&token)
         .ok_or_else(token_error)?;
 
-    requester.try_action(
-        &UserAction::ReadGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::ReadGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
     canonicalize_global_read(&path, false).await?;
@@ -296,10 +293,7 @@ async fn read_file(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::ReadGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::ReadGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
     canonicalize_global_read(&path, false).await?;
@@ -330,10 +324,7 @@ async fn write_file(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -366,10 +357,7 @@ async fn make_directory(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
     tokio::fs::create_dir(&path)
@@ -403,10 +391,7 @@ async fn move_file(
         .try_auth(&token)
         .ok_or_else(token_error)?;
 
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let is_dir = tokio::fs::symlink_metadata(&path_source)
         .await
@@ -446,10 +431,7 @@ async fn remove_file(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -481,10 +463,7 @@ async fn remove_dir(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -517,10 +496,7 @@ async fn new_file(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
 
@@ -553,10 +529,7 @@ async fn download_file(
         .await
         .try_auth(&token)
         .ok_or_else(token_error)?;
-    requester.try_action(
-        &UserAction::ReadGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::ReadGlobalFile, state.safe_mode())?;
     // a zipped folder contains everything below it, so folders that contain a store are
     // rejected too
     let path = canonicalize_global_read(&PathBuf::from(absolute_path), true).await?;
@@ -677,10 +650,7 @@ async fn upload_file(
         .try_auth(&token)
         .ok_or_else(token_error)?;
 
-    requester.try_action(
-        &UserAction::WriteGlobalFile,
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path_to_dir = PathBuf::from(absolute_path);
 
@@ -793,10 +763,7 @@ async fn download(
         .await
         .get_user(&owner)
         .ok_or_else(not_found)?;
-    owner.try_action(
-        &scope.action(),
-        state.global_settings.lock().await.safe_mode(),
-    )?;
+    owner.try_action(&scope.action(), state.safe_mode())?;
 
     let file = tokio::fs::File::open(&path)
         .await

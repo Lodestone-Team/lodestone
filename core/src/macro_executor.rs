@@ -451,12 +451,43 @@ const MACRO_START_TIMEOUT: Duration = Duration::from_secs(10);
 /// Longest error message kept in the exit status table.
 const MAX_STORED_ERROR_LEN: usize = 16 * 1024;
 
+/// How many exit statuses are kept. Older ones are forgotten, so a core that runs macros
+/// for a long time does not keep every status in memory.
+const MAX_EXIT_STATUSES: usize = 1000;
+
+/// The exit statuses of the most recently finished macros, oldest first.
+#[derive(Clone, Debug, Default)]
+struct ExitStatusTable(Arc<std::sync::Mutex<IndexMap<MacroPID, ExitStatus>>>);
+
+impl ExitStatusTable {
+    fn lock(&self) -> std::sync::MutexGuard<'_, IndexMap<MacroPID, ExitStatus>> {
+        // plain data, so it is still usable after a panic elsewhere
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Stores `exit_status` as the newest entry and forgets the oldest ones beyond
+    /// [`MAX_EXIT_STATUSES`].
+    fn insert(&self, pid: MacroPID, exit_status: ExitStatus) {
+        let mut table = self.lock();
+        table.shift_remove(&pid);
+        table.insert(pid, exit_status);
+        let excess = table.len().saturating_sub(MAX_EXIT_STATUSES);
+        if excess > 0 {
+            table.drain(..excess);
+        }
+    }
+
+    fn get(&self, pid: &MacroPID) -> Option<ExitStatus> {
+        self.lock().get(pid).cloned()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MacroExecutor {
     /// Macros that have been spawned and have not exited yet.
     macro_process_table: Arc<DashMap<MacroPID, MacroHandle>>,
-    /// Exit status of every macro that has exited.
-    exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
+    /// Exit status of the macros that exited most recently.
+    exit_status_table: ExitStatusTable,
     event_broadcaster: EventBroadcaster,
     next_process_id: Arc<AtomicUsize>,
     rt: tokio::runtime::Handle,
@@ -475,7 +506,7 @@ struct ExitRecorder {
     pid: MacroPID,
     instance_uuid: Option<InstanceUuid>,
     process_table: Arc<DashMap<MacroPID, MacroHandle>>,
-    exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
+    exit_status_table: ExitStatusTable,
     event_broadcaster: EventBroadcaster,
     recorded: Arc<AtomicBool>,
 }
@@ -534,7 +565,7 @@ impl MacroExecutor {
     pub fn new(event_broadcaster: EventBroadcaster, rt: tokio::runtime::Handle) -> MacroExecutor {
         MacroExecutor {
             macro_process_table: Arc::new(DashMap::new()),
-            exit_status_table: Arc::new(DashMap::new()),
+            exit_status_table: ExitStatusTable::default(),
             event_broadcaster,
             next_process_id: Arc::new(AtomicUsize::new(0)),
             rt,
@@ -576,6 +607,7 @@ impl MacroExecutor {
         // however late the caller first polls these futures.
         let exit_future = Box::pin(wait_for_exit(
             self.event_broadcaster.subscribe(),
+            self.macro_process_table.clone(),
             self.exit_status_table.clone(),
             pid,
         ));
@@ -775,9 +807,17 @@ impl MacroExecutor {
         wait_for_detach(self.event_broadcaster.subscribe(), target_macro_pid).await
     }
 
-    /// The exit status of a macro, or `None` while it is still running.
+    /// The exit status of a macro. `None` while it is still running, and also once it
+    /// finished so long ago that its status was forgotten (see [`MacroExecutor::is_running`]).
     pub async fn get_macro_status(&self, pid: MacroPID) -> Option<ExitStatus> {
-        self.exit_status_table.get(&pid).map(|v| v.clone())
+        self.exit_status_table.get(&pid)
+    }
+
+    /// Whether the macro has been spawned and has not finished. A macro's exit status is
+    /// stored before it stops counting as running, so a pid that is not running and has no
+    /// status finished long ago.
+    pub fn is_running(&self, pid: MacroPID) -> bool {
+        self.macro_process_table.contains_key(&pid)
     }
 
     pub async fn get_config_manifest(
@@ -820,7 +860,8 @@ async fn wait_for_detach(mut rx: broadcast::Receiver<Event>, target_macro_pid: M
 /// Waits until the macro emits its Stopped event and returns its exit status.
 async fn wait_for_exit(
     mut rx: broadcast::Receiver<Event>,
-    exit_status_table: Arc<DashMap<MacroPID, ExitStatus>>,
+    process_table: Arc<DashMap<MacroPID, MacroHandle>>,
+    exit_status_table: ExitStatusTable,
     target_macro_pid: MacroPID,
 ) -> Result<ExitStatus, Error> {
     loop {
@@ -836,11 +877,19 @@ async fn wait_for_exit(
             }) if macro_pid == target_macro_pid => return Ok(exit_status),
             Ok(_) => {}
             Err(broadcast::error::RecvError::Lagged(_)) => {
-                // the Stopped event may have been dropped; the status is stored before it
-                // is sent
-                if let Some(exit_status) = exit_status_table.get(&target_macro_pid) {
-                    return Ok(exit_status.clone());
+                // The Stopped event may have been dropped. The status is stored before the
+                // macro leaves the process table (and before the event is sent), so check
+                // the process table first.
+                if process_table.contains_key(&target_macro_pid) {
+                    continue;
                 }
+                if let Some(exit_status) = exit_status_table.get(&target_macro_pid) {
+                    return Ok(exit_status);
+                }
+                return Err(Error {
+                    kind: ErrorKind::Internal,
+                    source: eyre!("The exit status of {target_macro_pid} is no longer stored"),
+                });
             }
             Err(broadcast::error::RecvError::Closed) => {
                 return Err(Error {
@@ -2100,5 +2149,22 @@ mod tests {
             "class LodestoneConfig { id: string = 'a'; }\nlet a: LodestoneConfig;\nlet b: LodestoneConfig;"
         )
         .is_err());
+    }
+
+    #[test]
+    fn exit_status_table_keeps_the_newest_statuses() {
+        use super::{ExitStatusTable, MacroPID, MAX_EXIT_STATUSES};
+        let table = ExitStatusTable::default();
+        let status = |time| ExitStatus::Success { time };
+        // pid 0 finishes last, so it is the newest even though its pid is the smallest
+        for pid in 1..=MAX_EXIT_STATUSES + 10 {
+            table.insert(MacroPID(pid), status(pid as i64));
+        }
+        table.insert(MacroPID(0), status(0));
+        assert_eq!(table.lock().len(), MAX_EXIT_STATUSES);
+        assert!(table.get(&MacroPID(0)).is_some());
+        assert!(table.get(&MacroPID(11)).is_none());
+        assert!(table.get(&MacroPID(12)).is_some());
+        assert!(table.get(&MacroPID(MAX_EXIT_STATUSES + 10)).is_some());
     }
 }

@@ -54,14 +54,9 @@ pub async fn authenticate_query_token(state: &AppState, token: &str) -> Result<U
     authenticate(state, &token).await
 }
 
-/// Reads the safe mode flag. All permission checks go through this.
-pub async fn safe_mode(state: &AppState) -> bool {
-    state.global_settings.lock().await.safe_mode()
-}
-
 /// Checks that `user` may perform `action`, taking safe mode into account.
 pub async fn require(state: &AppState, user: &User, action: UserAction) -> Result<(), Error> {
-    user.try_action(&action, safe_mode(state).await)
+    user.try_action(&action, state.safe_mode())
 }
 
 /// A logged-in user, taken from the `Authorization: Bearer <jwt>` header.

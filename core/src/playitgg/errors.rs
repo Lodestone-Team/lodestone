@@ -47,7 +47,12 @@ impl From<ApiErrorNoFail<HttpClientError>> for CliError {
 
 impl Display for CliError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            CliError::InvalidClaimCode => write!(f, "Invalid playit.gg claim code"),
+            CliError::RequestError(e) => write!(f, "Request to playit.gg failed: {e:?}"),
+            CliError::ApiError(e) => write!(f, "playit.gg returned an error: {e:?}"),
+            CliError::ApiFail(fail) => write!(f, "playit.gg call failed: {fail}"),
+        }
     }
 }
 

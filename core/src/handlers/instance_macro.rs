@@ -50,7 +50,7 @@ pub async fn get_instance_task_list(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::AccessMacro(Some(uuid.clone())),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = get_instance(&state, &uuid)?;
     let tasks = instance.get_task_list().await?;
@@ -65,7 +65,7 @@ pub async fn get_instance_macro_list(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::AccessMacro(Some(uuid.clone())),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = get_instance(&state, &uuid)?;
     let macros = instance.get_macro_list().await?;
@@ -80,7 +80,7 @@ pub async fn get_instance_history_list(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::AccessMacro(Some(uuid.clone())),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = get_instance(&state, &uuid)?;
     let history = instance.get_history_list().await?;
@@ -96,7 +96,7 @@ pub async fn run_macro(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::AccessMacro(Some(uuid.clone())),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = get_instance(&state, &uuid)?;
 
@@ -142,7 +142,7 @@ pub async fn kill_macro(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::AccessMacro(Some(uuid.clone())),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = get_instance(&state, &uuid)?;
     instance.kill_macro(pid).await?;
@@ -155,7 +155,7 @@ pub async fn get_macro_configs(
     AuthBearer(token): AuthBearer,
 ) -> Result<Json<GetConfigResponse>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    let safe_mode = state.global_settings.lock().await.safe_mode();
+    let safe_mode = state.safe_mode();
     requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())), safe_mode)?;
 
     let instance = get_instance(&state, &uuid)?;
@@ -218,7 +218,7 @@ pub async fn store_config_to_local(
     Json(config_to_store): Json<IndexMap<String, SettingManifest>>,
 ) -> Result<(), Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
-    let safe_mode = state.global_settings.lock().await.safe_mode();
+    let safe_mode = state.safe_mode();
 
     requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())), safe_mode)?;
 

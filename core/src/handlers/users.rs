@@ -11,6 +11,7 @@ use crate::{
 
 use axum::{
     extract::{Path, State},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -224,21 +225,44 @@ pub struct LoginReply {
     pub user: PublicUser,
 }
 
+/// Logs in with HTTP basic auth.
+///
+/// After too many failed attempts for a username, it answers 429 with a `Retry-After`
+/// header until the window has passed (see [`crate::auth::login_limiter`]).
 pub async fn login(
     State(state): State<AppState>,
     AuthBasic((username, password)): AuthBasic,
+) -> Response {
+    let Some(password) = password else {
+        return Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("You must provide a password"),
+        }
+        .into_response();
+    };
+    // counts as a failure until the password is accepted; the same for unknown usernames,
+    // so the limit does not show which usernames exist
+    if let Err(limited) = state.login_limiter.begin_attempt(&username) {
+        return limited.into_response();
+    }
+    check_login(&state, &username, password)
+        .await
+        .into_response()
+}
+
+async fn check_login(
+    state: &AppState,
+    username: &str,
+    password: String,
 ) -> Result<Json<LoginReply>, Error> {
-    let password = password.ok_or_else(|| Error {
-        kind: ErrorKind::BadRequest,
-        source: eyre!("You must provide a password"),
-    })?;
     let user = state
         .users_manager
         .read()
         .await
-        .get_user_by_username(&username);
+        .get_user_by_username(username);
     // check the password without holding the users lock
     let user = run_argon2(move || check_credentials(user, &password)).await??;
+    state.login_limiter.record_success(username);
     Ok(Json(LoginReply {
         token: user.create_jwt()?,
         user: user.into(),

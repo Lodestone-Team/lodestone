@@ -133,6 +133,14 @@ pub async fn create_minecraft_instance(
     let flavour = game_type.try_into()?;
 
     let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
+    // Extra command line arguments can make Java run any code, so they need the same
+    // permission as changing them later (see `instance_config::set_instance_setting`).
+    // Creation does not accept a custom `java_cmd`.
+    if !setup_config.cmd_args.is_empty() {
+        requester
+            .require(&state, UserAction::WriteGlobalFile)
+            .await?;
+    }
 
     let setup_path = instance_setup_path(path_to_instances(), &setup_config.name, &instance_uuid);
 

@@ -20,7 +20,7 @@ use tracing::{error, info, warn};
 use virtual_fs::{get_virtual_path, to_virtual_path};
 
 use crate::error::ErrorKind;
-use crate::handlers::global_fs::FileEntry;
+use crate::handlers::global_fs::{FileEntry, MAX_READ_BYTES};
 use crate::persist::write_atomic;
 use crate::traits::t_configurable::Game::Generic;
 use crate::util::{list_dir, scoped_join_win_safe};
@@ -449,10 +449,7 @@ impl DockerBridge {
         }
         let (path, ..) = Self::resolve_virtual_path(&roots, &relative_path)?;
 
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .context("Failed to read file")?;
-        Ok(content)
+        crate::util::fs::read_to_string_capped(&path, MAX_READ_BYTES).await
     }
 
     pub async fn write_container_file(

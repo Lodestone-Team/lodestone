@@ -280,6 +280,7 @@ impl MinecraftInstance {
                         creation_time: chrono::Utc::now().timestamp(),
                     },
                 );
+                self.prune_task_history().await;
                 tokio::select! {
                     _ = exit_future => {
                         info!("Prelaunch script exited");

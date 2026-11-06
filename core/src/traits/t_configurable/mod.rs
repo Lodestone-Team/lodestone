@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use enum_kinds::EnumKind;
 pub use serde::{Deserialize, Serialize};
-pub use serde_json;
 use ts_rs::TS;
 
 use self::manifest::ConfigurableManifest;

@@ -174,7 +174,7 @@ async fn list_instance_files(
 
     requester.try_action(
         &UserAction::ReadInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     if uuid.to_string().starts_with("DOCKER-") {
         let files = state
@@ -225,7 +225,7 @@ async fn read_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::ReadInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     if uuid.to_string().starts_with("DOCKER-") {
         let file = state
@@ -265,7 +265,7 @@ async fn write_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let can_write_protected = can_write_protected(&requester);
     if uuid.to_string().starts_with("DOCKER-") {
@@ -323,7 +323,7 @@ async fn make_instance_directory(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -366,7 +366,7 @@ async fn copy_instance_files(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -538,7 +538,7 @@ async fn move_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -619,7 +619,7 @@ async fn remove_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -667,7 +667,7 @@ async fn remove_instance_dir(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -712,7 +712,7 @@ async fn new_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -749,7 +749,7 @@ async fn get_instance_file_url(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::ReadInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -827,7 +827,7 @@ async fn upload_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let can_write_protected = can_write_protected(&requester);
     let caused_by = CausedBy::User {
@@ -955,7 +955,7 @@ pub async fn unzip_instance_file(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let can_write_protected = can_write_protected(&requester);
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
@@ -1041,7 +1041,7 @@ async fn zip_instance_files(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
-        state.global_settings.lock().await.safe_mode(),
+        state.safe_mode(),
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
