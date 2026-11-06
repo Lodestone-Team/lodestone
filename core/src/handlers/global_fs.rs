@@ -42,7 +42,7 @@ pub const DOWNLOAD_LINK_TTL: Duration = Duration::from_secs(60 * 60);
 pub(super) const MAX_WRITE_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 /// Largest file the read routes return. Bigger files must be downloaded instead.
-pub(super) const MAX_READ_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_READ_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The permission a download link's creator must still have when the link is used.
 #[derive(Clone)]
