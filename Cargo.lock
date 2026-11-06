@@ -6680,6 +6680,9 @@ version = "0.5.1"
 dependencies = [
  "lodestone_core",
  "notify-rust",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "portpicker",
  "rustls",
  "serde",

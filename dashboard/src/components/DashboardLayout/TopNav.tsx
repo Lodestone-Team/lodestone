@@ -3,7 +3,8 @@ import { useContext } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 import TopBanner from 'components/Atoms/TopBanner';
-import { isTauriMacOS } from 'utils/tauriUtil';
+import clsx from 'clsx';
+import { isTauriMacOS, useIsDevBuild } from 'utils/tauriUtil';
 import { NotificationPopover } from './NotificationPopover';
 
 export default function TopNav() {
@@ -13,6 +14,7 @@ export default function TopNav() {
   // In the macOS app this bar replaces the native title bar: its empty areas move the
   // window, and the traffic-light buttons sit in the left column.
   const dragRegion = isTauriMacOS || undefined;
+  const isDevBuild = useIsDevBuild();
 
   return (
     <>
@@ -43,19 +45,34 @@ export default function TopNav() {
       <div
         data-tauri-drag-region={dragRegion}
         // Equal side columns keep the logo centred in the window.
-        className="grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-gray-faded/30 bg-gray-800 px-4 py-2 select-none"
+        className={clsx(
+          'grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b bg-gray-800 px-4 py-2 select-none',
+          // An amber edge marks local development builds, matching the DEV badge and app icon.
+          isDevBuild ? 'border-yellow-300/70' : 'border-gray-faded/30'
+        )}
       >
         <div className="h-full" data-tauri-drag-region={dragRegion} />
-        <img
-          src="/logo.svg"
-          alt="Lodestone"
-          className="w-28 hover:cursor-pointer"
-          onClick={() => {
-            setSearchParam('instance', undefined);
-            setSearchParam('user', undefined);
-            setPathname('/');
-          }}
-        />
+        <div className="relative">
+          <img
+            src="/logo.svg"
+            alt="Lodestone"
+            className="w-28 hover:cursor-pointer"
+            onClick={() => {
+              setSearchParam('instance', undefined);
+              setSearchParam('user', undefined);
+              setPathname('/');
+            }}
+          />
+          {isDevBuild && (
+            // Positioned outside the flow so the logo stays centred.
+            <span
+              title="Local development build"
+              className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-gray-900"
+            >
+              DEV
+            </span>
+          )}
+        </div>
         <div
           className="flex h-full flex-row items-center justify-end"
           data-tauri-drag-region={dragRegion}

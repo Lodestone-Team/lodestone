@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 // This is the only place where Tauri API import is allowed
 // eslint-disable-next-line no-restricted-imports
 import type * as tauriApi from '@tauri-apps/api'; // Import the Tauri API types (the module has no default export)
@@ -22,3 +24,15 @@ export const useTauri = (): tauri | undefined => tauri; // Export a hook that re
 // provide its own drag regions and leave room for the buttons.
 export const isTauriMacOS: boolean =
   globalTauriExists && /Mac/i.test(window.navigator.userAgent);
+
+// True for local development: the Next dev server, or a debug build of the desktop app.
+export const useIsDevBuild = (): boolean => {
+  const [tauriDebugBuild, setTauriDebugBuild] = useState(false);
+  useEffect(() => {
+    tauri?.core
+      .invoke<boolean>('is_debug_build')
+      .then(setTauriDebugBuild)
+      .catch(() => setTauriDebugBuild(false));
+  }, []);
+  return process.env.NODE_ENV === 'development' || tauriDebugBuild;
+};
