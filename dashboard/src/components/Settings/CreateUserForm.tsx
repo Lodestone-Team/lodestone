@@ -58,6 +58,7 @@ export const CreateUserForm = ({
             };
           }
         );
+        gaEventTracker('Create User', 'Success');
         onSuccess(values);
         actions.resetForm();
       })
@@ -67,7 +68,6 @@ export const CreateUserForm = ({
       })
       .finally(() => {
         actions.setSubmitting(false);
-        gaEventTracker('Create User', 'Success');
       });
   };
   return (
