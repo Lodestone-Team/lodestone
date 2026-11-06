@@ -52,6 +52,7 @@ impl From<&Event> for ClientEvent {
             },
             EventInner::FSEvent(_) => EventLevel::Info,
             EventInner::PlayitggRunnerEvent(_) => EventLevel::Info,
+            EventInner::GlobalSettingsChanged => EventLevel::Info,
         };
         ClientEvent {
             event_inner: event.event_inner.clone(),

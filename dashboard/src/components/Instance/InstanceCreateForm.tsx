@@ -47,7 +47,6 @@ export default function InstanceCreateForm({
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
-
   // Call both hooks every render (rules of hooks); only the one for the
   // selected game type is enabled.
   const genericManifestQuery = useGenericSetupInstanceManifest(
@@ -139,6 +138,10 @@ export default function InstanceCreateForm({
   // throws on failure
   const createInstance = async (value: SetupValue) => {
     if (gameType === 'Generic') {
+      // Left over from the removed atom flow. The Docker card has no
+      // container name field, so this step is never reached; the Docker
+      // flow's only request is the watch-list add in
+      // useGenericSetupInstanceManifest.
       await axiosWrapper<void>({
         method: 'post',
         url: `/instance/create_generic`,

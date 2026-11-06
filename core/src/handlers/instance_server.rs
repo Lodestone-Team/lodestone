@@ -20,7 +20,9 @@ use crate::{
     AppState,
 };
 
-use super::util::{get_instance, AuthedUser};
+use super::util::{
+    get_instance, is_atom, require_code_execution, require_owner_for_atom, AuthedUser,
+};
 
 fn is_docker(uuid: &InstanceUuid) -> bool {
     uuid.to_string().starts_with("DOCKER-")
@@ -39,6 +41,10 @@ pub async fn start_instance(
         return Ok(Json(()));
     }
     let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    if is_atom(&instance) {
+        require_code_execution(&state)?;
+    }
     let port = instance.port().await;
 
     // check if port is already in use
@@ -65,9 +71,9 @@ pub async fn stop_instance(
         state.docker_bridge.stop_container(&uuid).await?;
         return Ok(Json(()));
     }
-    get_instance(&state, &uuid)?
-        .stop(requester.caused_by(), false)
-        .await?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.stop(requester.caused_by(), false).await?;
     Ok(Json(()))
 }
 
@@ -86,9 +92,12 @@ pub async fn restart_instance(
         state.docker_bridge.restart_container(&uuid).await?;
         return Ok(Json(()));
     }
-    get_instance(&state, &uuid)?
-        .restart(requester.caused_by(), false)
-        .await?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    if is_atom(&instance) {
+        require_code_execution(&state)?;
+    }
+    instance.restart(requester.caused_by(), false).await?;
     Ok(Json(()))
 }
 
@@ -104,9 +113,9 @@ pub async fn kill_instance(
         state.docker_bridge.kill_container(&uuid).await?;
         return Ok(Json(json!("ok")));
     }
-    get_instance(&state, &uuid)?
-        .kill(requester.caused_by())
-        .await?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.kill(requester.caused_by()).await?;
     Ok(Json(json!("ok")))
 }
 
@@ -119,7 +128,9 @@ pub async fn send_command(
     requester
         .require(&state, UserAction::AccessConsole(uuid.clone()))
         .await?;
-    get_instance(&state, &uuid)?
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance
         .send_command(&command, requester.caused_by())
         .await
         .map(|_| Json(()))

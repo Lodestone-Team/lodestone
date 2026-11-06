@@ -283,6 +283,10 @@ impl MinecraftInstance {
                     }
                     change
                 }
+                // the command line can run any program, so it is part of code execution
+                "java_cmd" | "cmd_args" if !self.macro_executor.code_execution_enabled() => {
+                    return Err(crate::global_settings::code_execution_disabled_error());
+                }
                 "java_cmd" => {
                     let cmd = value.try_as_string()?.trim().to_string();
                     if cmd.is_empty() {

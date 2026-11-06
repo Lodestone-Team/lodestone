@@ -327,6 +327,9 @@ pub enum EventInner {
     FSEvent(FSEvent),
     ProgressionEvent(ProgressionEvent),
     PlayitggRunnerEvent(PlayitggRunnerEvent),
+    /// A global setting that changes what clients may do (such as code execution) changed.
+    /// Clients should fetch the global settings again.
+    GlobalSettingsChanged,
 }
 
 impl AsRef<EventInner> for EventInner {

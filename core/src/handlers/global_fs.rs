@@ -25,13 +25,15 @@ use crate::{
     auth::{user::UserAction, user_id::UserId},
     error::{Error, ErrorKind},
     events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEventID},
-    prelude::{lodestone_path, path_to_stores, path_to_tmp},
+    prelude::{lodestone_path, path_to_instances, path_to_stores, path_to_tmp},
     types::InstanceUuid,
     util::{list_dir, rand_alphanumeric, resolve_path_conflict, zip_files},
     AppState,
 };
 
-use super::util::decode_base64;
+use super::util::{
+    contains_script, decode_base64, is_in_macros_dir, is_script_path, require_code_write,
+};
 use tempfile::TempDir;
 
 /// How long a download link from `/fs/.../download` or `/instance/.../url` keeps working.
@@ -243,6 +245,78 @@ async fn canonicalize_global_read(
     Ok(path)
 }
 
+/// `path` with its longest existing ancestor canonicalized (so symbolic links are resolved)
+/// and the rest appended. `None` if the rest is not a plain relative path.
+async fn resolve_existing_prefix(path: &std::path::Path) -> Option<PathBuf> {
+    let mut existing = path;
+    let mut rest = Vec::new();
+    loop {
+        if let Ok(resolved) = tokio::fs::canonicalize(existing).await {
+            let mut resolved = resolved;
+            for name in rest.iter().rev() {
+                resolved.push(name);
+            }
+            return Some(resolved);
+        }
+        match (existing.parent(), existing.components().next_back()) {
+            (Some(parent), Some(std::path::Component::Normal(name))) => {
+                rest.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// `path` relative to `base`, comparing names without case on the platforms whose file
+/// systems usually ignore it.
+fn strip_base(path: &std::path::Path, base: &std::path::Path) -> Option<PathBuf> {
+    if let Ok(relative) = path.strip_prefix(base) {
+        return Some(relative.to_path_buf());
+    }
+    if !cfg!(any(windows, target_os = "macos")) {
+        return None;
+    }
+    let mut components = path.components();
+    for base_component in base.components() {
+        let component = components.next()?;
+        let same = component.as_os_str().to_string_lossy().to_lowercase()
+            == base_component.as_os_str().to_string_lossy().to_lowercase();
+        if !same {
+            return None;
+        }
+    }
+    Some(components.as_path().to_path_buf())
+}
+
+/// Whether `relative_path`, relative to the instances folder, is in an instance's macros
+/// folder (or is one).
+fn is_in_instance_macros_dir(relative_path: &std::path::Path) -> bool {
+    let mut components = relative_path.components();
+    // the instance's own folder
+    components.next();
+    is_in_macros_dir(components.as_path())
+}
+
+/// Whether creating or changing the absolute `path` creates or changes code: a script file,
+/// or anything in an instance's macros folder. Symbolic links are resolved first; a path
+/// that cannot be checked counts as code.
+async fn is_global_code_path(path: &std::path::Path, is_dir: bool) -> bool {
+    if !is_dir && is_script_path(path) {
+        return true;
+    }
+    let Some(resolved) = resolve_existing_prefix(path).await else {
+        return true;
+    };
+    if !is_dir && is_script_path(&resolved) {
+        return true;
+    }
+    let instances = tokio::fs::canonicalize(path_to_instances())
+        .await
+        .unwrap_or_else(|_| path_to_instances().clone());
+    strip_base(&resolved, &instances).is_some_and(|relative| is_in_instance_macros_dir(&relative))
+}
+
 fn token_error() -> Error {
     Error {
         kind: ErrorKind::Unauthorized,
@@ -327,6 +401,9 @@ async fn write_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    if is_global_code_path(&path, false).await {
+        require_code_write(&state, &requester)?;
+    }
 
     tokio::fs::write(&path, body)
         .await
@@ -360,6 +437,9 @@ async fn make_directory(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    if is_global_code_path(&path, true).await {
+        require_code_write(&state, &requester)?;
+    }
     tokio::fs::create_dir(&path)
         .await
         .context(format!("Failed to create directory {}", path.display()))?;
@@ -397,6 +477,13 @@ async fn move_file(
         .await
         .map(|m| m.is_dir())
         .unwrap_or(false);
+    // moving a script, or anything into a macros folder, creates code at the destination
+    if is_global_code_path(&path_dest, is_dir).await
+        || (!is_dir && is_script_path(&path_source))
+        || (is_dir && contains_script(path_source.clone()).await?)
+    {
+        require_code_write(&state, &requester)?;
+    }
     crate::util::fs::rename(&path_source, &path_dest).await?;
 
     let caused_by = CausedBy::User {
@@ -499,6 +586,9 @@ async fn new_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    if is_global_code_path(&path, false).await {
+        require_code_write(&state, &requester)?;
+    }
 
     tokio::fs::File::create(&path)
         .await
@@ -653,6 +743,9 @@ async fn upload_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path_to_dir = PathBuf::from(absolute_path);
+    if is_global_code_path(&path_to_dir, true).await {
+        require_code_write(&state, &requester)?;
+    }
 
     tokio::fs::create_dir_all(&path_to_dir)
         .await
@@ -679,6 +772,9 @@ async fn upload_file(
         while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
             let name = upload_file_name(&field)?;
             let path = resolve_path_conflict(path_to_dir.join(&name), None);
+            if is_global_code_path(&path, false).await {
+                require_code_write(&state, &requester)?;
+            }
             let mut file = create_upload_file(&path).await?;
             created_files.push(path.clone());
 
@@ -881,5 +977,75 @@ mod tests {
         let missing = FileEntry::from(temp.path().join("missing").as_path());
         assert!(matches!(missing.file_type, FileType::Unknown));
         assert_eq!(missing.modification_time, None);
+    }
+
+    #[test]
+    fn test_instance_macros_dir() {
+        let check = |p: &str| is_in_instance_macros_dir(std::path::Path::new(p));
+        assert!(check("server-1234/macros"));
+        assert!(check("server-1234/macros/prelaunch.ts"));
+        assert!(check("server-1234/MACROS/x/config.json"));
+        assert!(!check("server-1234"));
+        assert!(!check("server-1234/world/macros"));
+        assert!(!check("macros"));
+        assert!(!check(""));
+    }
+
+    #[test]
+    fn test_strip_base() {
+        let base = std::path::Path::new("/home/u/.lodestone/instances");
+        assert_eq!(
+            strip_base(
+                std::path::Path::new("/home/u/.lodestone/instances/a/macros"),
+                base
+            ),
+            Some(PathBuf::from("a/macros"))
+        );
+        assert_eq!(
+            strip_base(std::path::Path::new("/home/u/.lodestone/stores"), base),
+            None
+        );
+        let other_case = strip_base(
+            std::path::Path::new("/home/u/.lodestone/INSTANCES/a/macros"),
+            base,
+        );
+        if cfg!(any(windows, target_os = "macos")) {
+            assert_eq!(other_case, Some(PathBuf::from("a/macros")));
+        } else {
+            assert_eq!(other_case, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_existing_prefix() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = tokio::fs::canonicalize(temp.path()).await.unwrap();
+        std::fs::create_dir_all(root.join("instances/a/macros")).unwrap();
+        assert_eq!(
+            resolve_existing_prefix(&root.join("instances/a/macros/new/prelaunch.ts")).await,
+            Some(root.join("instances/a/macros/new/prelaunch.ts"))
+        );
+        // `..` after a folder that does not exist: Unix can't resolve it, so the path can't
+        // be checked. Windows removes `..` by name before it looks at the disk, so the path
+        // resolves to the folder that a write would really use.
+        #[cfg(unix)]
+        assert_eq!(
+            resolve_existing_prefix(&root.join("missing/../instances")).await,
+            None
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            resolve_existing_prefix(&root.join("missing/../instances")).await,
+            Some(root.join("instances"))
+        );
+        #[cfg(unix)]
+        {
+            // a link into a macros folder resolves to the folder
+            std::os::unix::fs::symlink(root.join("instances/a/macros"), root.join("link")).unwrap();
+            assert_eq!(
+                resolve_existing_prefix(&root.join("link/x.txt")).await,
+                Some(root.join("instances/a/macros/x.txt"))
+            );
+        }
     }
 }

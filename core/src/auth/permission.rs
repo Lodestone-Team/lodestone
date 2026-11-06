@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use ts_rs::TS;
 
 use crate::types::InstanceUuid;
@@ -15,7 +16,8 @@ pub struct UserPermission {
     pub can_read_instance_resource: HashSet<InstanceUuid>,
     // unsafe permission, owner exclusive unless explicitly granted
     pub can_write_instance_resource: HashSet<InstanceUuid>,
-    // unsafe permission, owner exclusive unless explicitly granted
+    // No longer grants anything: macros are owner only. Kept so that existing users.json
+    // files and clients still load; updates store it empty.
     pub can_access_instance_macro: HashSet<InstanceUuid>,
     pub can_read_instance_file: HashSet<InstanceUuid>,
     // unsafe permission, owner exclusive unless explicitly granted
@@ -28,6 +30,8 @@ pub struct UserPermission {
     pub can_write_global_file: bool,
     // owner exclusive unless explicitly granted
     pub can_manage_permission: bool,
+    // No longer grants anything: extensions are owner only. Kept so that existing
+    // users.json files and clients still load; updates store it as false.
     #[serde(default)]
     pub can_install_extension: bool,
 }
@@ -52,6 +56,24 @@ impl UserPermission {
             can_manage_permission: false,
             can_install_extension: false,
         }
+    }
+}
+
+impl UserPermission {
+    /// Clears `can_access_instance_macro` and `can_install_extension`, which grant nothing
+    /// since macros and extensions became owner only. Returns whether anything was set,
+    /// and logs it, so older clients that still send them keep working.
+    pub fn clear_owner_only_legacy_fields(&mut self) -> bool {
+        let had_legacy = !self.can_access_instance_macro.is_empty() || self.can_install_extension;
+        if had_legacy {
+            info!(
+                "Ignoring the macro and extension permissions in a permission update: macros \
+                 and extensions are owner only"
+            );
+            self.can_access_instance_macro.clear();
+            self.can_install_extension = false;
+        }
+        had_legacy
     }
 }
 

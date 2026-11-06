@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::util::require_code_execution;
 use crate::traits::t_configurable::manifest::SettingManifest;
 use crate::{
     auth::user::UserAction,
@@ -98,6 +99,7 @@ pub async fn run_macro(
         &UserAction::AccessMacro(Some(uuid.clone())),
         state.safe_mode(),
     )?;
+    require_code_execution(&state)?;
     let instance = get_instance(&state, &uuid)?;
 
     let valid_config = instance
@@ -221,6 +223,7 @@ pub async fn store_config_to_local(
     let safe_mode = state.safe_mode();
 
     requester.try_action(&UserAction::AccessMacro(Some(uuid.clone())), safe_mode)?;
+    require_code_execution(&state)?;
 
     let instance = get_instance(&state, &uuid)?;
 

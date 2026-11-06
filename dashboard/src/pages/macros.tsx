@@ -34,6 +34,11 @@ import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import TextCaption from 'components/Atoms/TextCaption';
 import { errorToString } from 'utils/util';
+import WarningAlert from 'components/Atoms/WarningAlert';
+import {
+  isCodeExecutionDisabledError,
+  useCodeExecution,
+} from 'data/CodeExecution';
 
 const MacroModalContents = ({
   initialMacroData,
@@ -129,6 +134,9 @@ const Macros = () => {
   const { selectedInstance } = useContext(InstanceContext);
   const uuid = selectedInstance?.uuid;
   const queryClient = useQueryClient();
+  // macros are owner only; running or configuring them also needs code
+  // execution to be enabled (listing, killing and history still work)
+  const { canManage, canRun } = useCodeExecution();
 
   // macro settings state; the modal is open while macroRow is set
   const [macroData, setMacroData] = useState<GetConfigResponse>();
@@ -141,19 +149,19 @@ const Macros = () => {
   const macrosQuery = useQuery({
     queryKey: macroListKey(uuid),
     queryFn: () => getMacros(uuid as string),
-    enabled: !!uuid,
+    enabled: !!uuid && canManage,
     staleTime: 0,
   });
   const tasksQuery = useQuery({
     queryKey: taskListKey(uuid),
     queryFn: () => getTasks(uuid as string),
-    enabled: !!uuid,
+    enabled: !!uuid && canManage,
     staleTime: 0,
   });
   const historyQuery = useQuery({
     queryKey: historyListKey(uuid),
     queryFn: () => getInstanceHistory(uuid as string),
-    enabled: !!uuid,
+    enabled: !!uuid && canManage,
     staleTime: 0,
   });
 
@@ -210,6 +218,7 @@ const Macros = () => {
   );
 
   const openMacroModal = async (row: TableRow) => {
+    if (!canRun) return;
     if (!uuid) {
       toast.error('Error opening macro config: No instance selected');
       return;
@@ -252,7 +261,7 @@ const Macros = () => {
               icon: faPlayCircle,
               variant: 'text',
               intention: 'info',
-              disabled: false,
+              disabled: !canRun,
               onClick: async (row: TableRow) => {
                 if (!uuid) {
                   toast.error('Error running macro: No instance selected');
@@ -266,6 +275,13 @@ const Macros = () => {
                 );
                 if (result !== '') {
                   toast.error(result);
+                  if (isCodeExecutionDisabledError(result)) {
+                    // the switch was turned off since we last checked
+                    queryClient.invalidateQueries({
+                      queryKey: ['global_settings'],
+                    });
+                    return;
+                  }
                   await openMacroModal(row);
                   return;
                 }
@@ -279,7 +295,7 @@ const Macros = () => {
               icon: faGear,
               variant: 'text',
               intention: 'info',
-              disabled: false,
+              disabled: !canRun,
               onClick: openMacroModal,
             },
           ],
@@ -356,12 +372,30 @@ const Macros = () => {
         ],
       },
     };
-  }, [macros, tasks, history, uuid, queryClient]);
+  }, [macros, tasks, history, uuid, queryClient, canRun]);
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
 
+  if (!canManage) {
+    return (
+      <div className="relative">
+        <div className="mb-4 text-white/50">
+          Macros are only available to the owner of this core.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative">
+      {!canRun && (
+        <div className="mb-4">
+          <WarningAlert>
+            Code execution is disabled on this core. Macros can&apos;t be run or
+            configured until it is turned back on in Core Settings.
+          </WarningAlert>
+        </div>
+      )}
       {/* <div className="absolute right-0 top-[-5rem]">
         <Button
           label="Create Macro"
@@ -380,6 +414,10 @@ const Macros = () => {
           confirmButtonText="Save"
           closeButtonText="Close"
           onConfirm={async () => {
+            if (!canRun) {
+              toast.error('Code execution is disabled on this core');
+              return;
+            }
             if (!uuid || !macroData) {
               // theoretically, this should never occur
               toast.error('Error: Invalid state');

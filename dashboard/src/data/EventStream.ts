@@ -350,6 +350,11 @@ export const useEventStream = () => {
         );
       },
       FSEvent: () => {},
+      // e.g. the code execution switch changed; the event has no payload
+      GlobalSettingsChanged: () => {
+        if (fresh)
+          queryClient.invalidateQueries({ queryKey: ['global_settings'] });
+      },
     });
   };
 
@@ -411,6 +416,7 @@ export const useEventStream = () => {
         if (isReconnect) {
           queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
           queryClient.invalidateQueries({ queryKey: ['user', 'info'] });
+          queryClient.invalidateQueries({ queryKey: ['global_settings'] });
         }
       },
       onMessage: (messageEvent) => {
