@@ -39,4 +39,4 @@ jobs:
         shared-key: workspace-${{ matrix.target }}-debug-build
 
     - name: Cargo Test Backend
-      run: cargo test --locked --no-fail-fast -- --test-threads=1
+      run: cargo test --locked --no-fail-fast
