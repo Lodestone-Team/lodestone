@@ -25,6 +25,7 @@ use launcher_core::{
 };
 
 use super::{Servers, ServersEvent, extras::note};
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
     theme::{self, colors, fonts, radius, text, weights},
@@ -363,6 +364,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                 let pick = id.clone();
                 div()
                     .id(SharedString::from(format!("lan-pick-{id}")))
+                    .keyboard_focus()
                     .flex()
                     .flex_row()
                     .items_center()

@@ -7,6 +7,7 @@ use gpui::{
 };
 use launcher_core::{Secret, cores::live::LauncherScope};
 
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, TextInput, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -263,8 +264,7 @@ impl Render for AddServerDialog {
             "Add server"
         };
         let expiry = self.expiry;
-        let pills = div()
-            .id("key-expiry")
+        let pills = crate::components::ArrowGroup::new("key-expiry")
             .flex()
             .flex_row()
             .gap_1()
@@ -277,6 +277,7 @@ impl Render for AddServerDialog {
                 let selected = choice == expiry;
                 div()
                     .id(choice.label())
+                    .keyboard_focus()
                     .px_3()
                     .py_1()
                     .rounded(radius::MD)

@@ -12,7 +12,7 @@ use gpui::{
 };
 
 use crate::{
-    components::Icon,
+    components::{ArrowGroup, FocusScope, Icon, focus::KeyboardFocus},
     theme::{self, Color, colors, fonts, leading, radius, shadow, text, weights},
 };
 
@@ -268,6 +268,13 @@ fn link_colored(
 ) -> Stateful<Div> {
     div()
         .id(id)
+        .keyboard_focus()
+        // Room for the focus ring around the text, without moving it.
+        .px_1()
+        .py_0p5()
+        .mx(px(-4.))
+        .my(px(-2.))
+        .rounded(radius::DEFAULT)
         .flex_none()
         .cursor_pointer()
         .font_weight(weights::BOLD.into())
@@ -281,6 +288,7 @@ fn link_colored(
 pub fn select_button(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
     div()
         .id(id)
+        .keyboard_focus_outer()
         .flex()
         .flex_row()
         .items_center()
@@ -301,12 +309,25 @@ pub fn select_button(id: impl Into<ElementId>, label: impl IntoElement) -> State
 /// column with `items_end` after the control: the anchored element takes the
 /// panel's width in that column, so its left edge is where the panel starts, and
 /// the panel lines up with the control's right edge.
-pub fn popover(panel: impl IntoElement) -> impl IntoElement {
+///
+/// It takes focus when it opens and keeps Tab inside it; Escape gives focus back to
+/// the control and calls `on_dismiss`, which should close it.
+pub fn popover(
+    id: impl Into<ElementId>,
+    panel: impl IntoElement,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
     deferred(
         anchored()
             .anchor(Anchor::TopLeft)
             .snap_to_window_with_margin(px(8.))
-            .child(div().mt_1().child(panel)),
+            .child(
+                FocusScope::new(id)
+                    .mt_1()
+                    .arrow_keys()
+                    .on_dismiss(on_dismiss)
+                    .child(panel),
+            ),
     )
     .with_priority(1)
 }
@@ -365,7 +386,7 @@ impl SectionNav {
     }
 }
 
-/// The list of sections beside a Settings page.
+/// The list of sections beside a Settings page. Up and Down move between them.
 pub fn section_list(
     id: &'static str,
     titles: &[SharedString],
@@ -373,7 +394,7 @@ pub fn section_list(
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let on_pick = Rc::new(on_pick);
-    div()
+    ArrowGroup::new((id, usize::MAX))
         .flex()
         .flex_col()
         .flex_none()
@@ -384,6 +405,7 @@ pub fn section_list(
             let selected = index == active;
             div()
                 .id((id, index))
+                .keyboard_focus()
                 .px_2p5()
                 .py_1p5()
                 .rounded(radius::LG)
@@ -527,6 +549,7 @@ pub fn section_menu_button(
 ) -> Stateful<Div> {
     div()
         .id(id)
+        .keyboard_focus()
         .flex()
         .flex_row()
         .flex_none()
@@ -544,14 +567,18 @@ pub fn section_menu_button(
 }
 
 /// A panel over the left of an area, with the rest dimmed; a click on the dimmed
-/// part calls `on_close`. Place it as the last child of a `relative` element.
+/// part, or Escape, calls `on_close`. Place it as the last child of a `relative`
+/// element. It takes focus when it opens and keeps Tab inside it.
 pub fn left_overlay(
     id: &'static str,
     panel: impl IntoElement,
     on_close: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
-    div()
-        .id(id)
+    let on_close = Rc::new(on_close);
+    let on_escape = on_close.clone();
+    FocusScope::new(id)
+        .arrow_keys()
+        .on_dismiss(move |window, cx| on_escape(&gpui::ClickEvent::default(), window, cx))
         .absolute()
         .inset_0()
         .occlude()
@@ -561,7 +588,7 @@ pub fn left_overlay(
                 .absolute()
                 .inset_0()
                 .bg(colors::GRAY_900.opacity(60))
-                .on_click(on_close),
+                .on_click(move |event, window, cx| on_close(event, window, cx)),
         )
         .child(
             div()

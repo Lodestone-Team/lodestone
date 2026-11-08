@@ -539,7 +539,8 @@ impl Render for TextInput {
         div()
             .id("text-input")
             .key_context("TextInput")
-            .track_focus(&self.focus_handle)
+            // A tab stop unless disabled.
+            .track_focus(&self.focus_handle.clone().tab_stop(!self.disabled))
             .flex()
             .items_center()
             .w_full()

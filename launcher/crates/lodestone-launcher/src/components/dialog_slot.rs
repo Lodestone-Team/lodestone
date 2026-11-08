@@ -7,11 +7,15 @@
 //! is over. See the module docs of [`super::dialog`] for how to use it.
 
 use std::{
+    cell::Cell,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
-use gpui::{AnyElement, Context, ElementId, FocusHandle, IntoElement, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, AnyWindowHandle, Context, ElementId, FocusHandle, IntoElement, Window, div,
+    prelude::*, px,
+};
 
 use super::dialog::prefers_reduced_motion;
 
@@ -142,6 +146,8 @@ struct Shown<T> {
     scope: FocusHandle,
     /// Read when the dialog starts closing: fade without the slide.
     reduced: bool,
+    /// The window the dialog was last drawn in, to move focus out of it as it closes.
+    window: Cell<Option<AnyWindowHandle>>,
 }
 
 /// The place of a dialog in its owner `V`, with what the dialog needs to render (`T`):
@@ -176,6 +182,7 @@ impl<V: 'static, T: 'static> DialogSlot<V, T> {
             value,
             scope: cx.focus_handle(),
             reduced: false,
+            window: Cell::new(None),
         };
         self.presence.open(shown, Instant::now(), EXIT);
         cx.notify();
@@ -191,6 +198,20 @@ impl<V: 'static, T: 'static> DialogSlot<V, T> {
         let (key, shown) = self.presence.close(Instant::now(), exit)?;
         shown.reduced = reduced;
         cx.notify();
+        // Focus leaves the dialog now, for what opened it: it no longer takes keys.
+        if let Some(window) = shown.window.get() {
+            let scope = shown.scope.clone();
+            super::focus::mark_closing(&scope);
+            cx.defer(move |cx| {
+                window
+                    .update(cx, |_, window, cx| {
+                        if scope.contains_focused(window, cx) {
+                            super::focus::leave(&scope, window, cx);
+                        }
+                    })
+                    .ok();
+            });
+        }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(exit).await;
             // The owner may be gone; then so is the dialog.
@@ -267,6 +288,7 @@ fn layer<T>(
     content: AnyElement,
     window: &Window,
 ) -> AnyElement {
+    shown.window.set(Some(window.window_handle()));
     let layer = div()
         .id(ElementId::from(("dialog-layer", key)))
         .absolute()
@@ -276,13 +298,15 @@ fn layer<T>(
         return layer.child(content).into_any_element();
     };
 
-    // Draw the next frame of the exit, and move focus out of the dialog. Both run on
-    // the next frame, as focus can't change while the window draws.
+    // Draw the next frame of the exit, and move focus out of the dialog: back to what
+    // opened it, to the dialog under it, or to the window. Both run on the next frame,
+    // as focus can't change while the window draws.
     window.request_animation_frame();
     let scope = shown.scope.clone();
+    super::focus::mark_closing(&scope);
     window.on_next_frame(move |window, cx| {
         if scope.contains_focused(window, cx) {
-            window.blur(cx);
+            super::focus::leave(&scope, window, cx);
         }
     });
 

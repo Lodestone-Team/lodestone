@@ -22,6 +22,7 @@ use lodestone_minecraft::{
 };
 
 use super::{ContentView, Load, PAGE_SIZE, ProjectTab, SubView};
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, Toggle},
     theme::{self, colors, fonts, leading, radius, text, weights},
@@ -97,8 +98,7 @@ pub(crate) fn pills(
     on_select: impl Fn(usize, &mut Window, &mut gpui::App) + 'static,
 ) -> impl IntoElement {
     let on_select = std::rc::Rc::new(on_select);
-    div()
-        .id(id)
+    crate::components::ArrowGroup::new(id)
         .flex()
         .flex_row()
         .flex_none()
@@ -112,6 +112,7 @@ pub(crate) fn pills(
             let on_select = on_select.clone();
             div()
                 .id((id, index))
+                .keyboard_focus()
                 .px_3()
                 .py_1()
                 .rounded(radius::MD)
@@ -1055,7 +1056,8 @@ impl ContentView {
                 let mut rows = list_box().child(
                     row_base("shaders-off", true)
                         .when(!busy, |this| {
-                            this.cursor_pointer()
+                            this.keyboard_focus()
+                                .cursor_pointer()
                                 .hover(|style| style.bg(colors::GRAY_750))
                                 .on_click(
                                     cx.listener(|this, _, _, cx| this.select_shader(None, cx)),
@@ -1088,7 +1090,8 @@ impl ContentView {
                             .border_color(colors::GRAY_FADED.opacity(15))
                             .when(selected, |this| this.bg(colors::BLUE.opacity(15)))
                             .when(!busy, |this| {
-                                this.cursor_pointer()
+                                this.keyboard_focus()
+                                    .cursor_pointer()
                                     .hover(|style| style.bg(colors::GRAY_750))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.select_shader(Some(name.clone()), cx)
@@ -1268,6 +1271,7 @@ impl ContentView {
         let client_badge = kind == ContentKind::Mod && hit.client_side == "optional";
         div()
             .id(("hit", index))
+            .keyboard_focus()
             .flex()
             .flex_row()
             .items_center()

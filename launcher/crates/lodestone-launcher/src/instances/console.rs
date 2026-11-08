@@ -13,6 +13,7 @@ use gpui::{
 use launcher_core::game::log4j::{Level, Stream};
 
 use super::{Instances, LogRow};
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
     theme::{self, Color, colors, fonts, radius, text, weights},
@@ -242,6 +243,7 @@ impl Render for Console {
             let level = *level;
             div()
                 .id(SharedString::from(format!("chip-{label}")))
+                .keyboard_focus()
                 .px_2p5()
                 .py_1()
                 .rounded(radius::MD)
