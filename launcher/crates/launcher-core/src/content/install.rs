@@ -406,7 +406,7 @@ async fn install_file(
     }) {
         let same = same.clone();
         let removed = remove_old(dirs, kind, &old, &same, &mut provenance)?;
-        save(&provenance, dirs)?;
+        save(dirs, kind, &removed, &same, None)?;
         return Ok((same, removed));
     }
 
@@ -508,23 +508,19 @@ async fn install_file(
         .ok()
         .and_then(|m| m.modified().ok())
         .and_then(nanos);
-    provenance.insert(
-        kind,
-        &target_name,
-        Entry {
-            size: file.size,
-            modified,
-            sha1: item.sha1.clone(),
-            sha512: sha512.clone(),
-            modrinth: Some(ModrinthSource::new(
-                version,
-                planned.project.as_ref(),
-                &sha512,
-            )),
-            looked_up: false,
-        },
-    );
-    save(&provenance, dirs)?;
+    let entry = Entry {
+        size: file.size,
+        modified,
+        sha1: item.sha1.clone(),
+        sha512: sha512.clone(),
+        modrinth: Some(ModrinthSource::new(
+            version,
+            planned.project.as_ref(),
+            &sha512,
+        )),
+        looked_up: false,
+    };
+    save(dirs, kind, &removed, &target_name, Some(entry))?;
     if let Some(from) = enabled_old.filter(|from| from != &target_name) {
         match kind {
             ContentKind::ResourcePack => {
@@ -558,10 +554,27 @@ fn on_disk(dirs: &InstanceDirs, kind: ContentKind, name: &str) -> Option<String>
         .find(|candidate| fs::symlink_metadata(dir.join(candidate)).is_ok())
 }
 
-fn save(provenance: &Provenance, dirs: &InstanceDirs) -> Result<(), ContentError> {
-    provenance
-        .save(&dirs.instance)
-        .map_err(|err| ContentError::Invalid(err.to_string()))
+/// Records an install in `content.json`: the `removed` files are forgotten (unless they
+/// were `kept` under its other name) and `kept` gets `entry`.
+fn save(
+    dirs: &InstanceDirs,
+    kind: ContentKind,
+    removed: &[String],
+    kept: &str,
+    entry: Option<Entry>,
+) -> Result<(), ContentError> {
+    Provenance::update(&dirs.instance, |provenance| {
+        for name in removed {
+            if super::enabled_name(name) != super::enabled_name(kept) {
+                provenance.remove(kind, name);
+            }
+        }
+        if let Some(entry) = entry {
+            provenance.insert(kind, kept, entry);
+        }
+    })
+    .map(|_| ())
+    .map_err(|err| ContentError::Invalid(err.to_string()))
 }
 
 /// Removes the `old` files except `keep`.

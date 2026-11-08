@@ -119,7 +119,79 @@ pub fn path(instance_dir: &Path) -> PathBuf {
     instance_dir.join(FILE)
 }
 
+/// Serialises the read-modify-write of `content.json` within the app: listings and
+/// installs run in the background at the same time.
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Provenance {
+    /// Reads `content.json`, applies `change` and writes it back if it changed, with no
+    /// other update in between.
+    pub fn update(
+        instance_dir: &Path,
+        change: impl FnOnce(&mut Provenance),
+    ) -> Result<Provenance, StorageError> {
+        let _guard = WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let mut provenance = Self::load(instance_dir);
+        let before = provenance.clone();
+        change(&mut provenance);
+        if provenance != before {
+            provenance.save(instance_dir)?;
+        }
+        Ok(provenance)
+    }
+
+    /// Takes in what a listing found for `kind` (`refreshed`) without undoing changes made
+    /// since it started: for each file, the entry that matches the file on disk now wins
+    /// (the one with a Modrinth source if both do), and files that are gone are dropped.
+    pub fn merge_refreshed(&mut self, kind: ContentKind, refreshed: &Provenance, dir: &Path) {
+        let prefix = format!("{}/", kind.dir());
+        let stat = |name: &str| {
+            let candidates = [name.to_string(), super::disabled_name(name)];
+            candidates.iter().find_map(|candidate| {
+                let metadata = std::fs::symlink_metadata(dir.join(candidate)).ok()?;
+                Some((metadata.len(), metadata.modified().ok().and_then(nanos)))
+            })
+        };
+        let mut keys: Vec<String> = self
+            .files
+            .keys()
+            .chain(refreshed.files.keys())
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        keys.sort();
+        keys.dedup();
+        for key in keys {
+            let name = &key[prefix.len()..];
+            let Some((size, modified)) = stat(name) else {
+                self.files.remove(&key);
+                continue;
+            };
+            let fits = |e: &&Entry| e.size == size && e.modified == modified;
+            let mine = self.files.get(&key).filter(fits);
+            let theirs = refreshed.files.get(&key).filter(fits);
+            let chosen = match (mine, theirs) {
+                (Some(mine), Some(theirs))
+                    if mine.modrinth.is_none()
+                        && (theirs.modrinth.is_some() || theirs.looked_up) =>
+                {
+                    Some(theirs.clone())
+                }
+                (Some(mine), _) => Some(mine.clone()),
+                (None, Some(theirs)) => Some(theirs.clone()),
+                (None, None) => None,
+            };
+            match chosen {
+                Some(entry) => {
+                    self.files.insert(key, entry);
+                }
+                None => {
+                    self.files.remove(&key);
+                }
+            }
+        }
+    }
+
     /// Reads `content.json`. A broken file is treated as empty: it is only a cache.
     pub fn load(instance_dir: &Path) -> Self {
         storage::load::<Provenance>(&path(instance_dir))
@@ -231,5 +303,74 @@ mod tests {
         // a broken file is an empty cache
         std::fs::write(dir.path().join(FILE), b"{oops").unwrap();
         assert_eq!(Provenance::load(dir.path()), Provenance::default());
+    }
+
+    #[test]
+    fn a_listing_does_not_undo_a_newer_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let mods = dir.path().join("minecraft/mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        std::fs::write(mods.join("a.jar"), b"new file").unwrap();
+        std::fs::write(mods.join("b.jar.disabled"), b"b").unwrap();
+        let stat = |name: &str| {
+            let m = std::fs::metadata(mods.join(name)).unwrap();
+            (m.len(), m.modified().ok().and_then(nanos))
+        };
+        let entry = |name: &str, project: Option<&str>| {
+            let (size, modified) = stat(name);
+            Entry {
+                size,
+                modified,
+                modrinth: project.map(|p| ModrinthSource {
+                    project_id: p.into(),
+                    ..ModrinthSource::default()
+                }),
+                ..Entry::default()
+            }
+        };
+        // what the install wrote, after the listing had scanned
+        let mut current = Provenance::default();
+        current.insert(ContentKind::Mod, "a.jar", entry("a.jar", Some("new")));
+        current.insert(ContentKind::Mod, "gone.jar", Entry::default());
+        current.insert(ContentKind::ResourcePack, "p.zip", Entry::default());
+        // what the listing found: a stale entry for a.jar, and b.jar looked up
+        let mut refreshed = Provenance::default();
+        refreshed.insert(
+            ContentKind::Mod,
+            "a.jar",
+            Entry {
+                size: 1,
+                ..Entry::default()
+            },
+        );
+        refreshed.insert(
+            ContentKind::Mod,
+            "b.jar.disabled",
+            entry("b.jar.disabled", Some("b")),
+        );
+        current.merge_refreshed(ContentKind::Mod, &refreshed, &mods);
+        assert_eq!(
+            current
+                .get(ContentKind::Mod, "a.jar")
+                .unwrap()
+                .modrinth
+                .as_ref()
+                .unwrap()
+                .project_id,
+            "new"
+        );
+        assert_eq!(
+            current
+                .get(ContentKind::Mod, "b.jar")
+                .unwrap()
+                .modrinth
+                .as_ref()
+                .unwrap()
+                .project_id,
+            "b"
+        );
+        assert!(current.get(ContentKind::Mod, "gone.jar").is_none());
+        // other kinds are not touched
+        assert!(current.get(ContentKind::ResourcePack, "p.zip").is_some());
     }
 }

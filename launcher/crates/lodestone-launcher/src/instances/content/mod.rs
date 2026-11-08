@@ -100,6 +100,8 @@ pub struct Section {
     /// Newer versions, by file name.
     pub updates: HashMap<String, RawVersion>,
     pub checking_updates: bool,
+    /// Whether updates were looked for once on their own, after the first listing.
+    auto_checked: bool,
     pub view: SubView,
     pub browse: Browse,
     load_task: Option<Task<()>>,
@@ -122,6 +124,7 @@ impl Section {
             icons: HashMap::new(),
             updates: HashMap::new(),
             checking_updates: false,
+            auto_checked: false,
             view: SubView::Installed,
             browse: Browse {
                 search,
@@ -407,7 +410,12 @@ impl ContentView {
                                 ))
                             })
                             .collect();
+                        let from_modrinth = listing.items.iter().any(|i| i.modrinth.is_some());
                         section.listing = Load::Ready(listing);
+                        if from_modrinth && !section.auto_checked {
+                            section.auto_checked = true;
+                            this.look_for_updates(kind, true, cx);
+                        }
                         if this.shaders.loader.is_none()
                             && (loader_changed || matches!(this.shader_offer, Load::NotLoaded))
                         {
@@ -458,6 +466,12 @@ impl ContentView {
     }
 
     pub fn check_updates(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        self.look_for_updates(kind, false, cx);
+    }
+
+    /// Asks Modrinth for newer versions. `quiet` (the check after the first listing)
+    /// says nothing when there are none or Modrinth can't be reached.
+    fn look_for_updates(&mut self, kind: ContentKind, quiet: bool, cx: &mut Context<Self>) {
         let (Some((id, dirs, target)), Some(api)) = (self.context(cx), self.modrinth(cx)) else {
             return;
         };
@@ -478,7 +492,7 @@ impl ContentView {
                     Ok(updates) => {
                         let count = updates.len();
                         section.updates = updates;
-                        if count == 0 {
+                        if count == 0 && !quiet {
                             this.set_message(
                                 format!("Every {} from Modrinth is up to date.", kind.noun()),
                                 false,
@@ -486,6 +500,7 @@ impl ContentView {
                             );
                         }
                     }
+                    Err(_) if quiet => {}
                     Err(err) => {
                         this.set_message(format!("Couldn't check for updates: {err}"), true, cx)
                     }

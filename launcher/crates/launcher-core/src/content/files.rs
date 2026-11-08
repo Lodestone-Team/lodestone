@@ -243,10 +243,9 @@ pub fn delete_with(
     remove(&path).map_err(|reason| {
         ContentError::Invalid(format!("Couldn't remove {file_name}: {reason}"))
     })?;
-    let mut provenance = Provenance::load(&dirs.instance);
-    if provenance.remove(kind, file_name).is_some() {
-        let _ = provenance.save(&dirs.instance);
-    }
+    let _ = Provenance::update(&dirs.instance, |provenance| {
+        provenance.remove(kind, file_name);
+    });
     match kind {
         ContentKind::ResourcePack => {
             let listed = PackOptions::read(&dirs.game)

@@ -142,7 +142,9 @@ pub async fn refresh(
     }
     if provenance != before {
         // The list still works without the cache, so a failed save isn't an error.
-        let _ = provenance.save(&dirs.instance);
+        let _ = Provenance::update(&dirs.instance, |current| {
+            current.merge_refreshed(kind, &provenance, &dir)
+        });
     }
     Ok((files, provenance, lookup_error))
 }
