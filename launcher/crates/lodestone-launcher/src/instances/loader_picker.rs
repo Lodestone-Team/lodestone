@@ -1,8 +1,8 @@
-//! Choosing a mod loader and its version for a Minecraft version: a row of loaders
-//! (Vanilla, Fabric, Quilt, Forge, NeoForge) and the chosen loader's versions, newest
-//! first, with the recommended one picked. Used by "New instance", and by an
-//! instance's Settings tab in its compact form: two settings rows, the loaders as one
-//! segmented control and the version in a dropdown.
+//! Choosing a mod loader and its version for a Minecraft version, newest first, with
+//! the recommended one picked. An instance's Settings tab shows it in its compact
+//! form: two settings rows, the loaders as one segmented control and the version in
+//! a dropdown. "New instance" draws the loaders as cards itself and shows only the
+//! version dropdown.
 
 use crate::theme::px;
 use gpui::{
@@ -28,11 +28,11 @@ pub struct LoaderPicker {
     kind: Option<LoaderKind>,
     /// The chosen loader version's id.
     selected: Option<String>,
-    list_height: f32,
     scroll: UniformListScrollHandle,
-    /// Two settings rows with a version dropdown, instead of a list.
+    /// Two settings rows (the instance's Settings tab), instead of only the version
+    /// dropdown (the New instance dialog, which draws the loaders itself).
     compact: bool,
-    /// The compact form's version list is open.
+    /// The version list is open.
     open: bool,
     /// A loader or a version was picked since the choice was last set.
     touched: bool,
@@ -44,7 +44,6 @@ impl LoaderPicker {
         instances: Entity<Instances>,
         game_version: Option<String>,
         initial: Option<LoaderChoice>,
-        list_height: f32,
         cx: &mut Context<Self>,
     ) -> Self {
         let observe = cx.observe(&instances, |this, _, cx| {
@@ -56,7 +55,6 @@ impl LoaderPicker {
             game_version,
             kind: initial.as_ref().map(|c| c.kind),
             selected: initial.map(|c| c.version),
-            list_height,
             scroll: UniformListScrollHandle::new(),
             compact: false,
             open: false,
@@ -168,40 +166,6 @@ impl LoaderPicker {
 
     pub fn kind(&self) -> Option<LoaderKind> {
         self.kind
-    }
-
-    fn chip(
-        &self,
-        index: usize,
-        label: &'static str,
-        kind: Option<LoaderKind>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let selected = self.kind == kind;
-        div()
-            .id(("loader", index))
-            .keyboard_focus()
-            .px_3()
-            .py_1()
-            .rounded(radius::MD)
-            .border_1()
-            .cursor_pointer()
-            .font_weight(weights::BOLD.into())
-            .text_size(theme::text_size(text::SMALL))
-            .map(|this| {
-                if selected {
-                    this.bg(colors::BLUE.opacity(35))
-                        .border_color(colors::BLUE_200.opacity(60))
-                        .text_color(colors::WHITE)
-                } else {
-                    this.border_color(colors::FADE_700)
-                        .bg(colors::GRAY_800)
-                        .text_color(colors::GRAY_400)
-                        .hover(|style| style.text_color(colors::GRAY_300).bg(colors::GRAY_750))
-                }
-            })
-            .child(label)
-            .on_click(cx.listener(move |this, _, _, cx| this.set_kind(kind, cx)))
     }
 }
 
@@ -335,27 +299,36 @@ impl LoaderPicker {
             });
         let rows = list.len();
         let panel_height = (rows as f32 * 28. + 10.).min(260.);
+        // In the dialog's form the dropdown lines up on the left; in the Settings
+        // rows, on the right.
+        let form = !self.compact;
         div()
             .flex()
             .flex_col()
-            .items_end()
+            .map(|this| {
+                if form {
+                    this.items_start()
+                } else {
+                    this.items_end()
+                }
+            })
             .child(
-                select_button("loader-version-select", label).on_click(cx.listener(
-                    |this, _, _, cx| {
+                select_button("loader-version-select", label)
+                    .when(form, |this| this.w(px(300.)).justify_between())
+                    .on_click(cx.listener(|this, _, _, cx| {
                         this.open = !this.open;
                         cx.notify();
-                    },
-                )),
+                    })),
             )
             .when(self.open, |this| {
                 let close = cx.listener(|this, _: &(), _, cx| {
                     this.open = false;
                     cx.notify();
                 });
-                this.child(popover(
+                let popover = popover(
                     "loader-version-popover",
                     popover_panel("loader-version-list")
-                        .w(px(280.))
+                        .w(px(if form { 300. } else { 280. }))
                         .h(px(panel_height))
                         .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                             this.open = false;
@@ -388,7 +361,14 @@ impl LoaderPicker {
                             .size_full(),
                         ),
                     move |window, cx| close(&(), window, cx),
-                ))
+                );
+                // In the form, in a box of its own under the button: the popover
+                // starts where its parent does.
+                if form {
+                    this.child(div().child(popover))
+                } else {
+                    this.child(popover)
+                }
             })
             .into_any_element()
     }
@@ -434,94 +414,10 @@ impl Render for LoaderPicker {
         if self.compact {
             return self.render_compact(cx).into_any_element();
         }
-        let chips: Vec<_> = loader_options()
-            .enumerate()
-            .map(|(index, (label, kind))| self.chip(index, label, kind, cx).into_any_element())
-            .collect();
-        let message = |text: SharedString, color: theme::Color| {
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .size_full()
-                .p_3()
-                .text_center()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(color)
-                .child(text)
-                .into_any_element()
-        };
-        let body = match (self.kind, &self.game_version) {
-            (None, _) => message(t(M::PlainMinecraft).into(), colors::GRAY_500),
-            (Some(_), None) => message(t(M::ChooseGameVersionFirst).into(), colors::GRAY_500),
-            (Some(kind), Some(game)) => match self.versions(cx) {
-                LoaderVersions::NotLoaded | LoaderVersions::Loading => div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_center()
-                    .gap_2()
-                    .size_full()
-                    .text_color(colors::GRAY_500)
-                    .child(LoadingDots)
-                    .child(tr!(M::LoadingLoaderVersions, loader = kind.label()))
-                    .into_any_element(),
-                LoaderVersions::Failed(error) => message(
-                    tr!(
-                        M::CouldntLoadLoaderVersions,
-                        loader = kind.label(),
-                        error = error
-                    )
-                    .into(),
-                    colors::RED_200,
-                ),
-                LoaderVersions::Ready(list) if list.is_empty() => message(
-                    tr!(M::LoaderHasNoVersions, loader = kind.label(), game = game).into(),
-                    colors::GRAY_500,
-                ),
-                LoaderVersions::Ready(list) => uniform_list(
-                    "loader-versions",
-                    list.len(),
-                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                        range
-                            .filter_map(|index| list.get(index).map(|v| (index, v)))
-                            .map(|(index, version)| {
-                                let selected = this.selected.as_deref() == Some(&version.id);
-                                let id = version.id.clone();
-                                version_row(index, version, selected).on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.selected = Some(id.clone());
-                                        cx.notify();
-                                    },
-                                ))
-                            })
-                            .collect()
-                    }),
-                )
-                .track_scroll(&self.scroll)
-                .size_full()
-                .into_any_element(),
-            },
-        };
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .w_full()
-            .child(div().flex().flex_row().flex_wrap().gap_1().children(chips))
-            .child(
-                div()
-                    .h(px(self.list_height))
-                    .w_full()
-                    .p_1()
-                    .rounded(radius::LG)
-                    .border_1()
-                    .border_color(colors::GRAY_FADED.opacity(30))
-                    .bg(colors::GRAY_900)
-                    .child(body),
-            )
-            .into_any_element()
+        // The dialog's form: only the version dropdown, for a mod loader.
+        match (self.kind, self.game_version.clone()) {
+            (Some(kind), Some(game)) => self.version_control(kind, &game, cx),
+            _ => div().into_any_element(),
+        }
     }
 }

@@ -13,7 +13,6 @@ import {
 } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import clsx from 'clsx';
 import * as yup from 'yup';
 import { GameInstanceContext } from 'data/GameInstanceContext';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
@@ -23,6 +22,7 @@ import { SectionManifestValue } from 'bindings/SectionManifestValue';
 import { toast } from 'react-toastify';
 import { ModpackPreset } from 'data/InstanceContext';
 import ModpackCreateForm from './Create/ModpackCreateForm';
+import WizardSteps from './Create/WizardSteps';
 import { useT } from 'i18n';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
@@ -219,13 +219,19 @@ export default function InstanceCreateForm({
     }
   }
 
-  function handleBack() {
-    if (activeStep === 1) {
+  // Back to an earlier step; the values typed so far stay.
+  function goToStep(step: number) {
+    if (step >= activeStep) return;
+    if (step === 0) {
       setGenericFetchReady(false);
       setUrlValid(false);
       setUrl('');
     }
-    setActiveStep(activeStep - 1);
+    setActiveStep(step);
+  }
+
+  function handleBack() {
+    goToStep(activeStep - 1);
   }
 
   if (modpackMode)
@@ -263,24 +269,14 @@ export default function InstanceCreateForm({
             id={formId}
             className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
           >
-            <div className="w-[180px] border-r border-gray-700 pt-8">
-              {sections.map((section, i) => (
-                <div
-                  key={i}
-                  className={clsx(
-                    'px-4 py-2 text-left font-sans text-medium leading-5 font-medium tracking-medium text-white/50',
-                    activeStep === i && 'font-extrabold text-white'
-                  )}
-                >
-                  {section}
-                </div>
-              ))}
-            </div>
-            <div className="flex w-[632px] flex-col p-8">
+            <WizardSteps
+              steps={sections}
+              current={activeStep}
+              onSelect={isSubmitting ? undefined : goToStep}
+            />
+            <div className="flex min-w-0 flex-1 flex-col p-8">
               {activeStep == 0 ? (
                 <GameTypeSelectForm
-                  manifestLoading={isLoading}
-                  manifestError={!!error}
                   onSelectModpack={() => setModpackMode(true)}
                 />
               ) : (

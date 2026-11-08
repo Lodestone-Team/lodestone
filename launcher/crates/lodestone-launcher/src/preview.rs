@@ -42,6 +42,8 @@ pub const SCENES: &[&str] = &[
     "offline",
     "remove",
     "new-instance",
+    "new-instance-fabric",
+    "new-instance-versions",
     "play-progress",
     "playing",
     "logs",
@@ -529,7 +531,24 @@ pub use shared::{window_height, window_width};
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
-        "new-instance" => shell.open_new_instance_with(Some(("Survival", "1.")), None, cx),
+        "new-instance" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
+        "new-instance-fabric" | "new-instance-versions" => {
+            let search = if scene == "new-instance-versions" {
+                "26"
+            } else {
+                ""
+            };
+            shell.open_new_instance_with(Some(("", search)), None, cx);
+            if let Some(dialog) = shell.new_instance_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| {
+                    if scene == "new-instance-fabric" {
+                        dialog.choose_loader(launcher_core::game::loaders::LoaderKind::Fabric, cx);
+                    } else {
+                        dialog.open_versions(cx);
+                    }
+                });
+            }
+        }
         "logs" => shell.select_tab(InstanceTab::Logs, cx),
         "sidebar-groups-settings" => shell.select_tab(InstanceTab::Settings, cx),
         "instance-settings" => {
