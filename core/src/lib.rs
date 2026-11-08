@@ -346,6 +346,9 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_modrinth_routes(shared_state.clone()))
         .merge(get_instance_mods_routes(shared_state.clone()))
         .merge(get_modpack_routes(shared_state.clone()))
+        .merge(handlers::server_content::get_server_content_routes(
+            shared_state.clone(),
+        ))
         .merge(handlers::public_instances::get_public_instance_routes(
             shared_state.clone(),
         ))

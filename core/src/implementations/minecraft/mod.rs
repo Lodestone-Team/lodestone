@@ -1105,6 +1105,40 @@ impl MinecraftInstance {
         Ok(())
     }
 
+    /// Reads server.properties; a missing file reads as empty.
+    pub async fn server_properties(&self) -> Result<PropertiesDocument, Error> {
+        self.load_properties().await
+    }
+
+    /// Sets several properties in one write, each checked against its spec. Every other
+    /// line of the file stays as it is.
+    pub async fn set_server_properties(
+        &self,
+        entries: &[(&str, ConfigurableValue)],
+    ) -> Result<(), Error> {
+        let raw = entries
+            .iter()
+            .map(|(key, value)| Ok((*key, server_properties::serialize_value(key, value)?)))
+            .collect::<Result<Vec<_>, Error>>()?;
+        {
+            let _guard = self.properties_lock.lock().await;
+            let mut doc = self.load_properties().await?;
+            for (key, value) in &raw {
+                doc.set(key, value);
+            }
+            write_file_atomically(&self.path_to_properties, doc.to_bytes()).await?;
+        }
+        self.refresh_properties_section().await?;
+        Ok(())
+    }
+
+    /// Sets the state without starting or stopping anything, for tests of what is allowed
+    /// while a server runs.
+    #[cfg(test)]
+    pub(crate) async fn set_state_for_test(&self, state: State) {
+        *self.state.lock().await = state;
+    }
+
     /// The Fabric loader version of a Fabric instance, or `None`.
     pub async fn fabric_loader_version(&self) -> Option<String> {
         match &self.config.lock().await.flavour {

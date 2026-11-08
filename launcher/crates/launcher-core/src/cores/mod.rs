@@ -10,17 +10,25 @@
 //!   with the server's client pack through the modpack import and update;
 //! - [`join`]: where to join a server;
 //! - [`live`]: a server's live state, players and console, and linking Minecraft
-//!   accounts.
+//!   accounts;
+//! - [`worlds`]: a server's world as a singleplayer copy;
+//! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
+//! - [`resource_pack`]: a server's resource pack;
+//! - [`lan`]: worlds opened to LAN on this network.
 
 pub mod client;
+pub mod hosting;
 pub mod join;
+pub mod lan;
 pub mod link;
 pub mod live;
 pub mod models;
+pub mod resource_pack;
 pub mod store;
 pub mod sync;
 pub mod tls;
 pub mod trust;
+pub mod worlds;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{CoreInfo, ServerInstance, ServerList, ServerLoader, ServerState};

@@ -184,10 +184,10 @@ pub enum PackFetch {
     NoMods(String),
 }
 
-struct RawResponse {
-    status: u16,
-    etag: Option<String>,
-    body: Vec<u8>,
+pub(super) struct RawResponse {
+    pub(super) status: u16,
+    pub(super) etag: Option<String>,
+    pub(super) body: Vec<u8>,
 }
 
 /// A core's API at one address.
@@ -230,7 +230,7 @@ impl CoreClient {
         &self.base
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(super) fn url(&self, path: &str) -> String {
         format!(
             "{}/api/v1/{}",
             self.base.as_str().trim_end_matches('/'),
@@ -245,6 +245,23 @@ impl CoreClient {
         path: &str,
         auth: Auth<'_>,
         body: Option<Vec<u8>>,
+        if_none_match: Option<&str>,
+        limit: u64,
+        timeout: Duration,
+    ) -> Result<RawResponse, CoreError> {
+        let body = body.map(|body| (body, "application/json".to_string()));
+        self.send_typed(method, path, auth, body, if_none_match, limit, timeout)
+            .await
+    }
+
+    /// Like `send`, with the body's content type.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn send_typed(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Auth<'_>,
+        body: Option<(Vec<u8>, String)>,
         if_none_match: Option<&str>,
         limit: u64,
         timeout: Duration,
@@ -272,8 +289,8 @@ impl CoreClient {
                 builder = builder.header("If-None-Match", etag);
             }
             match body.clone() {
-                Some(body) => builder
-                    .header("Content-Type", "application/json")
+                Some((body, content_type)) => builder
+                    .header("Content-Type", content_type)
                     .body(AsyncBody::from(body)),
                 None => builder.body(AsyncBody::empty()),
             }
@@ -312,7 +329,7 @@ impl CoreClient {
     /// - without one, through the platform verifier; when that refuses the certificate,
     ///   a probe connection reads the presented fingerprint for
     ///   [`CoreError::Untrusted`]. The probe accepts nothing, so no request is answered.
-    async fn send_checked(
+    pub(super) async fn send_checked(
         &self,
         request: impl Fn() -> Result<Request<AsyncBody>, CoreError>,
     ) -> Result<http_client::Response<AsyncBody>, CoreError> {
@@ -372,7 +389,7 @@ impl CoreClient {
         probe.take_presented().map(|p| p.sha256)
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(
+    pub(super) async fn json<T: serde::de::DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
@@ -560,7 +577,7 @@ impl CoreClient {
 }
 
 #[derive(Clone, Copy)]
-enum Auth<'a> {
+pub(super) enum Auth<'a> {
     None,
     Bearer(&'a Secret),
     Basic(&'a str, &'a Secret),
@@ -592,7 +609,7 @@ fn message(response: &RawResponse) -> String {
         })
 }
 
-fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreError> {
+pub(super) fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreError> {
     let status = response.status;
     if (200..300).contains(&status) {
         return Ok(());
