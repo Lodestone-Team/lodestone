@@ -22,11 +22,88 @@
 /* `hover:` applied on every device, not only under @media (hover: hover) */
 @custom-variant hover (&:hover);
 
+/* Theme variants. The theme is the `data-theme` attribute on <html>, set before
+   the page renders by the script in pages/_document.tsx (see utils/theme.ts) */
+@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *));
+@custom-variant dark (&:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *));
+
+/* Theme colours, used by the Tailwind colours in tailwind.config.js.
+   The dark theme is the default, so the page keeps its look without the attribute. */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --gray-300: #E3E3E4;
+  --gray-400: #A5A5AC;
+  --gray-500: #767A82;
+  --gray-550: #67686A;
+  --gray-600: #44464B;
+  --gray-700: #36393F;
+  --gray-750: #303338;
+  --gray-800: #2B2D32;
+  --gray-850: #26282C;
+  --gray-875: #212327;
+  --gray-900: #1D1E21;
+  --gray-faded: #A5A5AC;
+  --fade-700: #d1d1da19;
+  --ink: #FFFFFF;
+
+  --blue-150: #69C9FF;
+  --blue-200: #59B2F3;
+  --green-200: #2AF588;
+  --green-300: #6DD277;
+  --red-200: #FF5C5C;
+  --yellow-300: #EFB440;
+
+  --scrim: rgb(29 30 33 / 0.6);
+  --scrim-strong: rgb(0 0 0 / 0.8);
+  --shadow-color: #111114;
+  --placeholder: #a5a5ac;
+  --selection: hwb(212.571 45% 30%);
+  --scrollbar-thumb: hsla(0, 0%, 50%, 0.7);
+}
+
+/* Soft off-white page, white cards and inputs, near-black text. The accents are
+   the same, except the light shades used for text, which are darkened to stay
+   readable on white. */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --gray-300: #1F2228;
+  --gray-400: #4D525B;
+  --gray-500: #6B707A;
+  --gray-550: #B4B8C0;
+  --gray-600: #DCDFE5;
+  --gray-700: #E8EAEE;
+  --gray-750: #F1F2F5;
+  --gray-800: #FFFFFF;
+  --gray-850: #F7F8FA;
+  --gray-875: #EEF0F3;
+  --gray-900: #FFFFFF;
+  --gray-faded: #5F636B;
+  --fade-700: rgb(24 28 36 / 0.1);
+  --ink: #0A0B0E;
+
+  --blue-150: #1A70A8;
+  --blue-200: #1D78BA;
+  --green-200: #16935A;
+  --green-300: #2E9A49;
+  --red-200: #D63B3B;
+  --yellow-300: #B57C08;
+
+  --scrim: rgb(24 28 36 / 0.32);
+  --scrim-strong: rgb(24 28 36 / 0.48);
+  --shadow-color: rgb(24 28 36 / 0.14);
+  --placeholder: #9A9EA6;
+  --selection: #B6D4F2;
+  --scrollbar-thumb: hsla(220, 8%, 45%, 0.55);
+}
+
 @layer base {
   /* v3 Preflight: placeholders used gray-400, buttons used the pointer cursor */
   input::placeholder,
   textarea::placeholder {
-    color: #a5a5ac;
+    color: var(--placeholder);
   }
 
   button:not(:disabled),
@@ -119,7 +196,6 @@
     min-height: 100%;
     overscroll-behavior: none;
     overflow: clip;
-    color-scheme: dark;
   }
 
   main {
@@ -215,7 +291,7 @@
 @utility generic-gametype-hover {
   border: double 2px transparent;
   border-radius: 0.375rem;
-  background-image: linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top right, #2AF588, #334675);
+  background-image: linear-gradient(var(--gray-800), var(--gray-800)), radial-gradient(circle at top right, #2AF588, #334675);
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
@@ -223,7 +299,7 @@
 @utility generic-gametype-selected {
   border: double 2px transparent;
   border-radius: 0.375rem;
-  background-image: linear-gradient(#303338, #303338), radial-gradient(circle at top right, #2AF588, #334675);
+  background-image: linear-gradient(var(--gray-750), var(--gray-750)), radial-gradient(circle at top right, #2AF588, #334675);
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
@@ -231,7 +307,7 @@
 @utility generic-gametype-unselected {
   border: double 2px transparent;
   border-radius: 0.375rem;
-  background-image: linear-gradient( #2B2D32, #2B2D32), radial-gradient(circle at top right, #2B2D32, #2B2D32);
+  background-image: linear-gradient(var(--gray-800), var(--gray-800)), radial-gradient(circle at top right, var(--gray-800), var(--gray-800));
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
@@ -268,7 +344,7 @@
 *:hover,
 *:focus,
 *:focus-within {
-  --scrollbar-color: hsla(0, 0%, 50%, 0.7) !important;
+  --scrollbar-color: var(--scrollbar-thumb) !important;
 }
 
 *::-webkit-scrollbar-button {
@@ -302,13 +378,15 @@
 
 /* set the user selection color */
 ::selection {
-  background: hwb(212.571 45% 30%);
+  background: var(--selection);
 }
 
 /* rc-tooltip */
 
 .rc-tooltip-inner {
   @apply min-h-0 rounded-md bg-gray-750 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md whitespace-nowrap;
+  /* white with an edge on the light page */
+  @apply light:bg-gray-800 light:ring-1 light:ring-gray-faded/30;
 }
 
 .rc-tooltip {
@@ -332,6 +410,8 @@ input.noSpin[type='number'] {
 
 /* Toastify */
 main {
+  /* the toasts use the light or dark toastify theme to match (see pages/_app.tsx) */
+  --toastify-text-color-light: var(--gray-300);
   --toastify-font-family: Satoshi !important;
   --toastify-toast-width: 320px !important;
   --toastify-toast-max-height: 500px !important;
@@ -340,6 +420,11 @@ main {
 
 .Toastify__toast-icon {
   display: block !important;
+}
+
+/* an edge for the light toasts, which are close to the page colour */
+[data-theme='light'] .Toastify__toast {
+  box-shadow: 0 0 0 1px rgb(24 28 36 / 0.08), 0 4px 16px var(--shadow-color);
 }
 
 .Toastify--animate {
