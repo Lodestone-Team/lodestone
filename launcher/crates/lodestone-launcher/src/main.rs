@@ -8,6 +8,10 @@ use lodestone_launcher::{
 };
 
 fn main() {
+    // Before anything can rename the executable: an update swaps it on disk.
+    launcher_core::update::remember_exe();
+    // Started by an update's restart: let the old launcher finish quitting first.
+    launcher_core::update::wait_for_previous();
     let trace = StartupTrace::start();
     gpui_platform::application()
         .with_assets(Assets)

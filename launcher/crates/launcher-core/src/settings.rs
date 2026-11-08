@@ -43,6 +43,11 @@ pub struct Settings {
     /// default; left out of the file while it does.
     #[serde(default, skip_serializing_if = "is_default")]
     pub language: Language,
+    /// Settings > General > "Update automatically": new builds are downloaded and
+    /// installed in the background, and run when the launcher restarts. On by
+    /// default; left out of the file while on.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub auto_update: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -59,6 +64,7 @@ impl Default for Settings {
             collapsed_groups: BTreeSet::new(),
             auto_groups: true,
             language: Language::System,
+            auto_update: true,
             zoom: 1.0,
             other: Map::new(),
         }

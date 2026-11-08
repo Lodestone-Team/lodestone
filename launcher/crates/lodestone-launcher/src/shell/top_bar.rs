@@ -1,10 +1,14 @@
 use crate::theme::px;
-use gpui::{Context, IntoElement, MouseButton, WindowControlArea, div, img, prelude::*};
+use gpui::{
+    AnyElement, Context, IntoElement, MouseButton, WindowControlArea, div, img, prelude::*,
+};
 
 use super::{LauncherShell, Page};
 use crate::{
-    components::KeyboardFocus,
-    theme::{colors, layout, radius},
+    components::{Button, ButtonSize, ButtonVariant, KeyboardFocus},
+    i18n::{ShellMsg as M, t},
+    theme::{self, colors, layout, radius, text},
+    updater::UpdateState,
 };
 
 /// The top bar's height without its bottom border: `py-2` around the dashboard's
@@ -14,8 +18,9 @@ pub const TOP_BAR_HEIGHT: f32 = 42.0;
 /// The top bar with the Lodestone logo centred, after the dashboard's `TopNav`.
 ///
 /// On macOS it replaces the title bar: the window's traffic-light buttons sit in its
-/// left column and its empty areas move the window, as in the dashboard app.
-pub fn render(cx: &mut Context<LauncherShell>) -> impl IntoElement {
+/// left column and its empty areas move the window, as in the dashboard app. The
+/// right column holds the update notice.
+pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     // Equal side columns keep the logo centred in the window.
     let side = || div().flex_1().flex_basis(px(0.)).h_full();
 
@@ -72,5 +77,74 @@ pub fn render(cx: &mut Context<LauncherShell>) -> impl IntoElement {
                         .h(layout::logo_width() * (22.0 / 106.0)),
                 ),
         )
-        .child(side())
+        .child(
+            side()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_end()
+                .children(update_notice(shell, cx)),
+        )
+}
+
+/// "Update ready" with a Restart button once an update is installed, or "Update
+/// available" with a Download button while "Update automatically" is off. Restart
+/// waits while a game runs.
+fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+    let updater = shell.updater().read(cx);
+    let (label, action, enabled) = match updater.state() {
+        UpdateState::Ready { .. } => (
+            t(M::UpdateReadyBadge),
+            t(M::RestartToUpdate),
+            updater.can_restart(cx),
+        ),
+        UpdateState::Available(_) => (t(M::UpdateAvailableBadge), t(M::DownloadUpdate), true),
+        _ => return None,
+    };
+    let ready = matches!(updater.state(), UpdateState::Ready { .. });
+    let updater = shell.updater().clone();
+    Some(
+        div()
+            .id("update-notice")
+            .flex()
+            .flex_row()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            // The button sits 3px inside the pill, so their ends follow each other.
+            .pl_3()
+            .pr(px(3.))
+            .py(px(3.))
+            .rounded_full()
+            .bg(colors::GRAY_850)
+            .border_1()
+            .border_color(colors::FADE_700)
+            // Clicks here don't move the window.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(div().size(px(6.)).rounded_full().bg(colors::GREEN_400))
+            .child(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_300)
+                    .whitespace_nowrap()
+                    .child(label),
+            )
+            .child(
+                Button::new("update-action", action)
+                    .variant(ButtonVariant::Primary)
+                    .size(ButtonSize::Slim)
+                    .pill()
+                    .disabled(!enabled)
+                    .on_click(move |_, _, cx| {
+                        updater.update(cx, |updater, cx| {
+                            if ready {
+                                updater.restart(cx);
+                            } else {
+                                updater.download_available(cx);
+                            }
+                        })
+                    }),
+            )
+            .into_any_element(),
+    )
 }

@@ -14,11 +14,12 @@ use crate::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle,
         settings::{
             SettingRow, card, content_width, left_overlay, link, muted_link, popover,
-            popover_panel, select_button, tag, unsaved_bar,
+            popover_panel, section, select_button, tag, unsaved_bar,
         },
     },
     i18n::{self, CommonMsg, Language, ShellMsg, ShellMsg as M, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
+    updater::UpdateState,
 };
 
 /// A page of the Settings dialog.
@@ -506,7 +507,7 @@ impl LauncherShell {
                     )),
                 )
             });
-        card([
+        let general = card([
             language_row.into_any_element(),
             zoom_row.into_any_element(),
             SettingRow::new(t(M::GroupAutomatically))
@@ -521,6 +522,126 @@ impl LauncherShell {
                     )),
                 )
                 .into_any_element(),
+        ]);
+        div()
+            .flex()
+            .flex_col()
+            .gap_8()
+            .w_full()
+            .child(general)
+            .child(section(t(M::UpdatesSection), None).child(self.render_updates(cx)))
+    }
+
+    /// Settings > General > Updates: "Update automatically", and the running build
+    /// with where updating stands and what can be done about it.
+    fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let auto_update = self.instances.read(cx).auto_update();
+        let updater = self.updater.read(cx);
+        let state = updater.state().clone();
+        let build = updater.build();
+        let can_restart = updater.can_restart(cx);
+        let label = match build {
+            Some(build) => match build.short_commit() {
+                Some(commit) => tr!(M::BuildNumberCommit, build = build.number, commit = commit),
+                None => tr!(M::BuildNumber, build = build.number),
+            },
+            None => t(M::DevelopmentBuild).to_string(),
+        };
+        let (status, failed): (SharedString, bool) = match &state {
+            UpdateState::Unavailable => (t(M::UpdatesUnavailable).into(), false),
+            UpdateState::Idle => (t(M::UpdateNotChecked).into(), false),
+            UpdateState::Checking => (t(M::UpdateChecking).into(), false),
+            UpdateState::UpToDate => (t(M::UpToDate).into(), false),
+            UpdateState::Available(manifest) => (
+                tr!(
+                    M::UpdateAvailable,
+                    build = manifest
+                        .for_platform()
+                        .map_or(manifest.build, |(build, _)| build)
+                )
+                .into(),
+                false,
+            ),
+            UpdateState::Downloading { build, done, total } => (
+                tr!(
+                    M::UpdateDownloading,
+                    build = build,
+                    percent = i18n::format::percent(UpdateState::percent(done, *total))
+                )
+                .into(),
+                false,
+            ),
+            UpdateState::Ready { build } if can_restart => {
+                (tr!(M::UpdateReady, build = build).into(), false)
+            }
+            UpdateState::Ready { build } => {
+                (tr!(M::UpdateReadyPlaying, build = build).into(), false)
+            }
+            UpdateState::Failed(error) => (tr!(M::UpdateFailed, error = error).into(), true),
+        };
+        let action = match &state {
+            UpdateState::Unavailable => None,
+            UpdateState::Available(_) => Some(
+                Button::new("update-download", t(M::DownloadUpdate))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.updater
+                            .update(cx, |updater, cx| updater.download_available(cx))
+                    })),
+            ),
+            UpdateState::Ready { .. } => Some(
+                Button::new("update-restart", t(M::RestartToUpdate))
+                    .variant(ButtonVariant::Primary)
+                    .size(ButtonSize::Slim)
+                    .disabled(!can_restart)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.updater.update(cx, |updater, cx| updater.restart(cx))
+                    })),
+            ),
+            UpdateState::Idle
+            | UpdateState::Checking
+            | UpdateState::UpToDate
+            | UpdateState::Downloading { .. }
+            | UpdateState::Failed(_) => Some(
+                Button::new("update-check", t(M::CheckForUpdates))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .loading(matches!(state, UpdateState::Checking))
+                    .disabled(matches!(
+                        state,
+                        UpdateState::Checking | UpdateState::Downloading { .. }
+                    ))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.updater.update(cx, |updater, cx| updater.check(cx))
+                    })),
+            ),
+        };
+        let status_row = SettingRow::new(label)
+            .map(|row| {
+                if failed {
+                    row.note(status, colors::RED_200)
+                } else {
+                    row.hint(status)
+                }
+            })
+            .when_some(action, |row, action| row.child(action));
+        card([
+            SettingRow::new(t(M::UpdateAutomatically))
+                .hint(t(M::UpdateAutomaticallyHint))
+                .child(
+                    Toggle::new("auto-update", auto_update)
+                        .disabled(build.is_none())
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_auto_update(on, cx));
+                            this.updater
+                                .update(cx, |updater, cx| updater.automatic_changed(cx));
+                        })),
+                )
+                .into_any_element(),
+            status_row.into_any_element(),
         ])
     }
 

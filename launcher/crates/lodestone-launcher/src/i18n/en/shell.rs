@@ -375,6 +375,34 @@ crate::i18n::messages! {
         SignInExpired = "Sign in to {name} again: its saved sign-in has expired.",
         LauncherClosing = "The launcher is closing.",
 
+        // Settings > General > Updates, and the top bar's notice.
+        /// Settings > General: the section about updating the launcher.
+        UpdatesSection = "Updates",
+        UpdateAutomatically = "Update automatically",
+        UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
+        /// The running build: the number of commits it was built from.
+        BuildNumber = "Build {build}",
+        /// {commit} is the first seven characters of the commit.
+        BuildNumberCommit = "Build {build} · {commit}",
+        DevelopmentBuild = "Development build",
+        UpdatesUnavailable = "This build wasn't published on GitHub, so it doesn't update itself.",
+        UpdateNotChecked = "Checks GitHub for new builds every few hours.",
+        UpdateChecking = "Looking for a newer build…",
+        UpToDate = "This is the newest build.",
+        UpdateAvailable = "Build {build} is available.",
+        /// {percent} is how much is done: "42%".
+        UpdateDownloading = "Downloading build {build}… {percent}",
+        UpdateReady = "Build {build} is installed. Restart to use it.",
+        UpdateReadyPlaying = "Build {build} is installed. You can restart once the game is closed.",
+        /// {error} is in English, from the updater.
+        UpdateFailed = "Couldn't update: {error}",
+        CheckForUpdates = "Check now",
+        DownloadUpdate = "Download",
+        RestartToUpdate = "Restart",
+        /// The top bar's notice, beside its Restart button.
+        UpdateReadyBadge = "Update ready",
+        UpdateAvailableBadge = "Update available",
+
         // Shared components.
         /// Under a Modrinth description that is cut short.
         RestOnModrinth = "The rest of the description is on Modrinth.",

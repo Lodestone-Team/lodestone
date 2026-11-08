@@ -364,6 +364,27 @@ pub fn text(message: M) -> &'static str {
         M::SignInExpired => "請重新登入「{name}」：它儲存的登入資訊已過期。",
         M::LauncherClosing => "啟動器正在關閉。",
 
+        M::UpdatesSection => "更新",
+        M::UpdateAutomatically => "自動更新",
+        M::UpdateAutomaticallyHint => "在背景從 GitHub 下載新組建。",
+        M::BuildNumber => "組建 {build}",
+        M::BuildNumberCommit => "組建 {build} · {commit}",
+        M::DevelopmentBuild => "開發組建",
+        M::UpdatesUnavailable => "此組建並非在 GitHub 上發布，因此不會自動更新。",
+        M::UpdateNotChecked => "每隔幾小時在 GitHub 上檢查新組建。",
+        M::UpdateChecking => "正在檢查新組建…",
+        M::UpToDate => "目前已是最新組建。",
+        M::UpdateAvailable => "組建 {build} 現已可用。",
+        M::UpdateDownloading => "正在下載組建 {build}… {percent}",
+        M::UpdateReady => "組建 {build} 已安裝，重新啟動後即可使用。",
+        M::UpdateReadyPlaying => "組建 {build} 已安裝，關閉遊戲後即可重新啟動。",
+        M::UpdateFailed => "無法更新：{error}",
+        M::CheckForUpdates => "立即檢查",
+        M::DownloadUpdate => "下載",
+        M::RestartToUpdate => "重新啟動",
+        M::UpdateReadyBadge => "更新已就緒",
+        M::UpdateAvailableBadge => "有可用的更新",
+
         M::RestOnModrinth => "其餘說明請在 Modrinth 上查看。",
     }
 }

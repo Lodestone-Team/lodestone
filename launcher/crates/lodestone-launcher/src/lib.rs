@@ -19,6 +19,7 @@ pub mod preview;
 pub mod servers;
 pub mod shell;
 pub mod theme;
+pub mod updater;
 
 use gpui::{
     App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, Render, SharedString, WindowBounds,
