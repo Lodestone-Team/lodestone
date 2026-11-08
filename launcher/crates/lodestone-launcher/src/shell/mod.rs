@@ -3,7 +3,7 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
-mod developer;
+pub(crate) mod developer;
 mod launcher_settings;
 mod play;
 mod settings_modal;

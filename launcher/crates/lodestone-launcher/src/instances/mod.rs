@@ -13,6 +13,9 @@ pub mod new_instance;
 pub mod settings;
 pub mod shared_settings;
 pub mod worlds;
+// Read access for the control API (`crate::control`).
+#[cfg(unix)]
+pub(crate) mod control;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -67,6 +70,8 @@ pub struct GameLog {
     recent: VecDeque<LogLine>,
     /// Bumped on every change, so views know to scroll.
     pub revision: u64,
+    /// Rows pushed since the start, never reset: where a reader of new rows is.
+    pushed: u64,
 }
 
 impl GameLog {
@@ -98,6 +103,7 @@ impl GameLog {
                 text: SharedString::from(text.replace('\t', "    ")),
                 stream: line.stream,
             });
+            self.pushed += 1;
             first = false;
         }
         while self.rows.len() > MAX_LOG_ROWS {

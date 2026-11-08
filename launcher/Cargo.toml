@@ -1,7 +1,12 @@
 # Lodestone Launcher has its own workspace and lockfile, so the core's CI does not
 # build GPUI and GPUI's dependencies stay out of the root Cargo.lock.
 [workspace]
-members = ["crates/launcher-core", "crates/lodestone-launcher"]
+members = [
+    "crates/launcher-control",
+    "crates/launcher-core",
+    "crates/lodestone-launcher",
+    "crates/lodestone-launcher-cli",
+]
 resolver = "2"
 
 [workspace.package]
@@ -25,6 +30,8 @@ reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b
 http_client_tls = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 
 launcher-core = { path = "crates/launcher-core" }
+# The control protocol and socket shared by the app and lodestone-launcher-cli.
+launcher-control = { path = "crates/launcher-control" }
 
 # Certificate pinning for HTTPS cores with a self-signed certificate (`launcher-core`'s
 # `cores::tls`): a reqwest client with our own rustls verifier, wrapped in Zed's
@@ -42,6 +49,9 @@ reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "33bc76
 # Third-party crates. Each resolves to the version in Zed v1.27.0's Cargo.lock, and
 # uses the requirement and features Zed declares where Zed declares it.
 anyhow = "1.0.86"
+# lodestone-launcher-cli's command line. Zed's requirement and features; 4.5.49 in its
+# lockfile, as here (GPUI's build tools already lock it).
+clap = { version = "4.4", features = ["derive", "wrap_help"] }
 base64 = "0.22"
 # Local dates for worlds, backups and screenshots; already in Zed's tree through GPUI.
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }

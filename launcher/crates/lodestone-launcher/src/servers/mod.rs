@@ -23,6 +23,9 @@ pub mod host;
 pub mod lan;
 pub mod tools;
 pub mod view;
+// What the control API (`crate::control`) does with cores and servers.
+#[cfg(unix)]
+pub(crate) mod control;
 
 use std::{
     collections::{HashMap, HashSet},
