@@ -573,6 +573,15 @@ fn imports_a_copy_without_caches_logs_or_launcher_files() {
     );
     assert_eq!(imported.instance.name, "Latest release");
     assert_eq!(imported.instance.game_version, "26.3");
+    // Marked as imported, so the sidebar lists it under Imported, and saved so.
+    assert_eq!(
+        imported.instance.imported_from.as_deref(),
+        Some("Minecraft Launcher")
+    );
+    assert_eq!(
+        store.get(&imported.instance.id).unwrap().imported_from,
+        imported.instance.imported_from
+    );
     assert!(imported.notes.iter().any(|n| n == "a resolution note"));
     assert_eq!(progress.stage(), import::Stage::Done);
     assert_eq!(progress.fraction(), Some(1.0));
