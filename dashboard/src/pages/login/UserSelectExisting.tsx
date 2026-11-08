@@ -1,5 +1,5 @@
 import Button from 'components/Atoms/Button';
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import {
@@ -29,6 +29,12 @@ const UserSelectExisting = () => {
   const { core_name, is_setup } = coreInfo ?? {};
   const { data: userInfo, isPending: isUserInfoLoading } = useUserInfo();
   const uid = useUid();
+  // Signed out, outside the desktop app's own core: this page only sends the
+  // user on to the sign-in form (below). Render nothing meanwhile instead of
+  // flashing it. Read once, like the redirect.
+  const [redirecting] = useState(
+    () => !token && (!tauri || !isLocalCore(core))
+  );
 
   useEffectOnce(() => {
     if (token) return;
@@ -47,6 +53,8 @@ const UserSelectExisting = () => {
         console.log('Tauri call failed get_owner_jwt', err);
       });
   });
+
+  if (redirecting) return null;
 
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">

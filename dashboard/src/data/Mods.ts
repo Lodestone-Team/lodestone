@@ -115,6 +115,10 @@ export const useModrinthVersions = (
     enabled: !!idOrSlug,
     staleTime: MODRINTH_STALE_TIME,
     retry: false,
+    // changing the filter ("Show all versions") keeps the list on screen
+    // until the new one arrives; never another project's versions
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === idOrSlug ? previous : undefined,
   });
 
 export const useModrinthVersion = (versionId: string | null) =>

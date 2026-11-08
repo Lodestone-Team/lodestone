@@ -5,7 +5,7 @@ import InstanceLoadingPill from 'components/InstanceLoadingPill';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
-import { useUserLoggedIn } from 'data/UserInfo';
+import { useUserState } from 'components/useUserState';
 import { useContext, useEffect, useRef } from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
@@ -26,7 +26,8 @@ export default function InstanceList({
     isReady,
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
-  const userLoggedIn = useUserLoggedIn();
+  // not "logged out" while the user info loads, or the sign-in hint flashes
+  const { userState } = useUserState();
   const {
     location: { pathname },
   } = useContext(BrowserLocationContext);
@@ -59,7 +60,7 @@ export default function InstanceList({
       <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
         ALL INSTANCES
       </RadioGroup.Label>
-      {userLoggedIn ? (
+      {userState === 'loading' ? null : userState === 'logged-in' ? (
         instances &&
         Object.values(instances).map((instance) => (
           <RadioGroup.Option

@@ -11,6 +11,8 @@ import UserBox from 'components/UserBox';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { useInstanceList } from 'data/InstanceList';
 import { SettingsContext } from 'data/SettingsContext';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
@@ -28,7 +30,12 @@ import { useDocumentTitle } from 'usehooks-ts';
 export const UserSettings = () => {
   useDocumentTitle('User Settings - Lodestone');
   const queryClient = useQueryClient();
-  const { userList, selectUser, selectedUser } = useContext(SettingsContext);
+  const { userList, userListLoading, selectUser, selectedUser } =
+    useContext(SettingsContext);
+  const { searchParams } = useContext(BrowserLocationContext);
+  // a link to a user: show nothing until the list (and the user) has loaded,
+  // instead of the list of all users first
+  const openingUser = userListLoading && !!searchParams.get('user');
   const { data: instanceList } = useInstanceList();
   const [showCreateUser, setShowCreateUser] = useState(false);
   const { data: userInfo } = useUserInfo();
@@ -91,12 +98,13 @@ export const UserSettings = () => {
     });
   };
 
-  const UserBoxes = !selectedUser && (
+  const UserBoxes = !selectedUser && !openingUser && (
     <div className="flex w-full flex-col gap-4 @4xl:flex-row">
       <div className="flex w-full flex-row flex-nowrap items-end justify-between gap-4 @4xl:w-[28rem] @4xl:flex-col @4xl:items-start @4xl:justify-start">
         <div>
           <h2 className="text-h2 font-bold tracking-tight text-gray-300">
-            All Members ({Object.keys(userList).length})
+            All Members
+            {!userListLoading && ` (${Object.keys(userList).length})`}
           </h2>
           <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
             A list of all users. Click into a user to manage
@@ -110,23 +118,29 @@ export const UserSettings = () => {
           }}
         />
       </div>
-      <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-        {Object.keys(userList)
-          .sort((a, b) =>
-            userList[a].uid === uid
-              ? -1
-              : userList[b].uid === uid
-                ? 1
-                : userList[a].username.localeCompare(userList[b].username)
-          )
-          .map((uid) => (
-            <UserBox
-              user={userList[uid]}
-              key={uid}
-              onClick={() => selectUser(userList[uid])}
-            />
-          ))}
-      </div>
+      {userListLoading ? (
+        <SkeletonGroup className="w-full min-w-0">
+          <Skeleton className="h-30 w-full rounded-lg" />
+        </SkeletonGroup>
+      ) : (
+        <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+          {Object.keys(userList)
+            .sort((a, b) =>
+              userList[a].uid === uid
+                ? -1
+                : userList[b].uid === uid
+                  ? 1
+                  : userList[a].username.localeCompare(userList[b].username)
+            )
+            .map((uid) => (
+              <UserBox
+                user={userList[uid]}
+                key={uid}
+                onClick={() => selectUser(userList[uid])}
+              />
+            ))}
+        </div>
+      )}
     </div>
   );
 

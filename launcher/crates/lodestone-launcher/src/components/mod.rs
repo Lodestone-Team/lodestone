@@ -6,14 +6,16 @@ mod button;
 mod dialog;
 mod icon;
 mod list_row;
+mod play_button;
 mod tabs;
 mod text_input;
 mod toggle;
 
-pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton};
+pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;
 pub use icon::Icon;
 pub use list_row::ListRow;
+pub use play_button::PlayButton;
 pub use tabs::Tabs;
 pub use text_input::TextInput;
 pub use toggle::Toggle;

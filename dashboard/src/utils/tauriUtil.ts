@@ -34,13 +34,23 @@ export const setTauriWindowTheme = (theme: 'light' | 'dark' | null) => {
     .catch((e: unknown) => console.warn('Failed to set the window theme', e));
 };
 
+// The desktop app's answer to is_debug_build, kept for the page's lifetime:
+// asking again on every mount showed the release look until the answer came.
+let tauriDebugBuildCache: boolean | undefined;
+
 // True for local development: the Next dev server, or a debug build of the desktop app.
 export const useIsDevBuild = (): boolean => {
-  const [tauriDebugBuild, setTauriDebugBuild] = useState(false);
+  const [tauriDebugBuild, setTauriDebugBuild] = useState(
+    tauriDebugBuildCache ?? false
+  );
   useEffect(() => {
+    if (tauriDebugBuildCache !== undefined) return;
     tauri?.core
       .invoke<boolean>('is_debug_build')
-      .then(setTauriDebugBuild)
+      .then((debug) => {
+        tauriDebugBuildCache = debug;
+        setTauriDebugBuild(debug);
+      })
       .catch(() => setTauriDebugBuild(false));
   }, []);
   return process.env.NODE_ENV === 'development' || tauriDebugBuild;

@@ -13,6 +13,7 @@ import { InstalledModKind } from 'bindings/InstalledModKind';
 import { ModInstallResult } from 'bindings/ModInstallResult';
 import Button from 'components/Atoms/Button';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { Toggle } from 'components/Atoms/Toggle';
 import IconButton from 'components/Atoms/IconButton';
 import {
@@ -275,6 +276,24 @@ export default function InstalledMods({
       await invalidateInstalledMods(queryClient, uuid);
     }
   };
+
+  if (isLoading && !list && !error)
+    // First load only (the list is kept once loaded). One quiet outline for
+    // the whole view, so the toolbar doesn't show first and then get pushed
+    // down by the client modpack panel when the list arrives.
+    return (
+      <SkeletonGroup className="flex flex-col gap-4">
+        <div className="flex flex-row items-center justify-between gap-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-9 w-64" />
+        </div>
+        <div className="flex flex-col gap-px overflow-hidden rounded-lg border border-gray-faded/30">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-16 rounded-none" />
+          ))}
+        </div>
+      </SkeletonGroup>
+    );
 
   return (
     <div className="flex flex-col gap-4">

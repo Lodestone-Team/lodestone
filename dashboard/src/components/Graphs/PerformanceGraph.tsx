@@ -16,7 +16,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { useIntervalClock } from 'utils/hooks';
-import { asyncCallWithTimeout } from 'utils/util';
+import { asyncCallWithTimeout, cn } from 'utils/util';
 import { useResolvedTheme } from 'utils/theme';
 
 ChartJS.register(
@@ -176,6 +176,8 @@ export default function PerformanceGraph({
 
   const options: ChartOptions<'line'> = {
     responsive: true,
+    // the wrapper below has the size (2:1, Chart.js's default for lines)
+    maintainAspectRatio: false,
     plugins: {
       legend: {
         display: false,
@@ -279,7 +281,14 @@ export default function PerformanceGraph({
     },
   };
 
-  return <Line data={chartData} options={options} className={`${className}`} />;
+  // The space is reserved before the chart exists: the chart is only created
+  // after the first paint, and its canvas was 150px tall until then, so the
+  // graph (and everything under it) jumped when it appeared.
+  return (
+    <div className={cn('relative aspect-2/1 w-full', className)}>
+      <Line data={chartData} options={options} />
+    </div>
+  );
 }
 
 const getOrCreateTooltip = (

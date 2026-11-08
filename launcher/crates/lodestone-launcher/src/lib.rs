@@ -3,8 +3,12 @@
 //! This crate holds the app shell, the theme carried over from the dashboard and a
 //! small set of components. The binary in `main.rs` only opens the window.
 
+pub mod accounts;
 pub mod assets;
 pub mod components;
+pub mod images;
+#[cfg(feature = "screenshot")]
+pub mod preview;
 pub mod shell;
 pub mod theme;
 
@@ -82,7 +86,7 @@ pub fn open_window<V: Render>(
     options: WindowOptions,
     build: impl FnOnce(&mut gpui::Context<V>) -> V + 'static,
     cx: &mut App,
-) {
+) -> gpui::WindowHandle<V> {
     let window = cx
         .open_window(options, |_, cx| cx.new(build))
         .expect("could not open the launcher window");
@@ -92,8 +96,7 @@ pub fn open_window<V: Render>(
     if let Some(path) = screenshot::requested_path() {
         screenshot::capture(window.into(), path, cx);
     }
-    #[cfg(not(feature = "screenshot"))]
-    let _ = window;
+    window
 }
 
 #[cfg(feature = "screenshot")]

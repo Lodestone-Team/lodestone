@@ -8,6 +8,7 @@ import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { saveInstanceFile } from 'utils/apis';
 import * as toml from 'utils/monaco-languages/toml';
 import { useResolvedTheme } from 'utils/theme';
+import Spinner from 'components/DashboardLayout/Spinner';
 
 type Monaco = typeof monaco;
 
@@ -152,6 +153,9 @@ export function FileEditor({
       language={monacoLanguage}
       saveViewState={true}
       onMount={handleEditorDidMount}
+      // shown only if the editor takes a while to start (its first load),
+      // instead of "Loading..." text flashing every time a file opens
+      loading={<Spinner />}
       // dispose the model when the file is closed instead of keeping it
       keepCurrentModel={false}
     />
