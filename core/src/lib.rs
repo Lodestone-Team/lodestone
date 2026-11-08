@@ -74,6 +74,23 @@ use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::T
 use types::{DotLodestoneConfig, InstanceUuid};
 use uuid::Uuid;
 
+/// `#[test]`s that export the TypeScript bindings of types from `lodestone_minecraft` into
+/// `bindings/`, like the tests `#[ts(export)]` adds for the core's own types.
+#[cfg(test)]
+macro_rules! export_shared_bindings {
+    ($($test:ident => $ty:ty),* $(,)?) => {
+        $(
+            #[test]
+            fn $test() {
+                let cfg = ts_rs::Config::from_env();
+                <$ty as ts_rs::TS>::export_all(&cfg).expect("could not export type");
+            }
+        )*
+    };
+}
+#[cfg(test)]
+pub(crate) use export_shared_bindings;
+
 pub mod auth;
 mod command_console;
 pub mod db;

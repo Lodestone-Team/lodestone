@@ -10,6 +10,7 @@
 //! - `ts-rs`: TypeScript bindings for the types Lodestone Core sends to its clients.
 
 mod error;
+pub mod modrinth;
 pub mod properties;
 pub mod util;
 pub mod versions;

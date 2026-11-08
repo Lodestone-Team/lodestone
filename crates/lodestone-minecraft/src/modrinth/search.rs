@@ -1,9 +1,7 @@
 //! Search parameters, and the Modrinth `facets` built from them.
 
-use color_eyre::eyre::eyre;
-
 use super::types::{ModrinthProjectType, ModrinthSearchIndex};
-use crate::error::{Error, ErrorKind};
+use crate::Error;
 
 pub const DEFAULT_SEARCH_LIMIT: u32 = 20;
 pub const MAX_SEARCH_LIMIT: u32 = 100;
@@ -24,10 +22,7 @@ pub struct SearchParams {
 }
 
 fn bad_request(message: impl Into<String>) -> Error {
-    Error {
-        kind: ErrorKind::BadRequest,
-        source: eyre!(message.into()),
-    }
+    Error::Invalid(message.into())
 }
 
 /// Whether `value` is a plausible game version or loader name, such as `1.20.1`,
