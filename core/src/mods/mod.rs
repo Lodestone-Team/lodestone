@@ -32,50 +32,13 @@ pub const MAX_MOD_BYTES: u64 = 512 * 1024 * 1024;
 
 const DISABLED_SUFFIX: &str = ".disabled";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum InstalledModKind {
-    Mod,
-    Plugin,
-}
+pub use lodestone_minecraft::jar::{InstalledModKind, InstalledModLoader, ModFileMetadata};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum InstalledModLoader {
-    Fabric,
-    Forge,
-    Paper,
-    Spigot,
-}
-
-impl InstalledModLoader {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            InstalledModLoader::Fabric => "fabric",
-            InstalledModLoader::Forge => "forge",
-            InstalledModLoader::Paper => "paper",
-            InstalledModLoader::Spigot => "spigot",
-        }
-    }
-
-    pub fn kind(&self) -> InstalledModKind {
-        match self {
-            InstalledModLoader::Fabric | InstalledModLoader::Forge => InstalledModKind::Mod,
-            InstalledModLoader::Paper | InstalledModLoader::Spigot => InstalledModKind::Plugin,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ModFileMetadata {
-    pub id: Option<String>,
-    pub name: Option<String>,
-    pub version: Option<String>,
-    pub description: Option<String>,
-    pub authors: Vec<String>,
+#[cfg(test)]
+crate::export_shared_bindings! {
+    export_bindings_installedmodkind => InstalledModKind,
+    export_bindings_installedmodloader => InstalledModLoader,
+    export_bindings_modfilemetadata => ModFileMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

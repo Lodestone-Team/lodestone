@@ -47,6 +47,7 @@ igd-next = "0.18.0"
 indexmap = { version = "2.14.2", features = ["serde"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs"] }
 local-ip-address = "0.6.13"
+lodestone_minecraft = { path = "../crates/lodestone-minecraft", features = ["ts-rs"] }
 playit-agent-core = "=0.20.1"
 playit-api-client = "=0.1.2"
 rand = "0.10.3"

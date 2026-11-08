@@ -2,8 +2,7 @@
 //! them those mods.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
@@ -211,50 +210,9 @@ pub struct ClientPackDownload {
     pub included_jars: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PackFileHashes {
-    pub sha1: String,
-    pub sha512: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PackFileEnv {
-    pub client: String,
-    pub server: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PackIndexFile {
-    pub path: String,
-    pub hashes: PackFileHashes,
-    pub env: PackFileEnv,
-    pub downloads: Vec<String>,
-    pub file_size: u64,
-}
-
-/// `modrinth.index.json` of a client pack.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PackIndex {
-    pub format_version: u32,
-    pub game: String,
-    pub version_id: String,
-    pub name: String,
-    pub summary: String,
-    pub files: Vec<PackIndexFile>,
-    pub dependencies: std::collections::BTreeMap<String, String>,
-}
-
-/// What a client pack holds.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ClientPackPlan {
-    pub index: PackIndex,
-    /// Jars that are not on Modrinth: their name and their path on disk. They go into
-    /// `overrides/mods/`.
-    pub included: Vec<(String, PathBuf)>,
-}
+pub use lodestone_minecraft::mrpack::write::{
+    write_client_pack, ClientPackPlan, PackFileEnv, PackFileHashes, PackIndex, PackIndexFile,
+};
 
 /// The CDN URL of the version file with this SHA-512, if it may go into a pack.
 fn cdn_url(version: &ModrinthVersion, sha512: &str) -> Option<String> {
@@ -264,22 +222,6 @@ fn cdn_url(version: &ModrinthVersion, sha512: &str) -> Option<String> {
         .find(|f| f.sha512.eq_ignore_ascii_case(sha512))?;
     let url = url::Url::parse(&file.url).ok()?;
     (url.scheme() == "https" && url.host_str() == Some(CDN_HOST)).then(|| file.url.clone())
-}
-
-fn sha1_of(path: &Path) -> std::io::Result<String> {
-    use sha1::Digest;
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = sha1::Sha1::new();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
 }
 
 /// Plans the client pack of a Fabric instance named `instance_name`: one index entry per
@@ -315,7 +257,8 @@ pub fn plan_client_pack(
             .and_then(|(_, version)| cdn_url(version, &file.file.sha512));
         match url {
             Some(url) => {
-                let sha1 = sha1_of(&path).with_context(|| format!("Failed to read {name}"))?;
+                let sha1 = lodestone_minecraft::hash::sha1_of(&path)
+                    .with_context(|| format!("Failed to read {name}"))?;
                 entries.push(PackIndexFile {
                     path: format!("mods/{name}"),
                     hashes: PackFileHashes {
@@ -358,41 +301,6 @@ pub fn plan_client_pack(
         },
         included,
     })
-}
-
-/// Writes the pack to `out`: the index, then the included jars under `overrides/mods/`.
-/// Nothing else goes into it.
-pub fn write_client_pack(plan: &ClientPackPlan, out: &Path) -> Result<(), Error> {
-    let file = std::fs::File::create(out).context("Failed to create the modpack file")?;
-    let mut writer = zip::ZipWriter::new(file);
-    let deflated = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-    // jars are already compressed
-    let stored = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored)
-        .large_file(true);
-    let zip_error = |e: zip::result::ZipError| eyre!("Failed to write the modpack: {e}");
-    writer
-        .start_file("modrinth.index.json", deflated)
-        .map_err(zip_error)?;
-    let index = serde_json::to_vec_pretty(&plan.index).context("Failed to write the index")?;
-    writer
-        .write_all(&index)
-        .context("Failed to write the modpack")?;
-    for (name, path) in &plan.included {
-        writer
-            .start_file(format!("overrides/mods/{name}"), stored)
-            .map_err(zip_error)?;
-        let mut jar =
-            std::fs::File::open(path).with_context(|| format!("Failed to read {name}"))?;
-        std::io::copy(&mut jar, &mut writer).with_context(|| format!("Failed to read {name}"))?;
-    }
-    writer
-        .finish()
-        .map_err(zip_error)?
-        .sync_all()
-        .context("Failed to write the modpack")?;
-    Ok(())
 }
 
 /// Plans and writes a client pack into `out` on a blocking thread. Returns the plan.
