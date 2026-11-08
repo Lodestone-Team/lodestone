@@ -8,4 +8,8 @@ export type ModrinthMatch = { project_id: string, version_id: string, slug: stri
 /**
  * Only filled when updates were checked.
  */
-update: ModrinthUpdate | null, };
+update: ModrinthUpdate | null, 
+/**
+ * From the project. Hand-written until the core generates it (CLIENT_MODS_SPEC 1.1).
+ */
+client_side: string, server_side: string, };
