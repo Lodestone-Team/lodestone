@@ -227,7 +227,7 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             )
         })
         .child(
-            div().w_full().pt_1().pb_8().child(
+            div().w_full().pt_1().child(
                 Button::new("new-instance", "New instance...")
                     .variant(ButtonVariant::Ghost)
                     .icon(Icon::SquarePlus)
@@ -236,6 +236,16 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
                     .on_click(
                         cx.listener(|this, _, window, cx| this.open_new_instance(window, cx)),
                     ),
+            ),
+        )
+        .child(
+            div().w_full().pb_8().child(
+                Button::new("import-instances", "Import instances...")
+                    .variant(ButtonVariant::Ghost)
+                    .icon(Icon::Download)
+                    .align(Align::Start)
+                    .full_width()
+                    .on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx))),
             ),
         )
 }

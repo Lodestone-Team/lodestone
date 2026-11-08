@@ -56,6 +56,8 @@ pub const SCENES: &[&str] = &[
     "content-shaders-missing",
     "content-shaders-vanilla",
     "loader-change",
+    "import",
+    "import-progress",
 ];
 
 /// Scenes that show made-up instances.
@@ -65,6 +67,7 @@ fn has_instances(scene: &str) -> bool {
         "play-progress" | "playing" | "logs" | "instance-settings" | "crash" | "rosetta"
     ) || scene.starts_with("content-")
         || scene == "loader-change"
+        || scene.starts_with("import")
 }
 
 pub fn requested_scene() -> Option<String> {
@@ -334,6 +337,7 @@ fn sample_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod import;
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
@@ -382,6 +386,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.show_loader_change(prompt, cx);
             }
         }
+        "import" | "import-progress" => import::apply(scene, shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),

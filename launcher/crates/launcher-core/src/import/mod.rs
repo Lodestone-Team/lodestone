@@ -97,8 +97,8 @@ impl WantedVersion {
     pub fn label(&self) -> String {
         match self {
             WantedVersion::Exact(version) => version.clone(),
-            WantedVersion::LatestRelease => "Latest release".into(),
-            WantedVersion::LatestSnapshot => "Latest snapshot".into(),
+            WantedVersion::LatestRelease => "The newest release".into(),
+            WantedVersion::LatestSnapshot => "The newest snapshot".into(),
         }
     }
 }

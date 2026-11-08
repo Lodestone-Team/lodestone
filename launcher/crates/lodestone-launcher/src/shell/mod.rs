@@ -28,6 +28,7 @@ use crate::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
         content::{ContentEvent, ContentView},
+        import::{ImportDialog, ImportDismissed},
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{DeleteRequested, InstanceSettings, LoaderChangePrompt},
     },
@@ -77,6 +78,11 @@ impl InstanceTab {
 enum Modal {
     NewInstance {
         dialog: Entity<NewInstanceDialog>,
+        _events: Subscription,
+    },
+    /// "Import from another launcher".
+    Import {
+        dialog: Entity<ImportDialog>,
         _events: Subscription,
     },
     Crash {
@@ -489,6 +495,27 @@ impl LauncherShell {
         cx.notify();
     }
 
+    fn open_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| ImportDialog::new(instances, cx));
+        window.focus(&dialog.focus_handle(cx), cx);
+        self.show_import(dialog, cx);
+    }
+
+    /// Shows the import dialog (a prepared one for the offscreen screenshots).
+    pub fn show_import(&mut self, dialog: Entity<ImportDialog>, cx: &mut Context<Self>) {
+        self.account_menu_open = false;
+        let subscription = cx.subscribe(&dialog, |this, _, _: &ImportDismissed, cx| {
+            this.page = Page::Instance;
+            this.close_modal(cx)
+        });
+        self.modal = Some(Modal::Import {
+            dialog,
+            _events: subscription,
+        });
+        cx.notify();
+    }
+
     fn open_sign_in(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         self.open_sign_in_at(Stage::Choose, window, cx);
     }
@@ -591,6 +618,7 @@ impl LauncherShell {
         };
         Some(match self.modal.as_ref()? {
             Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Crash {
                 crash,
                 focus,

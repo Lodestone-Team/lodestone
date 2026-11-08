@@ -4,6 +4,7 @@
 pub mod console;
 pub mod content;
 pub mod fields;
+pub mod import;
 pub mod loader_picker;
 pub mod new_instance;
 pub mod settings;
@@ -728,6 +729,16 @@ impl Instances {
     /// The Modrinth client, unless the app is offline (the offscreen screenshots).
     pub fn modrinth(&self) -> Option<Arc<Modrinth>> {
         self.modrinth.clone()
+    }
+
+    /// The installer, for resolving imported instances' versions and loaders.
+    pub fn installer(&self) -> Installer {
+        self.installer.clone()
+    }
+
+    /// The instance store, for imports that build instances in the background.
+    pub fn store(&self) -> InstanceStore {
+        self.store.clone()
     }
 
     /// Keeps the Content tab off the network, for the offscreen screenshots.
