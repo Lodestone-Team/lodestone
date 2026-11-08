@@ -8,11 +8,11 @@ pub fn text(message: M) -> &'static str {
 
         M::StagePreparing => "Préparation",
         M::StageJava => "Téléchargement de Java",
-        M::StageLibraries => "Téléchargement des bibliothèques",
-        M::StageLoader => "Installation du chargeur de mods",
-        M::StageProcessors => "Adaptation de Minecraft au chargeur de mods",
-        M::StageAssets => "Téléchargement des ressources",
-        M::StageNatives => "Extraction des bibliothèques natives",
+        M::StageLibraries => "Bibliothèques du jeu",
+        M::StageLoader => "Installation du chargeur",
+        M::StageProcessors => "Adaptation au chargeur",
+        M::StageAssets => "Ressources du jeu",
+        M::StageNatives => "Bibliothèques natives",
         M::StageStarting => "Démarrage de Java",
         M::ProgressDetail => "{files_done}/{files_total} · {done}\u{a0}Mo/{total}\u{a0}Mo",
 

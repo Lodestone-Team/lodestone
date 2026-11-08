@@ -39,8 +39,8 @@
 //!
 //! Style: sentence case, « vous », infinitives on buttons (« Enregistrer »), the
 //! typographic apostrophe (’), and French spacing: a no-break space (U+00A0)
-//! before « : » and inside « », a narrow no-break space (U+202F) before ; ! ? and
-//! in grouped numbers and before units ("4 Go"). Product names stay in English.
+//! before « : », inside « », in grouped numbers and before units ("4 Go"), and a
+//! narrow no-break space (U+202F) before ; ! ?. Product names stay in English.
 
 pub mod common;
 pub mod content;

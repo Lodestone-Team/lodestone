@@ -2,8 +2,9 @@ use crate::i18n::{FormatMsg as M, FormatPlural as P};
 
 pub fn text(message: M) -> &'static str {
     match message {
-        // A narrow no-break space, as French groups digits: "4 091".
-        M::GroupSeparator => "\u{202F}",
+        // A no-break space, as French groups digits: "4 091". (The narrow one,
+        // U+202F, isn't in the bundled fonts and draws too thin to read.)
+        M::GroupSeparator => "\u{a0}",
         M::DecimalSeparator => ",",
         M::ListSeparator => ", ",
         M::Percent => "{value}\u{202F}%",
@@ -25,7 +26,7 @@ pub fn text(message: M) -> &'static str {
         M::NotPlayedYet => "Pas encore joué",
         M::LessThanAMinute => "Moins d’une minute",
         M::Minutes => "{minutes}\u{a0}min",
-        M::HoursMinutes => "{hours}\u{a0}h {minutes}\u{a0}min",
+        M::HoursMinutes => "{hours}\u{a0}h\u{a0}{minutes}\u{a0}min",
         M::ShortDate => "{day} {month}",
         M::ShortDateWithYear => "{day} {month} {year}",
         M::January => "janv.",
