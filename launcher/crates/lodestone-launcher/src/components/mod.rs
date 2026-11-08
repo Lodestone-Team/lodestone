@@ -19,6 +19,7 @@ mod tooltip;
 
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;
+pub(crate) use dialog::prefers_reduced_motion;
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
 pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;

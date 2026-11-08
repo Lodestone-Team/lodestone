@@ -249,16 +249,24 @@ pub enum Instances {
         #[arg(long)]
         clear: bool,
     },
-    /// Sets or clears an instance's Play background image.
+    /// Sets an instance's Play background: an image, the default, or a slideshow of
+    /// screenshots or of its own images (each shown ~15 s, crossfading).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli instances background Survival --image ./castle.jpg\n  lodestone-launcher-cli instances background Survival --clear"
+        after_help = "Examples:\n  lodestone-launcher-cli instances background Survival --image ./castle.jpg\n  lodestone-launcher-cli instances background Survival --clear\n  lodestone-launcher-cli instances background Survival --slideshow all\n  lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg"
     )]
     Background {
         instance: String,
-        #[arg(long, value_name = "FILE", conflicts_with = "clear")]
+        #[arg(long, value_name = "FILE", conflicts_with_all = ["clear", "slideshow", "add"])]
         image: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["slideshow", "add"])]
         clear: bool,
+        /// instance (its screenshots), all (every instance's), custom (its own images)
+        /// or off (back to the image).
+        #[arg(long, value_parser = ["instance", "all", "custom", "off"])]
+        slideshow: Option<String>,
+        /// An image to add to the slideshow's own set (repeat for several).
+        #[arg(long, value_name = "FILE")]
+        add: Vec<PathBuf>,
     },
     /// Copies an instance (with its worlds and mods).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances duplicate Survival")]

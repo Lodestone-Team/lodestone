@@ -45,6 +45,20 @@ pub fn text(message: M) -> &'static str {
         }
         M::ChooseFile => "Choisir un fichier…",
         M::UseDefault => "Utiliser celui par défaut",
+        M::BackgroundDefault => "Par défaut",
+        M::BackgroundImage => "Image",
+        M::BackgroundSlideshow => "Diaporama",
+        M::SlideshowThisInstance => "Cette instance",
+        M::SlideshowAllInstances => "Toutes les instances",
+        M::SlideshowOwnImages => "Mes images",
+        M::AddImages => "Ajouter des images…",
+        M::AddToSlideshow => "Ajouter au diaporama",
+        M::SlideshowNoScreenshots => {
+            "Pas encore de captures d’écran. L’illustration par défaut s’affiche en attendant."
+        }
+        M::SlideshowNoImages => {
+            "Pas encore d’images. Ajoutez-en, ou choisissez des captures ci-dessous."
+        }
         M::BlocksAndItems => "Blocs et objets",
         M::Emoji => "Emoji",
         M::UploadImage => "Importer une image…",

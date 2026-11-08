@@ -231,14 +231,33 @@ pub fn plan(
                 instance,
                 image,
                 clear,
-            } => call(
-                "instances.set_background",
-                vec![
+                slideshow,
+                add,
+            } => {
+                if image.is_none() && !clear && slideshow.is_none() && add.is_empty() {
+                    return Err(usage("Give --image, --clear, --slideshow or --add."));
+                }
+                let mut params = vec![
                     ("instance", json!(instance)),
                     ("image", path_value(image)?),
                     ("clear", json!(clear)),
-                ],
-            ),
+                ];
+                if let Some(slideshow) = slideshow {
+                    let slideshow = match slideshow.as_str() {
+                        "all" => "all_instances",
+                        other => other,
+                    };
+                    params.push(("slideshow", json!(slideshow)));
+                }
+                if !add.is_empty() {
+                    let paths = add
+                        .iter()
+                        .map(|p| path_value(&Some(p.clone())))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    params.push(("add", json!(paths)));
+                }
+                call("instances.set_background", params)
+            }
             Instances::Duplicate(i) => {
                 call("instances.duplicate", vec![("instance", json!(i.instance))])
             }
@@ -831,6 +850,11 @@ mod tests {
                 false
             )
         );
+        let (method, params, _) =
+            call_of(&["instances", "background", "Survival", "--slideshow", "all"]);
+        assert_eq!(method, "instances.set_background");
+        assert_eq!(params["slideshow"], json!("all_instances"));
+        assert!(params.get("add").is_none());
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
