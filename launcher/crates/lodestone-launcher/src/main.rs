@@ -18,6 +18,10 @@ fn main() {
             // offscreen screenshots. It never touches the Keychain or the network.
             #[cfg(feature = "screenshot")]
             if let Some(scene) = lodestone_launcher::preview::requested_scene() {
+                let options = match lodestone_launcher::preview::window_height(&scene) {
+                    Some(height) => lodestone_launcher::window_options(APP_NAME, 1200., height, cx),
+                    None => options,
+                };
                 let accounts = lodestone_launcher::preview::accounts(&scene, cx);
                 let instances = lodestone_launcher::preview::instances(&scene, &accounts, cx);
                 cx.spawn(async move |cx| {
