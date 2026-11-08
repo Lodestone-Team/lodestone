@@ -1,0 +1,14 @@
+{
+  "id": "21w44a",
+  "downloads": {
+    "server": {
+      "sha1": "ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d",
+      "size": 46233488,
+      "url": "https://piston-data.mojang.com/v1/objects/ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d/server.jar"
+    }
+  },
+  "javaVersion": {
+    "component": "java-runtime-alpha",
+    "majorVersion": 16
+  }
+}

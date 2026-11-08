@@ -1,0 +1,57 @@
+{
+  "latest": {
+    "release": "26.3",
+    "snapshot": "26.4-snapshot-7"
+  },
+  "versions": [
+    {
+      "id": "26.4-snapshot-7",
+      "type": "snapshot",
+      "url": "https://piston-meta.mojang.com/v1/packages/6be84ec668c4c843c87f80f2a8efa3095f2989d2/26.4-snapshot-7.json",
+      "time": "2026-11-03T13:18:26+00:00",
+      "releaseTime": "2026-11-03T13:08:56+00:00"
+    },
+    {
+      "id": "1.18.2",
+      "type": "release",
+      "url": "https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json",
+      "time": "2023-06-07T10:50:17+00:00",
+      "releaseTime": "2022-02-28T10:42:45+00:00"
+    },
+    {
+      "id": "21w44a",
+      "type": "snapshot",
+      "url": "https://piston-meta.mojang.com/v1/packages/a0a663bcbd3c43ced8e0e4889e82b79e48d2c42c/21w44a.json",
+      "time": "2023-06-07T10:50:17+00:00",
+      "releaseTime": "2021-11-03T16:14:34+00:00"
+    },
+    {
+      "id": "1.16.5",
+      "type": "release",
+      "url": "https://piston-meta.mojang.com/v1/packages/fba9f7833e858a1257d810d21a3a9e3c967f9077/1.16.5.json",
+      "time": "2023-06-07T11:09:02+00:00",
+      "releaseTime": "2021-01-14T16:05:32+00:00"
+    },
+    {
+      "id": "1.8.4",
+      "type": "release",
+      "url": "https://piston-meta.mojang.com/v1/packages/043b84efde9fc25d849e979329c03101ac9b7795/1.8.4.json",
+      "time": "2021-12-15T15:44:10+00:00",
+      "releaseTime": "2015-04-17T11:37:50+00:00"
+    },
+    {
+      "id": "1.7.10-pre4",
+      "type": "snapshot",
+      "url": "https://piston-meta.mojang.com/v1/packages/f2a4a03329bb07d70d4837b6893c435f97deed25/1.7.10-pre4.json",
+      "time": "2021-12-15T15:45:02+00:00",
+      "releaseTime": "2014-05-14T16:29:23+00:00"
+    },
+    {
+      "id": "a1.0.16",
+      "type": "old_alpha",
+      "url": "https://piston-meta.mojang.com/v1/packages/205ed38d0d1e135b467702a746e64ed2623b4679/a1.0.16.json",
+      "time": "2022-03-10T09:51:38+00:00",
+      "releaseTime": "2010-08-11T22:00:00+00:00"
+    }
+  ]
+}

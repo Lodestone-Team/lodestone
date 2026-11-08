@@ -1,0 +1,28 @@
+{
+  "game": [
+    {
+      "version": "26.4-snapshot-7",
+      "stable": false
+    },
+    {
+      "version": "1.21.1",
+      "stable": true
+    },
+    {
+      "version": "1.17.1",
+      "stable": true
+    },
+    {
+      "version": "21w19a",
+      "stable": false
+    },
+    {
+      "version": "1.16.5",
+      "stable": true
+    },
+    {
+      "version": "1.14",
+      "stable": true
+    }
+  ]
+}

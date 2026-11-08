@@ -1,0 +1,14 @@
+{
+  "id": "1.8.4",
+  "downloads": {
+    "server": {
+      "sha1": "dd4b5eba1c79500390e0b0f45162fa70d38f8a3d",
+      "size": 9779346,
+      "url": "https://launcher.mojang.com/v1/objects/dd4b5eba1c79500390e0b0f45162fa70d38f8a3d/server.jar"
+    }
+  },
+  "javaVersion": {
+    "component": "jre-legacy",
+    "majorVersion": 8
+  }
+}

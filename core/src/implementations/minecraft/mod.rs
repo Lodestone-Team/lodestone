@@ -212,15 +212,6 @@ pub struct MinecraftInstance {
     pid_to_task_entry: Arc<Mutex<IndexMap<MacroPID, TaskEntry>>>,
 }
 
-#[tokio::test]
-async fn test_setup_manifest() {
-    let manifest = MinecraftInstance::setup_manifest(&FlavourKind::Fabric)
-        .await
-        .unwrap();
-    let manifest_json_string = serde_json::to_string_pretty(&manifest).unwrap();
-    println!("{manifest_json_string}");
-}
-
 fn bad_request(message: impl Into<String>) -> Error {
     Error {
         kind: ErrorKind::BadRequest,
@@ -487,6 +478,14 @@ impl MinecraftInstance {
 
     pub async fn setup_manifest(flavour: &FlavourKind) -> Result<SetupManifest, Error> {
         let versions = Self::minecraft_versions(flavour).await?;
+        Self::setup_manifest_for_versions(flavour, versions)
+    }
+
+    /// The setup form for a flavour that supports `versions` (newest first).
+    fn setup_manifest_for_versions(
+        flavour: &FlavourKind,
+        versions: Vec<String>,
+    ) -> Result<SetupManifest, Error> {
         let newest = versions
             .first()
             .cloned()
@@ -1094,6 +1093,33 @@ impl TInstance for MinecraftInstance {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setup_manifest_offers_the_flavour_versions() {
+        let versions = vec!["1.21.1".to_string(), "1.20.1".to_string()];
+        let manifest =
+            MinecraftInstance::setup_manifest_for_versions(&FlavourKind::Fabric, versions).unwrap();
+        let json = serde_json::to_value(&manifest).unwrap();
+        let basic = &json["setting_sections"]["section_1"]["settings"];
+        // the newest version is the default
+        assert_eq!(
+            basic["version"]["value"],
+            serde_json::json!({ "type": "Enum", "value": "1.21.1" })
+        );
+        assert_eq!(
+            basic["version"]["value_type"]["options"],
+            serde_json::json!(["1.21.1", "1.20.1"])
+        );
+        assert_eq!(basic["port"]["value"]["value"], 25565);
+        let advanced = &json["setting_sections"]["section_2"]["settings"];
+        let mut keys: Vec<_> = advanced.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["cmd_args", "max_ram", "min_ram"]);
+
+        let err = MinecraftInstance::setup_manifest_for_versions(&FlavourKind::Paper, vec![])
+            .unwrap_err();
+        assert!(err.source.to_string().contains("empty"), "{err:?}");
+    }
 
     #[test]
     fn instance_names() {

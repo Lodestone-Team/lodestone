@@ -1,0 +1,14 @@
+{
+  "id": "1.18.2",
+  "downloads": {
+    "server": {
+      "sha1": "c8f83c5655308435b3dcf03c06d9fe8740a77469",
+      "size": 46592587,
+      "url": "https://piston-data.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar"
+    }
+  },
+  "javaVersion": {
+    "component": "java-runtime-beta",
+    "majorVersion": 17
+  }
+}

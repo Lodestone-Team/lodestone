@@ -1,0 +1,10 @@
+{
+  "id": "a1.0.16",
+  "downloads": {
+    "server": null
+  },
+  "javaVersion": {
+    "component": "jre-legacy",
+    "majorVersion": 8
+  }
+}

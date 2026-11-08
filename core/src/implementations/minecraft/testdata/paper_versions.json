@@ -1,0 +1,84 @@
+{
+  "versions": [
+    {
+      "version": {
+        "id": "26.3",
+        "support": {
+          "status": "SUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.20.1",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.19.3",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.19",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.16.5",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.16.4",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.16.3",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.16.2",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.16.1",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    },
+    {
+      "version": {
+        "id": "1.13-pre7",
+        "support": {
+          "status": "UNSUPPORTED"
+        }
+      }
+    }
+  ]
+}
