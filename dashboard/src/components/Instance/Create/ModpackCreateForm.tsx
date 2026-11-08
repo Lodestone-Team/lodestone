@@ -517,8 +517,12 @@ export default function ModpackCreateForm({
         </div>
         <div className="flex flex-row justify-between pt-6">
           <Button onClick={back} label="Back" disabled={submitting} />
+          {/* Separate keys, so React mounts a new <button> instead of turning the
+              clicked Next button into the submit button during the same click,
+              which would submit the settings form before it is shown. */}
           {step === 'settings' ? (
             <Button
+              key="create"
               type="submit"
               form={SETTINGS_FORM_ID}
               label="Create Instance"
@@ -528,6 +532,7 @@ export default function ModpackCreateForm({
             />
           ) : step === 'version' ? (
             <Button
+              key="next"
               label="Next"
               disabled={!canContinue || busy}
               onClick={() => setStep('settings')}
