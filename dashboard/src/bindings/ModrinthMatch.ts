@@ -10,6 +10,10 @@ export type ModrinthMatch = { project_id: string, version_id: string, slug: stri
  */
 update: ModrinthUpdate | null, 
 /**
- * From the project. Hand-written until the core generates it (CLIENT_MODS_SPEC 1.1).
+ * The project's `client_side`: `required`, `optional`, `unsupported` or `unknown`.
  */
-client_side: string, server_side: string, };
+client_side: string, 
+/**
+ * The project's `server_side`, with the same values.
+ */
+server_side: string, };

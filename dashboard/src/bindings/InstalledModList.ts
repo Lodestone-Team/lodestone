@@ -9,11 +9,14 @@ export type InstalledModList = { kind: InstalledModKind, loader: InstalledModLoa
  */
 directory: string, restart_required: boolean, 
 /**
+ * For Fabric, the instance's loader version, which players need too.
+ */
+loader_version: string | null, 
+/**
+ * How many enabled mods players need.
+ */
+client_required_count: number, 
+/**
  * Sorted by display name, ignoring case.
  */
-mods: Array<InstalledMod>, 
-/**
- * The Fabric loader version players need; null for other loaders or if unknown.
- * Hand-written until the core generates it (CLIENT_MODS_SPEC 1.1).
- */
-loader_version: string | null, client_required_count: number, };
+mods: Array<InstalledMod>, };

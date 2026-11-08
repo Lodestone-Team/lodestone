@@ -1,3 +1,4 @@
+import { ClientPackDownload } from 'bindings/ClientPackDownload';
 import { keepPreviousData, QueryClient, useQuery } from '@tanstack/react-query';
 import { CreateModpackInstanceRequest } from 'bindings/CreateModpackInstanceRequest';
 import { InstalledMod } from 'bindings/InstalledMod';
@@ -248,7 +249,7 @@ const clientPackKeyRequest = (uuid: string) => ({
  */
 export const downloadClientPack = async (uuid: string) => {
   // building the pack hashes every jar, which can take a while
-  const key = await axiosWrapper<string>({
+  const { key } = await axiosWrapper<ClientPackDownload>({
     ...clientPackKeyRequest(uuid),
     timeout: NO_TIMEOUT,
   });
