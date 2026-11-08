@@ -1,13 +1,22 @@
 //! A loopback file server for the download and install tests, on a port the OS picks.
-//! Each test starts its own. Every request is answered on its own thread, so the
-//! tests can see how many downloads run at once.
+//! Each test starts its own. Every connection is handled on its own thread and closed
+//! after one response, so the tests can see how many downloads run at once.
+//!
+//! It is a small HTTP/1.1 server on `std::net` rather than `tiny_http`: tiny_http's
+//! worker pool can leave a new connection queued behind idle keep-alive connections
+//! until the client drops them (30 seconds for reqwest), which made tests slow at
+//! random.
 
 #![allow(dead_code)]
 
 use std::{
     collections::HashMap,
-    net::{Ipv4Addr, SocketAddr, TcpListener},
-    sync::{Arc, Condvar, Mutex, MutexGuard},
+    io::{BufRead as _, BufReader, Write as _},
+    net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
+    sync::{
+        Arc, Condvar, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::JoinHandle,
     time::Duration,
 };
@@ -53,7 +62,8 @@ pub struct State {
 pub struct FileServer {
     pub base: Url,
     state: Arc<(Mutex<State>, Condvar)>,
-    server: Arc<tiny_http::Server>,
+    stop: Arc<AtomicBool>,
+    addr: SocketAddr,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -64,23 +74,28 @@ const HOLD_TIMEOUT: Duration = Duration::from_secs(10);
 impl FileServer {
     pub fn start() -> Self {
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = Arc::new(tiny_http::Server::from_listener(listener, None).unwrap());
+        let addr = listener.local_addr().unwrap();
         let state = Arc::new((Mutex::new(State::default()), Condvar::new()));
+        let stop = Arc::new(AtomicBool::new(false));
         let thread = {
-            let server = server.clone();
             let state = state.clone();
+            let stop = stop.clone();
             std::thread::spawn(move || {
-                while let Ok(request) = server.recv() {
+                for stream in listener.incoming() {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let Ok(stream) = stream else { continue };
                     let state = state.clone();
-                    std::thread::spawn(move || answer(&state, request));
+                    std::thread::spawn(move || answer(&state, stream));
                 }
             })
         };
         Self {
-            base: Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap(),
+            base: Url::parse(&format!("http://{addr}/")).unwrap(),
             state,
-            server,
+            stop,
+            addr,
             thread: Some(thread),
         }
     }
@@ -114,23 +129,38 @@ fn mirror_path(mojang_url: &str) -> String {
     format!("/{}{}", url.host_str().unwrap(), url.path())
 }
 
-fn answer(state: &(Mutex<State>, Condvar), request: tiny_http::Request) {
+/// Reads one request's line and headers. GET requests have no body.
+fn read_request(stream: &TcpStream) -> Option<(String, Option<String>)> {
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let target = line.split_whitespace().nth(1)?.to_string();
+    let mut user_agent = None;
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).ok()? == 0 || header.trim().is_empty() {
+            break;
+        }
+        if let Some((name, value)) = header.split_once(':')
+            && name.eq_ignore_ascii_case("user-agent")
+        {
+            user_agent = Some(value.trim().to_string());
+        }
+    }
+    Some((target, user_agent))
+}
+
+fn answer(state: &(Mutex<State>, Condvar), mut stream: TcpStream) {
+    let Some((target, user_agent)) = read_request(&stream) else {
+        return;
+    };
     let (lock, condvar) = state;
-    let path = request
-        .url()
-        .split('?')
-        .next()
-        .unwrap_or_default()
-        .to_string();
+    let path = target.split('?').next().unwrap_or_default().to_string();
     let (status, body) = {
         let mut state = lock.lock().unwrap();
         *state.hits.entry(path.clone()).or_default() += 1;
-        if let Some(agent) = request
-            .headers()
-            .iter()
-            .find(|h| h.field.equiv("User-Agent"))
-        {
-            state.user_agents.push(agent.value.to_string());
+        if let Some(agent) = user_agent {
+            state.user_agents.push(agent);
         }
         state.in_flight += 1;
         state.max_in_flight = state.max_in_flight.max(state.in_flight);
@@ -164,12 +194,20 @@ fn answer(state: &(Mutex<State>, Condvar), request: tiny_http::Request) {
         state.in_flight -= 1;
         answer
     };
-    let _ = request.respond(tiny_http::Response::from_data(body).with_status_code(status));
+    let head = format!(
+        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(&body);
+    let _ = stream.flush();
 }
 
 impl Drop for FileServer {
     fn drop(&mut self) {
-        self.server.unblock();
+        // Wake the accept loop with one last connection so it sees the flag.
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(self.addr);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
