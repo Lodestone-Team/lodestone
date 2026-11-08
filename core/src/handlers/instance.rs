@@ -9,11 +9,12 @@ use color_eyre::eyre::{eyre, Context};
 use futures::future::BoxFuture;
 use tracing::error;
 
-use crate::auth::user::UserAction;
+use crate::auth::user::{User, UserAction};
 use crate::error::{Error, ErrorKind};
 use crate::events::{
     CausedBy, Event, ProgressionEndValue, ProgressionEventID, ProgressionStartValue,
 };
+use crate::global_settings::CodeExecutionSwitch;
 
 use crate::traits::t_configurable::GameType;
 
@@ -24,6 +25,7 @@ use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceIn
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::{implementations::minecraft, traits::t_server::State as InstanceState, AppState};
 
+use super::global_fs::canonicalize_global_read;
 use super::instance_setup_configs::HandlerGameType;
 use super::util::{
     all_instances, get_instance, require_code_execution, require_owner_if_atom, AuthedUser,
@@ -135,7 +137,15 @@ pub async fn create_minecraft_instance(
 
     let flavour = game_type.try_into()?;
 
-    let setup_config = MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
+    let mut setup_config =
+        MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
+    if let Some(source) = setup_config.existing_server_path.take() {
+        authorize_server_import(&requester, state.safe_mode(), &state.code_execution)?;
+        // symbolic links in the path are resolved, and Lodestone's own data is refused
+        let source = canonicalize_global_read(&source, true).await?;
+        minecraft::import::validate_source(source.clone()).await?;
+        setup_config.existing_server_path = Some(source);
+    }
     // Extra command line arguments can make Java run any code, so they need the same
     // permission as changing them later (see `instance_config::set_instance_setting`).
     // Creation does not accept a custom `java_cmd`.
@@ -152,6 +162,22 @@ pub async fn create_minecraft_instance(
         spawn_minecraft_instance_creation(state, &requester, setup_config, title, 10.0, None)
             .await?;
     Ok(Json(uuid))
+}
+
+/// Checks that `user` may import a server folder from the host's file system.
+///
+/// Importing reads an arbitrary host path, so it needs the same permission as the global
+/// file API (`ReadGlobalFile`). The folder's jar and plugins are code that Lodestone then
+/// runs, so it also needs `WriteGlobalFile` (the permission for creating `.jar` files) and
+/// code execution turned on, like extra command line arguments.
+fn authorize_server_import(
+    user: &User,
+    safe_mode: bool,
+    code_execution: &CodeExecutionSwitch,
+) -> Result<(), Error> {
+    user.try_action(&UserAction::ReadGlobalFile, safe_mode)?;
+    user.try_action(&UserAction::WriteGlobalFile, safe_mode)?;
+    code_execution.check()
 }
 
 /// A step that runs after a new Minecraft instance is set up and before it is added, such
@@ -188,13 +214,25 @@ pub(super) async fn spawn_minecraft_instance_creation(
 
     // write dot lodestone config
 
-    tokio::fs::write(
+    let written = tokio::fs::write(
         setup_path.join(".lodestone_config"),
-        serde_json::to_string_pretty(&dot_lodestone_config)
-            .context("Failed to serialize .lodestone_config")?,
+        match serde_json::to_string_pretty(&dot_lodestone_config) {
+            Ok(v) => v,
+            Err(e) => {
+                remove_failed_instance_dir(setup_path).await;
+                return Err(eyre!(e)
+                    .wrap_err("Failed to serialize .lodestone_config")
+                    .into());
+            }
+        },
     )
-    .await
-    .context("Failed to write .lodestone_config file")?;
+    .await;
+    if let Err(e) = written {
+        remove_failed_instance_dir(setup_path).await;
+        return Err(eyre!(e)
+            .wrap_err("Failed to write .lodestone_config file")
+            .into());
+    }
 
     tokio::task::spawn({
         let uuid = instance_uuid.clone();
@@ -406,6 +444,46 @@ pub fn get_instance_routes(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::permission::UserPermission;
+
+    fn user_with(owner: bool, permissions: UserPermission) -> User {
+        User::new("user".to_string(), "pw", owner, false, permissions)
+    }
+
+    #[test]
+    fn importing_a_server_needs_global_file_access_and_code_execution() {
+        let on = CodeExecutionSwitch::new(true);
+        let off = CodeExecutionSwitch::new(false);
+        let creator = UserPermission {
+            can_create_instance: true,
+            ..Default::default()
+        };
+        // creating instances is not enough
+        assert!(authorize_server_import(&user_with(false, creator.clone()), false, &on).is_err());
+        let read_only = UserPermission {
+            can_read_global_file: true,
+            ..creator.clone()
+        };
+        assert!(authorize_server_import(&user_with(false, read_only), false, &on).is_err());
+        let write_only = UserPermission {
+            can_write_global_file: true,
+            ..creator.clone()
+        };
+        assert!(authorize_server_import(&user_with(false, write_only), false, &on).is_err());
+        let both = UserPermission {
+            can_read_global_file: true,
+            can_write_global_file: true,
+            ..creator
+        };
+        let granted = user_with(false, both);
+        assert!(authorize_server_import(&granted, false, &on).is_ok());
+        // code execution switched off, or safe mode, stops everyone but the owner
+        assert!(authorize_server_import(&granted, false, &off).is_err());
+        assert!(authorize_server_import(&granted, true, &on).is_err());
+        let owner = user_with(true, UserPermission::default());
+        assert!(authorize_server_import(&owner, true, &on).is_ok());
+        assert!(authorize_server_import(&owner, false, &off).is_err());
+    }
 
     #[test]
     fn sanitize_keeps_normal_names() {
