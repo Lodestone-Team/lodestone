@@ -114,6 +114,9 @@ pub struct Section {
     auto_checked: bool,
     pub view: SubView,
     pub browse: Browse,
+    /// The Installed list's scroll state and the entries it was last told about.
+    rows: gpui::ListState,
+    plan: Vec<view::Entry>,
     load_task: Option<Task<()>>,
     updates_task: Option<Task<()>>,
 }
@@ -144,6 +147,8 @@ impl Section {
                 project: None,
                 task: None,
             },
+            rows: gpui::ListState::new(0, gpui::ListAlignment::Top, crate::theme::px(400.)),
+            plan: Vec::new(),
             load_task: None,
             updates_task: None,
         }

@@ -113,6 +113,10 @@ quote = { opt-level = 3 }
 syn = { opt-level = 3 }
 proc-macro2 = { opt-level = 3 }
 taffy = { opt-level = 3 }
+# GPUI builds, lays out and paints every frame: unoptimised, scrolling a long list
+# drops far below the display's frame rate.
+gpui = { opt-level = 3 }
+sum_tree = { opt-level = 3 }
 resvg = { opt-level = 3 }
 usvg = { opt-level = 3 }
 tiny-skia = { opt-level = 3 }
