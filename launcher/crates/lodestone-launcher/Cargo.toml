@@ -38,5 +38,8 @@ serde.workspace = true
 # Writes the sample mods and packs of the offscreen screenshots.
 zip = { workspace = true, optional = true }
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Globalization", "Win32_System_SystemServices"] }
+
 [[example]]
 name = "components"

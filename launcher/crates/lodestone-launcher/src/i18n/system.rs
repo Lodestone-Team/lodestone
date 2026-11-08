@@ -75,8 +75,8 @@ pub fn preferred_languages() -> Vec<String> {
 
 /// Elsewhere, the POSIX locale variables, in the order gettext reads them:
 /// `LANGUAGE` (a list, `fr:en`), then `LC_ALL`, `LC_MESSAGES` and `LANG`
-/// (`fr_FR.UTF-8`). Windows usually sets none of them, so the launcher starts in
-/// English there until it reads the Windows display language.
+/// (`fr_FR.UTF-8`). On Windows, the user's preferred UI languages follow these
+/// variables, which are usually unset.
 #[cfg(not(target_os = "macos"))]
 pub fn preferred_languages() -> Vec<String> {
     let mut languages = Vec::new();
@@ -98,5 +98,76 @@ pub fn preferred_languages() -> Vec<String> {
             break;
         }
     }
+    #[cfg(windows)]
+    languages.extend(windows_languages());
     languages
+}
+
+#[cfg(windows)]
+fn windows_languages() -> Vec<String> {
+    use windows::{
+        Win32::{
+            Globalization::{
+                GetUserDefaultLocaleName, GetUserPreferredUILanguages, MUI_LANGUAGE_NAME,
+            },
+            System::SystemServices::LOCALE_NAME_MAX_LENGTH,
+        },
+        core::PWSTR,
+    };
+
+    let mut count = 0;
+    let mut length = 0;
+    // SAFETY: The first call obtains the required length; the second writes to a
+    // buffer of that length. Both output pointers and the fallback buffer are valid.
+    unsafe {
+        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, None, &mut length).is_ok()
+            && length > 0
+        {
+            let mut buffer = vec![0; length as usize];
+            if GetUserPreferredUILanguages(
+                MUI_LANGUAGE_NAME,
+                &mut count,
+                Some(PWSTR(buffer.as_mut_ptr())),
+                &mut length,
+            )
+            .is_ok()
+            {
+                let languages = decode_windows_languages(&buffer);
+                if !languages.is_empty() {
+                    return languages;
+                }
+            }
+        }
+        let mut buffer = [0; LOCALE_NAME_MAX_LENGTH as usize];
+        if GetUserDefaultLocaleName(&mut buffer) > 0 {
+            return decode_windows_languages(&buffer);
+        }
+    }
+    Vec::new()
+}
+
+#[cfg(windows)]
+fn decode_windows_languages(buffer: &[u16]) -> Vec<String> {
+    buffer
+        .split(|&unit| unit == 0)
+        .take_while(|tag| !tag.is_empty())
+        .filter_map(|tag| String::from_utf16(tag).ok())
+        .collect()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn decodes_windows_language_list() {
+        let tags: Vec<u16> = "de-DE\0zh-TW\0fr-FR\0\0".encode_utf16().collect();
+        let languages = super::decode_windows_languages(&tags);
+        assert_eq!(languages, ["de-DE", "zh-TW", "fr-FR"]);
+        assert_eq!(
+            languages
+                .iter()
+                .find_map(|tag| crate::i18n::Locale::from_tag(tag)),
+            Some(crate::i18n::Locale::ZhHant)
+        );
+        assert!(super::decode_windows_languages(&[0, 0]).is_empty());
+    }
 }

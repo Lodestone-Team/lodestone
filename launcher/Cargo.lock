@@ -2943,6 +2943,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+ "windows 0.62.2",
  "zip",
 ]
 
