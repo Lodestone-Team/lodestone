@@ -18,6 +18,7 @@ import IconButton from './Atoms/IconButton';
 import { useLocation } from 'react-router';
 import { useUserState } from './useUserState';
 import { Skeleton } from 'components/Atoms/Skeleton';
+import { rememberSettingsReturn } from 'utils/settingsReturn';
 
 /**
  * The signed-in user with the account menu (sign out, change core), and the settings
@@ -135,7 +136,7 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
           aria-label="Settings"
           title="Settings"
           onClick={() => {
-            localStorage.setItem('lastVisitedRoute', location.pathname);
+            rememberSettingsReturn(location.pathname);
             setPathname('/settings/general');
           }}
         />

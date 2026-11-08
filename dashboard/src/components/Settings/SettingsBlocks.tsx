@@ -11,8 +11,8 @@ import { cn } from 'utils/util';
 export const settingsHintClass = 'text-small font-medium text-gray-500';
 
 /**
- * A settings page of its own (a route): the heading, and the sections in one
- * column. Scrolls by itself, with the scroll bar at the edge of the page.
+ * A page of the settings modal: the title and a one-line lead at the top,
+ * and under them the sections in one column, which scrolls.
  */
 export function SettingsPage({
   title,
@@ -24,15 +24,24 @@ export function SettingsPage({
   children: ReactNode;
 }) {
   return (
-    <div className="@container size-full gutter-stable overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-170 flex-col px-4 pt-8 pb-12">
-        <h1 className="dashboard-instance-heading text-gray-300">{title}</h1>
-        {description && (
-          <p className="mt-1 text-medium font-medium text-gray-500">
-            {description}
-          </p>
-        )}
-        <div className="mt-6 flex flex-col gap-6.5">{children}</div>
+    <div className="flex size-full min-h-0 flex-col">
+      {/* room on the right for the modal's close button */}
+      <header className="shrink-0 px-8 pt-6 pb-4 max-[760px]:px-4 max-[760px]:pt-4">
+        <div className="mx-auto w-full max-w-170 pr-10">
+          <h1 className="font-heading text-h2 leading-tight font-bold text-gray-300">
+            {title}
+          </h1>
+          {description && (
+            <p className="mt-1 text-medium font-medium text-gray-500">
+              {description}
+            </p>
+          )}
+        </div>
+      </header>
+      <div className="@container min-h-0 grow gutter-stable overflow-y-auto px-8 pb-10 max-[760px]:px-4">
+        <div className="mx-auto flex w-full max-w-170 flex-col gap-6.5 pt-2">
+          {children}
+        </div>
       </div>
     </div>
   );

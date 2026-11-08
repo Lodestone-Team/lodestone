@@ -510,7 +510,10 @@ export const CoreSettings = () => {
       {codeExecutionDialog}
       {allowLanHttpDialog}
       {openPortModal}
-      <SettingsPage title="Core settings">
+      <SettingsPage
+        title="General"
+        description="These settings are for the core itself."
+      >
         {allowLanHttp && (
           <WarningAlert>
             <p>
@@ -522,10 +525,7 @@ export const CoreSettings = () => {
             </p>
           </WarningAlert>
         )}
-        <SettingsSection
-          title="General"
-          lead="These settings are for the core itself."
-        >
+        <SettingsSection title="Core">
           <SettingsCard>
             {nameField}
             {domainField}

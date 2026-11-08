@@ -33,6 +33,7 @@ import { useDocumentTitle } from 'usehooks-ts';
 import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
 import {
   SettingsCard,
+  SettingsLink,
   SettingsPage,
   SettingsRow,
   SettingsSection,
@@ -296,7 +297,21 @@ export const UserSettings = () => {
           </div>
         </Dialog>
       </Transition>
-      <SettingsPage title="User settings">
+      <SettingsPage
+        title="Users"
+        description={
+          selectedUser ? (
+            <span className="flex flex-row flex-wrap items-baseline gap-x-2">
+              <span className="truncate">{selectedUser.username}</span>
+              <SettingsLink onClick={() => selectUser(null)}>
+                All users
+              </SettingsLink>
+            </span>
+          ) : (
+            'The accounts on this core and what each one can do.'
+          )
+        }
+      >
         {UserBoxes}
         {openingUser && <PermissionsSkeleton />}
         {selectedUser && (
