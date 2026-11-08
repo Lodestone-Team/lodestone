@@ -14,6 +14,7 @@ import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
 import SidebarFooter from './SidebarFooter';
+import { GlobalInstanceSetting } from './GlobalInstanceSetting';
 
 export default function LeftNav({ className }: { className?: string }) {
   const {
@@ -69,6 +70,7 @@ export default function LeftNav({ className }: { className?: string }) {
         </Transition>
 
         <div className="h-full">
+          <GlobalInstanceSetting />
           <SelectedInstanceInfo />
 
           <InstanceList className="mt-6">

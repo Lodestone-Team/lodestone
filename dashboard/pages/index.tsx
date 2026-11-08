@@ -6,6 +6,7 @@ import {
 } from 'data/LodestoneContext';
 import { NotificationContextProvider } from 'data/NotificationContext';
 import {
+  ReactNode,
   Suspense,
   useCallback,
   useContext,
@@ -41,6 +42,13 @@ import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import { AppShellSkeleton } from 'components/DashboardLayout/LayoutSkeletons';
 import { lazyWithPreload } from 'utils/lazyWithPreload';
+import MyNavigate from 'utils/router/MyNavigate';
+import {
+  CORE_SETTINGS_PATH,
+  GLOBAL_SETTINGS_PATHS,
+  GlobalSettingsPath,
+  LEGACY_CORE_SETTINGS_PATH,
+} from 'utils/globalSettingsRoutes';
 
 // The dashboard (and everything it pulls in: charts, the file editor, forms)
 // is loaded on demand, so the login screens don't wait for it.
@@ -62,12 +70,13 @@ const InstanceTabs = lazyWithPreload(
   () => import('pages/InstanceTabs/InstanceTabs')
 );
 const ProfilePage = lazyWithPreload(() => import('pages/settings/profile'));
-const CoreSettings = lazyWithPreload(
-  () => import('pages/settings/CoreSettings')
-);
 const UserSettings = lazyWithPreload(
   () => import('pages/settings/UserSettings')
 );
+const CoreSettings = lazyWithPreload(
+  () => import('pages/settings/CoreSettings')
+);
+const VersionInfo = lazyWithPreload(() => import('pages/settings/VersionInfo'));
 
 /**
  * Loads every dashboard chunk at once. Without this they load one after the
@@ -84,6 +93,7 @@ const preloadDashboard = () =>
       InstanceTabs,
       ProfilePage,
       CoreSettings,
+      VersionInfo,
       UserSettings,
     ].map((component) => component.preload())
   ).catch(() => {
@@ -110,12 +120,13 @@ const InstanceTabList = [
   'playitgg',
 ];
 
+// each route renders only its own page, see GLOBAL_SETTINGS_PATHS
+const GlobalSettingsPages: Record<GlobalSettingsPath, ReactNode> = {
+  'core-settings': <CoreSettings />,
+  version: <VersionInfo />,
+};
+
 export const CoreSettingsTabList = [
-  {
-    title: 'General',
-    path: 'general',
-    content: <CoreSettings />,
-  },
   {
     title: 'Users',
     path: 'users',
@@ -479,8 +490,20 @@ export default function App() {
                       key={i}
                     />
                   ))}
+                  {GLOBAL_SETTINGS_PATHS.map((path) => (
+                    <Route
+                      path={`/dashboard/${path}`}
+                      element={GlobalSettingsPages[path]}
+                      key={path}
+                    />
+                  ))}
                   <Route path="/" element={<Home />} />
                 </Route>
+                {/* Core Settings moved from /settings/general */}
+                <Route
+                  path={LEGACY_CORE_SETTINGS_PATH}
+                  element={<MyNavigate to={CORE_SETTINGS_PATH} />}
+                />
                 <Route element={<SettingsLayout />}>
                   {CoreSettingsTabList.map((tab, i) => (
                     <Route

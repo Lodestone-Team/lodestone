@@ -10,6 +10,7 @@ import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import LeftNav from './LeftNav';
 import { PageLoading } from './LayoutSkeletons';
+import { isGlobalSettingsPath } from 'utils/globalSettingsRoutes';
 
 export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
@@ -39,16 +40,27 @@ export const InstanceViewLayout = () => {
       if (!location.pathname.startsWith('/dashboard'))
         setPathname('/dashboard/overview');
     } else {
-      if (location.pathname.startsWith('/dashboard')) setPathname('/');
+      // the Global Settings pages need no instance
+      if (
+        location.pathname.startsWith('/dashboard') &&
+        !isGlobalSettingsPath(location.pathname)
+      )
+        setPathname('/');
     }
   }, [instances, queryInstanceId]);
 
   function selectInstance(instance: InstanceInfo | null) {
     if (instance === null) {
       setQueryInstanceId('');
-      if (location.pathname.startsWith('/dashboard')) setPathname('/');
+      if (
+        location.pathname.startsWith('/dashboard') &&
+        !isGlobalSettingsPath(location.pathname)
+      )
+        setPathname('/');
     } else {
       setQueryInstanceId(instance.uuid);
+      if (isGlobalSettingsPath(location.pathname))
+        setPathname('/dashboard/overview');
     }
   }
   /* End Instances */
