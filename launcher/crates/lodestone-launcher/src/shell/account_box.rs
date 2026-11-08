@@ -52,7 +52,7 @@ fn status(accounts: &Accounts, account: &Account) -> (SharedString, theme::Color
 }
 
 /// The small badge on accounts signed in as the Minecraft Launcher.
-fn launcher_identity_badge() -> impl IntoElement {
+pub(super) fn launcher_identity_badge() -> impl IntoElement {
     div()
         .flex_none()
         .px_1()

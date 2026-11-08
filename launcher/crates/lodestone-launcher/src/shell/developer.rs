@@ -9,8 +9,11 @@ use launcher_core::wording;
 
 use super::{LauncherShell, Modal};
 use crate::{
-    components::{Button, ButtonVariant, Dialog, Toggle},
-    theme::{self, colors, fonts, leading, radius, text, weights},
+    components::{
+        Button, ButtonVariant, Dialog, Toggle,
+        settings::{SettingRow, card},
+    },
+    theme::{self, colors, leading, text, weights},
 };
 
 /// The badge on accounts signed in as the Minecraft Launcher.
@@ -63,66 +66,17 @@ fn paragraph(text: impl Into<SharedString>) -> impl IntoElement {
         .child(text.into())
 }
 
-/// The Developer section of the Settings page.
+/// Settings > Developer.
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let enabled = shell.accounts.read(cx).launcher_identity_enabled();
-    div()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .w_full()
-        .px_8()
-        .pt_8()
+    card([SettingRow::new("Sign in as the Minecraft Launcher")
+        .hint("New Microsoft sign-ins use the official Minecraft Launcher's app instead of Lodestone's, while Lodestone's waits for Mojang's approval. For personal testing.")
         .child(
-            div()
-                .font_family(fonts::HEADING)
-                .text_size(theme::text_size(text::H3))
-                .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_300)
-                .child("Developer"),
+            Toggle::new("launcher-identity", enabled).on_change(cx.listener(
+                |this, value: &bool, window, cx| this.request_launcher_identity(*value, window, cx),
+            )),
         )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_4()
-                .max_w(px(640.))
-                .px_4()
-                .py_3()
-                .rounded(radius::LG)
-                .bg(colors::GRAY_850)
-                .border_1()
-                .border_color(colors::FADE_700)
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_1()
-                        .child(
-                            div()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_300)
-                                .child("Sign in as the Minecraft Launcher"),
-                        )
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                                .text_color(colors::GRAY_500)
-                                .child("New Microsoft sign-ins use the official Minecraft Launcher's app instead of Lodestone's, while Lodestone's waits for Mojang's approval. For personal testing."),
-                        ),
-                )
-                .child(
-                    Toggle::new("launcher-identity", enabled).on_change(cx.listener(
-                        |this, value: &bool, window, cx| {
-                            this.request_launcher_identity(*value, window, cx)
-                        },
-                    )),
-                ),
-        )
+        .into_any_element()])
 }
 
 impl LauncherShell {
