@@ -18,6 +18,10 @@
 pub mod add_dialog;
 pub mod detail;
 mod detail_view;
+pub mod extras;
+pub mod host;
+pub mod lan;
+pub mod tools;
 pub mod view;
 
 use std::{
@@ -274,6 +278,8 @@ pub enum ServersEvent {
         title: SharedString,
         message: SharedString,
     },
+    /// Show the Servers page.
+    ShowServers,
 }
 
 /// A row is keyed by core and server.
@@ -314,6 +320,8 @@ pub struct Servers {
     preview: bool,
     tasks: Vec<Task<()>>,
     _poller: Option<Task<()>>,
+    /// World downloads, resource packs, hosting and LAN worlds.
+    extras: extras::Extras,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -347,6 +355,7 @@ impl Servers {
             preview: false,
             tasks: Vec::new(),
             _poller: None,
+            extras: Default::default(),
         };
         this.load(cx);
         this.reload_links(cx);
@@ -420,6 +429,7 @@ impl Servers {
             return;
         }
         self.visible = visible;
+        self.lan_visible(visible, cx);
         if !visible || self.preview {
             self._poller = None;
             return;

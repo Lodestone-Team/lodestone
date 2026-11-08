@@ -257,7 +257,7 @@ pub fn folder_name(name: &str) -> String {
 }
 
 /// `base`, or `base (2)`, `base (3)`… whichever isn't taken in `dir`.
-fn unused(dir: &Path, base: &str) -> String {
+pub(crate) fn unused(dir: &Path, base: &str) -> String {
     (1..)
         .map(|n| {
             if n == 1 {
@@ -583,7 +583,7 @@ pub struct WorldZip {
     pub folder_hint: String,
 }
 
-fn is_mac_metadata(name: &str) -> bool {
+pub(crate) fn is_mac_metadata(name: &str) -> bool {
     name.starts_with("__MACOSX/") || name.split('/').any(|c| c == ".DS_Store")
 }
 
@@ -676,6 +676,28 @@ pub fn extract(
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<PathBuf, WorldError> {
+    extract_mapped(
+        path,
+        &[(world.prefix.clone(), String::new())],
+        saves,
+        folder,
+        progress,
+        cancel,
+    )
+}
+
+/// Like [`extract`], for zips whose world is in several folders: each entry under one
+/// of the `(zip prefix, folder in the world)` pairs goes to that folder (the first pair
+/// that matches wins); other entries are left out. The world must end up with a
+/// `level.dat`.
+pub fn extract_mapped(
+    path: &Path,
+    mappings: &[(String, String)],
+    saves: &Path,
+    folder: &str,
+    progress: &Progress,
+    cancel: &CancelToken,
+) -> Result<PathBuf, WorldError> {
     let target = saves.join(folder);
     if fs::symlink_metadata(&target).is_ok() {
         return Err(WorldError::Conflict(format!("{folder} already exists.")));
@@ -699,14 +721,18 @@ pub fn extract(
             let name = entry.name().to_string();
             done.files_done += 1;
             progress.set(done);
-            let Some(relative) = name.strip_prefix(world.prefix.as_str()) else {
+            let Some(relative) = mappings.iter().find_map(|(prefix, dest)| {
+                name.strip_prefix(prefix.as_str())
+                    .filter(|rest| !rest.is_empty())
+                    .map(|rest| format!("{dest}{rest}"))
+            }) else {
                 continue;
             };
-            if relative.is_empty() || is_mac_metadata(&name) {
+            if is_mac_metadata(&name) {
                 continue;
             }
             let is_dir = entry.is_dir();
-            let relative = match check_pack_path(relative, is_dir, &WriteAll) {
+            let relative = match check_pack_path(&relative, is_dir, &WriteAll) {
                 Ok(PathCheck::Write(relative)) => relative,
                 Ok(PathCheck::Skip(_)) => continue,
                 Err(err) => {
@@ -759,7 +785,7 @@ pub fn extract(
 }
 
 /// Sets the name inside an extracted world's `level.dat`, when it round-trips.
-fn set_level_name(dir: &Path, name: &str) {
+pub(crate) fn set_level_name(dir: &Path, name: &str) {
     let level_dat = dir.join("level.dat");
     if let Ok(bytes) = fs::read(&level_dat)
         && let Some(renamed) = level::rename(&bytes, name)

@@ -2,7 +2,7 @@
 //! over the window (Add server, the mod update prompt).
 
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
+    AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
     prelude::*, px,
 };
 use launcher_core::cores::{
@@ -256,6 +256,17 @@ impl Servers {
                         .into_any_element(),
                 );
             }
+        }
+
+        if busy.is_none() {
+            let (c, s) = (core_uuid.clone(), server.clone());
+            actions.push(
+                Button::new(SharedString::from(format!("more-{row_id}")), "More…")
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_tools(&c, s.clone(), cx)))
+                    .into_any_element(),
+            );
         }
 
         let status = match server.players_label() {
@@ -588,6 +599,7 @@ impl Render for Servers {
                 )
             })
             .children(cards)
+            .child(self.render_lan(cx))
             .into_any_element()
     }
 }
@@ -610,16 +622,22 @@ impl ServersOverlay {
 
 impl Render for ServersOverlay {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let app: &App = cx;
         let entity = &self.servers;
-        let servers = entity.read(cx);
-        // One open dialog shows at a time, the first of: the certificate, trust, the
-        // advisory, "Add server", the update prompt. Those closing fade out under it.
+        let servers = entity.read(app);
+        let extras = &servers.extras;
+        // One open dialog shows at a time, the first of: a server's tools, hosting, the
+        // LAN picker, the certificate, trust, the advisory, "Add server", the update
+        // prompt. Those closing fade out under it.
         let mut shown = false;
         let mut pick = |slot_open: bool| {
             let show = slot_open && !shown;
             shown |= show;
             show
         };
+        let tools = pick(extras.tools.is_open());
+        let host = pick(extras.host.is_open());
+        let lan = pick(extras.lan_picker.is_open());
         let cert = pick(servers.cert_prompt.is_open());
         let trust = pick(servers.trust_prompt.is_open());
         let advisory = pick(servers.advisory.is_open());
@@ -644,6 +662,15 @@ impl Render for ServersOverlay {
         ));
         children.extend(slot_layers(&servers.cert_prompt, cert, window, |prompt| {
             Some(certificate_dialog(entity, prompt).into_any_element())
+        }));
+        children.extend(slot_layers(&extras.lan_picker, lan, window, |picker| {
+            Some(super::lan::render_picker(entity, picker, app))
+        }));
+        children.extend(slot_layers(&extras.host, host, window, |(dialog, _)| {
+            Some(dialog.clone().into_any_element())
+        }));
+        children.extend(slot_layers(&extras.tools, tools, window, |(dialog, _)| {
+            Some(dialog.clone().into_any_element())
         }));
         div().absolute().inset_0().children(children)
     }

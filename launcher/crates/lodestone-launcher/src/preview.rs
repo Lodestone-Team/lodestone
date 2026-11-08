@@ -89,6 +89,7 @@ fn has_instances(scene: &str) -> bool {
         || scene == "loader-change"
         || shared::is_scene(scene)
         || scene.starts_with("import")
+        || servers::has_instances(scene)
         || scene == "instance-linked"
 }
 
