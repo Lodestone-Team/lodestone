@@ -46,6 +46,7 @@ import {
 } from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
@@ -421,16 +422,16 @@ export default function FileViewer() {
           }}
         >
           <div {...dropZoneHandlers(setDroppingDialog)}>
-            <div className="fixed inset-0 bg-scrim-strong" />
+            <ModalBackdrop strong />
             <div className="fixed inset-0 overflow-y-auto">
               <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
-                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pb-8 pt-12">
+                <ModalPanel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pb-8 pt-12">
                   <FontAwesomeIcon
                     className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
                     icon={faDownload}
                   />
                   <p className="pointer-events-none">Release to Upload File</p>
-                </Dialog.Panel>
+                </ModalPanel>
               </div>
             </div>
           </div>
