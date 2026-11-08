@@ -196,7 +196,10 @@ impl Updater {
         let Some(exe) = self.exe.clone() else {
             return;
         };
-        let Some(asset) = manifest.assets.get(&update::platform()).cloned() else {
+        let Some((build, asset)) = manifest
+            .for_platform()
+            .map(|(build, asset)| (build, asset.clone()))
+        else {
             return;
         };
         let url = match Manifest::asset_url(&self.manifest_url, &asset) {
@@ -207,7 +210,6 @@ impl Updater {
                 return;
             }
         };
-        let build = manifest.build;
         let done = Arc::new(AtomicU64::new(0));
         self.state = UpdateState::Downloading {
             build,

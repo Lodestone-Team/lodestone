@@ -1,11 +1,14 @@
 //! Updating the launcher from its GitHub builds.
 //!
-//! CI (`.github/workflows/launcher-release.yml`) builds the launcher on every push to
-//! `main` and publishes the binaries to the `launcher-nightly` release, together with
-//! a `latest.json` [`Manifest`]: the build number, the commit, and each platform's
-//! file with its size and SHA-256. A build knows its own number because CI sets
-//! `LODESTONE_LAUNCHER_BUILD` when compiling it; a local `cargo build` has none, and
-//! never updates itself.
+//! A developer publishes a release with `launcher/scripts/publish_release.py`: it
+//! builds the launcher for their platform and uploads it to the `launcher-latest`
+//! GitHub release, then updates the release's `latest.json` [`Manifest`]: each
+//! platform's file with its build number, commit, size and SHA-256. Platforms are
+//! published separately (each from a machine of its own), so each has its own build.
+//!
+//! A build's number is the count of commits in its history (`git rev-list --count`),
+//! which grows along `main`. The script compiles it in as `LODESTONE_LAUNCHER_BUILD`;
+//! a plain `cargo build` has none, and never updates itself.
 //!
 //! An update is downloaded next to the running executable, checked against the
 //! manifest, and swapped in for it ([`install`]): on Unix by renaming over it, on
@@ -31,9 +34,9 @@ use sha2::{Digest as _, Sha256};
 
 use crate::USER_AGENT;
 
-/// Where the builds of `main` are published.
+/// Where releases are published.
 pub const MANIFEST_URL: &str =
-    "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-nightly/latest.json";
+    "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest/latest.json";
 
 /// Overrides [`MANIFEST_URL`], to test updating against a local server.
 pub const MANIFEST_URL_ENV: &str = "LODESTONE_LAUNCHER_UPDATE_URL";
@@ -51,7 +54,7 @@ const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
 /// How long a restarted launcher waits for the old one to exit.
 const WAIT_FOR_PREVIOUS: Duration = Duration::from_secs(15);
 
-/// This build's number and commit, as CI compiled them in.
+/// This build's number and commit, as the publish script compiled them in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Build {
     pub number: u64,
@@ -59,7 +62,8 @@ pub struct Build {
 }
 
 impl Build {
-    /// This build, or `None` for a build CI didn't make, which doesn't update.
+    /// This build, or `None` for a build the publish script didn't make, which
+    /// doesn't update.
     pub fn current() -> Option<Build> {
         Self::parse(
             option_env!("LODESTONE_LAUNCHER_BUILD"),
@@ -90,10 +94,10 @@ pub fn platform() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// `latest.json`: the newest build of `main`.
+/// `latest.json`: the newest published build of each platform.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
-    /// The CI run number; higher is newer.
+    /// The newest build of any platform. A platform's own is [`Asset::build`].
     pub build: u64,
     pub commit: String,
     /// The workspace version the build was made from.
@@ -114,15 +118,24 @@ pub struct Asset {
     pub size: u64,
     /// Lowercase hex.
     pub sha256: String,
+    /// This file's build number; [`Manifest::build`] if missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
 }
 
 impl Manifest {
-    /// This platform's binary, if the manifest's build is newer than `than`.
-    pub fn newer(&self, than: u64) -> Option<&Asset> {
-        if self.build <= than {
-            return None;
-        }
-        self.assets.get(&platform())
+    /// This platform's binary and its build number.
+    pub fn for_platform(&self) -> Option<(u64, &Asset)> {
+        let asset = self.assets.get(&platform())?;
+        Some((asset.build.unwrap_or(self.build), asset))
+    }
+
+    /// This platform's binary and its build number, if that build is newer than
+    /// `than`.
+    pub fn newer(&self, than: u64) -> Option<(u64, &Asset)> {
+        self.for_platform().filter(|(build, _)| *build > than)
     }
 
     /// Where `asset` is: next to the manifest at `manifest_url`.
@@ -492,6 +505,8 @@ mod tests {
                 name: format!("lodestone-launcher-{build}"),
                 size: 3,
                 sha256: format!("{:x}", Sha256::digest(b"new")),
+                build: None,
+                commit: None,
             },
         );
         Manifest {
@@ -525,11 +540,21 @@ mod tests {
     }
 
     #[test]
+    fn each_platform_has_its_own_build() {
+        // Another platform was published later, at build 20; this one is still 10.
+        let mut latest = manifest(20);
+        latest.assets.get_mut(&platform()).unwrap().build = Some(10);
+        assert_eq!(latest.for_platform().unwrap().0, 10);
+        assert!(latest.newer(10).is_none());
+        assert_eq!(latest.newer(9).unwrap().0, 10);
+    }
+
+    #[test]
     fn files_are_next_to_the_manifest() {
         let asset = &manifest(5).assets[&platform()];
         assert_eq!(
             Manifest::asset_url(MANIFEST_URL, asset).unwrap(),
-            "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-nightly/lodestone-launcher-5"
+            "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest/lodestone-launcher-5"
         );
         assert_eq!(
             Manifest::asset_url("http://127.0.0.1:8000/latest.json", asset).unwrap(),

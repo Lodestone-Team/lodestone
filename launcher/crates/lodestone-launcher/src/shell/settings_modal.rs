@@ -553,7 +553,13 @@ impl LauncherShell {
             UpdateState::Checking => (t(M::UpdateChecking).into(), false),
             UpdateState::UpToDate => (t(M::UpToDate).into(), false),
             UpdateState::Available(manifest) => (
-                tr!(M::UpdateAvailable, build = manifest.build).into(),
+                tr!(
+                    M::UpdateAvailable,
+                    build = manifest
+                        .for_platform()
+                        .map_or(manifest.build, |(build, _)| build)
+                )
+                .into(),
                 false,
             ),
             UpdateState::Downloading { build, done, total } => (
