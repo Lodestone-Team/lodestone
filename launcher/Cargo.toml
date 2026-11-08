@@ -16,20 +16,29 @@ publish = false
 # `[patch.crates-io]` entries below, which mirror Zed's own at the same tag.
 gpui = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35", default-features = false }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35", default-features = false }
+# Zed's HTTP client: the `HttpClient` trait and its reqwest implementation (rustls with
+# the platform verifier), from the same rev as GPUI.
+http_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
+reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 
 launcher-core = { path = "crates/launcher-core" }
 
 # Third-party crates. Each resolves to the version in Zed v1.27.0's Cargo.lock, and
 # uses the requirement and features Zed declares where Zed declares it.
 anyhow = "1.0.86"
+base64 = "0.22"
 dirs = "6.0"
 futures = "0.3.34"
 md-5 = "0.10"
+image = { version = "0.25.1", default-features = false, features = ["png"] }
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+sha2 = "0.10"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
+tiny_http = "0.12"
+url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
 
 # The same patches Zed applies at v1.27.0, limited to crates in GPUI's tree.

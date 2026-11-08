@@ -9,13 +9,24 @@
 //! written to the JSON files in the data directory.
 
 pub mod accounts;
+pub mod auth;
+pub mod http;
 pub mod offline;
 pub mod paths;
 pub mod secret;
 pub mod settings;
+pub mod skin;
 pub mod storage;
 
 pub use secret::{MemorySecretStore, Secret, SecretStore};
+
+/// The User-Agent sent with every request. It identifies the app and its version
+/// only, and carries no personal data.
+pub const USER_AGENT: &str = concat!(
+    "LodestoneLauncher/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/Lodestone-Team/lodestone)"
+);
 
 /// Offline accounts are a development aid: they are available in debug builds, or
 /// in any build with `LODESTONE_LAUNCHER_OFFLINE=1`.
@@ -45,6 +56,17 @@ mod tests {
     use std::ffi::OsStr;
 
     use super::*;
+
+    #[test]
+    fn user_agent_names_the_app_and_version_only() {
+        assert_eq!(
+            USER_AGENT,
+            format!(
+                "LodestoneLauncher/{} (+https://github.com/Lodestone-Team/lodestone)",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
 
     #[test]
     fn offline_mode_needs_a_debug_build_or_the_env_var() {
