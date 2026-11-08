@@ -286,7 +286,7 @@ export default function FileList({
               </p>
               <div className="grow"></div>
 
-              <p className="hidden min-w-[8ch] text-left text-gray-500 @xs:inline">
+              <p className="hidden min-w-[8ch] text-right text-gray-500 @xs:inline">
                 {file.modification_time || file.creation_time
                   ? formatTimeAgo(
                       Number(file.modification_time ?? file.creation_time) *
