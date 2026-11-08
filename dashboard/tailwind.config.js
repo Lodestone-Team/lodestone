@@ -14,9 +14,9 @@ module.exports = {
       blue: {
         150: 'var(--blue-150)',
         200: 'var(--blue-200)',
-        300: '#1D8EB2',
-        DEFAULT: '#1D8EB2',
-        400: '#037AA0',
+        300: 'var(--blue-300)',
+        DEFAULT: 'var(--blue-300)',
+        400: 'var(--blue-400)',
         500: '#13668A',
         600: '#334675',
         faded: '#3C85BA',
@@ -32,7 +32,7 @@ module.exports = {
       red: {
         200: 'var(--red-200)',
         300: '#CF4545',
-        DEFAULT: '#CF4545',
+        DEFAULT: 'var(--red)',
         400: '#B63737',
         faded: '#AE3232',
       },
@@ -72,6 +72,38 @@ module.exports = {
       scrim: {
         DEFAULT: 'var(--scrim)',
         strong: 'var(--scrim-strong)',
+      },
+      // Light-theme levels that src/light-overrides.css maps the opacity
+      // classes to (`text-white/50` is muted ink, `border-gray-faded/30` a
+      // line, ...). Defined in the dark theme too, as the colours they replace.
+      ink: {
+        DEFAULT: 'var(--ink)',
+        secondary: 'var(--ink-secondary)',
+        muted: 'var(--ink-muted)',
+        faint: 'var(--ink-faint)',
+      },
+      line: {
+        DEFAULT: 'var(--line)',
+        subtle: 'var(--line-subtle)',
+        strong: 'var(--line-strong)',
+        input: 'var(--line-input)',
+        hover: 'var(--line-hover)',
+      },
+      fill: {
+        neutral: 'var(--fill-neutral)',
+        'neutral-strong': 'var(--fill-neutral-strong)',
+        selected: 'var(--fill-selected)',
+      },
+      // Status and info pill backgrounds
+      pill: {
+        green: 'var(--pill-green)',
+        red: 'var(--pill-red)',
+        yellow: 'var(--pill-yellow)',
+        blue: 'var(--pill-blue)',
+      },
+      focus: {
+        DEFAULT: 'var(--focus-ring)',
+        danger: 'var(--focus-ring-danger)',
       },
       violet: '#8736C7',
       ultramarine: '#273EB9',
