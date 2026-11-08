@@ -154,6 +154,28 @@ impl Fields {
         }
     }
 
+    /// Puts `values` back in the fields, for "Discard".
+    pub fn set<V: 'static>(&mut self, values: &Values<'_>, cx: &mut Context<V>) {
+        let (width, height) = values
+            .window
+            .resolution
+            .map(|r| (r.width.to_string(), r.height.to_string()))
+            .unwrap_or_default();
+        let texts = [
+            (&self.min_ram, values.memory.0.to_string()),
+            (&self.max_ram, values.memory.1.to_string()),
+            (&self.jvm_args, values.jvm_args.to_string()),
+            (&self.game_args, values.game_args.to_string()),
+            (&self.width, width),
+            (&self.height, height),
+            (&self.env, format_env(values.env)),
+        ];
+        for (input, text_) in texts {
+            input.update(cx, |input, cx| input.set_text(text_, cx));
+        }
+        self.fullscreen = values.window.fullscreen;
+    }
+
     fn text(input: &Entity<TextInput>, cx: &App) -> String {
         input.read(cx).text().trim().to_string()
     }
