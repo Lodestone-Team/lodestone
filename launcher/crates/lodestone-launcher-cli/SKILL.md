@@ -112,6 +112,8 @@ lodestone-launcher-cli instances group Survival Friends    # or --none
 lodestone-launcher-cli instances prerelease-updates Survival on   # betas/alphas as updates
 lodestone-launcher-cli instances icon Survival --library grass   # --image FILE, --emoji ⛏ --tile 3A6EA5, --clear
 lodestone-launcher-cli instances background Survival --image ./castle.jpg
+lodestone-launcher-cli instances background Survival --slideshow all       # instance | all | custom | off
+lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg
 lodestone-launcher-cli instances duplicate Survival
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long

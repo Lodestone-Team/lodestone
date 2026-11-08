@@ -15,6 +15,7 @@ pub mod content;
 pub mod cores;
 pub mod export;
 pub mod game;
+pub mod hero_cache;
 pub mod http;
 pub mod import;
 pub mod instances;

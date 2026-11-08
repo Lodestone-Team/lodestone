@@ -19,7 +19,7 @@ use gpui::{
 use launcher_core::{
     content::loader_change::{self, LoaderChangeCheck},
     game::runtime::{self, JavaInfo},
-    instances::{Instance, Loader, Memory, format_env},
+    instances::{BackgroundMode, Instance, Loader, Memory, SlideshowSource, format_env},
     modpack::ModpackRecord,
 };
 use lodestone_minecraft::modrinth::{ModrinthVersionType, RawVersion};
@@ -36,7 +36,8 @@ use super::{
 use crate::components::KeyboardFocus;
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, LoadingDots, TextInput, Toggle,
+        Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, TextInput, Toggle,
+        segmented,
         settings::{
             SectionNav, SettingRow, Toast, card, content_width, left_overlay, link, muted_link,
             popover, popover_panel, section, section_list, section_menu_button, tag, unsaved_bar,
@@ -58,6 +59,14 @@ fn narrow_below() -> gpui::Pixels {
 
 /// How many screenshots the background picker offers.
 const SHOTS_OFFERED: usize = 24;
+
+/// The background picker's tabs: what the Play tab shows behind the name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackgroundTab {
+    Default,
+    Image,
+    Slideshow,
+}
 
 /// Asks the shell to confirm deleting the instance.
 pub struct DeleteRequested(pub String);
@@ -172,6 +181,13 @@ pub struct InstanceSettings {
     background_picker: bool,
     shots: Load<Vec<(PathBuf, Arc<RenderImage>)>>,
     _shots_task: Option<Task<()>>,
+    /// The picker's tab: what the Play tab shows.
+    background_tab: BackgroundTab,
+    /// How many screenshots this instance has, and all of them together.
+    shot_counts: (usize, usize),
+    /// The slideshow's own images, as thumbnails, with their file names.
+    own_images: Load<Vec<(String, Arc<RenderImage>)>>,
+    _own_images_task: Option<Task<()>>,
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
@@ -330,6 +346,10 @@ impl InstanceSettings {
             background_picker: false,
             shots: Load::NotLoaded,
             _shots_task: None,
+            background_tab: BackgroundTab::Default,
+            shot_counts: (0, 0),
+            own_images: Load::NotLoaded,
+            _own_images_task: None,
             prompting: false,
             nav: SectionNav::default(),
             nav_open: false,
@@ -881,6 +901,14 @@ impl InstanceSettings {
             cx.notify();
             return;
         }
+        if let Some(instance) = self.instance(cx) {
+            self.background_tab = match instance.background_mode() {
+                BackgroundMode::Default => BackgroundTab::Default,
+                BackgroundMode::Image => BackgroundTab::Image,
+                BackgroundMode::Slideshow(_) => BackgroundTab::Slideshow,
+            };
+        }
+        self.load_own_images(cx);
         let instances = self.instances.read(cx);
         let mut dirs = vec![instances.content_dirs(&self.instance_id)];
         dirs.extend(
@@ -904,19 +932,23 @@ impl InstanceSettings {
                 }
             }
             others.sort_by_key(|shot| std::cmp::Reverse(shot.modified));
-            own.into_iter()
+            let counts = (own.len(), own.len() + others.len());
+            let shots = own
+                .into_iter()
                 .chain(others)
                 .take(SHOTS_OFFERED)
                 .filter_map(|shot| {
                     let thumb = launcher_core::screenshots::thumbnail(&shot.path, 240).ok()?;
                     Some((shot.path, crate::images::render_image(thumb)))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (shots, counts)
         });
         self._shots_task = Some(cx.spawn(async move |this, cx| {
-            let shots = work.await;
+            let (shots, counts) = work.await;
             this.update(cx, |this, cx| {
                 this.shots = Load::Ready(shots);
+                this.shot_counts = counts;
                 cx.notify();
             })
             .ok();
@@ -938,105 +970,330 @@ impl InstanceSettings {
         }
     }
 
-    /// The background picker: screenshots, a file, or the default.
-    fn background_picker_panel(&self, has_background: bool, cx: &mut Context<Self>) -> AnyElement {
-        let body: AnyElement =
-            match &self.shots {
-                Load::Ready(shots) if !shots.is_empty() => div()
-                    .id("background-shots")
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .gap_2()
-                    .max_h(px(300.))
-                    .overflow_y_scroll()
-                    .children(shots.iter().enumerate().map(|(index, (path, thumb))| {
-                        let path = path.clone();
-                        div()
-                            .id(("background-shot", index))
-                            .keyboard_focus_outer()
-                            .w(px(112.))
-                            .h(px(63.))
-                            .rounded(radius::MD)
-                            .overflow_hidden()
-                            .border_1()
-                            .border_color(colors::TRANSPARENT)
-                            .cursor_pointer()
-                            .hover(|style| style.border_color(colors::BLUE_200))
-                            .child(img(thumb.clone()).size_full().object_fit(ObjectFit::Cover))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.use_background(path.clone(), cx)
-                            }))
-                    }))
-                    .into_any_element(),
-                Load::Ready(_) | Load::Failed(_) => div()
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
-                    .child(t(M::NoScreenshots))
-                    .into_any_element(),
-                Load::NotLoaded | Load::Loading => div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
-                    .child(LoadingDots)
-                    .child(t(M::FindingScreenshots))
-                    .into_any_element(),
+    /// Reads the slideshow's own images as thumbnails, in the background.
+    fn load_own_images(&mut self, cx: &mut Context<Self>) {
+        let images = self
+            .instances
+            .read(cx)
+            .store()
+            .slideshow_images(&self.instance_id);
+        if !matches!(self.own_images, Load::Ready(_)) {
+            self.own_images = Load::Loading;
+        }
+        let work = cx.background_spawn(async move {
+            images
+                .into_iter()
+                .filter_map(|path| {
+                    let name = path.file_name()?.to_str()?.to_string();
+                    let thumb = launcher_core::screenshots::thumbnail(&path, 240).ok()?;
+                    Some((name, crate::images::render_image(thumb)))
+                })
+                .collect::<Vec<_>>()
+        });
+        self._own_images_task = Some(cx.spawn(async move |this, cx| {
+            let images = work.await;
+            this.update(cx, |this, cx| {
+                this.own_images = Load::Ready(images);
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// Says how a change of the background went.
+    fn background_result(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+        match result {
+            Ok(()) => self.set_message(t(CommonMsg::Saved), false, cx),
+            Err(err) => self.set_message(err, true, cx),
+        }
+    }
+
+    /// The picker's tabs apply at once: Default goes back to the artwork, Image shows
+    /// the instance's own image again if it has one, Slideshow starts one.
+    fn set_background_tab(&mut self, tab: BackgroundTab, cx: &mut Context<Self>) {
+        self.background_tab = tab;
+        let id = self.instance_id.clone();
+        let Some(instance) = self.instance(cx) else {
+            return;
+        };
+        let result = match tab {
+            BackgroundTab::Default if instance.background_mode() != BackgroundMode::Default => {
+                self.background_picker = false;
+                self.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| instances.clear_background(&id, cx))
+                })
+            }
+            BackgroundTab::Image
+                if matches!(instance.background_mode(), BackgroundMode::Slideshow(_))
+                    && instance.background.is_some() =>
+            {
+                self.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| {
+                        instances.set_slideshow(&id, None, cx)
+                    })
+                })
+            }
+            BackgroundTab::Slideshow
+                if !matches!(instance.background_mode(), BackgroundMode::Slideshow(_)) =>
+            {
+                // This instance's screenshots, or everyone's if it has none yet.
+                let source = if self.shot_counts.0 == 0 && self.shot_counts.1 > 0 {
+                    SlideshowSource::AllInstances
+                } else {
+                    SlideshowSource::Instance
+                };
+                self.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| {
+                        instances.set_slideshow(&id, Some(source), cx)
+                    })
+                })
+            }
+            _ => {
+                cx.notify();
+                return;
+            }
+        };
+        self.background_result(result, cx);
+    }
+
+    fn set_slideshow_source(&mut self, source: SlideshowSource, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.undoable(&id, cx, |instances, cx| {
+                instances.set_slideshow(&id, Some(source), cx)
+            })
+        });
+        self.background_result(result, cx);
+    }
+
+    /// Adds images to the slideshow's own set.
+    fn add_own_images(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.add_slideshow_images(&id, &paths, cx)
+        });
+        self.load_own_images(cx);
+        self.background_result(result, cx);
+    }
+
+    /// "Add images…": the system's file dialog, for several at once.
+    fn pick_own_images(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some(t(M::AddToSlideshow).into()),
+        });
+        self._prompt = Some(cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = picked.await else {
+                return;
             };
+            this.update(cx, |this, cx| this.add_own_images(paths, cx))
+                .ok();
+        }));
+    }
+
+    fn remove_own_image(&mut self, name: String, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.remove_slideshow_image(&id, &name, cx)
+        });
+        self.load_own_images(cx);
+        self.background_result(result, cx);
+    }
+
+    /// The screenshots as thumbnails: a click uses one as the image, or, with `add`,
+    /// adds it to the slideshow's own set.
+    fn shots_grid(&self, add: bool, cx: &mut Context<Self>) -> AnyElement {
+        match &self.shots {
+            Load::Ready(shots) if !shots.is_empty() => div()
+                .id("background-shots")
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_2()
+                .max_h(px(220.))
+                .overflow_y_scroll()
+                .children(shots.iter().enumerate().map(|(index, (path, thumb))| {
+                    let path = path.clone();
+                    thumb_tile(("background-shot", index), thumb.clone()).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            if add {
+                                this.add_own_images(vec![path.clone()], cx);
+                            } else {
+                                this.use_background(path.clone(), cx);
+                            }
+                        },
+                    ))
+                }))
+                .into_any_element(),
+            Load::Ready(_) | Load::Failed(_) => note(t(M::NoScreenshots)),
+            Load::NotLoaded | Load::Loading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_500)
+                .child(LoadingDots)
+                .child(t(M::FindingScreenshots))
+                .into_any_element(),
+        }
+    }
+
+    /// The slideshow's own images, each with a button that removes it.
+    fn own_images_grid(&self, cx: &mut Context<Self>) -> AnyElement {
+        match &self.own_images {
+            Load::Ready(images) if !images.is_empty() => div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_2()
+                .children(images.iter().enumerate().map(|(index, (name, thumb))| {
+                    let name = name.clone();
+                    div()
+                        .relative()
+                        .child(thumb_tile(("own-image", index), thumb.clone()))
+                        .child(div().absolute().top_1().right_1().child(
+                            IconButton::new(("remove-own-image", index), Icon::Xmark).on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.remove_own_image(name.clone(), cx)
+                                }),
+                            ),
+                        ))
+                }))
+                .into_any_element(),
+            Load::Ready(_) | Load::Failed(_) => note(t(M::SlideshowNoImages)),
+            Load::NotLoaded | Load::Loading => LoadingDots.into_any_element(),
+        }
+    }
+
+    /// The background picker: the default, an image (a screenshot or a file), or a
+    /// slideshow from screenshots or the instance's own images.
+    fn background_picker_panel(&self, has_background: bool, cx: &mut Context<Self>) -> AnyElement {
+        let source = self.instance(cx).and_then(|i| i.slideshow);
+        let entity = cx.entity();
+        let tabs = segmented(
+            "background-mode",
+            vec![
+                (BackgroundTab::Default, t(M::BackgroundDefault).into()),
+                (BackgroundTab::Image, t(M::BackgroundImage).into()),
+                (BackgroundTab::Slideshow, t(M::BackgroundSlideshow).into()),
+            ],
+            Some(&self.background_tab),
+            false,
+            {
+                let entity = entity.clone();
+                move |tab, _, cx| entity.update(cx, |this, cx| this.set_background_tab(tab, cx))
+            },
+        );
+        let heading = |text_: &'static str| {
+            div()
+                .font_weight(weights::BOLD.into())
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_400)
+                .child(text_)
+        };
+        let body: AnyElement = match self.background_tab {
+            BackgroundTab::Default => div().into_any_element(),
+            BackgroundTab::Image => div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(heading(t(M::YourScreenshots)))
+                .child(self.shots_grid(false, cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_4()
+                        .pt_2()
+                        .border_t_1()
+                        .border_color(colors::FADE_700)
+                        .child(
+                            link("background-file", t(M::ChooseFile)).on_click(cx.listener(
+                                |this, _, _, cx| {
+                                    this.background_picker = false;
+                                    this.choose_background(cx);
+                                },
+                            )),
+                        )
+                        .when(has_background, |this| {
+                            this.child(div().flex_1()).child(
+                                muted_link("background-default", t(M::UseDefault)).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.set_background_tab(BackgroundTab::Default, cx)
+                                    }),
+                                ),
+                            )
+                        }),
+                )
+                .into_any_element(),
+            BackgroundTab::Slideshow => {
+                let source_tabs = segmented(
+                    "slideshow-source",
+                    vec![
+                        (
+                            SlideshowSource::Instance,
+                            t(M::SlideshowThisInstance).into(),
+                        ),
+                        (
+                            SlideshowSource::AllInstances,
+                            t(M::SlideshowAllInstances).into(),
+                        ),
+                        (SlideshowSource::Custom, t(M::SlideshowOwnImages).into()),
+                    ],
+                    source.as_ref(),
+                    false,
+                    move |source, _, cx| {
+                        entity.update(cx, |this, cx| this.set_slideshow_source(source, cx))
+                    },
+                );
+                let (own, all) = self.shot_counts;
+                let loaded = matches!(self.shots, Load::Ready(_));
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(source_tabs)
+                    .map(|this| match source {
+                        Some(SlideshowSource::Custom) => this
+                            .child(self.own_images_grid(cx))
+                            .child(div().flex().child(
+                                link("add-own-images", t(M::AddImages)).on_click(
+                                    cx.listener(|this, _, _, cx| this.pick_own_images(cx)),
+                                ),
+                            ))
+                            .child(
+                                div()
+                                    .pt_2()
+                                    .border_t_1()
+                                    .border_color(colors::FADE_700)
+                                    .child(heading(t(M::YourScreenshots))),
+                            )
+                            .child(self.shots_grid(true, cx)),
+                        Some(SlideshowSource::Instance) if loaded && own == 0 => {
+                            this.child(note(t(M::SlideshowNoScreenshots)))
+                        }
+                        Some(SlideshowSource::AllInstances) if loaded && all == 0 => {
+                            this.child(note(t(M::SlideshowNoScreenshots)))
+                        }
+                        _ => this,
+                    })
+                    .into_any_element()
+            }
+        };
         popover_panel("background-picker")
-            .w(px(380.))
+            .w(px(400.))
             .p_3()
             .gap_3()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.background_picker = false;
                 cx.notify();
             }))
-            .child(
-                div()
-                    .font_weight(weights::BOLD.into())
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_400)
-                    .child(t(M::YourScreenshots)),
-            )
+            .child(tabs)
             .child(body)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_4()
-                    .pt_2()
-                    .border_t_1()
-                    .border_color(colors::FADE_700)
-                    .child(
-                        link("background-file", t(M::ChooseFile)).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.background_picker = false;
-                                this.choose_background(cx);
-                            },
-                        )),
-                    )
-                    .child(div().flex_1())
-                    .when(has_background, |this| {
-                        this.child(muted_link("background-default", t(M::UseDefault)).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.background_picker = false;
-                                let id = this.instance_id.clone();
-                                let result = this.instances.update(cx, |instances, cx| {
-                                    instances.undoable(&id, cx, |instances, cx| {
-                                        instances.clear_background(&id, cx)
-                                    })
-                                });
-                                match result {
-                                    Ok(()) => this.set_message(t(CommonMsg::Saved), false, cx),
-                                    Err(err) => this.set_message(err, true, cx),
-                                }
-                            }),
-                        ))
-                    }),
-            )
             .into_any_element()
     }
 
@@ -1594,6 +1851,9 @@ impl Render for InstanceSettings {
         let has_background = instance.as_ref().is_some_and(|i| {
             i.background.as_deref() == Some(launcher_core::instances::CUSTOM_BACKGROUND)
         });
+        let slideshow = instance
+            .as_ref()
+            .is_some_and(|i| matches!(i.background_mode(), BackgroundMode::Slideshow(_)));
         let overrides = self.overrides;
         let mut sections: Vec<(SharedString, AnyElement)> = Vec::new();
 
@@ -1670,6 +1930,9 @@ impl Render for InstanceSettings {
                 .into_any_element(),
             SettingRow::new(t(M::PlayBackground))
                 .child(match (&background, has_background) {
+                    _ if slideshow => {
+                        tag(t(M::BackgroundSlideshow), colors::BLUE_200).into_any_element()
+                    }
                     (Some(image), _) => img(image.clone())
                         .w(px(72.))
                         .h(px(40.))
@@ -2081,6 +2344,34 @@ impl Render for InstanceSettings {
             None => root.children(self.toast.render()),
         }
     }
+}
+
+/// A screenshot or image in the background picker.
+fn thumb_tile(
+    id: impl Into<gpui::ElementId>,
+    thumb: Arc<RenderImage>,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .keyboard_focus_outer()
+        .w(px(112.))
+        .h(px(63.))
+        .rounded(radius::MD)
+        .overflow_hidden()
+        .border_1()
+        .border_color(colors::TRANSPARENT)
+        .cursor_pointer()
+        .hover(|style| style.border_color(colors::BLUE_200))
+        .child(img(thumb).size_full().object_fit(ObjectFit::Cover))
+}
+
+/// A short grey line in the background picker.
+fn note(text_: &'static str) -> AnyElement {
+    div()
+        .text_size(theme::text_size(text::SMALL))
+        .text_color(colors::GRAY_500)
+        .child(text_)
+        .into_any_element()
 }
 
 #[cfg(test)]

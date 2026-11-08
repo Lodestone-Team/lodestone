@@ -2,8 +2,8 @@
 //! the bottom bar with the large Play button.
 
 use crate::theme::px;
-use gpui::{Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*};
-use launcher_core::instances::Instance;
+use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*};
+use launcher_core::instances::{BackgroundMode, Instance};
 
 use super::{InstanceTab, LauncherShell, loader_label};
 use crate::{
@@ -102,10 +102,16 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .py_5()
                 .child(match (tab, &instance) {
                     (InstanceTab::Play, _) => {
-                        let background = instance
-                            .as_ref()
-                            .and_then(|i| shell.instances.read(cx).background(&i.id).cloned());
-                        hero(instance.as_ref(), background, cx).into_any_element()
+                        let backdrop = match instance.as_ref().map(Instance::background_mode) {
+                            Some(BackgroundMode::Slideshow(_)) => {
+                                Backdrop::Slideshow(shell.slideshow.clone().into_any_element())
+                            }
+                            _ => instance
+                                .as_ref()
+                                .and_then(|i| shell.instances.read(cx).background(&i.id).cloned())
+                                .map_or(Backdrop::Artwork, Backdrop::Image),
+                        };
+                        hero(instance.as_ref(), backdrop, cx).into_any_element()
                     }
                     (InstanceTab::Settings, Some(_)) => match shell.settings_view() {
                         Some(settings) => settings.clone().into_any_element(),
@@ -126,13 +132,24 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .child(play_bar(shell, instance.as_ref(), cx))
 }
 
+/// What the banner shows behind the name.
+enum Backdrop {
+    /// The launcher's artwork.
+    Artwork,
+    /// The instance's own image.
+    Image(Background),
+    /// The slideshow, which draws its own images and scrim.
+    Slideshow(AnyElement),
+}
+
 /// The banner: our own artwork in the dashboard's colours, with the instance's name,
 /// or an invitation to create one.
 fn hero(
     instance: Option<&Instance>,
-    background: Option<Background>,
+    backdrop: Backdrop,
     cx: &mut Context<LauncherShell>,
 ) -> impl IntoElement {
+    let lit = !matches!(backdrop, Backdrop::Artwork);
     let (title, body): (SharedString, SharedString) = match instance {
         Some(instance) => (
             instance.name.clone().into(),
@@ -162,9 +179,10 @@ fn hero(
         .border_1()
         .border_color(colors::FADE_700)
         .bg(colors::GRAY_900)
-        .map(|this| match &background {
+        .map(|this| match backdrop {
+            Backdrop::Slideshow(slideshow) => this.child(slideshow),
             // The instance's own image, with a scrim as dark as it needs under the text.
-            Some(background) => this
+            Backdrop::Image(background) => this
                 .child(
                     img(background.image.clone())
                         .absolute()
@@ -173,7 +191,7 @@ fn hero(
                         .object_fit(ObjectFit::Cover),
                 )
                 .children(scrim_layers(background.scrim)),
-            None => this.child(
+            Backdrop::Artwork => this.child(
                 img(crate::images::hero(cx))
                     .absolute()
                     .inset_0()
@@ -202,7 +220,7 @@ fn hero(
                     div()
                         .text_size(theme::text_size(text::H3))
                         .line_height(theme::line_height(text::H3, leading::NORMAL))
-                        .text_color(if background.is_some() {
+                        .text_color(if lit {
                             colors::GRAY_300
                         } else {
                             colors::GRAY_400
