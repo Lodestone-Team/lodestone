@@ -6,6 +6,7 @@
     "dev": "node scripts/copy-monaco.mjs && next dev -p 3001",
     "build": "node scripts/copy-monaco.mjs && next build",
     "lint": "eslint .",
+    "test": "node --test \"src/**/*.test.ts\"",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "tauri": "tauri"

@@ -228,3 +228,11 @@ export const useAnalyticsEventTracker = (category: string) => {
   return eventTracker;
 };
 export default useAnalyticsEventTracker;
+
+/**
+ * Whether the instance console shows colours (ANSI and Minecraft codes, log
+ * levels); off shows the plain text. Saved in this browser, on by default.
+ */
+export function useColoredConsole() {
+  return useLocalStorage('coloredConsole', true);
+}

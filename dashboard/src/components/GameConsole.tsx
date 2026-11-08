@@ -18,10 +18,25 @@ import { useDocumentTitle } from 'usehooks-ts';
 import Checkbox from './Atoms/Checkbox';
 import { SkeletonCode, SkeletonGroup } from './Atoms/Skeleton';
 import { toast } from 'react-toastify';
+import { ConsoleLine } from './ConsoleLine';
+import { ParsedConsoleLine, parseConsoleLine } from 'utils/consoleFormat';
+import { useColoredConsole } from 'utils/hooks';
+import { useResolvedTheme } from 'utils/theme';
 
 const autoScrollThreshold = 10;
 // rendering is the slow part, so only the newest lines are put in the DOM
 const maxRenderedLines = 2000;
+
+// each line is parsed once; the log keeps the same event objects as it grows
+const parsedLines = new WeakMap<ConsoleEvent, ParsedConsoleLine>();
+const parsed = (line: ConsoleEvent) => {
+  let result = parsedLines.get(line);
+  if (!result) {
+    result = parseConsoleLine(line.message);
+    parsedLines.set(line, result);
+  }
+  return result;
+};
 
 export default function GameConsole() {
   useDocumentTitle('Instance Console - Lodestone');
@@ -38,6 +53,8 @@ export default function GameConsole() {
   const [command, setCommand] = useState('');
   const [filter, setFilter] = useState('');
   const [regex, setRegex] = useState(true);
+  const [coloredConsole] = useColoredConsole();
+  const theme = useResolvedTheme();
   const { commandHistory, appendCommandHistory } = useContext(
     CommandHistoryContext
   );
@@ -73,10 +90,10 @@ export default function GameConsole() {
         } catch {
           // an invalid regex matches nothing, as before
         }
-        matches = (line) => filterRegex?.test(line.message) ?? false;
+        matches = (line) => filterRegex?.test(parsed(line).plain) ?? false;
       } else {
         const needle = filter.toLowerCase();
-        matches = (line) => line.message.toLowerCase().includes(needle);
+        matches = (line) => parsed(line).plain.toLowerCase().includes(needle);
       }
     }
     const filtered = filter === '' ? consoleLog : consoleLog.filter(matches);
@@ -214,13 +231,6 @@ export default function GameConsole() {
             messageClassName="text-white/50"
           />
         ) : consoleLog.length === 0 && consoleStatus === 'loading' ? (
-          // the history is still loading: an empty console, not the "no
-          // messages" graphic that would flash before the lines appear
-          <div
-            aria-busy="true"
-            className="flex h-0 grow rounded-t-lg border-b border-gray-faded/30 bg-gray-900"
-          />
-        ) : consoleLog.length === 0 && consoleStatus === 'loading' ? (
           // the history's lines, while it loads (after a moment)
           <SkeletonGroup
             label="Loading console"
@@ -249,12 +259,12 @@ export default function GameConsole() {
               </li>
             )}
             {visibleLines.lines.map((line) => (
-              <li
+              <ConsoleLine
                 key={line.snowflake}
-                className="px-4 py-[0.125rem] hover:bg-gray-800"
-              >
-                {line.message}
-              </li>
+                line={parsed(line)}
+                colored={coloredConsole}
+                theme={theme}
+              />
             ))}
           </ol>
         )}

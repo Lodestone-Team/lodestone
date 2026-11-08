@@ -12,6 +12,8 @@ import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
 import AppearanceSetting from 'components/Settings/AppearanceSetting';
+import ToggleBox from 'components/Atoms/Config/ToggleBox';
+import { useColoredConsole } from 'utils/hooks';
 import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
@@ -22,6 +24,7 @@ const ProfilePage = () => {
   // read from the user info cache, so a rename shows up everywhere
   const username = userState === 'logged-in' && user ? user.username : 'Guest';
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [coloredConsole, setColoredConsole] = useColoredConsole();
 
   useEffect(() => {
     if (userState === 'logged-out')
@@ -106,8 +109,14 @@ const ProfilePage = () => {
           Appearance
         </div>
         {/* saved in this browser, not on the core */}
-        <div className="mt-4 w-full min-w-0 overflow-clip rounded-lg border border-gray-faded/30">
+        <div className="mt-4 w-full min-w-0 overflow-clip rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
           <AppearanceSetting />
+          <ToggleBox
+            label="Colored console"
+            value={coloredConsole}
+            onChange={async (value) => setColoredConsole(value)}
+            description="Shows the colors and styles servers print in the instance console"
+          />
         </div>
 
         <div className="mt-8 text-h3 font-extrabold text-gray-300">
