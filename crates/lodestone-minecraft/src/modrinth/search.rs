@@ -162,12 +162,13 @@ impl SearchParams {
 }
 
 /// What a game client's folder holds, as Modrinth project types: mods, resource packs and
-/// shader packs. Lodestone Launcher browses these.
+/// shader packs, and the modpacks instances are made from. Lodestone Launcher browses these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClientProjectType {
     Mod,
     ResourcePack,
     Shader,
+    Modpack,
 }
 
 impl ClientProjectType {
@@ -177,6 +178,7 @@ impl ClientProjectType {
             ClientProjectType::Mod => "mod",
             ClientProjectType::ResourcePack => "resourcepack",
             ClientProjectType::Shader => "shader",
+            ClientProjectType::Modpack => "modpack",
         }
     }
 
@@ -185,6 +187,7 @@ impl ClientProjectType {
             "mod" => Some(ClientProjectType::Mod),
             "resourcepack" => Some(ClientProjectType::ResourcePack),
             "shader" => Some(ClientProjectType::Shader),
+            "modpack" => Some(ClientProjectType::Modpack),
             _ => None,
         }
     }
@@ -238,7 +241,7 @@ impl ClientSearchParams {
     }
 
     /// The Modrinth facets: the project type, the loaders (any of them), the game version,
-    /// and for mods a client-side facet so server-only mods are hidden.
+    /// and for mods and modpacks a client-side facet so server-only ones are hidden.
     pub fn facets(&self) -> Vec<Vec<String>> {
         let mut facets = vec![vec![format!("project_type:{}", self.project_type.as_str())]];
         if !self.loaders.is_empty() {
@@ -252,7 +255,10 @@ impl ClientSearchParams {
         if let Some(game_version) = &self.game_version {
             facets.push(vec![format!("versions:{game_version}")]);
         }
-        if self.project_type == ClientProjectType::Mod {
+        if matches!(
+            self.project_type,
+            ClientProjectType::Mod | ClientProjectType::Modpack
+        ) {
             facets.push(vec![
                 "client_side:required".to_string(),
                 "client_side:optional".to_string(),
@@ -439,7 +445,25 @@ mod tests {
             ClientProjectType::from_project_type("resourcepack"),
             Some(ClientProjectType::ResourcePack)
         );
-        assert_eq!(ClientProjectType::from_project_type("modpack"), None);
+        assert_eq!(
+            ClientProjectType::from_project_type("modpack"),
+            Some(ClientProjectType::Modpack)
+        );
+        assert_eq!(ClientProjectType::from_project_type("plugin"), None);
+        let modpacks = new(ClientProjectType::Modpack, None, &["fabric"])
+            .unwrap()
+            .facets();
+        assert_eq!(
+            modpacks,
+            vec![
+                vec!["project_type:modpack".to_string()],
+                vec!["categories:fabric".to_string()],
+                vec![
+                    "client_side:required".to_string(),
+                    "client_side:optional".to_string()
+                ],
+            ]
+        );
     }
 
     #[test]

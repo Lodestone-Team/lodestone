@@ -437,6 +437,39 @@ impl Modrinth {
         })
     }
 
+    /// The URL to download a modpack's file from, if it is an HTTPS URL on one of the
+    /// hosts the `.mrpack` format allows ([`DOWNLOAD_HOSTS`]). Tests fetch
+    /// `<cdn_mirror>/<host>/<path>`.
+    ///
+    /// [`DOWNLOAD_HOSTS`]: lodestone_minecraft::mrpack::DOWNLOAD_HOSTS
+    pub fn pack_file_url(&self, url: &Url) -> Result<String, ModrinthError> {
+        let host = url.host_str().unwrap_or_default();
+        if url.scheme() != "https"
+            || !lodestone_minecraft::mrpack::DOWNLOAD_HOSTS.contains(&host)
+            || url.port().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err(ModrinthError::Invalid(format!(
+                "Refusing to download from {}: modpack files only come from {}",
+                if host.is_empty() {
+                    "an unknown host"
+                } else {
+                    host
+                },
+                lodestone_minecraft::mrpack::DOWNLOAD_HOSTS.join(", ")
+            )));
+        }
+        let path = match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_string(),
+        };
+        Ok(match &self.cdn_mirror {
+            None => format!("https://{host}{path}"),
+            Some(base) => format!("{}/{host}{path}", base.as_str().trim_end_matches('/')),
+        })
+    }
+
     /// The bytes of an image on Modrinth's CDN (project icons), at most
     /// [`MAX_IMAGE_BYTES`].
     pub async fn image(&self, url: &str) -> Result<Vec<u8>, ModrinthError> {

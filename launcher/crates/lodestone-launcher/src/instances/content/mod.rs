@@ -4,7 +4,7 @@
 //! The work is done by `launcher-core::content`; this view keeps the state of each
 //! section, runs that work in the background and refuses changes while the game runs.
 
-mod view;
+pub(crate) mod view;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
@@ -66,9 +66,18 @@ pub enum SubView {
     Browse,
 }
 
+/// The parts of a project's page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProjectTab {
+    #[default]
+    Versions,
+    Description,
+}
+
 /// A Modrinth project opened from Browse or a link.
 pub struct ProjectView {
     pub project_id: String,
+    pub tab: ProjectTab,
     pub project: Load<ModrinthProject>,
     pub versions: Load<Vec<RawVersion>>,
     /// The version a link pointed to; it is listed first.
@@ -202,6 +211,10 @@ pub struct ContentView {
     /// The file whose Delete was clicked once.
     pub confirm_delete: Option<(ContentKind, String)>,
     remote_icons: HashMap<String, RemoteIcon>,
+    /// Images of project descriptions, by URL.
+    description_images: HashMap<String, RemoteIcon>,
+    /// Parsed project descriptions, by project id.
+    descriptions: HashMap<String, Arc<Vec<launcher_core::markdown::Block>>>,
     /// Whether the game was running at the last check, to reload when it stops.
     was_active: bool,
     _prompt: Option<Task<()>>,
@@ -243,6 +256,8 @@ impl ContentView {
             message: None,
             confirm_delete: None,
             remote_icons: HashMap::new(),
+            description_images: HashMap::new(),
+            descriptions: HashMap::new(),
             was_active: false,
             _prompt: None,
             _observe: observe,
@@ -1120,6 +1135,7 @@ impl ContentView {
         });
         self.section_mut(kind).browse.project = Some(ProjectView {
             project_id,
+            tab: ProjectTab::default(),
             project: Load::Loading,
             versions: Load::Loading,
             linked_version,
@@ -1184,7 +1200,77 @@ impl ContentView {
         None
     }
 
+    /// A project's description, parsed once.
+    pub fn description(
+        &mut self,
+        project: &ModrinthProject,
+    ) -> Arc<Vec<launcher_core::markdown::Block>> {
+        self.descriptions
+            .entry(project.id.clone())
+            .or_insert_with(|| Arc::new(launcher_core::markdown::parse(&project.body)))
+            .clone()
+    }
+
+    /// The loaded images among `urls` (from Modrinth's CDN), fetching the others the
+    /// first time they are asked for.
+    pub fn description_images(
+        &mut self,
+        urls: &[String],
+        cx: &mut Context<Self>,
+    ) -> HashMap<String, Arc<RenderImage>> {
+        const MAX_IMAGES: usize = 40;
+        let mut ready = HashMap::new();
+        for url in urls.iter().take(MAX_IMAGES) {
+            match self.description_images.get(url) {
+                Some(RemoteIcon::Ready(image)) => {
+                    ready.insert(url.clone(), image.clone());
+                    continue;
+                }
+                Some(_) => continue,
+                None => {}
+            }
+            let Some(api) = self.modrinth(cx) else {
+                continue;
+            };
+            self.description_images
+                .insert(url.clone(), RemoteIcon::Loading);
+            let key = url.clone();
+            let work = cx.background_spawn(async move {
+                let bytes = api.image(&key).await.ok()?;
+                crate::images::decode_large(&bytes)
+            });
+            let url = url.clone();
+            cx.spawn(async move |this, cx| {
+                let result = work.await;
+                this.update(cx, |this, cx| {
+                    let image = match result {
+                        Some(image) => RemoteIcon::Ready(crate::images::render_image(image)),
+                        None => RemoteIcon::Failed,
+                    };
+                    this.description_images.insert(url, image);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        ready
+    }
+
+    pub fn set_project_tab(&mut self, kind: ContentKind, tab: ProjectTab, cx: &mut Context<Self>) {
+        if let Some(view) = self.project_mut(kind) {
+            view.tab = tab;
+        }
+        cx.notify();
+    }
+
     // ---- previews ----
+
+    /// Shows a description image without fetching it, for the offscreen screenshots.
+    pub fn preview_description_image(&mut self, url: &str, image: Arc<RenderImage>) {
+        self.description_images
+            .insert(url.to_string(), RemoteIcon::Ready(image));
+    }
 
     /// Shows prepared Browse results, for the offscreen screenshots.
     pub fn preview_results(
@@ -1217,6 +1303,7 @@ impl ContentView {
         section.view = SubView::Browse;
         section.browse.project = Some(ProjectView {
             project_id: project.id.clone(),
+            tab: ProjectTab::default(),
             project: Load::Ready(project),
             versions: Load::Ready(versions),
             linked_version: None,
