@@ -345,16 +345,17 @@ fn unescape(text: &str) -> String {
 
 /// A log timestamp (milliseconds since the Unix epoch) as local `HH:MM:SS`.
 pub fn format_time(timestamp_ms: u64) -> String {
-    let seconds = (timestamp_ms / 1000) as libc::time_t;
-    // SAFETY: `localtime_r` writes only into `tm`, which outlives the call, and
-    // `seconds` is a valid `time_t`.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let converted = unsafe { !libc::localtime_r(&seconds, &mut tm).is_null() };
-    if !converted {
-        let day = timestamp_ms / 1000 % 86_400;
-        return format!("{:02}:{:02}:{:02}", day / 3600, day / 60 % 60, day % 60);
+    use chrono::TimeZone as _;
+    match chrono::Local
+        .timestamp_millis_opt(timestamp_ms as i64)
+        .single()
+    {
+        Some(time) => time.format("%H:%M:%S").to_string(),
+        None => {
+            let day = timestamp_ms / 1000 % 86_400;
+            format!("{:02}:{:02}:{:02}", day / 3600, day / 60 % 60, day % 60)
+        }
     }
-    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
 }
 
 /// Replaces each secret in a line with `<redacted>`. Old versions print the session
