@@ -330,6 +330,8 @@ class Folder:
 
 
 def main(argv: list[str]) -> int:
+    # Keep our lines in order with cargo's and gh's output when piped.
+    sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description="Publish a Lodestone Launcher release.")
     parser.add_argument("--dry-run", action="store_true",
                         help="build and show the new latest.json, but upload nothing")
