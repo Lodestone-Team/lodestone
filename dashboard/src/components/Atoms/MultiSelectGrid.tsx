@@ -10,6 +10,8 @@ export type MultiSelectGridProps<T extends string | object> = {
   onChange: (selectedOptions: T[]) => void;
   optionLabel?: (option: T) => string;
   optionKey?: (option: T) => string;
+  /** Disables single options, while the others stay usable */
+  optionDisabled?: (option: T) => boolean;
 };
 
 /**
@@ -24,6 +26,7 @@ export default function MultiSelectGrid<T extends string | object>(
     options,
     selectedOptions,
     onChange,
+    optionDisabled = () => false,
     optionLabel = (option) => {
       let output = '';
       if (typeof option === 'string') {
@@ -66,7 +69,7 @@ export default function MultiSelectGrid<T extends string | object>(
           label={optionLabel(option)}
           checked={selectedOptions.includes(option)}
           onChange={(checked) => onCheckboxChange(option, checked)}
-          disabled={disabled}
+          disabled={disabled || optionDisabled(option)}
           className="pr-4"
         />
       ))}

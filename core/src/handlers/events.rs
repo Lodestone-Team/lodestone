@@ -164,16 +164,22 @@ fn user_event_action(event: &Event, uid: &UserId) -> UserEventAction {
 }
 
 /// Applies a user event to the stream's cached copy of the user. Returns `false` when the
-/// stream must close.
+/// stream must close: also when the stream's API key has expired, or was revoked (which
+/// sends a user event).
 async fn update_cached_user(
     event: &Event,
     user: &mut User,
     users_manager: &RwLock<UsersManager>,
 ) -> bool {
+    if user.api_key_expired(crate::auth::api_key::now()) {
+        return false;
+    }
     match user_event_action(event, &user.uid) {
         UserEventAction::Continue => true,
         UserEventAction::Close => false,
-        UserEventAction::Refresh => match users_manager.read().await.get_user(&user.uid) {
+        // re-derived from how the stream authenticated, so a custom key keeps only its
+        // scope and a revoked key closes the stream
+        UserEventAction::Refresh => match users_manager.read().await.refresh_user(user) {
             Some(new_user) => {
                 *user = new_user;
                 true
@@ -341,6 +347,35 @@ mod tests {
             snowflake: Snowflake::default(),
             caused_by: CausedBy::System,
         }
+    }
+
+    #[tokio::test]
+    async fn streams_close_once_their_api_key_expires() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = crate::event_broadcaster::EventBroadcaster::new(8);
+        let users_manager = RwLock::new(UsersManager::new(
+            tx,
+            Default::default(),
+            dir.path().join("users.json"),
+        ));
+        let unrelated = user_event(&UserId::default(), UserEventInner::UserCreated);
+        let mut user = User::new("u".to_string(), "pw", false, false, Default::default());
+        // a session never expires here
+        assert!(update_cached_user(&unrelated, &mut user, &users_manager).await);
+        let now = crate::auth::api_key::now();
+        user.auth_source = crate::auth::user::AuthSource::ApiKey {
+            id: "abcdefghij12".to_string(),
+            name: "ci".to_string(),
+            expires_at: Some(now + 3600),
+        };
+        assert!(update_cached_user(&unrelated, &mut user, &users_manager).await);
+        user.auth_source = crate::auth::user::AuthSource::ApiKey {
+            id: "abcdefghij12".to_string(),
+            name: "ci".to_string(),
+            expires_at: Some(now - 1),
+        };
+        // any event closes the stream, not only events about the user
+        assert!(!update_cached_user(&unrelated, &mut user, &users_manager).await);
     }
 
     #[test]

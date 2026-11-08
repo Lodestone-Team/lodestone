@@ -16,6 +16,7 @@ import { toast } from 'react-toastify';
 import { Player } from 'bindings/Player';
 import { QueryClient, useQueryClient } from '@tanstack/react-query';
 import { openReconnectingWebSocket } from 'utils/websocket';
+import { apiKeyKeys } from 'data/ApiKeys';
 
 /**
  * The query for both the event buffer and the event stream.
@@ -220,6 +221,24 @@ export const useEventStream = () => {
             if (uid === selfUid)
               updateSelf(queryClient, setPermission(new_permissions));
             updateUserInList(queryClient, uid, setPermission(new_permissions));
+          },
+          ApiKeyCreated: ({ name: keyName }) => {
+            refreshApiKeys(queryClient, uid, uid === selfUid);
+            dispatch({
+              title: `API key "${keyName}" created`,
+              event,
+              type: 'add',
+              fresh,
+            });
+          },
+          ApiKeyRevoked: ({ name: keyName }) => {
+            refreshApiKeys(queryClient, uid, uid === selfUid);
+            dispatch({
+              title: `API key "${keyName}" revoked`,
+              event,
+              type: 'add',
+              fresh,
+            });
           },
         });
       },
@@ -457,4 +476,14 @@ export const useEventStream = () => {
       websocket.close();
     };
   }, [token, core, queryClient, setCoreConnectionStatus]);
+};
+
+/** Refetches the API key lists a key event may have changed. */
+const refreshApiKeys = (
+  queryClient: QueryClient,
+  uid: string,
+  isSelf: boolean
+) => {
+  if (isSelf) queryClient.invalidateQueries({ queryKey: apiKeyKeys.own });
+  queryClient.invalidateQueries({ queryKey: apiKeyKeys.ofUser(uid) });
 };

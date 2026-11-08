@@ -22,9 +22,9 @@ use tokio_util::io::ReaderStream;
 use ts_rs::TS;
 
 use crate::{
-    auth::{user::UserAction, user_id::UserId},
+    auth::user::{User, UserAction},
     error::{Error, ErrorKind},
-    events::{new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEventID},
+    events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID},
     prelude::{lodestone_path, path_to_instances, path_to_stores, path_to_tmp},
     types::InstanceUuid,
     util::{list_dir, rand_alphanumeric, resolve_path_conflict, zip_files},
@@ -68,7 +68,8 @@ pub struct DownloadableFile {
     /// For a zipped folder, the temporary folder that holds the zip.
     /// Dropping it deletes the zip.
     temp_dir: Option<TempDir>,
-    owner: UserId,
+    /// The user who made the link, as their request authenticated (session or API key).
+    owner: User,
     scope: DownloadScope,
     expires_at: Instant,
 }
@@ -87,7 +88,7 @@ pub(super) async fn register_download(
     state: &AppState,
     path: PathBuf,
     temp_dir: Option<TempDir>,
-    owner: UserId,
+    owner: User,
     scope: DownloadScope,
 ) -> String {
     let key = rand_alphanumeric(32);
@@ -341,10 +342,7 @@ async fn list_files(
 
     let path = PathBuf::from(absolute_path);
     canonicalize_global_read(&path, false).await?;
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     let ret = file_entries(list_dir(&path, None).await?).await?;
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
@@ -372,10 +370,7 @@ async fn read_file(
     let path = PathBuf::from(absolute_path);
     canonicalize_global_read(&path, false).await?;
     let ret = crate::util::fs::read_to_string_capped(&path, MAX_READ_BYTES).await?;
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::File(path),
@@ -409,10 +404,7 @@ async fn write_file(
         .await
         .context(format!("Failed to write to file {}", path.display()))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Write,
         FSTarget::File(path),
@@ -444,10 +436,7 @@ async fn make_directory(
         .await
         .context(format!("Failed to create directory {}", path.display()))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::Directory(path),
@@ -486,10 +475,7 @@ async fn move_file(
     }
     crate::util::fs::rename(&path_source, &path_dest).await?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
 
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Move {
@@ -526,10 +512,7 @@ async fn remove_file(
         .await
         .context(format!("Failed to remove file {}", path.display()))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::File(path),
@@ -558,10 +541,7 @@ async fn remove_dir(
         .await
         .context(format!("Failed to remove directory {}", path.display()))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::Directory(path),
@@ -594,10 +574,7 @@ async fn new_file(
         .await
         .context(format!("Failed to create file {}", path.display()))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username.clone(),
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::File(path),
@@ -638,14 +615,11 @@ async fn download_file(
         &state,
         downloadable_file_path.clone(),
         temp_dir,
-        requester.uid.clone(),
+        requester.clone(),
         DownloadScope::GlobalFile,
     )
     .await;
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
         FSTarget::File(downloadable_file_path),
@@ -759,10 +733,7 @@ async fn upload_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<f64>().ok());
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
-    };
+    let caused_by = requester.caused_by();
     let (progression_start_event, event_id) =
         Event::new_progression_event_start("Uploading file(s)", total, None, caused_by.clone());
     state.event_broadcaster.send(progression_start_event);
@@ -852,12 +823,13 @@ async fn download(
         }
     };
 
-    // the link only works while the user who made it still exists and may read the file
+    // the link only works while the user who made it still exists and may read the file;
+    // for a link made with an API key, while the key is valid and its scope allows it
     let owner = state
         .users_manager
         .read()
         .await
-        .get_user(&owner)
+        .refresh_user(&owner)
         .ok_or_else(not_found)?;
     owner.try_action(&scope.action(), state.safe_mode())?;
 
