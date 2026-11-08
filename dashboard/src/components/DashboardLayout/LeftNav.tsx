@@ -21,6 +21,7 @@ export default function LeftNav({ className }: { className?: string }) {
     setShowCreateInstance,
     modpackPreset,
     setModpackPreset,
+    isReady,
   } = useContext(InstanceContext);
   const closeCreateInstance = () => {
     setShowCreateInstance(false);
@@ -71,7 +72,8 @@ export default function LeftNav({ className }: { className?: string }) {
           <SelectedInstanceInfo />
 
           <InstanceList className="mt-6">
-            {userLoggedIn && (
+            {/* after the list has loaded, so the instances don't push it down */}
+            {userLoggedIn && isReady && (
               <div
                 className="flex w-full flex-row items-center justify-center gap-4 pb-8"
                 {...preloadCreateInstanceProps}

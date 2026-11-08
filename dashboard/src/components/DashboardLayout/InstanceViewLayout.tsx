@@ -19,38 +19,35 @@ export const InstanceViewLayout = () => {
   const [queryInstanceId, setQueryInstanceId] = useQueryParam('instance', '');
   const { data: dataInstances, isFetched: instanceIsFetched } =
     useInstanceList(userLoggedIn);
-  const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
-
   const [showCreateInstance, setShowCreateInstance] = useState(false);
   const [modpackPreset, setModpackPreset] = useState<ModpackPreset | null>(
     null
   );
 
   const instances = userLoggedIn ? dataInstances : undefined;
+  // Derived, not copied into state by an effect: the copy was a render behind
+  // the URL and the list, so every selection (and every page load) first
+  // rendered with no instance, flashing the loading or empty state.
+  const instance: InstanceInfo | null =
+    (queryInstanceId && instances?.[queryInstanceId]) || null;
 
   useEffect(() => {
-    console.log(queryInstanceId);
     // While the list loads, keep the URL: a link to an instance's tab (for
     // example /dashboard/mods?instance=…&modrinth=…) must not be sent home.
     if (queryInstanceId && !instances) return;
     if (queryInstanceId && instances && queryInstanceId in instances) {
-      setInstanceState(instances[queryInstanceId]);
       if (!location.pathname.startsWith('/dashboard'))
         setPathname('/dashboard/overview');
     } else {
-      setInstanceState(null);
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
     }
   }, [instances, queryInstanceId]);
 
   function selectInstance(instance: InstanceInfo | null) {
-    console.log('selectInstance', instance);
     if (instance === null) {
-      setInstanceState(null);
       setQueryInstanceId('');
       if (location.pathname.startsWith('/dashboard')) setPathname('/');
     } else {
-      setInstanceState(instance);
       setQueryInstanceId(instance.uuid);
     }
   }
