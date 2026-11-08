@@ -22,6 +22,10 @@ pub const DISCLOSURE: &[(&str, &str)] = &[
         "Lodestone Launcher will tell Microsoft that it is Mojang's official Minecraft Launcher, using that launcher's public client ID, instead of Lodestone's own registered app. Microsoft and Mojang haven't approved this, Lodestone isn't affiliated with them, and it may be against Microsoft's terms for their apps.",
     ),
     (
+        "Risks",
+        "Microsoft can block this at any time. If it does, accounts signed in this way stop working. Use it only for personal testing until Lodestone's app is approved.",
+    ),
+    (
         "Why it's here",
         "Lodestone's own app is still waiting for Mojang's approval, so normal Microsoft sign-in can't finish yet.",
     ),
@@ -32,10 +36,6 @@ pub const DISCLOSURE: &[(&str, &str)] = &[
     (
         "What the launcher gets",
         "The same as a normal sign-in: tokens that let it play Minecraft as that account. The long-lived one is kept in your macOS Keychain and the rest only in memory. These accounts are marked \"Launcher identity\" in the account menu.",
-    ),
-    (
-        "Risks",
-        "Microsoft can block this at any time. If it does, accounts signed in this way stop working. Use it only for personal testing until Lodestone's app is approved.",
     ),
     (
         "How to undo it",
@@ -172,7 +172,7 @@ impl LauncherShell {
                 .flex()
                 .flex_col()
                 .gap_3()
-                .max_h(px(280.))
+                .max_h(px(340.))
                 .overflow_y_scroll()
                 .pr_2()
                 .children(DISCLOSURE.iter().map(|(heading, body)| {
