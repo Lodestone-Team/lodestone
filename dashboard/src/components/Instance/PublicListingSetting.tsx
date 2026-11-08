@@ -7,9 +7,16 @@ import { PublicScopeChange } from 'bindings/PublicScopeChange';
 import Checkbox from 'components/Atoms/Checkbox';
 import { Toggle } from 'components/Atoms/Toggle';
 import { useUserInfo } from 'data/UserInfo';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { toast } from 'react-toastify';
 import { axiosWrapper, errorToString } from 'utils/util';
+import {
+  SettingsCard,
+  SettingsEmptyRow,
+  SettingsRow,
+  SettingsSection,
+} from 'components/Settings/SettingsBlocks';
+import { notifySaved } from 'components/Settings/savedToast';
 
 export const OWNER_ONLY_PUBLIC_MESSAGE = 'Only the owner can change this';
 
@@ -73,6 +80,7 @@ export function PublicScopeRow({
 }) {
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
+  const labelId = useId();
 
   const change = async (value: PublicScopeChange) => {
     setSaving(true);
@@ -92,6 +100,7 @@ export function PublicScopeRow({
             ),
           }
       );
+      notifySaved();
     } catch (err) {
       toast.error(errorToString(err));
     } finally {
@@ -109,38 +118,34 @@ export function PublicScopeRow({
         : 'Not shown without signing in.';
 
   return (
-    <div className="group relative flex flex-col gap-2 bg-gray-800 px-4 py-3 text-h3">
-      <div className="flex flex-row items-center justify-between gap-4">
-        <div className="flex min-w-0 grow flex-col">
-          <label className="truncate text-medium font-medium text-gray-300">
-            {label}
-          </label>
-          <div className="text-medium font-medium tracking-medium text-white/50">
-            {description}
-          </div>
+    <SettingsRow
+      className="group relative"
+      label={<span className="block truncate">{label}</span>}
+      labelId={labelId}
+      hint={description}
+      below={
+        <div className="flex flex-row flex-wrap gap-x-6 gap-y-2">
+          {SCOPE_FLAGS.map(({ key, label }) => (
+            <Checkbox
+              key={key}
+              label={label}
+              checked={scope[key]}
+              disabled={!canEdit || saving}
+              onChange={(value) => void change({ [key]: value })}
+            />
+          ))}
         </div>
-        <div className="relative flex shrink-0 flex-row items-center justify-end gap-4">
-          <p className="text-small font-medium text-white/50 italic">Public</p>
-          <Toggle
-            value={scope.listed}
-            onChange={(value) => void change({ listed: value })}
-            // unlisting always works; listing needs the core setting
-            disabled={!canEdit || saving || (!switchOn && !scope.listed)}
-          />
-        </div>
-      </div>
-      <div className="flex flex-row flex-wrap gap-x-6 gap-y-2 pl-2.5">
-        {SCOPE_FLAGS.map(({ key, label }) => (
-          <Checkbox
-            key={key}
-            label={label}
-            checked={scope[key]}
-            disabled={!canEdit || saving}
-            onChange={(value) => void change({ [key]: value })}
-          />
-        ))}
-      </div>
-    </div>
+      }
+    >
+      <span className="text-small font-medium text-gray-500">Public</span>
+      <Toggle
+        value={scope.listed}
+        onChange={(value) => void change({ listed: value })}
+        // unlisting always works; listing needs the core setting
+        disabled={!canEdit || saving || (!switchOn && !scope.listed)}
+        aria-labelledby={labelId}
+      />
+    </SettingsRow>
   );
 }
 
@@ -161,9 +166,9 @@ export function PublicInstanceRows({ switchOn }: { switchOn: boolean }) {
   if (!overview) return null;
   if (overview.instances.length === 0)
     return (
-      <div className="bg-gray-800 px-4 py-3 text-medium font-medium tracking-medium text-white/50">
+      <SettingsEmptyRow>
         No Minecraft Java Edition servers yet.
-      </div>
+      </SettingsEmptyRow>
     );
   return (
     <>
@@ -203,14 +208,12 @@ export function PublicListingSetting({ instance }: { instance: InstanceInfo }) {
   if (!listing || typeof listing.status !== 'boolean') return null;
 
   return (
-    <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-      <div className="w-full shrink-0">
-        <h2 className="text-h2 font-extrabold tracking-medium">Sharing</h2>
-        <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-          Who can find this server without signing in
-        </h3>
-      </div>
-      <div className="w-full min-w-0 overflow-hidden rounded-lg border border-gray-faded/30">
+    <SettingsSection
+      id="server-settings-sharing"
+      title="Sharing"
+      lead="Who can find this server without signing in."
+    >
+      <SettingsCard>
         <PublicScopeRow
           uuid={instance.uuid}
           label="Listed publicly"
@@ -218,7 +221,7 @@ export function PublicListingSetting({ instance }: { instance: InstanceInfo }) {
           switchOn={listing.list_instances_publicly}
           canEdit={userInfo?.is_owner ?? false}
         />
-      </div>
-    </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }

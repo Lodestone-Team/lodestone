@@ -78,6 +78,13 @@ pub const SCENES: &[&str] = &[
     "icon-picker",
     "icon-picker-emoji",
     "background-picker",
+    "instance-settings-narrow",
+    "instance-settings-narrow-open",
+    "settings-narrow",
+    "settings-narrow-open",
+    "settings-unsaved",
+    "settings-unsaved-prompt",
+    "instance-settings-unsaved",
 ];
 
 /// Scenes that show instance icons and Play backgrounds.
@@ -124,6 +131,8 @@ fn has_instances(scene: &str) -> bool {
         || is_worlds_scene(scene)
         || scene == "loader-change"
         || shared::is_scene(scene)
+        || scene.starts_with("instance-settings-narrow")
+        || scene == "instance-settings-unsaved"
         || scene.starts_with("import")
         || servers::has_instances(scene)
         || scene == "instance-linked"
@@ -447,7 +456,7 @@ mod servers;
 mod shared;
 mod worlds;
 
-pub use shared::window_height;
+pub use shared::{window_height, window_width};
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
@@ -527,6 +536,33 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     "background-picker" => settings.preview_background_picker(cx),
                     _ => settings.preview_icon_picker(scene == "icon-picker-emoji"),
                 });
+            }
+        }
+        "instance-settings-narrow" | "instance-settings-narrow-open" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if scene.ends_with("-open")
+                && let Some(settings) = shell.settings_view().cloned()
+            {
+                settings.update(cx, |settings, _| settings.preview_nav_open());
+            }
+        }
+        "settings-unsaved" | "settings-unsaved-prompt" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            shell.preview_unsaved_defaults(cx);
+            if scene.ends_with("-prompt") {
+                shell.preview_unsaved_prompt(cx);
+            }
+        }
+        "instance-settings-unsaved" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| settings.preview_change(cx));
+            }
+        }
+        "settings-narrow" | "settings-narrow-open" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            if scene.ends_with("-open") {
+                shell.preview_settings_nav_open();
             }
         }
         "settings" | "settings-accounts" | "settings-developer" => {

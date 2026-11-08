@@ -50,6 +50,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "icons/arrow-left.svg",
     "icons/arrow-up.svg",
     "icons/arrow-up-right-from-square.svg",
+    "icons/bars.svg",
     "icons/caret-down.svg",
     "icons/check.svg",
     "icons/circle-up.svg",

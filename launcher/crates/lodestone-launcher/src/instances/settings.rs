@@ -4,9 +4,10 @@
 //! changed here), Shared game settings, and Maintenance (verify, export, duplicate,
 //! host, delete).
 //!
-//! Changes save on their own: a switch or a button at once, typing once it stops for
-//! a moment and the value is valid. A value that isn't valid says why under its row
-//! and isn't saved.
+//! Changes to the settings are kept until Save, on the bar that appears with them;
+//! Discard puts the saved ones back. A value that isn't valid says why under its row
+//! and can't be saved. One-off actions (the icon, the background, Unlink and the
+//! Maintenance buttons) happen at once.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -35,19 +36,21 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots, TextInput, Toggle,
         settings::{
-            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, link, muted_link, popover,
-            popover_panel, section, section_list, tag, value,
+            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, left_overlay, link, muted_link,
+            popover, popover_panel, section, section_list, section_menu_button, tag, unsaved_bar,
+            value,
         },
     },
     servers::Servers,
     theme::{self, colors, leading, radius, text, weights},
 };
 
+/// Below this window width the list of sections opens from a button instead of
+/// standing beside the settings.
+const NARROW_BELOW: gpui::Pixels = px(1040.);
+
 /// How many screenshots the background picker offers.
 const SHOTS_OFFERED: usize = 24;
-
-/// How long typing has to stop before the change is saved.
-const SAVE_AFTER: Duration = Duration::from_millis(600);
 
 /// Asks the shell to confirm deleting the instance.
 pub struct DeleteRequested(pub String);
@@ -163,8 +166,9 @@ pub struct InstanceSettings {
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
+    /// The list of sections is open over the settings, in a narrow window.
+    nav_open: bool,
     toast: Toast,
-    _save: Option<Task<()>>,
     _modpack_task: Option<Task<()>>,
     _check: Option<Task<()>>,
     _prompt: Option<Task<()>>,
@@ -244,7 +248,7 @@ impl InstanceSettings {
             "/path/to/java",
         );
         let mut observe = vec![
-            cx.observe(&loader, |this, _, cx| this.schedule_save(cx)),
+            cx.observe(&loader, |_, _, cx| cx.notify()),
             cx.observe(&servers, |_, _, cx| cx.notify()),
         ];
         for input in [
@@ -259,7 +263,7 @@ impl InstanceSettings {
             &fields.height,
             &fields.env,
         ] {
-            observe.push(cx.observe(input, |this, _, cx| this.schedule_save(cx)));
+            observe.push(cx.observe(input, |_, _, cx| cx.notify()));
         }
         Self {
             name,
@@ -293,8 +297,8 @@ impl InstanceSettings {
             _shots_task: None,
             prompting: false,
             nav: SectionNav::default(),
+            nav_open: false,
             toast: Toast::default(),
-            _save: None,
             _modpack_task: None,
             _check: None,
             _prompt: None,
@@ -333,39 +337,98 @@ impl InstanceSettings {
             .show(message, error, |this: &mut Self| &mut this.toast, cx);
     }
 
-    /// Saves once typing stops for [`SAVE_AFTER`].
-    fn schedule_save(&mut self, cx: &mut Context<Self>) {
-        self._save = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(SAVE_AFTER).await;
-            this.update(cx, |this, cx| this.save(cx)).ok();
-        }));
-        cx.notify();
+    /// Whether the settings differ from the saved instance (or aren't valid).
+    pub fn has_changes(&self, cx: &App) -> bool {
+        let Some(before) = self.instance(cx) else {
+            return false;
+        };
+        match self.read_fields(&before, cx) {
+            Ok(instance) => instance != before,
+            Err(_) => true,
+        }
     }
 
-    /// Saves the fields if they are valid and changed. A loader change that would leave
-    /// enabled mods unable to load, or worlds without their modded blocks, asks first
-    /// (see [`LoaderChangePrompt`]).
-    fn save(&mut self, cx: &mut Context<Self>) {
+    fn can_save(&self, cx: &App) -> bool {
+        self.instance(cx)
+            .is_some_and(|before| self.read_fields(&before, cx).is_ok())
+    }
+
+    /// Saves the settings if they are valid. Returns whether they are saved now: not
+    /// when a value isn't valid (it says why under its row), or when a loader change
+    /// that would leave enabled mods unable to load, or worlds without their modded
+    /// blocks, asks first (see [`LoaderChangePrompt`]).
+    pub fn save(&mut self, cx: &mut Context<Self>) -> bool {
         if self.prompting {
-            return;
+            return false;
         }
         let Some(before) = self.instance(cx) else {
-            return;
+            return true;
         };
-        // Invalid values say why under their rows.
         let Ok(instance) = self.read_fields(&before, cx) else {
             cx.notify();
-            return;
+            return false;
         };
         if instance == before {
-            return;
+            return true;
         }
         if let Some(prompt) = self.loader_change_prompt(Some(&before), &instance, cx) {
             self.prompting = true;
             cx.emit(prompt);
-            return;
+            return false;
         }
         self.commit(instance, &[], cx);
+        true
+    }
+
+    /// Changes the name without saving, for the offscreen screenshots.
+    pub fn preview_change(&mut self, cx: &mut Context<Self>) {
+        self.name
+            .update(cx, |input, cx| input.set_text("Survival, renamed", cx));
+    }
+
+    /// Puts the saved settings back.
+    pub fn discard(&mut self, cx: &mut Context<Self>) {
+        let Some(instance) = self.instance(cx) else {
+            return;
+        };
+        let (defaults, total) = {
+            let instances = self.instances.read(cx);
+            (instances.defaults().clone(), instances.total_memory())
+        };
+        let env = instance.env.clone().unwrap_or_else(|| defaults.env.clone());
+        self.fields.set(
+            &Values {
+                memory: instance.memory(&defaults, total),
+                jvm_args: instance.jvm_args.as_deref().unwrap_or(&defaults.jvm_args),
+                game_args: instance.game_args.as_deref().unwrap_or(&defaults.game_args),
+                window: instance.window.unwrap_or_else(|| defaults.window()),
+                env: &env,
+            },
+            cx,
+        );
+        let java = instance
+            .java_override
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        for (input, text_) in [
+            (&self.name, instance.name.clone()),
+            (&self.group, instance.group.clone().unwrap_or_default()),
+            (&self.java, java),
+        ] {
+            input.update(cx, |input, cx| input.set_text(text_, cx));
+        }
+        self.overrides = Overrides {
+            memory: instance.memory.is_some(),
+            java: instance.java_override.is_some(),
+            jvm_args: instance.jvm_args.is_some(),
+            game_args: instance.game_args.is_some(),
+            window: instance.window.is_some(),
+            env: instance.env.is_some(),
+        };
+        self.java_check = JavaCheck::None;
+        self.sync_loader(cx);
+        cx.notify();
     }
 
     /// The question to ask before saving `instance`, if its loader change needs one.
@@ -514,7 +577,6 @@ impl InstanceSettings {
     /// "Change": the instance sets `setting` itself, starting from the launcher's value.
     fn change(&mut self, setting: Setting, cx: &mut Context<Self>) {
         *setting.flag(&mut self.overrides) = true;
-        self.save(cx);
         cx.notify();
     }
 
@@ -552,7 +614,6 @@ impl InstanceSettings {
             }
             Setting::Env => set(&self.fields.env, format_env(&defaults.env), cx),
         }
-        self.save(cx);
         cx.notify();
     }
 
@@ -838,6 +899,11 @@ impl InstanceSettings {
                     }),
             )
             .into_any_element()
+    }
+
+    /// Opens the list of sections in a narrow window, for the offscreen screenshots.
+    pub fn preview_nav_open(&mut self) {
+        self.nav_open = true;
     }
 
     /// Opens the background picker, for the offscreen screenshots.
@@ -1358,7 +1424,8 @@ fn or_none(text_: &str) -> String {
 }
 
 impl Render for InstanceSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let viewport_width = window.viewport_size().width;
         let (defaults, total, busy, background, required_java) = {
             let instances = self.instances.read(cx);
             (
@@ -1646,7 +1713,6 @@ impl Render for InstanceSettings {
                     .child(Toggle::new("fullscreen", self.fields.fullscreen).on_change(
                         cx.listener(|this, value: &bool, _, cx| {
                             this.fields.fullscreen = *value;
-                            this.save(cx);
                             cx.notify();
                         }),
                     )),
@@ -1771,45 +1837,91 @@ impl Render for InstanceSettings {
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
         let active = self.nav.active(titles.len());
-        let entity = cx.entity();
-        div()
-            .relative()
-            .flex()
-            .flex_row()
-            .gap_8()
-            .size_full()
-            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            .child(section_list(
+        // Too narrow for the list beside the settings (the window less the sidebar
+        // and the page's padding): it opens over them from a button instead.
+        let narrow = viewport_width < NARROW_BELOW;
+        if !narrow {
+            self.nav_open = false;
+        }
+        let list = {
+            let entity = cx.entity();
+            section_list(
                 "instance-settings-nav",
                 &titles,
                 active,
                 move |index, _, cx| {
                     entity.update(cx, |this, cx| {
                         this.nav.pick(index);
+                        this.nav_open = false;
                         cx.notify();
                     })
                 },
-            ))
-            .child(
-                div()
-                    .id("instance-settings")
-                    .flex()
-                    .flex_col()
-                    .gap_8()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .pb_16()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.nav.scroll)
-                    .on_scroll(cx.listener(|this, _, _, _| this.nav.scrolled()))
-                    .children(
-                        sections
-                            .into_iter()
-                            .map(|(_, element)| div().w_full().max_w(CONTENT_WIDTH).child(element)),
-                    ),
             )
-            .children(self.toast.render())
+        };
+        let content = div()
+            .id("instance-settings")
+            .flex()
+            .flex_col()
+            .gap_8()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .h_full()
+            .pb_16()
+            .overflow_y_scroll()
+            .track_scroll(&self.nav.scroll)
+            .on_scroll(cx.listener(|this, _, _, _| this.nav.scrolled()))
+            .children(
+                sections
+                    .into_iter()
+                    .map(|(_, element)| div().w_full().max_w(CONTENT_WIDTH).child(element)),
+            );
+        let root = div()
+            .relative()
+            .flex()
+            .size_full()
+            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL));
+        let root = if narrow {
+            let title = titles.get(active).cloned().unwrap_or_default();
+            root.flex_col()
+                .gap_3()
+                .child(div().flex().flex_row().child(
+                    section_menu_button("instance-settings-menu", title).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.nav_open = !this.nav_open;
+                            cx.notify();
+                        },
+                    )),
+                ))
+                .child(content)
+                .when(self.nav_open, |this| {
+                    this.child(left_overlay(
+                        "instance-settings-overlay",
+                        list,
+                        cx.listener(|this, _, _, cx| {
+                            this.nav_open = false;
+                            cx.notify();
+                        }),
+                    ))
+                })
+        } else {
+            root.flex_row().gap_8().child(list).child(content)
+        };
+        let bar = self.has_changes(cx).then(|| {
+            unsaved_bar(
+                "instance-unsaved",
+                "You have unsaved changes",
+                self.can_save(cx),
+                cx.listener(|this, _, _, cx| this.discard(cx)),
+                cx.listener(|this, _, _, cx| {
+                    this.save(cx);
+                }),
+            )
+        });
+        match bar {
+            Some(bar) => root.pb_16().child(bar),
+            None => root.children(self.toast.render()),
+        }
     }
 }
 

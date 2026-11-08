@@ -19,6 +19,7 @@ import { toast } from 'react-toastify';
 import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';
 import { useQueryClient } from '@tanstack/react-query';
 import { setCachedInstanceSetting } from 'data/InstanceManifest';
+import { notifySaved } from './Settings/savedToast';
 
 export default function SettingField({
   instance,
@@ -27,15 +28,15 @@ export default function SettingField({
   settingId,
   error,
   descriptionFunc,
-  onSubmit
+  onSubmit,
 }: {
   instance: InstanceInfo;
   setting: SettingFieldObject;
   sectionId: string;
   settingId: string;
   error?: AxiosError<unknown, any> | null;
-  descriptionFunc?: (arg: string | boolean) => React.ReactNode,
-  onSubmit?: (updated: ConfigurableValue | null) => void
+  descriptionFunc?: (arg: string | boolean) => React.ReactNode;
+  onSubmit?: (updated: ConfigurableValue | null) => void;
 }) {
   const { name: label, type, options, value: initialValue, min, max } = setting;
   const commandLineBlockedReason = useCommandLineBlockedReason();
@@ -77,6 +78,7 @@ export default function SettingField({
   const saveToInstance = async (newValue: ConfigurableValue | null) => {
     await axiosPutSingleValue<void>(URL, newValue);
     setCachedInstanceSetting(queryClient, uuid, sectionId, settingId, newValue);
+    notifySaved();
   };
   const submitSettingField = async (value: string) => {
     const getConfigurableValue: (value: string) => ConfigurableValue | null = (
@@ -102,7 +104,9 @@ export default function SettingField({
           return null;
       }
     };
-    await (onSubmit? onSubmit(getConfigurableValue(value)) : saveToInstance(getConfigurableValue(value)));
+    await (onSubmit
+      ? onSubmit(getConfigurableValue(value))
+      : saveToInstance(getConfigurableValue(value)));
   };
   // const isLoading = can_access_instance_setting ? isSettingLoading : false;
 
@@ -187,13 +191,15 @@ export default function SettingField({
           error={errorString}
           canRead={can_access_instance_setting}
           onChange={async (value) => {
-            await (onSubmit? onSubmit({
-              type: 'Boolean',
-              value: value,
-            }) : saveToInstance({
-              type: 'Boolean',
-              value: value,
-            }));
+            await (onSubmit
+              ? onSubmit({
+                  type: 'Boolean',
+                  value: value,
+                })
+              : saveToInstance({
+                  type: 'Boolean',
+                  value: value,
+                }));
           }}
           description={description}
           descriptionFunc={descriptionFunc}

@@ -232,14 +232,6 @@ fn utf8(path: &Path) -> Result<String, LaunchError> {
         .ok_or_else(|| LaunchError::NonUtf8Path(path.to_owned()))
 }
 
-/// The classpath separator of `os`.
-fn classpath_separator(os: Os) -> &'static str {
-    match os {
-        Os::Windows => ";",
-        Os::MacOs | Os::Linux => ":",
-    }
-}
-
 /// The values of `${...}` placeholders.
 struct Values(Vec<(&'static str, String)>);
 
@@ -416,7 +408,7 @@ pub fn build_joining(
         .iter()
         .map(|path| utf8(path))
         .collect::<Result<Vec<_>, _>>()?
-        .join(classpath_separator(platform.os));
+        .join(platform.os.classpath_separator());
     let (width, height) = settings.resolution.unwrap_or((854, 480));
     let uuid = account.uuid.simple().to_string();
     let token = account.access_token.expose().to_string();
@@ -427,7 +419,7 @@ pub fn build_joining(
         ("classpath", classpath),
         (
             "classpath_separator",
-            classpath_separator(platform.os).to_string(),
+            platform.os.classpath_separator().to_string(),
         ),
         ("library_directory", utf8(&paths.libraries_dir)?),
         ("auth_player_name", account.username.clone()),
@@ -572,6 +564,23 @@ pub fn split_args(text: &str) -> Vec<String> {
     args
 }
 
+/// Joins arguments into text that [`split_args`] splits back into the same arguments,
+/// quoting only those that need it: `-Dname=a b` and `-Xss2m` are `"-Dname=a b" -Xss2m`.
+/// Backslashes stay as they are, so Windows paths need no escaping.
+pub fn join_args<S: AsRef<str>>(args: &[S]) -> String {
+    let quote = |arg: &str| {
+        if !arg.is_empty() && !arg.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+            return arg.to_string();
+        }
+        // `split_args` has no escapes, so a `"` closes the quotes and goes in single ones.
+        format!("\"{}\"", arg.replace('"', r#""'"'""#))
+    };
+    args.iter()
+        .map(|arg| quote(arg.as_ref()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,6 +601,27 @@ mod tests {
             ["-Xss2m", "-Dname=a b", "-Dq=its", ""]
         );
         assert!(split_args("   ").is_empty());
+    }
+
+    #[test]
+    fn joins_arguments_so_they_split_back() {
+        let args = [
+            "-Xss2m",
+            r"-Dpath=C:\Path With Spaces\x",
+            r"-Dunc=\\server\share\dir",
+            r"-Ddir=C:\dir\",
+            r#"-Dq=say "hi", it's"#,
+            "",
+            "-Dtab=a\tb",
+        ];
+        let text = join_args(&args);
+        assert_eq!(
+            text,
+            "-Xss2m \"-Dpath=C:\\Path With Spaces\\x\" -Dunc=\\\\server\\share\\dir \
+             -Ddir=C:\\dir\\ \"-Dq=say \"'\"'\"hi\"'\"'\", it's\" \"\" \"-Dtab=a\tb\""
+        );
+        assert_eq!(split_args(&text), args);
+        assert_eq!(join_args::<&str>(&[]), "");
     }
 
     #[test]

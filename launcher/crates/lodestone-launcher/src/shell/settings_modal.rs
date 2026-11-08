@@ -10,7 +10,9 @@ use crate::{
     accounts::SessionState,
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton,
-        settings::{CONTENT_WIDTH, SettingRow, card, link, muted_link, tag},
+        settings::{
+            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag, unsaved_bar,
+        },
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -47,7 +49,7 @@ impl SettingsPage {
     fn lead(self) -> &'static str {
         match self {
             SettingsPage::Defaults => {
-                "Every instance uses these unless its own Settings tab changes them. Changes save as you make them."
+                "Every instance uses these unless its own Settings tab changes them."
             }
             SettingsPage::Shared => {
                 "One set of options.txt settings for every instance: mouse, key bindings, video, sound and more. An instance can override single values in its Settings tab."
@@ -94,6 +96,17 @@ impl LauncherShell {
         cx.notify();
     }
 
+    /// Changes Instance defaults without saving, for the offscreen screenshots.
+    pub fn preview_unsaved_defaults(&mut self, cx: &mut Context<Self>) {
+        self.launcher_settings
+            .update(cx, |settings, cx| settings.preview_change(cx));
+    }
+
+    /// Opens the pages over the page in a narrow window, for the offscreen screenshots.
+    pub fn preview_settings_nav_open(&mut self) {
+        self.settings_nav_open = true;
+    }
+
     pub fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.settings_modal.close(cx);
     }
@@ -113,6 +126,18 @@ impl LauncherShell {
         // A window too small for the dialog to float gets it edge to edge, under the
         // top bar.
         let small = viewport.width < px(760.) || viewport.height < px(560.);
+        // Too narrow for the sidebar: the pages open over the page from a button.
+        let narrow = viewport.width < px(760.);
+        let nav_overlay = (narrow && self.settings_nav_open).then(|| {
+            left_overlay(
+                "settings-overlay",
+                self.render_settings_sidebar(true, cx),
+                cx.listener(|this, _, _, cx| {
+                    this.settings_nav_open = false;
+                    cx.notify();
+                }),
+            )
+        });
         let (width, height) = if small {
             (viewport.width, viewport.height - top)
         } else {
@@ -127,6 +152,37 @@ impl LauncherShell {
             SettingsPage::Defaults => self.launcher_settings.read(cx).toast().render(),
             SettingsPage::Shared => self.shared_settings.read(cx).toast().render(),
             _ => None,
+        }
+        .map(IntoElement::into_any_element);
+        // Unsaved changes to Instance defaults show a bar with Save and Discard on
+        // every page, instead of the toast.
+        let unsaved = {
+            let settings = self.launcher_settings.read(cx);
+            settings.has_changes(cx).then(|| settings.can_save(cx))
+        };
+        let toast = match unsaved {
+            Some(can_save) => Some(
+                unsaved_bar(
+                    "settings-unsaved",
+                    if page == SettingsPage::Defaults {
+                        "You have unsaved changes"
+                    } else {
+                        "You have unsaved changes in Instance defaults"
+                    },
+                    can_save,
+                    cx.listener(|this, _, _, cx| {
+                        this.launcher_settings
+                            .update(cx, |settings, cx| settings.discard(cx))
+                    }),
+                    cx.listener(|this, _, _, cx| {
+                        this.launcher_settings.update(cx, |settings, cx| {
+                            settings.save(cx);
+                        })
+                    }),
+                )
+                .into_any_element(),
+            ),
+            None => toast,
         };
         let content: AnyElement = match page {
             SettingsPage::Defaults => self.launcher_settings.clone().into_any_element(),
@@ -137,10 +193,15 @@ impl LauncherShell {
         Dialog::new("launcher-settings", "Settings", modal.focus.clone())
             .frameless(width, height)
             .when(small, |dialog| dialog.edge_to_edge(top))
-            .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_settings(cx)))
-            .child(self.render_settings_sidebar(small, cx))
+            .on_close(move |window, cx| {
+                entity.update(cx, |this, cx| this.request_close_settings(Some(window), cx))
+            })
+            .when(!narrow, |dialog| {
+                dialog.child(self.render_settings_sidebar(false, cx))
+            })
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_col()
                     .flex_1()
@@ -162,6 +223,14 @@ impl LauncherShell {
                                 }
                             })
                             .pb_5()
+                            .when(narrow, |this| {
+                                this.child(IconButton::new("settings-menu", Icon::Bars).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.settings_nav_open = !this.settings_nav_open;
+                                        cx.notify();
+                                    }),
+                                ))
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -194,11 +263,11 @@ impl LauncherShell {
                                     ),
                             )
                             .child(div().flex_1())
-                            .child(
-                                IconButton::new("close-settings", Icon::Xmark).on_click(
-                                    cx.listener(|this, _, _, cx| this.close_settings(cx)),
-                                ),
-                            ),
+                            .child(IconButton::new("close-settings", Icon::Xmark).on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.request_close_settings(Some(window), cx)
+                                }),
+                            )),
                     )
                     .child(
                         div()
@@ -211,11 +280,12 @@ impl LauncherShell {
                                     .size_full()
                                     .overflow_y_scroll()
                                     .map(|this| if small { this.px_6() } else { this.px_10() })
-                                    .pb_10()
+                                    .pb_24()
                                     .child(div().w_full().max_w(CONTENT_WIDTH).child(content)),
                             )
                             .children(toast),
-                    ),
+                    )
+                    .children(nav_overlay),
             )
             .into_any_element()
     }
@@ -223,7 +293,7 @@ impl LauncherShell {
     /// The account in use, the pages and the version.
     fn render_settings_sidebar(
         &self,
-        narrow: bool,
+        in_overlay: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let accounts = self.accounts.read(cx);
@@ -238,12 +308,18 @@ impl LauncherShell {
             .flex_col()
             .flex_none()
             .gap_0p5()
-            .w(if narrow { px(196.) } else { px(232.) })
-            .h_full()
-            .p_3()
-            .bg(colors::GRAY_875)
-            .border_r_1()
-            .border_color(colors::FADE_700)
+            .map(|this| {
+                if in_overlay {
+                    this.w_full()
+                } else {
+                    this.w(px(232.))
+                        .h_full()
+                        .p_3()
+                        .bg(colors::GRAY_875)
+                        .border_r_1()
+                        .border_color(colors::FADE_700)
+                }
+            })
             .child(
                 div()
                     .flex()
@@ -270,6 +346,7 @@ impl LauncherShell {
                                 muted_link("manage-accounts", "Manage accounts").on_click(
                                     cx.listener(|this, _, _, cx| {
                                         this.settings_page = SettingsPage::Accounts;
+                                        this.settings_nav_open = false;
                                         cx.notify();
                                     }),
                                 ),
@@ -321,6 +398,7 @@ impl LauncherShell {
                         .child(page.title())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.settings_page = page;
+                            this.settings_nav_open = false;
                             cx.notify();
                         })),
                 );

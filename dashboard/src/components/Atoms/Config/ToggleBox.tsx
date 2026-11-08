@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
-import { catchAsyncToString } from 'utils/util';
-import { Switch } from '@headlessui/react';
+import { catchAsyncToString, cn } from 'utils/util';
 import { Toggle } from '../Toggle';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { SettingsRow } from 'components/Settings/SettingsBlocks';
 
 /**
  * A self controlled toggle component meant to represent a single value of a config
@@ -40,6 +40,7 @@ export default function ToggleBox({
   const [value, setValue] = useState(initialValue);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const labelId = useId();
 
   // set value to initialValue when initialValue changes
   useEffect(() => {
@@ -60,62 +61,46 @@ export default function ToggleBox({
   const errorText = errorProp || error;
   disabled = disabled || !canRead || isLoadingProp;
   description = canRead
-    ? descriptionFunc?.(initialValue || value) ?? description
+    ? (descriptionFunc?.(initialValue || value) ?? description)
     : 'No permission';
 
-  const status =
-    isLoading ? (
-      <BeatLoader
-        key="loading"
-        size="0.25rem"
-        cssOverride={{
-          width: '2rem',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          margin: `0 -0.5rem`,
-        }}
-        color="#6b7280"
-      />
-    ) : (
-      <p className="text-small font-medium italic text-white/50">
-        {disabled ? '' : value ? 'Enabled' : 'Disabled'}
-      </p>
-    );
-
   return (
-    <div
-      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-h3`}
+    <SettingsRow
+      className={cn('group relative', className)}
+      label={label}
+      labelId={labelId}
+      hint={description}
+      error={errorText}
     >
-      <div className={`flex min-w-0 grow flex-col`}>
-        <label className="text-medium font-medium tracking-medium text-gray-300">
-          {label}
-        </label>
-        {errorText ? (
-          <div className="text-small font-medium tracking-medium text-red">
-            {errorText || 'Unknown error'}
-          </div>
-        ) : (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-            {description}
-          </div>
-        )}
-      </div>
       {isLoadingProp ? (
         // the value is still loading: the switch's shape (after a moment)
-        <SkeletonGroup className="flex w-5/12 shrink-0 flex-row justify-end">
+        <SkeletonGroup className="flex flex-row justify-end">
           <Skeleton className="h-6 w-11 rounded-full" />
         </SkeletonGroup>
       ) : (
-        <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
-          {status}
+        <>
+          {isLoading && (
+            <BeatLoader
+              key="loading"
+              size="0.25rem"
+              cssOverride={{
+                width: '2rem',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                margin: `0 -0.5rem`,
+              }}
+              color="#6b7280"
+            />
+          )}
           <Toggle
             value={value}
             onChange={onChange}
             disabled={disabled || isLoading}
+            aria-labelledby={labelId}
           />
-        </div>
+        </>
       )}
-    </div>
+    </SettingsRow>
   );
 }

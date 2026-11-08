@@ -1,5 +1,5 @@
 //! The official Minecraft launcher: `launcher_profiles.json` in its folder
-//! (`~/Library/Application Support/minecraft`).
+//! (`~/Library/Application Support/minecraft`, `%APPDATA%\.minecraft` on Windows).
 //!
 //! Each profile has `name`, `type` (`custom`, `latest-release`, `latest-snapshot`),
 //! `lastVersionId`, and optionally `gameDir` (else the launcher's folder), `javaArgs`,

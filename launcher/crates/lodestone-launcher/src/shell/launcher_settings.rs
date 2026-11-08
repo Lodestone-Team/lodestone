@@ -1,12 +1,11 @@
 //! Settings > Instance defaults: the memory, window, arguments and environment
 //! variables every instance uses unless its own Settings tab changes them. Changes
-//! save once typing stops and the values are valid.
-
-use std::time::Duration;
+//! are kept until Save; the Settings dialog shows the bar with Save and Discard, and
+//! asks before closing over unsaved ones.
 
 use gpui::{
-    Context, Entity, IntoElement, Render, SharedString, Subscription, Task, Window, div,
-    prelude::*, px,
+    App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*,
+    px,
 };
 use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_ram_mb};
 use launcher_core::wording;
@@ -23,14 +22,10 @@ use crate::{
     theme::{self, colors, leading, text},
 };
 
-/// How long typing has to stop before the change is saved.
-const SAVE_AFTER: Duration = Duration::from_millis(600);
-
 pub struct LauncherSettings {
     instances: Entity<Instances>,
     fields: Fields,
     toast: Toast,
-    _save: Option<Task<()>>,
     _observe: Vec<Subscription>,
 }
 
@@ -60,47 +55,78 @@ impl LauncherSettings {
             &fields.env,
         ]
         .into_iter()
-        .map(|input| cx.observe(input, |this, _, cx| this.schedule_save(cx)))
+        .map(|input| cx.observe(input, |_, _, cx| cx.notify()))
         .collect();
         Self {
             instances,
             fields,
             toast: Toast::default(),
-            _save: None,
             _observe: observe,
         }
     }
 
-    fn schedule_save(&mut self, cx: &mut Context<Self>) {
-        self._save = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(SAVE_AFTER).await;
-            this.update(cx, |this, cx| this.save(cx)).ok();
-        }));
-        cx.notify();
+    /// Whether the fields differ from the saved defaults (or aren't valid).
+    pub fn has_changes(&self, cx: &App) -> bool {
+        match self.read(cx) {
+            Ok(defaults) => &defaults != self.instances.read(cx).defaults(),
+            Err(_) => true,
+        }
     }
 
-    /// Saves the fields if they are valid and changed; invalid ones say why under
-    /// their rows.
-    fn save(&mut self, cx: &mut Context<Self>) {
+    /// Whether the fields can be saved: every value is valid.
+    pub fn can_save(&self, cx: &App) -> bool {
+        self.read(cx).is_ok()
+    }
+
+    /// Saves the fields. Returns whether they are saved now; invalid ones say why
+    /// under their rows.
+    pub fn save(&mut self, cx: &mut Context<Self>) -> bool {
         let Ok(defaults) = self.read(cx) else {
             cx.notify();
-            return;
+            return false;
         };
         if &defaults == self.instances.read(cx).defaults() {
-            return;
+            return true;
         }
         let result = self
             .instances
             .update(cx, |instances, cx| instances.save_defaults(defaults, cx));
-        let (message, error): (SharedString, bool) = match result {
+        let (message, error): (SharedString, bool) = match &result {
             Ok(()) => ("Saved".into(), false),
-            Err(err) => (err.into(), true),
+            Err(err) => (err.clone().into(), true),
         };
         self.toast
             .show(message, error, |this: &mut Self| &mut this.toast, cx);
+        result.is_ok()
     }
 
-    fn read(&self, cx: &Context<Self>) -> Result<InstanceDefaults, String> {
+    /// Changes a field without saving, for the offscreen screenshots.
+    pub fn preview_change(&mut self, cx: &mut Context<Self>) {
+        self.fields
+            .jvm_args
+            .update(cx, |input, cx| input.set_text("-XX:+UseZGC", cx));
+    }
+
+    /// Puts the saved defaults back in the fields.
+    pub fn discard(&mut self, cx: &mut Context<Self>) {
+        let (defaults, total) = {
+            let instances = self.instances.read(cx);
+            (instances.defaults().clone(), instances.total_memory())
+        };
+        self.fields.set(
+            &Values {
+                memory: defaults.memory(total),
+                jvm_args: &defaults.jvm_args,
+                game_args: &defaults.game_args,
+                window: defaults.window(),
+                env: &defaults.env,
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
+    fn read(&self, cx: &App) -> Result<InstanceDefaults, String> {
         let instances = self.instances.read(cx);
         let total = instances.total_memory();
         let mut defaults = instances.defaults().clone();
@@ -179,7 +205,6 @@ impl Render for LauncherSettings {
                         Toggle::new("default-fullscreen", self.fields.fullscreen).on_change(
                             cx.listener(|this, value: &bool, _, cx| {
                                 this.fields.fullscreen = *value;
-                                this.save(cx);
                                 cx.notify();
                             }),
                         ),
