@@ -1,5 +1,9 @@
 //! The Microsoft identity platform: the authorization code flow with PKCE, the
 //! device code flow, and refreshing.
+//!
+//! The device code flow and refreshing also serve the Minecraft Launcher's client
+//! on login.live.com ([`ClientIdentity::MinecraftLauncher`]), which speaks the same
+//! OAuth 2.0 dialect at other URLs, with another scope.
 
 use std::time::Duration;
 
@@ -8,7 +12,10 @@ use http_client::HttpClient;
 use serde::Deserialize;
 use url::Url;
 
-use super::{AuthError, DEVICE_LOGIN_URL, MsaConfig, SCOPES, Step, pkce::Pkce};
+use super::{
+    AuthError, ClientIdentity, DEVICE_LOGIN_URL, MINECRAFT_LAUNCHER_CLIENT_ID,
+    MINECRAFT_LAUNCHER_SCOPE, MsaConfig, SCOPES, Step, pkce::Pkce,
+};
 use crate::{
     Secret,
     http::{self, RequestError, Response},
@@ -20,6 +27,36 @@ pub struct MsTokens {
     pub access_token: Secret,
     /// Present when `offline_access` was granted. Microsoft rotates it on refresh.
     pub refresh_token: Option<Secret>,
+    /// The client that issued the tokens, which is the one to refresh them with.
+    pub identity: ClientIdentity,
+}
+
+/// The OAuth 2.0 client for an identity: its ID, scope and endpoints.
+pub(crate) struct OAuthClient {
+    pub client_id: String,
+    pub scope: &'static str,
+    pub device_code_url: String,
+    pub token_url: String,
+}
+
+impl OAuthClient {
+    pub fn new(config: &MsaConfig, identity: ClientIdentity) -> Self {
+        let endpoints = &config.endpoints;
+        match identity {
+            ClientIdentity::Lodestone => Self {
+                client_id: config.client_id.clone(),
+                scope: SCOPES,
+                device_code_url: http::join(&endpoints.login, "devicecode"),
+                token_url: http::join(&endpoints.login, "token"),
+            },
+            ClientIdentity::MinecraftLauncher => Self {
+                client_id: MINECRAFT_LAUNCHER_CLIENT_ID.to_string(),
+                scope: MINECRAFT_LAUNCHER_SCOPE,
+                device_code_url: http::join(&endpoints.live, "oauth20_connect.srf"),
+                token_url: http::join(&endpoints.live, "oauth20_token.srf"),
+            },
+        }
+    }
 }
 
 /// The token endpoint's answer. Not `Debug`, as it holds tokens.
@@ -32,8 +69,8 @@ struct TokenResponse {
 
 /// An OAuth 2.0 error response.
 #[derive(Debug, Deserialize)]
-struct OAuthError {
-    error: String,
+pub(crate) struct OAuthError {
+    pub error: String,
 }
 
 /// The authorization request URL to open in the browser.
@@ -79,31 +116,38 @@ pub async fn exchange_code(
     )
     .map_err(|err| AuthError::Network(err.to_string()))?;
     let response = http::send(client, request).await.map_err(network_error)?;
-    token_response(&response, false)
+    token_response(&response, false, ClientIdentity::Lodestone)
 }
 
-/// Gets new tokens with a refresh token. A refused refresh token is
-/// [`AuthError::SignInExpired`], which means the user has to sign in again.
+/// Gets new tokens with a refresh token, from the client that issued it. A refused
+/// refresh token is [`AuthError::SignInExpired`], which means the user has to sign
+/// in again.
 pub async fn refresh(
     client: &dyn HttpClient,
     config: &MsaConfig,
+    identity: ClientIdentity,
     refresh_token: &Secret,
 ) -> Result<MsTokens, AuthError> {
+    let oauth = OAuthClient::new(config, identity);
     let request = http::form(
-        &http::join(&config.endpoints.login, "token"),
+        &oauth.token_url,
         &[
-            ("client_id", &config.client_id),
+            ("client_id", &oauth.client_id),
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token.expose()),
-            ("scope", SCOPES),
+            ("scope", oauth.scope),
         ],
     )
     .map_err(|err| AuthError::Network(err.to_string()))?;
     let response = http::send(client, request).await.map_err(network_error)?;
-    token_response(&response, true)
+    token_response(&response, true, identity)
 }
 
-fn token_response(response: &Response, refreshing: bool) -> Result<MsTokens, AuthError> {
+pub(crate) fn token_response(
+    response: &Response,
+    refreshing: bool,
+    identity: ClientIdentity,
+) -> Result<MsTokens, AuthError> {
     if response.is_success() {
         let tokens: TokenResponse = response.json().map_err(|_| AuthError::UnexpectedResponse {
             step: Step::MicrosoftToken,
@@ -112,6 +156,7 @@ fn token_response(response: &Response, refreshing: bool) -> Result<MsTokens, Aut
         return Ok(MsTokens {
             access_token: Secret::new(tokens.access_token),
             refresh_token: tokens.refresh_token.map(Secret::new),
+            identity,
         });
     }
     if response.status == 429 {
@@ -145,6 +190,14 @@ pub struct DeviceCode {
     pub expires_in: Duration,
     device_code: Secret,
     interval: Duration,
+    identity: ClientIdentity,
+}
+
+impl DeviceCode {
+    /// The client the code was issued to. Polling uses the same one.
+    pub fn identity(&self) -> ClientIdentity {
+        self.identity
+    }
 }
 
 #[derive(Deserialize)]
@@ -179,16 +232,23 @@ fn verification_uri(suggested: Option<&str>) -> String {
         .unwrap_or_else(|| DEVICE_LOGIN_URL.to_string())
 }
 
-/// Asks for a device code.
+/// Asks the identity's client for a device code.
 pub async fn start_device_code(
     client: &dyn HttpClient,
     config: &MsaConfig,
+    identity: ClientIdentity,
 ) -> Result<DeviceCode, AuthError> {
-    let request = http::form(
-        &http::join(&config.endpoints.login, "devicecode"),
-        &[("client_id", &config.client_id), ("scope", SCOPES)],
-    )
-    .map_err(|err| AuthError::Network(err.to_string()))?;
+    let oauth = OAuthClient::new(config, identity);
+    let mut fields = vec![
+        ("client_id", oauth.client_id.as_str()),
+        ("scope", oauth.scope),
+    ];
+    if identity == ClientIdentity::MinecraftLauncher {
+        // login.live.com's device code endpoint wants the response type spelled out.
+        fields.push(("response_type", "device_code"));
+    }
+    let request = http::form(&oauth.device_code_url, &fields)
+        .map_err(|err| AuthError::Network(err.to_string()))?;
     let response = http::send(client, request).await.map_err(network_error)?;
     if !response.is_success() {
         return Err(match response.json::<OAuthError>() {
@@ -209,6 +269,7 @@ pub async fn start_device_code(
         expires_in: Duration::from_secs(code.expires_in),
         device_code: Secret::new(code.device_code),
         interval: Duration::from_secs(code.interval.unwrap_or(5)),
+        identity,
     })
 }
 
@@ -227,7 +288,7 @@ pub async fn poll_device_code(
     code: &DeviceCode,
     sleep: Sleep<'_>,
 ) -> Result<MsTokens, AuthError> {
-    let token_url = http::join(&config.endpoints.login, "token");
+    let oauth = OAuthClient::new(config, code.identity);
     let mut interval = code.interval;
     let mut waited = Duration::ZERO;
     loop {
@@ -238,9 +299,9 @@ pub async fn poll_device_code(
         waited += interval;
 
         let request = http::form(
-            &token_url,
+            &oauth.token_url,
             &[
-                ("client_id", &config.client_id),
+                ("client_id", &oauth.client_id),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", code.device_code.expose()),
             ],
@@ -248,7 +309,7 @@ pub async fn poll_device_code(
         .map_err(|err| AuthError::Network(err.to_string()))?;
         let response = http::send(client, request).await.map_err(network_error)?;
         if response.is_success() {
-            return token_response(&response, false);
+            return token_response(&response, false, code.identity);
         }
         let Ok(OAuthError { error }) = response.json::<OAuthError>() else {
             return Err(AuthError::UnexpectedResponse {

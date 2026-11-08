@@ -8,7 +8,7 @@ use gpui::{
     AsyncApp, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Task, WeakEntity, Window, div, prelude::*, px,
 };
-use launcher_core::auth::{AuthError, MsTokens, loopback::CancelHandle};
+use launcher_core::auth::{AuthError, ClientIdentity, MsTokens, loopback::CancelHandle};
 
 use super::Accounts;
 use crate::{
@@ -122,7 +122,7 @@ impl SignInDialog {
         let auth = self.accounts.read(cx).authenticator().clone();
         let executor = cx.background_executor().clone();
         self.task = Some(cx.spawn(async move |this, cx| {
-            let code = match auth.start_device_code().await {
+            let code = match auth.start_device_code(ClientIdentity::Lodestone).await {
                 Ok(code) => code,
                 Err(err) => {
                     this.update(cx, |this, cx| this.set_stage(Stage::Failed(err), cx))
