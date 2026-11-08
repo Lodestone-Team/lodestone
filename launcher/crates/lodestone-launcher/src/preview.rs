@@ -133,15 +133,37 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
     let data_dir = accounts.read(cx).data_dir().clone();
     if has_instances(scene) {
         let store = InstanceStore::new(data_dir.instances_dir());
-        for (name, version, played) in [
-            ("Survival 1.20.1", "1.20.1", 0),
-            ("Latest release", "26.3", 2 * 3600 + 25 * 60),
-            ("Old school", "1.8.9", 40 * 60),
+        let loader = |kind, version: &str| {
+            Some(launcher_core::game::loaders::LoaderChoice {
+                kind,
+                version: version.to_string(),
+            })
+        };
+        use launcher_core::game::loaders::LoaderKind;
+        for (name, version, choice, group, played) in [
+            (
+                "Survival 1.20.1",
+                "1.20.1",
+                loader(LoaderKind::Fabric, "0.16.14"),
+                Some("Survival"),
+                0,
+            ),
+            ("Latest release", "26.3", None, None, 2 * 3600 + 25 * 60),
+            (
+                "All the mods",
+                "1.20.1",
+                loader(LoaderKind::Forge, "1.20.1-47.4.28"),
+                Some("Modded"),
+                5 * 3600,
+            ),
+            ("Old school", "1.8.9", None, Some("Survival"), 40 * 60),
         ] {
-            if let Ok(instance) = store.create(name, version, Some(16 << 30))
-                && played > 0
-            {
-                let _ = store.record_play(&instance.id, 1_762_500_000, played);
+            if let Ok(mut instance) = store.create(name, version, choice.as_ref()) {
+                instance.group = group.map(str::to_string);
+                let _ = store.save(&instance);
+                if played > 0 {
+                    let _ = store.record_play(&instance.id, 1_762_500_000, played);
+                }
             }
         }
     }
@@ -154,6 +176,16 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         ))
         .expect("the recorded manifest parses");
         instances.set_versions(Versions::Ready(Arc::new(manifest.versions)), cx);
+        let fabric = launcher_core::game::loaders::meta::parse_fabric_versions(
+            include_bytes!("../../launcher-core/testdata/loaders/fabric/loaders-1.20.1.json"),
+            "1.20.1",
+        )
+        .expect("the recorded Fabric list parses");
+        instances.set_loader_versions(
+            launcher_core::game::loaders::LoaderKind::Fabric,
+            "1.20.1",
+            crate::instances::LoaderVersions::Ready(Arc::new(fabric)),
+        );
         let Some(first) = instances
             .list()
             .iter()

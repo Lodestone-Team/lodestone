@@ -27,6 +27,7 @@ pub struct Dialog {
     body: Vec<AnyElement>,
     footer: Vec<AnyElement>,
     on_close: Option<CloseHandler>,
+    width: gpui::Pixels,
 }
 
 impl Dialog {
@@ -42,7 +43,14 @@ impl Dialog {
             body: Vec::new(),
             footer: Vec::new(),
             on_close: None,
+            width: layout::DIALOG_WIDTH,
         }
+    }
+
+    /// A wider dialog than the dashboard's 500 px, for two columns.
+    pub fn width(mut self, width: gpui::Pixels) -> Self {
+        self.width = width;
+        self
     }
 
     /// Adds an element, usually a button, to the row at the bottom of the dialog.
@@ -74,7 +82,7 @@ impl RenderOnce for Dialog {
             .flex()
             .flex_col()
             .gap_6()
-            .w(layout::DIALOG_WIDTH)
+            .w(self.width)
             .p_12()
             .rounded(radius::XL_2)
             .border_1()

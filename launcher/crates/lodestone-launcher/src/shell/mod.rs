@@ -3,10 +3,12 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
+mod launcher_settings;
 mod play;
 mod sidebar;
 mod top_bar;
 
+pub use launcher_settings::LauncherSettings;
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
@@ -111,6 +113,8 @@ pub struct LauncherShell {
     accounts: Entity<Accounts>,
     instances: Entity<Instances>,
     console: Entity<Console>,
+    /// The launcher's Settings page.
+    launcher_settings: Entity<LauncherSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
     settings: Option<(Entity<InstanceSettings>, Subscription)>,
     page: Page,
@@ -148,10 +152,15 @@ impl LauncherShell {
             }),
         ];
         let console = cx.new(|cx| Console::new(instances.clone(), cx));
+        let launcher_settings = {
+            let instances = instances.clone();
+            cx.new(|cx| LauncherSettings::new(instances, cx))
+        };
         let mut this = Self {
             accounts,
             instances,
             console,
+            launcher_settings,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
@@ -611,7 +620,7 @@ impl Render for LauncherShell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
-            Page::Settings => play::render_settings().into_any_element(),
+            Page::Settings => self.launcher_settings.clone().into_any_element(),
         };
         let modal = self.render_modal(cx);
 

@@ -2,24 +2,28 @@
 //! instance's run (installing, playing) with its console log.
 
 pub mod console;
+pub mod fields;
+pub mod loader_picker;
 pub mod new_instance;
 pub mod settings;
 
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use futures::StreamExt as _;
-use gpui::{App, AppContext as _, Context, Entity, EventEmitter, SharedString, Task};
+use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
 use launcher_core::{
+    export,
     game::{
         crash::{self, CrashSummary, Outcome},
         download::{CancelToken, Downloader, ProgressSnapshot, Sleep, Verify},
         install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
         launch::{self, LaunchCommand},
+        loaders::{LoaderChoice, LoaderKind, LoaderVersion},
         log4j::{self, Level, LogLine, Redactor, Stream},
         mojang::MojangUrls,
         platform::{self, Platform},
@@ -27,6 +31,7 @@ use launcher_core::{
     },
     instances::{Instance, InstanceStore},
     paths::DataDir,
+    settings::{self as launcher_settings, InstanceDefaults, Settings},
 };
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
@@ -196,6 +201,16 @@ pub enum Versions {
     Failed(SharedString),
 }
 
+/// A mod loader's versions for one Minecraft version.
+#[derive(Clone, Debug, Default)]
+pub enum LoaderVersions {
+    #[default]
+    NotLoaded,
+    Loading,
+    Ready(Arc<Vec<LoaderVersion>>),
+    Failed(SharedString),
+}
+
 /// What the crash dialog shows.
 #[derive(Clone, Debug)]
 pub struct CrashInfo {
@@ -232,6 +247,15 @@ pub struct Instances {
     machine: Platform,
     notice: Option<SharedString>,
     versions_task: Option<Task<()>>,
+    /// The launcher's settings: the global instance settings and the sidebar's
+    /// folded groups.
+    settings: Settings,
+    /// Decoded custom icons, with the modification time they were read at.
+    icons: HashMap<String, (Option<SystemTime>, Arc<RenderImage>)>,
+    loader_versions: HashMap<(LoaderKind, String), LoaderVersions>,
+    loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
+    /// Exports in progress.
+    exports: Vec<Task<()>>,
     /// Replaces the Play button's state, for the offscreen screenshots.
     preview_state: Option<PlayState>,
 }
@@ -268,6 +292,13 @@ impl Instances {
             data_dir.clone(),
         );
         let store = InstanceStore::new(data_dir.instances_dir());
+        let (settings, settings_notice) = match launcher_settings::load(&data_dir.settings_file()) {
+            Ok(settings) => (settings, None),
+            Err(err) => (
+                Settings::default(),
+                Some(SharedString::from(err.to_string())),
+            ),
+        };
         let mut this = Self {
             store,
             data_dir,
@@ -281,9 +312,17 @@ impl Instances {
             machine: Platform::current(),
             notice: None,
             versions_task: None,
+            settings,
+            icons: HashMap::new(),
+            loader_versions: HashMap::new(),
+            loader_tasks: HashMap::new(),
+            exports: Vec::new(),
             preview_state: None,
         };
         this.reload(cx);
+        if settings_notice.is_some() {
+            this.notice = settings_notice;
+        }
         this.selected = this.list.first().map(|i| i.id.clone());
         this
     }
@@ -307,7 +346,142 @@ impl Instances {
         {
             self.selected = self.list.first().map(|i| i.id.clone());
         }
+        self.load_icons();
         cx.notify();
+    }
+
+    /// Decodes the custom icons that are new or changed since the last reload.
+    fn load_icons(&mut self) {
+        let mut icons = HashMap::new();
+        for instance in &self.list {
+            let Some(path) = self.store.icon_path(instance) else {
+                continue;
+            };
+            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+            match self.icons.remove(&instance.id) {
+                Some((time, image)) if time == modified => {
+                    icons.insert(instance.id.clone(), (time, image));
+                }
+                _ => {
+                    if let Ok(image) = image::open(&path) {
+                        let image = crate::images::render_image(image.to_rgba8());
+                        icons.insert(instance.id.clone(), (modified, image));
+                    }
+                }
+            }
+        }
+        self.icons = icons;
+    }
+
+    /// The instance's custom icon, if it has one.
+    pub fn icon(&self, id: &str) -> Option<Arc<RenderImage>> {
+        self.icons.get(id).map(|(_, image)| image.clone())
+    }
+
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    pub fn defaults(&self) -> &InstanceDefaults {
+        &self.settings.instance_defaults
+    }
+
+    fn save_settings(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        let result = launcher_settings::save(&self.data_dir.settings_file(), &self.settings)
+            .map_err(|err| err.to_string());
+        cx.notify();
+        result
+    }
+
+    /// Saves the global instance settings.
+    pub fn save_defaults(
+        &mut self,
+        defaults: InstanceDefaults,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.settings.instance_defaults = defaults;
+        self.save_settings(cx)
+    }
+
+    pub fn is_group_collapsed(&self, group: &str) -> bool {
+        self.settings.collapsed_groups.contains(group)
+    }
+
+    /// Folds or unfolds a sidebar group, and remembers it.
+    pub fn toggle_group(&mut self, group: &str, cx: &mut Context<Self>) {
+        if !self.settings.collapsed_groups.remove(group) {
+            self.settings.collapsed_groups.insert(group.to_string());
+        }
+        if let Err(err) = self.save_settings(cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// The group names in use, for suggestions.
+    pub fn groups(&self) -> Vec<String> {
+        launcher_core::instances::grouped(&self.list)
+            .into_iter()
+            .filter_map(|(name, _)| name)
+            .collect()
+    }
+
+    pub fn loader_versions(&self, kind: LoaderKind, game_version: &str) -> LoaderVersions {
+        self.loader_versions
+            .get(&(kind, game_version.to_string()))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Fetches the loader's versions for `game_version`, unless they are loaded or
+    /// loading.
+    pub fn load_loader_versions(
+        &mut self,
+        kind: LoaderKind,
+        game_version: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let key = (kind, game_version.to_string());
+        if matches!(
+            self.loader_versions.get(&key),
+            Some(LoaderVersions::Loading | LoaderVersions::Ready(_))
+        ) {
+            return;
+        }
+        self.loader_versions
+            .insert(key.clone(), LoaderVersions::Loading);
+        let installer = self.installer.clone();
+        let game_version = game_version.to_string();
+        let fetch = cx
+            .background_spawn(async move { installer.loader_versions(kind, &game_version).await });
+        let task_key = key.clone();
+        self.loader_tasks.insert(
+            task_key,
+            cx.spawn(async move |this, cx| {
+                let result = fetch.await;
+                this.update(cx, |this, cx| {
+                    let versions = match result {
+                        Ok(list) => LoaderVersions::Ready(Arc::new(list)),
+                        Err(err) => LoaderVersions::Failed(err.to_string().into()),
+                    };
+                    this.loader_versions.insert(key.clone(), versions);
+                    this.loader_tasks.remove(&key);
+                    cx.notify();
+                })
+                .ok();
+            }),
+        );
+        cx.notify();
+    }
+
+    /// Shows a prepared loader version list, for the offscreen screenshots.
+    pub fn set_loader_versions(
+        &mut self,
+        kind: LoaderKind,
+        game_version: &str,
+        versions: LoaderVersions,
+    ) {
+        self.loader_versions
+            .insert((kind, game_version.to_string()), versions);
     }
 
     pub fn list(&self) -> &[Instance] {
@@ -390,15 +564,89 @@ impl Instances {
         &mut self,
         name: &str,
         version: &str,
+        loader: Option<&LoaderChoice>,
         cx: &mut Context<Self>,
     ) -> Result<Instance, String> {
         let instance = self
             .store
-            .create(name, version, self.total_memory)
+            .create(name, version, loader)
             .map_err(|err| err.to_string())?;
         self.selected = Some(instance.id.clone());
         self.reload(cx);
         Ok(instance)
+    }
+
+    /// Copies the instance and selects the copy.
+    pub fn duplicate(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Instance, String> {
+        let copy = self.store.duplicate(id).map_err(|err| err.to_string())?;
+        self.selected = Some(copy.id.clone());
+        self.reload(cx);
+        Ok(copy)
+    }
+
+    pub fn set_icon(
+        &mut self,
+        id: &str,
+        image: &Path,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.store
+            .set_icon(id, image)
+            .map_err(|err| err.to_string())?;
+        self.reload(cx);
+        Ok(())
+    }
+
+    pub fn clear_icon(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        self.store.clear_icon(id).map_err(|err| err.to_string())?;
+        self.reload(cx);
+        Ok(())
+    }
+
+    /// Writes the instance as a Modrinth modpack to `out`, in the background, and
+    /// says how it went.
+    pub fn export(&mut self, id: &str, out: PathBuf, cx: &mut Context<Self>) {
+        let Ok(instance) = self.store.get(id) else {
+            return;
+        };
+        let game_dir = self.store.game_dir(id);
+        let write = cx.background_spawn(async move {
+            // Content management (a later milestone) will know which mods are on
+            // Modrinth; until then every mod goes into the overrides.
+            let plan = export::plan(&instance, &game_dir, &HashMap::new())?;
+            export::write(&plan, &out)?;
+            Ok::<_, export::ExportError>((plan, out))
+        });
+        self.exports.push(cx.spawn(async move |this, cx| {
+            let result = write.await;
+            this.update(cx, |_, cx| {
+                cx.emit(match result {
+                    Ok((plan, out)) => InstancesEvent::Notice {
+                        title: "Modpack exported".into(),
+                        message: format!(
+                            "{} file(s) saved to {}.{}",
+                            plan.overrides.len() + plan.index.files.len(),
+                            out.display(),
+                            if plan.skipped.is_empty() {
+                                String::new()
+                            } else {
+                                format!(
+                                    " {} file(s) were left out, such as {}.",
+                                    plan.skipped.len(),
+                                    plan.skipped[0].0
+                                )
+                            }
+                        )
+                        .into(),
+                    },
+                    Err(err) => InstancesEvent::LaunchFailed {
+                        title: "Couldn't export the modpack".into(),
+                        message: err.to_string().into(),
+                    },
+                });
+            })
+            .ok();
+        }));
     }
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
@@ -416,6 +664,25 @@ impl Instances {
         self.runs.remove(id);
         self.reload(cx);
         Ok(())
+    }
+
+    /// The Java major version `game_version` needs, if its version file is installed.
+    pub fn required_java(&self, game_version: &str) -> Option<u32> {
+        if game_version.is_empty()
+            || game_version.contains(['/', '\\'])
+            || game_version.starts_with('.')
+        {
+            return None;
+        }
+        let path = self
+            .data_dir
+            .versions_dir()
+            .join(game_version)
+            .join(format!("{game_version}.json"));
+        let bytes = std::fs::read(path).ok()?;
+        launcher_core::game::version::VersionJson::parse(&bytes)
+            .ok()
+            .map(|version| version.java_major())
     }
 
     pub fn game_dir(&self, id: &str) -> PathBuf {
@@ -475,22 +742,17 @@ impl Instances {
         let run = self.runs.entry(id.to_string()).or_default();
         run.log.note(
             Level::Info,
-            format!("Preparing Minecraft {}", instance.game_version),
+            format!(
+                "Preparing Minecraft {} ({})",
+                instance.game_version,
+                instance.loader_label()
+            ),
         );
         run.state = RunState::Preparing {
             progress: progress.clone(),
             cancel: cancel.clone(),
         };
-        run.ticker = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(150))
-                    .await;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
-                    break;
-                }
-            }
-        }));
+        run.ticker = Some(ticker(id.to_string(), cx));
         cx.notify();
 
         let account = self
@@ -501,6 +763,7 @@ impl Instances {
         let machine = self.machine.clone();
         let game_dir = self.store.game_dir(id);
         let natives_dir = self.store.natives_dir(id);
+        let settings = instance.game_settings(self.defaults(), self.total_memory);
         let id = id.to_string();
         let run_id = id.clone();
         let task = cx.spawn(async move |this, cx| {
@@ -518,8 +781,8 @@ impl Instances {
                 Some(path) => JavaChoice::Override(path.clone()),
                 None => JavaChoice::Mojang,
             };
-            let settings = instance.game_settings();
             let version = instance.game_version.clone();
+            let loader = instance.loader_choice();
             let prepare_progress = progress.clone();
             let check_started = Instant::now();
             let stats_progress = progress.clone();
@@ -532,6 +795,7 @@ impl Instances {
                     let prepared = installer
                         .prepare(
                             &version,
+                            loader.as_ref(),
                             &machine,
                             &java,
                             &game_dir,
@@ -555,6 +819,7 @@ impl Instances {
                 .await;
             this.update(cx, |this, cx| match prepared {
                 Ok((command, rosetta)) => {
+                    this.take_notes(&id);
                     if let Some(run) = this.runs.get_mut(&id) {
                         run.log.note(
                             Level::Info,
@@ -604,24 +869,16 @@ impl Instances {
         run.log.note(
             Level::Info,
             format!(
-                "Verifying the game files of Minecraft {}",
-                instance.game_version
+                "Verifying the game files of Minecraft {} ({})",
+                instance.game_version,
+                instance.loader_label()
             ),
         );
         run.state = RunState::Preparing {
             progress: progress.clone(),
             cancel: cancel.clone(),
         };
-        run.ticker = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(150))
-                    .await;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
-                    break;
-                }
-            }
-        }));
+        run.ticker = Some(ticker(id.to_string(), cx));
         cx.notify();
         let installer = self.installer.clone();
         let machine = self.machine.clone();
@@ -640,6 +897,7 @@ impl Instances {
                     installer
                         .prepare_with(
                             &instance.game_version,
+                            instance.loader_choice().as_ref(),
                             &machine,
                             &java,
                             &game_dir,
@@ -687,7 +945,19 @@ impl Instances {
         }
     }
 
+    /// Moves the installer's lines (the loader installer's output) into the console.
+    fn take_notes(&mut self, id: &str) {
+        if let Some(run) = self.runs.get_mut(id)
+            && let RunState::Preparing { progress, .. } = &run.state
+        {
+            for line in progress.take_notes() {
+                run.log.note(Level::Info, line);
+            }
+        }
+    }
+
     fn set_idle(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.take_notes(id);
         if let Some(run) = self.runs.get_mut(id) {
             run.state = RunState::Idle;
             run.task = None;
@@ -857,6 +1127,25 @@ impl Instances {
     }
 }
 
+/// Redraws the progress while an instance prepares, and moves the installer's lines
+/// into its console.
+fn ticker(id: String, cx: &mut Context<Instances>) -> Task<()> {
+    cx.spawn(async move |this, cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(150))
+                .await;
+            let alive = this.update(cx, |this, cx| {
+                this.take_notes(&id);
+                cx.notify();
+            });
+            if alive.is_err() {
+                break;
+            }
+        }
+    })
+}
+
 /// Creates the instances entity for the app, in the same data directory as the
 /// accounts.
 pub fn create(accounts: &Entity<Accounts>, cx: &mut App) -> Entity<Instances> {
@@ -867,7 +1156,10 @@ pub fn create(accounts: &Entity<Accounts>, cx: &mut App) -> Entity<Instances> {
 
 /// The progress label: "Downloading assets 1,234/4,567 · 210 MB/380 MB".
 pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
-    let downloading = matches!(stage, Stage::Java | Stage::Libraries | Stage::Assets);
+    let downloading = matches!(
+        stage,
+        Stage::Java | Stage::Libraries | Stage::Loader | Stage::Assets
+    );
     if !downloading || snapshot.files_total == 0 {
         return PlayState::Preparing {
             label: stage.label().into(),
