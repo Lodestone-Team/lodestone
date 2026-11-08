@@ -8,4 +8,5 @@ export type GlobalSettingsData = {
   code_execution_enabled: boolean;
   code_execution_locked: boolean;
   allow_lan_http: boolean;
+  list_instances_publicly: boolean;
 };

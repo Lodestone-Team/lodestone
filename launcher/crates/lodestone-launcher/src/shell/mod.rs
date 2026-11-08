@@ -36,6 +36,7 @@ use crate::{
         settings::{DeleteRequested, InstanceSettings, LoaderChangePrompt},
         worlds::{WorldsEvent, WorldsView},
     },
+    servers::{Servers, ServersEvent, view::ServersOverlay},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -45,6 +46,8 @@ pub enum Page {
     #[default]
     Instance,
     Settings,
+    /// Lodestone cores and their servers.
+    Servers,
 }
 
 /// The tabs of an instance.
@@ -162,6 +165,9 @@ pub struct LauncherShell {
     worlds: Entity<WorldsView>,
     /// The launcher's Settings page.
     launcher_settings: Entity<LauncherSettings>,
+    /// The Servers page, and its dialogs over the window.
+    servers: Entity<Servers>,
+    servers_overlay: Entity<ServersOverlay>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
@@ -237,6 +243,11 @@ impl LauncherShell {
             let instances = instances.clone();
             cx.new(|cx| LauncherSettings::new(instances, cx))
         };
+        let servers = crate::servers::create(&accounts, &instances, cx);
+        let servers_overlay = cx.new(|cx| ServersOverlay::new(servers.clone(), cx));
+        observe.push(cx.subscribe(&servers, |this, _, event, cx| match event {
+            ServersEvent::OpenInstance(id) => this.select_instance(id, cx),
+        }));
         let shared_settings = {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))
@@ -248,6 +259,8 @@ impl LauncherShell {
             content,
             worlds,
             launcher_settings,
+            servers,
+            servers_overlay,
             shared_settings,
             settings: None,
             page: Page::default(),
@@ -803,14 +816,22 @@ impl LauncherShell {
     }
 
     pub fn select_instance(&mut self, id: &str, cx: &mut Context<Self>) {
-        self.page = Page::Instance;
+        self.show(Page::Instance, cx);
         self.instances
             .update(cx, |instances, cx| instances.select(id, cx));
     }
 
     pub fn show(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
+        // the Servers page polls its cores only while it is shown
+        self.servers.update(cx, |servers, cx| {
+            servers.set_visible(page == Page::Servers, cx)
+        });
         cx.notify();
+    }
+
+    pub fn servers(&self) -> &Entity<Servers> {
+        &self.servers
     }
 
     pub fn select_tab(&mut self, tab: InstanceTab, cx: &mut Context<Self>) {
@@ -860,7 +881,7 @@ impl LauncherShell {
             }
         });
         let subscription = cx.subscribe(&dialog, |this, _, _: &NewInstanceDismissed, cx| {
-            this.page = Page::Instance;
+            this.show(Page::Instance, cx);
             this.tab = InstanceTab::Play;
             this.close_modal(cx)
         });
@@ -1238,6 +1259,7 @@ impl Render for LauncherShell {
                 .child(self.shared_settings.clone())
                 .child(developer::render(self, cx))
                 .into_any_element(),
+            Page::Servers => self.servers.clone().into_any_element(),
         };
         let modal = self.render_modal(cx);
 
@@ -1264,5 +1286,6 @@ impl Render for LauncherShell {
                     .child(div().flex().flex_1().min_w_0().h_full().child(main)),
             )
             .children(modal)
+            .child(self.servers_overlay.clone())
     }
 }

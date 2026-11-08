@@ -347,6 +347,7 @@ pub async fn delete_instance(
             if let crate::prelude::GameInstance::GenericInstance(i) = instance {
                 i.destruct().await;
             };
+            state.public_listing.forget(&uuid).await;
             let res = crate::util::fs::remove_dir_all(instance_path).await;
             match &res {
                 Ok(_) => event_broadcaster.send(Event::new_progression_event_end(

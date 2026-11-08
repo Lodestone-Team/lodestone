@@ -61,6 +61,8 @@ pub struct TextInput {
     content: SharedString,
     placeholder: SharedString,
     disabled: bool,
+    /// Shows a mask instead of the text, and never copies it, for passwords.
+    masked: bool,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -76,6 +78,7 @@ impl TextInput {
             content: SharedString::default(),
             placeholder: SharedString::default(),
             disabled: false,
+            masked: false,
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -99,6 +102,30 @@ impl TextInput {
     pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+
+    /// A password field: the text is shown masked and cannot be copied or cut.
+    pub fn with_masked(mut self) -> Self {
+        self.masked = true;
+        self
+    }
+
+    /// The text as drawn: the content, or for a masked field a mask with the same
+    /// length in bytes, so every offset into the content is one into the mask too.
+    fn display_content(&self) -> SharedString {
+        if !self.masked {
+            return self.content.clone();
+        }
+        self.content
+            .chars()
+            .map(|c| match c.len_utf8() {
+                3 => "\u{2022}",
+                2 => "\u{00b7}",
+                1 => "*",
+                _ => "****",
+            })
+            .collect::<String>()
+            .into()
     }
 
     pub fn text(&self) -> &SharedString {
@@ -171,7 +198,7 @@ impl TextInput {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && !self.masked {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
@@ -179,7 +206,7 @@ impl TextInput {
     }
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && !self.masked {
             self.copy(&Copy, window, cx);
             self.replace_text_in_range(None, "", window, cx)
         }
@@ -449,7 +476,7 @@ impl EntityInputHandler for TextInput {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let last_layout = self.last_layout.as_ref()?;
-        if last_layout.text != self.content {
+        if last_layout.text != self.display_content() {
             return None;
         }
         let range = self.range_from_utf16(&range_utf16);
@@ -473,7 +500,7 @@ impl EntityInputHandler for TextInput {
     ) -> Option<usize> {
         let line_point = self.last_bounds?.localize(&point)?;
         let last_layout = self.last_layout.as_ref()?;
-        if last_layout.text != self.content {
+        if last_layout.text != self.display_content() {
             return None;
         }
         Some(self.offset_to_utf16(last_layout.closest_index_for_x(line_point.x)))
@@ -605,7 +632,7 @@ impl Element for TextElement {
         let (display_text, text_color): (SharedString, Hsla) = if input.content.is_empty() {
             (input.placeholder.clone(), colors::WHITE.opacity(30).into())
         } else {
-            (input.content.clone(), style.color)
+            (input.display_content(), style.color)
         };
 
         let run = TextRun {

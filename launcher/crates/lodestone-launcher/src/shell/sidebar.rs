@@ -369,9 +369,45 @@ fn section_label(label: &'static str) -> impl IntoElement {
         .child(label)
 }
 
-/// Settings, pinned to the bottom, and the version.
+/// A page link in the footer: Servers or Settings.
+fn page_link(
+    id: &'static str,
+    label: &'static str,
+    icon: Icon,
+    page: Page,
+    open: bool,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .px_2()
+        .py_1p5()
+        .rounded(radius::MD)
+        .cursor_pointer()
+        .font_weight(weights::BOLD.into())
+        .map(|this| {
+            if open {
+                this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+            } else {
+                this.text_color(colors::GRAY_400)
+                    .hover(|style| style.bg(colors::GRAY_800).text_color(colors::GRAY_300))
+            }
+        })
+        .child(icon.render(px(14.), colors::GRAY_FADED.opacity(50)))
+        .child(label)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.show(if open { Page::Instance } else { page }, cx)
+        }))
+}
+
+/// Servers and Settings, pinned to the bottom, and the version.
 fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let settings_open = shell.page == Page::Settings;
+    let servers_open = shell.page == Page::Servers;
     div()
         .flex()
         .flex_col()
@@ -382,6 +418,14 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .py_2()
         .border_t_1()
         .border_color(colors::FADE_700)
+        .child(page_link(
+            "servers",
+            "Servers",
+            Icon::Cube,
+            Page::Servers,
+            servers_open,
+            cx,
+        ))
         .child(
             div()
                 .id("settings")

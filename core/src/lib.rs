@@ -119,6 +119,7 @@ mod persist;
 pub mod playitgg;
 mod port_manager;
 pub mod prelude;
+mod public_listing;
 pub mod tauri_export;
 mod tls;
 mod traits;
@@ -205,6 +206,13 @@ pub(crate) mod test_util {
                 Arc::new(crate::modrinth::fake::FakeModrinth::default()),
                 crate::modpack::store::PackStore::new(dir.join("modpacks")),
             )),
+            public_listing: Arc::new(
+                crate::public_listing::PublicListing::load(
+                    dir.join("public_listing.json"),
+                    dir.join("client-packs"),
+                )
+                .await,
+            ),
             global_settings: Arc::new(Mutex::new(global_settings)),
             macro_executor: crate::macro_executor::MacroExecutor::new(
                 tx.clone(),
@@ -266,6 +274,8 @@ pub struct AppState {
     tls_info: Arc<tls::TlsInfo>,
     /// The Modrinth client, stored modpacks and mod change tracking.
     mods: Arc<mods::ModsState>,
+    /// The instances listed for Lodestone Launcher, and the caches of the public routes.
+    public_listing: Arc<public_listing::PublicListing>,
 }
 
 impl AppState {
@@ -325,6 +335,9 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_modrinth_routes(shared_state.clone()))
         .merge(get_instance_mods_routes(shared_state.clone()))
         .merge(get_modpack_routes(shared_state.clone()))
+        .merge(handlers::public_instances::get_public_instance_routes(
+            shared_state.clone(),
+        ))
         .layer(cors)
         .layer(trace)
 }
@@ -878,6 +891,13 @@ pub async fn run(
             Arc::new(modrinth::ModrinthClient::new()),
             modpack::store::PackStore::new(path_to_tmp().join("modpacks")),
         )),
+        public_listing: Arc::new(
+            public_listing::PublicListing::load(
+                path_to_stores().join("public_listing.json"),
+                path_to_tmp().join("client-packs"),
+            )
+            .await,
+        ),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(

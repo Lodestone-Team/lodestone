@@ -910,6 +910,16 @@ impl Instances {
 
     /// Installs what the instance needs and starts the game.
     pub fn play(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.play_joining(id, None, cx)
+    }
+
+    /// Like [`Self::play`], joining the server `join` once the game has started.
+    pub fn play_joining(
+        &mut self,
+        id: &str,
+        join: Option<launch::JoinServer>,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_active(id) {
             return;
         }
@@ -934,6 +944,12 @@ impl Instances {
                 instance.loader_label()
             ),
         );
+        if let Some(join) = &join {
+            run.log.note(
+                Level::Info,
+                format!("Joining {} once the game starts", join.address()),
+            );
+        }
         run.state = RunState::Preparing {
             progress: progress.clone(),
             cancel: cancel.clone(),
@@ -992,12 +1008,13 @@ impl Instances {
                     prepare_progress.set_stage(Stage::Natives);
                     prepared.extract_natives(&data, &natives_dir)?;
                     let paths = prepared.launch_paths(&data, &game_dir, &natives_dir)?;
-                    let command = launch::build(
+                    let command = launch::build_joining(
                         &prepared.version,
                         &prepared.java_platform,
                         &paths,
                         &account,
                         &settings,
+                        join.as_ref(),
                     )
                     .map_err(|err| InstallError::Invalid(err.to_string()))?;
                     Ok::<_, InstallError>((command, prepared.rosetta))

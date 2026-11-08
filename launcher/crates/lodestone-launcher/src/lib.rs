@@ -11,6 +11,7 @@ pub mod instances;
 pub mod markdown;
 #[cfg(feature = "screenshot")]
 pub mod preview;
+pub mod servers;
 pub mod shell;
 pub mod theme;
 
