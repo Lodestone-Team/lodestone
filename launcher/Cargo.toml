@@ -31,15 +31,24 @@ dirs = "6.0"
 futures = "0.3.34"
 md-5 = "0.10"
 image = { version = "0.25.1", default-features = false, features = ["png"] }
+libc = "0.2"
+# Zed's requirement and features.
+regex = { version = "1.5", default-features = false, features = ["std", "perf"] }
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+sha1 = "0.10.6"
 sha2 = "0.10"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tiny_http = "0.12"
+# Moving deleted instances to the Trash: Zed's fork, at the rev Zed's `fs` crate uses.
+trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
+# Extracting natives from library jars. Zed locks zip 0.6.6 (through webrtc-sys-build);
+# only the deflate method is enabled, which is what Mojang's native jars use.
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 
 # The Minecraft and Modrinth logic shared with Lodestone Core. Its `zip` feature (reading
 # and writing .mrpack files and jars) is off: it needs zip 9, and Zed only locks zip 0.6.

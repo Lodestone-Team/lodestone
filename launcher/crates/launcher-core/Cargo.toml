@@ -14,16 +14,22 @@ dirs.workspace = true
 futures.workspace = true
 http_client.workspace = true
 image.workspace = true
+libc.workspace = true
+lodestone_minecraft.workspace = true
 md-5.workspace = true
 rand.workspace = true
+regex.workspace = true
 reqwest_client.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tiny_http.workspace = true
+trash.workspace = true
 url.workspace = true
 uuid.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
