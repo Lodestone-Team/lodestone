@@ -514,6 +514,22 @@ pub fn after_exit(
             new.insert(key.clone(), now);
         }
     }
+    if preferred {
+        // Shared keys the file didn't have at launch: a new instance's first game writes
+        // the whole file, and the global set takes what it doesn't have yet.
+        for setting in settings(dv, std::iter::empty(), &file) {
+            if session.contains_key(&setting.key)
+                || profile.values.contains_key(&setting.key)
+                || !profile.shares(setting.category)
+                || sharing.overrides.contains(&setting.key)
+            {
+                continue;
+            }
+            if let Some(now) = setting.current(&file, dv) {
+                new.insert(setting.key, now);
+            }
+        }
+    }
     let outcome = if preferred {
         let mut keys: Vec<String> = changed.keys().cloned().collect();
         if !changed.is_empty() || !new.is_empty() {
