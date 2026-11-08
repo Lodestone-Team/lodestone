@@ -92,6 +92,8 @@ The socket is Unix-only (macOS, Linux). On Windows every command fails with exit
   (`--password-stdin`) or in `LODESTONE_CORE_PASSWORD`. Don't echo, log or store them.
   Never ask for the user's Microsoft password: `accounts sign-in` gives a code for the
   user to enter on Microsoft's site.
+- **Only your own launcher.** The CLI refuses a socket served by another user
+  (`permission_denied`) and sends nothing to it. Don't work around this with `--socket`.
 - **Don't fight `busy`.** While a game runs, its instance's content, worlds and loader
   can't change. Ask the user before `play stop`: it ends their game.
 

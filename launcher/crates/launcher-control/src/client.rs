@@ -21,6 +21,8 @@ pub enum ClientError {
     Io(String),
     /// No message arrived before the deadline.
     Timeout,
+    /// The socket belongs to another user: nothing is sent to it.
+    NotYours { path: PathBuf, uid: u32 },
 }
 
 impl ClientError {
@@ -39,6 +41,14 @@ impl ClientError {
                 codes::FAILED,
                 format!("The connection to Lodestone Launcher broke: {message}"),
             ),
+            ClientError::NotYours { path, uid } => ErrorObject::new(
+                codes::PERMISSION_DENIED,
+                format!(
+                    "The socket at {} is served by another user (uid {uid}), not by your Lodestone Launcher. Nothing was sent to it.",
+                    path.display()
+                ),
+            )
+            .with_data(serde_json::json!({ "socket": path, "uid": uid })),
             ClientError::Timeout => ErrorObject::new(
                 codes::TIMEOUT,
                 "Timed out waiting for Lodestone Launcher. Whatever it was doing goes on; check with `jobs list`.",
@@ -68,6 +78,16 @@ impl Client {
             path: path.to_path_buf(),
             reason: err.to_string(),
         })?;
+        // Only talk to a launcher run by this user. Under the shared /tmp fallback,
+        // another user could have put a socket there first, and requests may carry
+        // core passwords.
+        let uid = crate::peer_uid(&stream).map_err(|err| ClientError::Io(err.to_string()))?;
+        if uid != crate::current_uid() {
+            return Err(ClientError::NotYours {
+                path: path.to_path_buf(),
+                uid,
+            });
+        }
         let writer = stream
             .try_clone()
             .map_err(|err| ClientError::Io(err.to_string()))?;
